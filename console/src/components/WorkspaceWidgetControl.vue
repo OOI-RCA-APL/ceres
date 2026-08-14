@@ -3,6 +3,7 @@ import { escape, startCase } from 'lodash-es'
 import { QMenu } from 'quasar'
 import { v7 } from 'uuid'
 import { nextTick } from 'vue'
+import { stringify } from 'yaml'
 
 import { useAccess } from '@/api/access'
 import { Address } from '@/api/address'
@@ -19,7 +20,7 @@ import { useNotify } from '@/notify'
 import { usePreferences } from '@/preferences'
 import { isEmptyObjectSchema, useSchemaForm } from '@/schema-form'
 import { displayDuration } from '@/time'
-import { deepClone, type Plain } from '@/utilities'
+import { deepClone, highlight, type Plain } from '@/utilities'
 import { ButtonAction, useWorkspace } from '@/workspace'
 
 const { button } = defineProps<{
@@ -29,6 +30,10 @@ const { button } = defineProps<{
 const emit = defineEmits<{
   duplicate: []
   remove: []
+
+  /** Insert a fresh button beside this one, on whichever side was asked for. */
+  addBefore: []
+  addAfter: []
 }>()
 
 const access = useAccess()
@@ -146,7 +151,14 @@ function renameButton(name: string) {
 // asked and the run either carries on or stops there.
 let answerConfirm = $ref<((confirmed: boolean) => void) | null>(null)
 
-function askConfirm(): Promise<boolean> {
+// The arguments the confirmed run would send, highlighted for the dialog, or null with none.
+let confirmingArguments = $ref<string | null>(null)
+
+function askConfirm(values: unknown): Promise<boolean> {
+  const hasArguments =
+    values != null && typeof values === 'object' && Object.keys(values).length > 0
+  confirmingArguments = hasArguments ? highlight(stringify(values), 'yaml') : null
+
   return new Promise((resolve) => {
     answerConfirm = resolve
   })
@@ -263,7 +275,7 @@ async function run(values: unknown) {
     return
   }
 
-  if (button.confirm && !(await askConfirm())) {
+  if (button.confirm && !(await askConfirm(values))) {
     return
   }
 
@@ -428,8 +440,10 @@ function toggleLock() {
                 {{ button.confirm ? 'Confirm Dialog Enabled' : 'Confirm Dialog Disabled' }}
               </q-tooltip>
             </q-btn>
+            <!-- Locked runs with one less look at the arguments, which is the riskier state,
+            so it is the one that carries the warning color. -->
             <q-btn
-              :color="button.locked ? 'primary' : 'warning'"
+              :color="button.locked ? 'warning' : 'primary'"
               dense
               flat
               :icon="button.locked ? icons.locked : icons.unlocked"
@@ -437,7 +451,7 @@ function toggleLock() {
               size="sm"
               @click="toggleLock"
             >
-              <q-tooltip :class="button.locked ? 'bg-primary text-white' : 'bg-warning text-dark'">
+              <q-tooltip :class="button.locked ? 'bg-warning text-dark' : 'bg-primary text-white'">
                 {{ button.locked ? 'Arguments Locked' : 'Arguments Unlocked' }}
               </q-tooltip>
             </q-btn>
@@ -490,6 +504,22 @@ function toggleLock() {
             <q-item-label>Duplicate</q-item-label>
           </q-item-section>
         </q-item>
+        <q-item v-close-popup clickable dense @click="emit('addBefore')">
+          <q-item-section avatar>
+            <q-icon :name="icons.add" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>Add Button Before</q-item-label>
+          </q-item-section>
+        </q-item>
+        <q-item v-close-popup clickable dense @click="emit('addAfter')">
+          <q-item-section avatar>
+            <q-icon :name="icons.add" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label>Add Button After</q-item-label>
+          </q-item-section>
+        </q-item>
         <q-separator />
         <q-item v-close-popup clickable dense @click="emit('remove')">
           <q-item-section avatar>
@@ -527,6 +557,11 @@ function toggleLock() {
             This executes {{ button.action }} on {{ resolvedAddress }}.
           </common-text>
         </div>
+        <template v-if="confirmingArguments != null">
+          <q-separator />
+          <!-- eslint-disable-next-line vue/no-v-html -->
+          <pre :class="$style.confirmArguments"><code v-html="confirmingArguments" /></pre>
+        </template>
         <q-separator />
         <div class="q-col-gutter-sm q-pa-sm row">
           <div class="col">
@@ -614,6 +649,16 @@ popup ends. */
 .settings {
   max-width: 400px;
   width: 100%;
+}
+
+// The same shape the configuration block wears, capped so long arguments scroll in place.
+.confirmArguments {
+  overflow: auto;
+  max-height: 240px;
+  margin: 0;
+  padding: 8px 16px;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .confirm {

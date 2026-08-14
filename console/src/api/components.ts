@@ -89,6 +89,19 @@ export const ConnectionInfoModel = Zod.object({
   label: Zod.string(),
 })
 
+export type ParticleFieldInfo = Zod.infer<typeof ParticleFieldInfoModel>
+export const ParticleFieldInfoModel = Zod.object({
+  name: Zod.string(),
+  schema: Zod.record(Zod.string(), Zod.unknown()),
+})
+
+export type ParticleTypeInfo = Zod.infer<typeof ParticleTypeInfoModel>
+export const ParticleTypeInfoModel = Zod.object({
+  type: Zod.string(),
+  description: Zod.string().nullish(),
+  fields: Zod.array(ParticleFieldInfoModel),
+})
+
 export type ComponentInfo = {
   name: string
   address: Address
@@ -96,6 +109,7 @@ export type ComponentInfo = {
   procedures: ProcedureInfo[]
   connections: ConnectionInfo[]
   components: ComponentInfo[]
+  particles: ParticleTypeInfo[]
 }
 
 export const ComponentInfoModel: Zod.ZodType<ComponentInfo> = Zod.object({
@@ -105,6 +119,7 @@ export const ComponentInfoModel: Zod.ZodType<ComponentInfo> = Zod.object({
   procedures: Zod.array(ProcedureInfoModel),
   connections: Zod.array(ConnectionInfoModel),
   components: Zod.lazy(() => Zod.array(ComponentInfoModel)),
+  particles: Zod.array(ParticleTypeInfoModel),
 }) as any
 
 export const useComponents = defineStore('components', () => {

@@ -1,3 +1,4 @@
+import { useEventListener } from '@vueuse/core'
 import { nextTick } from 'vue'
 
 /** Pointer-driven reordering, the way browser tabs behave.
@@ -302,7 +303,9 @@ export function usePointerReorder(options: {
   }
 
   async function onPointerUp(event: PointerEvent) {
-    if (drag == null || event.pointerId !== drag.pointerId) {
+    // The window backs the row's own handler up, so one release can arrive here twice and the
+    // settle already underway is the first call handling it.
+    if (drag == null || event.pointerId !== drag.pointerId || settling) {
       return
     }
 
@@ -365,12 +368,37 @@ export function usePointerReorder(options: {
     return false
   }
 
+  /** Let go without reordering, for a release the row itself never hears about. */
+  function abandon() {
+    if (drag == null) {
+      return
+    }
+
+    if (travelling != null) {
+      cancelAnimationFrame(travelling)
+      travelling = null
+    }
+
+    document.body.classList.remove('reordering')
+    suppressClick = drag.moved
+    drag = null
+    offset = 0
+    settling = false
+  }
+
+  // The row's own handlers rely on pointer capture, and a capture can be lost, so the window
+  // backs them up and anything that still slips through lets go rather than sticking to a
+  // pointer that is gone.
+  useEventListener(window, 'pointerup', onPointerUp)
+  useEventListener(window, 'pointercancel', abandon)
+  useEventListener(window, 'blur', abandon)
+
   return {
     handlers: (index: number) => ({
       onPointerdown: (event: PointerEvent) => onPointerDown(index, event),
       onPointermove: onPointerMove,
       onPointerup: onPointerUp,
-      onPointercancel: onPointerUp,
+      onPointercancel: abandon,
     }),
     styleFor,
     consumeClick,
@@ -378,6 +406,11 @@ export function usePointerReorder(options: {
     isGrabbed: (index: number) => drag?.index === index && !settling,
     get isDragging() {
       return drag != null
+    },
+    /** Whether a held item has actually travelled, which is when drop targets are worth
+    showing. A press that never moves never was a drag. */
+    get isMoving() {
+      return drag?.moved === true
     },
     get isSwapping() {
       return swapping

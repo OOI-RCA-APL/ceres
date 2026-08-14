@@ -29,19 +29,23 @@ if TYPE_CHECKING:
     from ceres.user import User
 
 
-async def build_can_view(engine: Engine, user: User) -> Callable[[Address], bool]:
+async def build_can_view(engine: Engine, user: User | None) -> Callable[[Address], bool]:
     """Build a per-request predicate testing view access on a component address.
 
     Fetch the user's access grants once so the returned predicate can be called repeatedly
-    without re-querying the database.
+    without re-querying the database. With no user there are no grants, and the predicate
+    denies every address with a live component.
     """
-    grants = await fetch_access_grants(engine.database, user)
+    grants = await fetch_access_grants(engine.database, user) if user is not None else None
 
     def can_view(address: Address) -> bool:
         component = engine.get_component(address)
         if component is None:
             # There is no live component to protect, so nothing to hide.
             return True
+
+        if grants is None:
+            return False
 
         system = component.system
         access = resolve_access_from(
@@ -66,7 +70,7 @@ async def redact_workspace(
     Admins receive the payload untouched. The copy skips validation, because a workspace may
     hold field combinations that predate a validator and would otherwise fail on reconstruction.
     """
-    if actor.admin or user is None:
+    if actor.admin:
         return workspace
 
     can_view = await build_can_view(engine, user)
@@ -153,8 +157,8 @@ async def require_placement_access(
 async def require_engine_manage(engine: Engine, actor: Actor, user: User | None) -> None:
     """Raise unless the caller may manage the engine root.
 
-    The logged-out marker decides what an anonymous visitor sees, which is an engine-wide question
-    however the workspace carrying it is placed.
+    Setting the logged-out marker is an engine-wide question however the workspace carrying it
+    is placed.
 
     Raises:
         NotPermittedError: If the caller lacks manage on the engine root.

@@ -2,10 +2,12 @@ import pytest
 
 from ceres import Engine
 from ceres.__internal__.app.handlers.workspaces import (
+    build_can_view,
     get_workspace,
     get_workspaces,
     update_workspace,
 )
+from ceres.__internal__.app.operations import _require_not_disabled
 from ceres.__internal__.app.shared import Actor
 from ceres.address import Address
 from ceres.config import ComponentAccessLevel, Config
@@ -341,5 +343,46 @@ async def test_workspace_response_not_redacted_for_admin() -> None:
         engine=engine, actor=Actor(user=admin, unrestricted=True), user=admin, id=workspace.id
     )
     assert result.data["layout"][0]["widgets"][0]["address"] == "@rig"
+
+    await engine.database.dispose()
+
+
+async def test_unrestricted_actor_sees_shared_workspaces() -> None:
+    engine = await _build_engine_with_component()
+    workspace = await engine.workspaces.create(
+        Workspace.Create(name="shared", scope=Address("@rig"))
+    )
+
+    listed = await get_workspaces(
+        engine=engine,
+        actor=Actor(user=None, unrestricted=True),
+        user=None,
+        filter=WorkspaceFilter(),
+    )
+    assert [current.id for current in listed] == [workspace.id]
+
+    await engine.database.dispose()
+
+
+async def test_build_can_view_denies_every_component_with_no_user() -> None:
+    engine = await _build_engine_with_component()
+    can_view = await build_can_view(engine, None)
+
+    assert can_view(Address("@rig")) is False
+    assert can_view(Address("@missing")) is True
+
+    await engine.database.dispose()
+
+
+async def test_require_not_disabled_refuses_a_disabled_users_token() -> None:
+    engine = await _build_engine()
+    disabled = await engine.database.users.create(
+        User.Create(
+            username="disabled", email="disabled@test.com", password="hashed", disabled=True
+        )
+    )
+
+    with pytest.raises(NotPermittedError):
+        _require_not_disabled(Actor(user=disabled, unrestricted=False))
 
     await engine.database.dispose()

@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { useElementBounding, useEventListener, useMouse } from '@vueuse/core'
 import { colors } from 'quasar'
-import { computed, reactive, watchEffect, watch } from 'vue'
+import { computed, nextTick, reactive, watchEffect, watch } from 'vue'
 
 import CommonText from '@/components/CommonText.vue'
 import FullPage, { appHeaderHeight, densePageHeaderHeight } from '@/components/FullPage.vue'
@@ -18,17 +18,28 @@ import { provideWidgetDrop } from '@/widget-drop'
 import {
   provideWorkspace,
   rootLayoutId,
+  Widget,
+  WidgetPlacement,
   Workspace,
   WorkspaceData,
   WorkspaceHeaderActions,
   WorkspaceHeaderState,
 } from '@/workspace'
 
-const { id, stickyTop } = defineProps<{
+const {
+  id,
+  stickyTop,
+  stripDocked = false,
+} = defineProps<{
   id: string
 
-  /** Where the workspace header pins, raised when it sits under another page's header. */
+  /** Where the host's tab strip pins, which the scroll room below the widgets is measured
+  from. */
   stickyTop?: number
+
+  /** Whether the host's tab strip is resting at the bottom edge, where the floating action
+  bar would sit, so the bar yields to it. */
+  stripDocked?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -41,6 +52,79 @@ const navigation = useNavigation()
 const notify = useNotify()
 
 const workspace = provideWorkspace(computed(() => id))
+
+let original = $ref<WorkspaceData | null>(null)
+let isViewingOriginal = $computed(() => original != null)
+
+// Exposed to the hosting page, whose tab strip is the only place these are reached from. This
+// page draws the widgets and nothing around them. Declared here, above the expose and the
+// load, so a host reading them mid-mount never lands in the temporal dead zone.
+const headerActions: WorkspaceHeaderActions = {
+  rename: (value) => {
+    name = value
+  },
+  openSettings,
+  undo: () => workspace.undo(),
+  redo: () => workspace.redo(),
+  duplicate,
+  exportFile,
+  promptDelete,
+  promptCommit,
+  promptRevert,
+  startViewingOriginal,
+  stopViewingOriginal,
+}
+
+const headerState = $computed<WorkspaceHeaderState>(() => ({
+  edited: workspace.edited,
+  canManage: workspace.canManage,
+  canEdit: workspace.canEdit,
+  canUndo: workspace.canUndo,
+  canRedo: workspace.canRedo,
+  isViewingOriginal,
+}))
+
+// Lets a host land a widget on this workspace's live working copy and drive the tab strip it
+// renders for this page. Exposed before the load below since the compiler forbids it after a
+// top-level await.
+defineExpose({
+  insertWidget: workspace.insertWidget,
+  insertWidgetsAt: workspace.insertWidgetsAt,
+  startInsertDrag,
+  revealWidgets,
+  headerActions,
+  headerState: $$(headerState),
+})
+
+/** Put widgets built outside the workspace in hand, so the pointer already down starts the
+same drag a widget's own header would. `drop` takes the release. */
+function startInsertDrag(widgets: Widget[], drop: (placement: WidgetPlacement | null) => void) {
+  if (widgets.length === 0 || !workspace.canEdit) {
+    return
+  }
+
+  workspace.drag = { widget: widgets[0], widgets, layout: rootLayoutId, drop }
+}
+
+/** Select widgets a host just landed and scroll the first into view, which is the feedback
+for the insert. */
+async function revealWidgets(ids: string[]) {
+  const [first, ...rest] = ids
+  if (first == null) {
+    return
+  }
+
+  workspace.selectWidget(first)
+  for (const widgetId of rest) {
+    workspace.selectWidget(widgetId, 'toggle')
+  }
+
+  await nextTick()
+  document
+    .querySelector(`[data-widget-id="${first}"]`)
+    ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+}
+
 await workspace.load()
 
 // One viewport below where the tab strip pins. That is the least this page can be and still let
@@ -54,9 +138,6 @@ const layoutView = $ref<InstanceType<typeof WorkspaceLayout> | null>(null)
 
 /** The box the widgets are laid out in, which a drag is measured against. */
 const layoutElement = $computed(() => layoutView?.element ?? null)
-
-let original = $ref<WorkspaceData | null>(null)
-let isViewingOriginal = $computed(() => original != null)
 
 if (workspace.data == null || workspace.name == null) {
   throw new NotFoundError('workspace', id)
@@ -318,37 +399,10 @@ function promptRevert() {
       key++
     })
 }
-
-// Exposed through the `header-prepend` slot, which is the tab strip a workspace is shown on and
-// the only place these are reached from. This page draws the widgets and nothing around them.
-const headerActions: WorkspaceHeaderActions = {
-  rename: (value) => {
-    name = value
-  },
-  openSettings,
-  undo: () => workspace.undo(),
-  redo: () => workspace.redo(),
-  duplicate,
-  exportFile,
-  promptDelete,
-  promptCommit,
-  promptRevert,
-  startViewingOriginal,
-  stopViewingOriginal,
-}
-
-const headerState = $computed<WorkspaceHeaderState>(() => ({
-  edited: workspace.edited,
-  canManage: workspace.canManage,
-  canEdit: workspace.canEdit,
-  canUndo: workspace.canUndo,
-  canRedo: workspace.canRedo,
-  isViewingOriginal,
-}))
 </script>
 
 <template>
-  <full-page :class="$style.root" dense :sticky-top="stickyTop">
+  <full-page :class="$style.root" no-header>
     <div
       v-if="drop.active && workspace.drag != null"
       key="dragged-widget-icon"
@@ -367,9 +421,6 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
         />
       </q-card>
     </div>
-    <template #header-append>
-      <slot :actions="headerActions" name="header-prepend" :state="headerState" />
-    </template>
     <div
       :key="key"
       class="q-px-sm"
@@ -413,7 +464,7 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
     bar reads as neutral status. It appears only while one exists, and the same actions stay in the
     tab's menu since this is a shortcut rather than the only route to them. -->
     <div
-      v-if="workspace.edited"
+      v-if="workspace.edited && !stripDocked"
       :class="[$style.actionBar, 'items-center', 'row']"
       :style="actionBarStyle"
     >
@@ -472,8 +523,8 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
   padding: 4px 0;
 }
 
-// A floor rather than a fixed height since the minimum is set inline from where this page's
-// header pins.
+// A floor rather than a fixed height since the minimum is set inline from where the host's
+// tab strip pins.
 .bottomPadding {
   height: 250px;
 }
@@ -488,6 +539,9 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
 .actionBar {
   position: fixed;
   z-index: 4;
+
+  // Attached to the bottom edge of the screen, squared where it meets it, and faded until
+  // reached for so it sits over the widgets without demanding attention.
   bottom: 0;
   transform: translateX(-50%);
   width: fit-content;
@@ -495,6 +549,13 @@ const headerState = $computed<WorkspaceHeaderState>(() => ({
   padding: 4px 10px;
   border-radius: 8px 8px 0 0;
   backdrop-filter: blur(6px);
+  opacity: 0.85;
+  transition: opacity 0.15s;
+}
+
+.actionBar:hover,
+.actionBar:focus-within {
+  opacity: 1;
 }
 
 :global(.dark) .actionBar {

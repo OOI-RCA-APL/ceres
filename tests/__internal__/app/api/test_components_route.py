@@ -1,6 +1,6 @@
 import pytest
 
-from ceres import Address, Component, Engine, action
+from ceres import Address, Component, Engine, Particle, ParticleData, action
 from ceres.__internal__.app.handlers.components import (
     get_component_config,
     get_component_connections,
@@ -274,6 +274,56 @@ async def test_get_component_connections_requires_access() -> None:
             actor=Actor(user=user, unrestricted=False),
             address=sensor.system.address,
         )
+
+
+class _TemperatureData(ParticleData):
+    celsius: float
+
+
+class _Temperature(Particle[_TemperatureData]):
+    type = "temperature"
+    data: _TemperatureData
+
+
+class _SensingComponent(Component):
+    __particles__: tuple[type[Particle], ...] = (_Temperature,)
+
+
+async def test_get_components_embeds_declared_particle_types() -> None:
+    """The listing carries each component's particle types so no follow-up fetch is needed."""
+    engine = Engine()
+    await engine.database.migrate()
+    engine.attach(_SensingComponent(__with_name__="sensing"))
+
+    result = await get_components(engine=engine, actor=_UNRESTRICTED)
+
+    sensing = next(info for info in result if str(info.address) == "@sensing")
+    assert [particle.type for particle in sensing.particles] == ["temperature"]
+    assert [field.name for field in sensing.particles[0].fields] == ["celsius"]
+
+
+async def test_get_components_withholds_particles_without_access() -> None:
+    """A component returned only as a bare container carries no particle types."""
+    engine = Engine()
+    await engine.database.migrate()
+
+    rack = Component(
+        __with_name__="rack",
+        __with_config__=ComponentConfig(name="rack", access=ComponentAccessLevel.DENY),
+    )
+    sensing = _SensingComponent(__with_name__="sensing")
+    engine.attach(rack)
+    rack.system.attach(sensing)
+
+    user = await _create_user(engine, "viewer")
+    await _grant(engine, user, "@rack.sensing", ComponentAccessLevel.VIEW)
+
+    result = await get_components(engine=engine, actor=Actor(user=user, unrestricted=False))
+
+    rack_info = result[0]
+    assert rack_info.particles == []
+    sensing_info = next(info for info in rack_info.components)
+    assert [particle.type for particle in sensing_info.particles] == ["temperature"]
 
 
 async def test_get_component_jobs_empty_without_jobs() -> None:

@@ -311,6 +311,15 @@ type NonBlankStr = Annotated[str, StringConstraints(min_length=1, pattern=r".*\S
 """String containing at least one non-whitespace character."""
 
 
+def Unit(unit: str) -> Any:
+    """`Annotated` metadata recording the unit a field's values are measured in.
+
+    The unit is published as `unit` in the field's JSON schema, where interfaces such as the
+    console read it. For example, `Annotated[float, Unit("degC")]`.
+    """
+    return Field(json_schema_extra={"unit": unit})
+
+
 type Date = date
 type Time = time
 

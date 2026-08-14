@@ -1,103 +1,72 @@
 <script lang="ts" setup>
-import { AddressSelector } from '@/api/address'
 import CommonText from '@/components/CommonText.vue'
-import WorkspaceAddressSelect from '@/components/WorkspaceAddressSelect.vue'
-import SchemaFormNodeAddButton from '@/components/schema-form/SchemaFormNodeAddButton.vue'
+import ParticleSeriesSelector from '@/components/ParticleSeriesSelector.vue'
+import WorkspaceWidgetSettings from '@/components/WorkspaceWidgetSettings.vue'
 import SchemaFormValue from '@/components/schema-form/SchemaFormValue.vue'
-import icons from '@/icons'
-import { ChartWidgetParticleModel, ChartWidget } from '@/workspace'
+import { useDerivedChartUnit } from '@/particle-types'
+import { ChartWidget, useWorkspace } from '@/workspace'
 
 const { widget } = defineProps<{
   widget: ChartWidget
 }>()
 
-const seriesSchema = {
-  type: 'array',
-  title: 'Series',
-  items: {
-    type: 'object',
-    properties: {
-      field: { type: 'string', title: 'Field' },
-      name: { type: 'string', title: 'Label' },
-    },
-  },
-} as const
+const workspace = useWorkspace()
 
-function addParticle() {
-  widget.particles = [...widget.particles, ChartWidgetParticleModel.parse({})]
-}
-
-function removeParticle(index: number) {
-  widget.particles = widget.particles.filter((_, current) => current !== index)
-}
+// Offered as the unit input's placeholder so a blank setting says what the chart will show.
+const derivedUnit = $(useDerivedChartUnit(() => widget, workspace).unit)
 </script>
 
 <template>
-  <div>
-    <div class="column q-gutter-xs q-pa-sm">
-      <schema-form-value
-        v-model="widget.display"
-        :schema="{
-          type: 'string',
-          title: 'Display',
-          enum: ['line', 'scatter', 'bar'],
-        }"
-      />
-      <schema-form-value
-        v-model="widget.unit"
-        :schema="{ type: 'string', title: 'Unit (Y Axis)', optional: true }"
-      />
-      <schema-form-value
-        v-model="widget.after"
-        :schema="{ type: 'string', format: 'date-time', title: 'After', optional: true }"
-      />
-      <schema-form-value
-        v-model="widget.timespan"
-        :schema="{
-          type: 'string',
-          format: 'duration',
-          title: 'Timespan',
-          optional: true,
-          default: '1h',
-        }"
-      />
+  <workspace-widget-settings :widget>
+    <div class="q-pb-xs">
+      <common-text variant="th">Particle Fields</common-text>
     </div>
-    <div class="q-pt-sm q-px-sm">
-      <common-text variant="th">Particles</common-text>
-    </div>
-    <div class="column q-gutter-sm q-pa-sm">
-      <q-card v-for="(particle, index) in widget.particles" :key="index" bordered flat>
-        <div class="column q-gutter-xs q-pa-sm">
-          <div class="items-center row">
-            <div class="col-grow">
-              <workspace-address-select
-                :model-value="particle.address?.toString() ?? null"
-                @update:model-value="
-                  (value) =>
-                    (particle.address =
-                      value != null && value !== '' ? new AddressSelector(value) : null)
-                "
-              />
-            </div>
-            <q-btn
-              dense
-              flat
-              :icon="icons.cancel"
-              round
-              size="9px"
-              @click="removeParticle(index)"
-            />
-          </div>
+    <!-- The selector's own "Manual Entry" section carries the margin under it. -->
+    <particle-series-selector v-model="widget.particles" collapse-unselected show-selected />
+    <div class="column q-gutter-xs">
+      <div class="q-col-gutter-x-sm row">
+        <div class="col-6">
           <schema-form-value
-            v-model="particle.type"
-            :schema="{ type: 'string', title: 'Particle Type', optional: true }"
+            v-model="widget.display"
+            :schema="{
+              type: 'string',
+              title: 'Display',
+              enum: ['line', 'scatter', 'bar'],
+            }"
           />
-          <schema-form-value v-model="particle.series" :schema="seriesSchema" />
         </div>
-      </q-card>
-      <div class="text-center">
-        <schema-form-node-add-button @click="addParticle" />
+        <div class="col-6">
+          <schema-form-value
+            v-model="widget.unit"
+            :schema="{
+              type: 'string',
+              title: 'Unit (Y Axis)',
+              optional: true,
+              default: derivedUnit || undefined,
+            }"
+          />
+        </div>
+      </div>
+      <div class="q-col-gutter-x-sm row">
+        <div class="col-6">
+          <schema-form-value
+            v-model="widget.after"
+            :schema="{ type: 'string', format: 'date-time', title: 'After', optional: true }"
+          />
+        </div>
+        <div class="col-6">
+          <schema-form-value
+            v-model="widget.timespan"
+            :schema="{
+              type: 'string',
+              format: 'duration',
+              title: 'Timespan',
+              optional: true,
+              default: '1h',
+            }"
+          />
+        </div>
       </div>
     </div>
-  </div>
+  </workspace-widget-settings>
 </template>

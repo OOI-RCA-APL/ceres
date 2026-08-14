@@ -48,6 +48,7 @@ from ceres.__internal__.lazy import __lazy_imports__
 from ceres.__internal__.protocols import ComponentSource
 from ceres.__internal__.utilities.algorithms import traverse
 from ceres.__internal__.utilities.caching import cached
+from ceres.__internal__.utilities.classes import cached_class_property
 from ceres.__internal__.utilities.collections import OrderedWeakSet, seq
 from ceres.__internal__.utilities.functions import get_function_name, get_inner_function
 from ceres.__internal__.utilities.randomize import randstr
@@ -321,6 +322,18 @@ class Component(DataObject, ComponentSource):
     def __static_pruners__(self) -> Iterable[PrunerConfig]:
         """Return pruner configurations declared statically by this component class."""
         return ()
+
+    @cached_class_property
+    @classmethod
+    def __particles__(cls) -> tuple[type[Particle], ...]:
+        """Particle classes this component declares, offered to chart pickers.
+
+        Computed from `@sieve`-decorated method return annotations. Assign a literal
+        tuple instead to declare particles emitted outside any sieve.
+        """
+        from ceres.__internal__.particles import default_particle_classes
+
+        return default_particle_classes(cls)
 
     @final
     def __bind__(self, bind: ComponentSystem, /) -> None:

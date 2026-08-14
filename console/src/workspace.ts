@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/vue-query'
 import { useEventListener } from '@vueuse/core'
-import { debounce, orderBy } from 'lodash-es'
+import { debounce, omit, orderBy } from 'lodash-es'
 import { defineStore } from 'pinia'
 import { copyToClipboard, exportFile as download } from 'quasar'
 import { v7 } from 'uuid'
@@ -9,6 +9,7 @@ import {
   defineAsyncComponent,
   inject,
   MaybeRef,
+  onScopeDispose,
   provide,
   reactive,
   readonly,
@@ -34,6 +35,7 @@ import { LogEntryFilterModel } from '@/api/logs'
 import { MessageFilterModel } from '@/api/messages'
 import { ParticleFilterModel } from '@/api/particles'
 import { DateTimeModel } from '@/api/shared'
+import { Failure } from '@/errors'
 import { useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
 import { workspaceInjectionKey } from '@/symbols'
@@ -106,6 +108,7 @@ export const ChartWidgetDisplayModel = Zod.enum(['line', 'scatter', 'bar'])
 
 export type ChartWidgetSeries = Zod.infer<typeof ChartWidgetSeriesModel>
 export const ChartWidgetSeriesModel = Zod.object({
+  id: Zod.string().catch(() => v7()),
   field: Zod.string().nullish(),
   label: Zod.string().nullish(),
 })
@@ -133,10 +136,10 @@ export const ChartWidgetModel = BaseWidgetModel.extend({
 export type TextWeight = Zod.infer<typeof TextWeightModel>
 export const TextWeightModel = Zod.enum(['slim', 'normal', 'bold'])
 
-export type ValueWidget = Zod.infer<typeof ValueWidgetModel>
-export const ValueWidgetModel = BaseWidgetModel.extend({
-  type: Zod.literal('value'),
-  name: Zod.string().catch('Value'),
+export type MeterWidget = Zod.infer<typeof MeterWidgetModel>
+export const MeterWidgetModel = BaseWidgetModel.extend({
+  type: Zod.literal('meter'),
+  name: Zod.string().catch('Meter'),
   particleAddress: AddressSelectorModel.nullish(),
   particleType: Zod.string().nullish(),
   particleField: Zod.string().nullish(),
@@ -175,9 +178,9 @@ export const ButtonActionModel = Zod.object({
   tooltip: Zod.string().nullish().catch(undefined),
 
   // Locked, pressing the button runs it with its stored arguments. Unlocked, pressing asks for
-  // the action's arguments first. On by default, like `confirm` so that a fresh button starts
-  // both safeguards up.
-  locked: Zod.boolean().catch(true),
+  // the action's arguments first, which is one more look before anything runs, so a fresh
+  // button starts unlocked.
+  locked: Zod.boolean().catch(false),
 
   /** Whether running the action asks first. On by default because a workspace button is easy
   to press by accident. */
@@ -310,7 +313,7 @@ export type Widget =
   | LogsWidget
   | ProceduresWidget
   | ChartWidget
-  | ValueWidget
+  | MeterWidget
   | VideoWidget
   | ControlsWidget
   | CarouselWidget
@@ -326,21 +329,41 @@ export const UnknownWidgetModel = BaseWidgetModel.extend({
   name: Zod.string().catch(''),
 }).passthrough()
 
-export const WidgetModel = Zod.discriminatedUnion('type', [
-  MessagesWidgetModel,
-  ParticlesWidgetModel,
-  AlertsWidgetModel,
-  LogsWidgetModel,
-  ProceduresWidgetModel,
-  ChartWidgetModel,
-  ValueWidgetModel,
-  VideoWidgetModel,
-  ControlsWidgetModel,
-  // The controls widget's legacy stored kind, turned into `controls` by `upgradedWidget` on load.
-  StoredButtonWidgetModel,
-  CarouselWidgetModel,
-  TabsWidgetModel,
-]).or(UnknownWidgetModel) as unknown as Zod.ZodType<Widget>
+/** Kinds that were renamed without changing shape, rewritten on the stored data before its
+model parses. A kind whose shape also changed migrates in `upgradedWidget` instead. */
+const renamedWidgetTypes: Record<string, WidgetType> = {
+  value: 'meter',
+}
+
+function migratedRawWidget(stored: unknown): unknown {
+  if (typeof stored !== 'object' || stored == null) {
+    return stored
+  }
+
+  const renamed = renamedWidgetTypes[(stored as { type?: string }).type ?? '']
+
+  return renamed == null ? stored : { ...stored, type: renamed }
+}
+
+export const WidgetModel = Zod.preprocess(
+  migratedRawWidget,
+  Zod.discriminatedUnion('type', [
+    MessagesWidgetModel,
+    ParticlesWidgetModel,
+    AlertsWidgetModel,
+    LogsWidgetModel,
+    ProceduresWidgetModel,
+    ChartWidgetModel,
+    MeterWidgetModel,
+    VideoWidgetModel,
+    ControlsWidgetModel,
+    // The controls widget's legacy stored kind, turned into `controls` by `upgradedWidget` on
+    // load.
+    StoredButtonWidgetModel,
+    CarouselWidgetModel,
+    TabsWidgetModel,
+  ]).or(UnknownWidgetModel)
+) as unknown as Zod.ZodType<Widget>
 
 export type WidgetType = Widget['type']
 export type WidgetInfo = (typeof widgetInfos)[keyof typeof widgetInfos] | typeof unknownWidgetInfo
@@ -378,8 +401,17 @@ export function createWidget(type: WidgetType): Widget {
   return widget
 }
 
+/** A row opened for arriving widgets, as tall as the tallest of them asks to open at. */
+export function openedRowFor(widgets: Widget[]): WidgetRow {
+  return WidgetRowModel.parse({
+    widgets,
+    height: Math.max(...widgets.map((widget) => getWidgetInfo(widget.type).options.initialHeight)),
+  })
+}
+
 type WidgetOptionsInput = {
   minHeight?: number
+  initialHeight?: number
   paddingClass?: string | string[]
   fullHeight?: boolean
   reloadOnThemeChange?: boolean
@@ -387,6 +419,8 @@ type WidgetOptionsInput = {
 
 type WidgetOptions = {
   minHeight: number
+  /** The height a row created for this widget opens at, at least `minHeight`. */
+  initialHeight: number
   paddingClass: string | string[]
   fullHeight: boolean
   reloadOnThemeChange: boolean
@@ -395,6 +429,7 @@ type WidgetOptions = {
 function widgetOptions(options: WidgetOptionsInput): WidgetOptions {
   return {
     minHeight: options.minHeight ?? defaultMinHeight,
+    initialHeight: options.initialHeight ?? options.minHeight ?? defaultMinHeight,
     paddingClass: options.paddingClass ?? defaultPaddingClass,
     fullHeight: options.fullHeight ?? true,
     reloadOnThemeChange: options.reloadOnThemeChange ?? false,
@@ -448,20 +483,22 @@ export const widgetInfos = {
       () => import('@/components/WorkspaceWidgetChartSettings.vue')
     ),
     options: widgetOptions({
+      minHeight: 200,
       paddingClass: ['q-py-sm', 'q-pr-md'],
       reloadOnThemeChange: true,
     }),
   },
-  value: {
-    type: 'value',
-    name: 'Value',
-    model: ValueWidgetModel,
-    component: defineAsyncComponent(() => import('@/components/WorkspaceWidgetValue.vue')),
+  meter: {
+    type: 'meter',
+    name: 'Meter',
+    model: MeterWidgetModel,
+    component: defineAsyncComponent(() => import('@/components/WorkspaceWidgetMeter.vue')),
     settingsComponent: defineAsyncComponent(
-      () => import('@/components/WorkspaceWidgetValueSettings.vue')
+      () => import('@/components/WorkspaceWidgetMeterSettings.vue')
     ),
     options: widgetOptions({
       minHeight: 50,
+      initialHeight: 60,
       paddingClass: [],
     }),
   },
@@ -634,12 +671,13 @@ export function isWorkspaceWritable(
 /** Sort workspaces into the shared standard order.
 
 Position is carried in each workspace's own data, and those without one sort last, which is where a
-newly created workspace belongs. Ties fall back to the name so the order is stable.
+newly created workspace belongs. Ties fall back to the ID, which is creation order, so renaming a
+workspace never moves it.
 */
 export function inStandardOrder(workspaces: Workspace[]): Workspace[] {
   return orderBy(workspaces, [
     (workspace) => workspace.data.meta.order ?? Number.MAX_SAFE_INTEGER,
-    (workspace) => workspace.name,
+    (workspace) => workspace.id,
   ])
 }
 
@@ -653,6 +691,50 @@ export function withoutMeta(data: WorkspaceData): Omit<WorkspaceData, 'meta'> {
   // here until it is decided whether that field is content or presentation.
   const { layout } = data
   return { layout }
+}
+
+/** Strip every chart series `id` from `rows`, recursing into carousel and tab pages.
+
+`ChartWidgetSeriesModel.id` mints a fresh ID on every parse of a series stored without one, so an
+ID-less legacy series never compares equal to itself across parses. Comparisons that only care
+about content go through this first.
+*/
+function withoutChartSeriesIds(rows: WidgetRow[]): WidgetRow[] {
+  return rows.map((row) => ({
+    ...row,
+    widgets: row.widgets.map((widget) => {
+      const pages = pagesOf(widget)
+      const scrubbed =
+        pages.length === 0
+          ? widget
+          : withPages(
+              widget,
+              pages.map((page) => ({ ...page, layout: withoutChartSeriesIds(page.layout) }))
+            )
+
+      if (scrubbed.type !== 'chart') {
+        return scrubbed
+      }
+
+      return {
+        ...scrubbed,
+        particles: scrubbed.particles.map((particle) => ({
+          ...particle,
+          series: particle.series.map((series) => omit(series, 'id')),
+        })),
+      }
+    }),
+  }))
+}
+
+/** Workspace data comparable across parses, with presentation `meta` and minted chart series IDs
+removed.
+
+Use for any comparison that should treat two parses of the same content as equal: the `edited`
+check, edit reconciliation, and the tab strip's unsaved-edit indicator.
+*/
+export function comparableWorkspaceData(data: WorkspaceData): Omit<WorkspaceData, 'meta'> {
+  return { layout: withoutChartSeriesIds(withoutMeta(data).layout) }
 }
 
 export type Workspace = Zod.infer<typeof WorkspaceModel>
@@ -675,8 +757,8 @@ export const WorkspaceEditModel = Zod.object({
 
 export type WorkspaceContext = ReturnType<typeof createWorkspaceContext>
 
-/** Handlers a `Workspace.vue` instance exposes to whatever renders its `header-prepend` slot,
-which is the tab strip the workspace is shown on. */
+/** Handlers a `Workspace.vue` instance exposes to its hosting page, which renders the tab
+strip the workspace is shown on. */
 export type WorkspaceHeaderActions = {
   rename: (name: string) => void
   openSettings: () => void
@@ -710,6 +792,11 @@ export type Drag = {
 
   /** The layout everything came from. A selection is always made within one layout. */
   layout: string
+
+  /** Takes the release of a drag carrying widgets from outside any layout, called with where
+  they landed or null when the drag never took hold anywhere. The widgets in hand stand for
+  what would be created, so releasing moves nothing itself. */
+  drop?: (placement: WidgetPlacement | null) => void
 }
 
 /** How a widget joins what is already picked out when it is chosen. */
@@ -867,12 +954,21 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     }
   })
 
+  // The save watcher is debounced, so an edit made just before the hosting page unmounts, such
+  // as the workspace content being hidden, would otherwise never reach the server.
+  onScopeDispose(() => {
+    void saveEdit()
+  })
+
   const edited = $computed(() => {
     if (data == null || workspace == null) {
       return false
     }
 
-    return !isStructurallyEqual(withoutMeta(data), withoutMeta(workspace.data))
+    return !isStructurallyEqual(
+      comparableWorkspaceData(data),
+      comparableWorkspaceData(workspace.data)
+    )
   })
 
   async function rename(newName: string) {
@@ -950,7 +1046,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
   function openedRow(widgets: Widget[], opening: Widget): WidgetRow {
     return WidgetRowModel.parse({
       widgets,
-      height: getWidgetInfo(opening.type).options.minHeight,
+      height: getWidgetInfo(opening.type).options.initialHeight,
     })
   }
 
@@ -985,6 +1081,35 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
 
       rowObject.widgets = widgets
     }
+  }
+
+  /** Insert widgets arriving from outside the workspace at a drop placement.
+
+  A null column opens a row of their own at that index, and a column splices them into the
+  row side by side.
+  */
+  function insertWidgetsAt(widgets: Widget[], placement: WidgetPlacement) {
+    if (widgets.length === 0) {
+      return
+    }
+
+    if (placement.column != null) {
+      for (const [offset, widget] of widgets.entries()) {
+        insertWidget(widget, placement.row, placement.column + offset, placement.layout)
+      }
+
+      return
+    }
+
+    const layout = findLayout(placement.layout)
+    if (layout == null) {
+      return
+    }
+
+    resolveWidgetWidths(widgets)
+    const rows = layout.rows
+    const index = Math.max(0, Math.min(rows.length, placement.row))
+    layout.set([...rows.slice(0, index), openedRowFor(widgets), ...rows.slice(index)])
   }
 
   function addWidget(
@@ -1346,6 +1471,48 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     return copy
   }
 
+  /** Where a widget currently stands, or null when no layout holds it. */
+  function positionOf(id: string): { layout: string; row: number; column: number } | null {
+    for (const layout of layoutRefs()) {
+      for (const [rowIndex, rowObject] of layout.rows.entries()) {
+        const columnIndex = rowObject.widgets.findIndex((widget) => widget.id === id)
+        if (columnIndex >= 0) {
+          return { layout: layout.id, row: rowIndex, column: columnIndex }
+        }
+      }
+    }
+
+    return null
+  }
+
+  /** Duplicate every widget in `ids`, each copy landing directly after its original.
+
+  Positions are looked up one duplicate at a time since each insertion shifts the columns
+  after it.
+  */
+  function duplicateWidgets(ids: string[]) {
+    for (const id of ids) {
+      const position = positionOf(id)
+      if (position != null) {
+        duplicateWidget(id, position.row, position.column + 1, position.layout)
+      }
+    }
+  }
+
+  // Reload requests by widget ID, read into each widget's render key. Transient view state,
+  // sized by the widgets of this one workspace and freed with the context.
+  const reloadStamps = reactive(new Map<string, number>())
+
+  function requestReload(ids: string[]) {
+    for (const id of ids) {
+      reloadStamps.set(id, (reloadStamps.get(id) ?? 0) + 1)
+    }
+  }
+
+  function reloadStamp(id: string): number {
+    return reloadStamps.get(id) ?? 0
+  }
+
   watchEffect(() => {
     for (const layout of layoutRefs()) {
       if (layout.rows.some((row) => row.widgets.length === 0)) {
@@ -1376,7 +1543,15 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
 
   async function afterFetch() {
     if (data == null) {
-      data = (await workspaces.getEdit(id))?.data ?? deepClone(workspace?.data ?? null) ?? null
+      // A failed fetch falls through to stored data, the same as there being no pending edit.
+      let edit: WorkspaceEdit | null = null
+      try {
+        edit = await workspaces.getEdit(id)
+      } catch {
+        // Ignore.
+      }
+
+      data = edit?.data ?? deepClone(workspace?.data ?? null) ?? null
 
       // Seed the history with the loaded state so the first edit has something to undo back to.
       if (data != null) {
@@ -1446,11 +1621,14 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     getWidget,
     layouts: computed(() => layoutRefs()),
     insertWidget,
+    insertWidgetsAt,
     addWidget,
     deleteWidget,
     deleteWidgets,
     moveWidgets,
-    duplicateWidget,
+    duplicateWidgets,
+    requestReload,
+    reloadStamp,
     replaceWidget,
     groupWidgets,
     ungroupWidget,
@@ -1542,6 +1720,7 @@ export const useWorkspaces = defineStore('workspaces', () => {
     queryFn: async () => {
       return { all: await getAll() }
     },
+    enabled: computed(() => auth.user != null),
   })
 
   async function load() {
@@ -1607,10 +1786,16 @@ export const useWorkspaces = defineStore('workspaces', () => {
     const result = await client.delete(`/api/workspaces/${id}`, {
       parse: WorkspaceModel,
     })
+    notify.success('Workspace deleted.')
     await refresh()
     return result
   }
 
+  /** This user's pending edit for `workspaceId`, null when none exists.
+
+  Rethrows on any failure other than not-found, so a caller reconciling the edit against fresh
+  data can tell "no edit" apart from "could not check."
+  */
   async function getEdit(workspaceId: string) {
     if (auth.user == null) {
       return null
@@ -1620,8 +1805,12 @@ export const useWorkspaces = defineStore('workspaces', () => {
       return await client.get(`/api/users/${auth.user.id}/workspace-edits/${workspaceId}`, {
         parse: WorkspaceEditModel,
       })
-    } catch {
-      return null
+    } catch (error) {
+      if (error instanceof Failure && error.error.type === 'not-found-error') {
+        return null
+      }
+
+      throw error
     }
   }
 
@@ -2162,6 +2351,14 @@ export function withFreshIds(widget: Widget): Widget {
     copy.buttons = copy.buttons.map((button) => ({ ...button, id: v7() }))
   }
 
+  // Chart series carry IDs of their own.
+  if (copy.type === 'chart') {
+    copy.particles = copy.particles.map((particle) => ({
+      ...particle,
+      series: particle.series.map((series) => ({ ...series, id: v7() })),
+    }))
+  }
+
   return withPages(copy, pagesOf(copy).map(withFreshPage))
 }
 
@@ -2426,9 +2623,89 @@ export function planWidgetsMove(
   return { layouts: planned(), widths }
 }
 
+/** Work out the layouts that inserting `widgets` at `placement` produces, changing nothing.
+
+The widgets stand for what a drop from outside the workspace would create, so only the
+destination layout changes and a null `placement` plans nothing at all.
+*/
+export function planWidgetsInsert(
+  layouts: Map<string, WidgetRow[]>,
+  widgets: Widget[],
+  placement: WidgetPlacement | null
+): WidgetMovePlan | null {
+  if (placement == null || widgets.length === 0) {
+    return null
+  }
+
+  const target =
+    layouts.get(placement.layout)?.map((row) => ({
+      id: row.id,
+      height: row.height,
+      collapsed: row.collapsed,
+      widgets: row.widgets.map((widget) => widget.id),
+    })) ?? null
+  if (target == null) {
+    return null
+  }
+
+  const widths: Record<string, number> = {}
+
+  if (placement.column == null) {
+    const resolved = resolveWidths(widgets.map((widget) => widget.width))
+    for (const [index, widget] of widgets.entries()) {
+      widths[widget.id] = resolved[index]
+    }
+
+    target.splice(placement.row, 0, {
+      id: v7(),
+      height: Math.max(
+        ...widgets.map((widget) => getWidgetInfo(widget.type).options.initialHeight)
+      ),
+      collapsed: false,
+      widgets: widgets.map((widget) => widget.id),
+    })
+
+    return { layouts: { [placement.layout]: target }, widths }
+  }
+
+  const destinationRow = target[placement.row] ?? null
+  if (destinationRow == null) {
+    return null
+  }
+
+  destinationRow.widgets.splice(placement.column, 0, ...widgets.map((widget) => widget.id))
+  destinationRow.height = Math.max(
+    destinationRow.height,
+    ...widgets.map((widget) => getWidgetInfo(widget.type).options.minHeight)
+  )
+
+  // Each arriving widget claims at most an even share of the row it joins, and the widgets
+  // already there give up the difference. Arriving widths are read from the widgets in hand
+  // since no layout holds them yet.
+  const currentWidths = widgetsIn(layouts)
+  const arriving = new Map(widgets.map((widget) => [widget.id, widget]))
+  const share = widgetWidthSubdivisions / destinationRow.widgets.length
+  const resolved = resolveWidths(
+    destinationRow.widgets.map((widgetId) => {
+      const held = arriving.get(widgetId)
+      if (held != null) {
+        return Math.min(share, held.width)
+      }
+
+      return currentWidths.get(widgetId)?.width ?? 0
+    }),
+    widgets.map((_, offset) => (placement.column ?? 0) + offset)
+  )
+  for (const [index, widgetId] of destinationRow.widgets.entries()) {
+    widths[widgetId] = resolved[index]
+  }
+
+  return { layouts: { [placement.layout]: target }, widths }
+}
+
 /** The one component a widget is pointed at, or null when it is pointed at none.
 
-A widget pointed at several components returns none since the header's shortcut is for a view of
+A widget pointed at several components returns none since the shortcut is for a view of
 one thing.
 */
 export function widgetTargetSelector(widget: Widget): Address | AddressSelector | null {
@@ -2439,7 +2716,7 @@ export function widgetTargetSelector(widget: Widget): Address | AddressSelector 
   switch (widget.type) {
     case 'procedures':
       return widget.procedureAddress ?? null
-    case 'value':
+    case 'meter':
       return widget.particleAddress ?? null
     default:
       return null

@@ -82,11 +82,13 @@ const rows = $computed<WidgetRow[]>(() => {
     return layout
   }
 
-  // Read from every layout since a widget arriving from another one is not in this one yet.
+  // Read from every layout since a widget arriving from another one is not in this one yet,
+  // and from the drag itself since an insertion drag's widgets are in no layout at all.
   const widgets = new Map(
     workspace.layouts
       .flatMap((current) => current.rows)
       .flatMap((row) => row.widgets)
+      .concat(workspace.drag?.widgets ?? [])
       .map((widget) => [widget.id, widget])
   )
   const current = new Map(layout.map((row) => [row.id, row]))

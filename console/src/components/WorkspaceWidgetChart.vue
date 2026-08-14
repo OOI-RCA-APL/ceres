@@ -7,6 +7,7 @@ import { useEngine } from '@/api/engine'
 import { ParticleModel, Particle } from '@/api/particles'
 import { Option, DataValue } from '@/chart'
 import Chart from '@/components/Chart.vue'
+import { useDerivedChartUnit } from '@/particle-types'
 import { duration, utc, useTime } from '@/time'
 import { toTitle, debouncedComputed, parseDuration } from '@/utilities'
 import { ChartWidget, ChartWidgetSeries, useWorkspace } from '@/workspace'
@@ -100,6 +101,11 @@ const seriesIndexes = $computed(() => {
 const xMin = $computed(() => (isPaused ? frozenXMin : start.valueOf()))
 const xMax = $computed(() => (isPaused ? frozenXMax : (end ?? time.now).valueOf()))
 
+const derivedUnit = $(useDerivedChartUnit(() => widget, workspace).unit)
+
+/** The Y axis unit, from the setting or derived from the plotted fields' declared units. */
+const unit = $computed(() => widget.unit?.trim() || derivedUnit)
+
 const smoothAnimations = {
   animation: true,
   animationDurationUpdate: 1000,
@@ -123,7 +129,7 @@ const axisOption: Option = $computed(() => {
       ...animation,
     },
     yAxis: {
-      name: widget.unit ?? '',
+      name: unit,
       type: 'value',
     },
   }
@@ -146,6 +152,9 @@ const baseOption: Option = $computed(() => {
     particle.series.map((series, index) => {
       const name = getSeriesName(series, index)
       const result = {
+        // The stable ID is what `replaceMerge` matches on, keeping surviving series merged
+        // in place rather than recreated.
+        id: series.id,
         name,
         type: widget.display,
         ...({ progressive: false } as any),
@@ -174,9 +183,7 @@ const baseOption: Option = $computed(() => {
         const header = utc(params[0].value[0]).format('YYYY-MM-DD HH:mm:ss.SSS') + ' UTC'
         const lines = params.map(
           (p: any) =>
-            `${p.marker} ${p.seriesName}: <strong>${p.value[1]}${
-              widget.unit ? ' ' + widget.unit : ''
-            }</strong>`
+            `${p.marker} ${p.seriesName}: <strong>${p.value[1]}${unit ? ' ' + unit : ''}</strong>`
         )
         return `${header}<br/>${lines.join('<br/>')}`
       },
@@ -192,8 +199,14 @@ watch([() => instance, () => baseOption], () => {
   if (instance) {
     requestAnimationFrame(() => {
       if (instance) {
+        // Replace merge restarts every series, so it is reserved for removals, the one change
+        // the default merge mode cannot express and the cause of ghost lines otherwise.
+        const previousIds = getSeries(instance.getOption() ?? {}).map((series) => series.id)
+        const nextIds = new Set(getSeries(baseOption).map((series) => series.id))
+        const removed = previousIds.some((id) => !nextIds.has(id))
         instance.setOption(baseOption, {
           withDefaults: true,
+          ...(removed ? { replaceMerge: ['series'] } : {}),
         })
 
         isInitialized = true
@@ -328,15 +341,14 @@ watch(
   { immediate: true }
 )
 
+// Replace merge leaves null slots where removed series sat, so the list is filtered.
 function getSeries(option: Option) {
   if (option.series == null) {
     return []
   }
-  if (Array.isArray(option.series)) {
-    return option.series
-  }
 
-  return [option.series]
+  const list = Array.isArray(option.series) ? option.series : [option.series]
+  return list.filter((series) => series != null)
 }
 
 function clear(seriesName?: string) {
@@ -357,7 +369,7 @@ function clear(seriesName?: string) {
     }
   }
 
-  instance?.setOption({ series: option.series })
+  instance?.setOption({ series })
 }
 
 function getData(seriesName: string) {
@@ -404,7 +416,7 @@ function prune() {
     }
   }
 
-  instance?.setOption({ series: option.series })
+  instance?.setOption({ series })
 }
 
 useIntervalFn(prune, () => duration(1, 'minute').asMilliseconds())

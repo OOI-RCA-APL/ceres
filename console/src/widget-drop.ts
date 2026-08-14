@@ -4,6 +4,7 @@ import { computed, inject, onScopeDispose, provide, reactive } from 'vue'
 import { widgetDropInjectionKey } from '@/symbols'
 import {
   layoutsWithin,
+  planWidgetsInsert,
   planWidgetsMove,
   resolveWidths,
   widgetWidthSubdivisions,
@@ -543,7 +544,11 @@ function createWidgetDrop(workspace: WorkspaceContext) {
   function release() {
     const drag = workspace.drag
     if (drag != null) {
-      if (active && placement != null) {
+      if (drag.drop != null) {
+        // An insertion drag carries widgets no layout holds, so letting go creates rather than
+        // moves, and a press that never travelled selects nothing.
+        drag.drop(active ? placement : null)
+      } else if (active && placement != null) {
         workspace.moveWidgets(
           drag.widgets.map((widget) => widget.id),
           placement
@@ -686,8 +691,13 @@ function createWidgetDrop(workspace: WorkspaceContext) {
       return null
     }
 
+    const layouts = new Map(workspace.layouts.map((layout) => [layout.id, layout.rows]))
+    if (drag.drop != null) {
+      return planWidgetsInsert(layouts, drag.widgets, opened ? placement : null)
+    }
+
     return planWidgetsMove(
-      new Map(workspace.layouts.map((layout) => [layout.id, layout.rows])),
+      layouts,
       drag.widgets.map((widget) => widget.id),
       opened ? placement : null,
       shown

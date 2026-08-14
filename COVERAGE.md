@@ -1,6 +1,6 @@
 # Coverage
 
-<!-- coverage:fingerprint:12b573dc0f9e2315 -->
+<!-- coverage:fingerprint:4d24bdb82aebf708 -->
 
 ## Python
 
@@ -18,6 +18,7 @@
 | `ceres/__internal__/interop.py` | 90% |
 | `ceres/__internal__/lazy.py` | 82% |
 | `ceres/__internal__/manager.py` | 76% |
+| `ceres/__internal__/particles.py` | 97% |
 | `ceres/__internal__/project.py` | 79% |
 | `ceres/__internal__/protocols.py` | 100% |
 | `ceres/__internal__/record.py` | 82% |

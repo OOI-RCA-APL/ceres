@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
+import { isStructurallyEqual } from '@/utilities'
 import {
   collectLayouts,
+  comparableWorkspaceData,
   layoutsWithin,
   planWidgetsMove,
   planWidgetsGroup,
@@ -15,6 +17,7 @@ import {
   withFreshPage,
   ControlsWidget,
   CarouselWidget,
+  MeterWidget,
   TabsWidget,
   Widget,
   WidgetRow,
@@ -627,10 +630,10 @@ describe('a stored button widget', () => {
     expect(upgraded).not.toHaveProperty('arguments')
   })
 
-  it('comes back with both safeguards up, locked arguments and a confirm', () => {
+  it('comes back with a confirm up and its arguments unlocked', () => {
     const [upgraded] = loaded({ id: 'w1', type: 'button', name: '', action: 'restart' })
 
-    expect(buttonsOf(upgraded)[0].locked).toBe(true)
+    expect(buttonsOf(upgraded)[0].locked).toBe(false)
     expect(buttonsOf(upgraded)[0].confirm).toBe(true)
   })
 
@@ -733,5 +736,110 @@ describe('a stored button widget', () => {
 
     expect(button.frameless).toBe(false)
     expect(chart.frameless).toBe(false)
+  })
+})
+
+describe('a stored value widget', () => {
+  /** The widgets a stored workspace holds, once it has been read the way the app reads one. */
+  function loaded(...widgets: unknown[]): Widget[] {
+    const data = WorkspaceDataModel.parse({
+      layout: [{ id: 'r1', height: 250, collapsed: false, widgets }],
+    })
+
+    return data.layout[0].widgets
+  }
+
+  it('comes back as a meter widget, the kind it is stored under now', () => {
+    const [upgraded] = loaded({ id: 'w1', type: 'value', name: 'Depth' })
+
+    expect(upgraded.type).toBe('meter')
+    expect(upgraded.name).toBe('Depth')
+  })
+
+  it('keeps the fields it was stored with', () => {
+    const [upgraded] = loaded({
+      id: 'w1',
+      type: 'value',
+      name: 'Pressure',
+      particleAddress: '@scpr',
+      particleType: 'science',
+      particleField: 'pressure',
+      fontSize: 24,
+      prefix: '~',
+      suffix: ' kPa',
+    })
+    const meter = upgraded as MeterWidget
+
+    expect(meter.particleAddress?.toString()).toBe('@scpr')
+    expect(meter.particleType).toBe('science')
+    expect(meter.particleField).toBe('pressure')
+    expect(meter.fontSize).toBe(24)
+    expect(meter.prefix).toBe('~')
+    expect(meter.suffix).toBe(' kPa')
+  })
+
+  it('is renamed inside a tab strip page too', () => {
+    const [upgraded] = loaded({
+      id: 'w1',
+      type: 'tabs',
+      name: 'Tabs',
+      tabs: [
+        {
+          id: 't1',
+          name: '',
+          layout: [
+            {
+              id: 'r2',
+              height: 250,
+              collapsed: false,
+              widgets: [{ id: 'w2', type: 'value', name: 'Depth' }],
+            },
+          ],
+        },
+      ],
+    })
+
+    expect(pagesOf(upgraded)[0].layout[0].widgets[0].type).toBe('meter')
+  })
+})
+
+describe('comparableWorkspaceData', () => {
+  /** A stored chart widget with an ID-less series, the legacy shape a workspace saved before
+  series carried one still holds. */
+  function rawChartRow(field: string) {
+    return {
+      id: 'r1',
+      height: 250,
+      collapsed: false,
+      widgets: [
+        {
+          id: 'w1',
+          type: 'chart',
+          name: 'Chart',
+          particles: [{ type: 'temperature', series: [{ field }] }],
+        },
+      ],
+    }
+  }
+
+  it('treats two parses of the same ID-less chart series as equal', () => {
+    const first = WorkspaceDataModel.parse({ layout: [rawChartRow('value')] })
+    const second = WorkspaceDataModel.parse({ layout: [rawChartRow('value')] })
+
+    // Each parse mints its own series ID, so the parses themselves differ.
+    expect(isStructurallyEqual(first, second)).toBe(false)
+
+    expect(
+      isStructurallyEqual(comparableWorkspaceData(first), comparableWorkspaceData(second))
+    ).toBe(true)
+  })
+
+  it('still reports a real difference in the series', () => {
+    const first = WorkspaceDataModel.parse({ layout: [rawChartRow('value')] })
+    const second = WorkspaceDataModel.parse({ layout: [rawChartRow('other')] })
+
+    expect(
+      isStructurallyEqual(comparableWorkspaceData(first), comparableWorkspaceData(second))
+    ).toBe(false)
   })
 })

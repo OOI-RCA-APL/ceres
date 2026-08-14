@@ -16,11 +16,15 @@ const {
   title,
   dense = false,
   fill = false,
+  noHeader = false,
   stickyTop = appHeaderHeight,
 } = defineProps<{
   title?: string
   dense?: boolean
   fill?: boolean
+
+  /** Renders no header band at all, for a page whose chrome lives on its host. */
+  noHeader?: boolean
 
   /** Where the header pins as the page scrolls under it.
 
@@ -33,7 +37,7 @@ const {
 
 <template>
   <div :class="[$style.root, fill && $style.fillRoot]">
-    <div :class="$style.headerStack" :style="{ top: `${stickyTop}px` }">
+    <div v-if="!noHeader" :class="$style.headerStack" :style="{ top: `${stickyTop}px` }">
       <div :class="[$style.header, dense && $style.denseHeader, 'items-center', 'row']">
         <common-text v-if="title != null" class="q-ml-md" variant="title2">
           {{ title }}

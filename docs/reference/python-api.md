@@ -251,6 +251,10 @@ from the package, `from ceres import Component`.
     options:
       heading_level: 3
 
+::: ceres.data.Unit
+    options:
+      heading_level: 3
+
 ::: ceres.entity.EntityType
     options:
       heading_level: 3

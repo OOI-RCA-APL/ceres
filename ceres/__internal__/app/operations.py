@@ -142,6 +142,18 @@ async def _require_user(host: Host, arguments: dict[str, Any]) -> Any:
     return actor.user
 
 
+def _require_not_disabled(actor: Actor) -> None:
+    """Raise if the actor names a disabled user.
+
+    Defense in depth alongside the token gate's own disabled check.
+
+    Raises:
+        NotPermittedError: If the actor's user is disabled.
+    """
+    if actor.user is not None and actor.user.disabled:
+        raise NotPermittedError()
+
+
 def _serialize(value: Any, exclude: Any = None) -> Raw:
     """Serialize a value once, for the server to splice into its response verbatim."""
     return Raw(to_json(value, exclude=exclude))
@@ -697,11 +709,11 @@ async def permissions_effective_at(host: Host, arguments: dict[str, Any]) -> Any
 @operation("workspaces.list")
 async def workspaces_list(host: Host, arguments: dict[str, Any]) -> Any:
     actor = await _actor(host, arguments)
-    user = await _require_user(host, arguments)
+    _require_not_disabled(actor)
     filter = _filter(WorkspaceFilter, arguments, 1000)
     return _entities(
         await workspace_handlers.get_workspaces(
-            engine=host.engine, actor=actor, user=user, filter=filter
+            engine=host.engine, actor=actor, user=actor.user, filter=filter
         )
     )
 
@@ -709,9 +721,9 @@ async def workspaces_list(host: Host, arguments: dict[str, Any]) -> Any:
 @operation("workspaces.get")
 async def workspaces_get(host: Host, arguments: dict[str, Any]) -> Any:
     actor = await _actor(host, arguments)
-    user = await _require_user(host, arguments)
+    _require_not_disabled(actor)
     found = await workspace_handlers.get_workspace(
-        engine=host.engine, actor=actor, user=user, id=_uuid(arguments, "id")
+        engine=host.engine, actor=actor, user=actor.user, id=_uuid(arguments, "id")
     )
     return _serialize(found)
 

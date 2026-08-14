@@ -53,6 +53,7 @@ __all__ = [
     "Connectivity",
     # .data
     "DataObject",
+    "Unit",
     # .database
     "Database",
     "DatabaseType",
@@ -184,7 +185,7 @@ with __lazy_imports__(__name__, export=True):
         Unsplit,
     )
     from ceres.connectivity import Connectivity
-    from ceres.data import DataObject
+    from ceres.data import DataObject, Unit
     from ceres.database import Database, DatabaseType
     from ceres.directory import Directory
     from ceres.dispatcher import Dispatch, Dispatcher, DispatchWriter, HTMLDispatchWriter

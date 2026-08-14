@@ -1,10 +1,13 @@
 import traceback
+from functools import cache
 from typing import TYPE_CHECKING, Any, Literal
 
 from ceres.__internal__.app.shared import (
     get_component_access,
     get_components_access,
 )
+from ceres.__internal__.interop import _self_contained
+from ceres.__internal__.particles import declared_particle_classes
 from ceres.__internal__.utilities.text import strify
 from ceres.address import Address
 from ceres.component import (
@@ -16,7 +19,7 @@ from ceres.component import (
     QueryBinding,
 )
 from ceres.connectivity import Connectivity
-from ceres.data import DataModel, DataObject, DateTime, Name
+from ceres.data import DataModel, DataObject, DateTime, Name, to_json_schema
 from ceres.error import (
     NotConnectedError,
     NotFoundError,
@@ -26,6 +29,7 @@ from ceres.error import (
     ProcedureNotPermittedError,
 )
 from ceres.message import Message, MessageData
+from ceres.particle import Particle, _get_cls_particle_type
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -42,6 +46,22 @@ class ConnectionInfo(DataObject):
     label: str
 
 
+class ParticleFieldInfo(DataObject):
+    """Description of one field on a particle's `data` model."""
+
+    name: str
+    schema: dict[str, Any]
+    """The field's JSON Schema subtree verbatim, the console derives plottability and captions."""
+
+
+class ParticleTypeInfo(DataObject):
+    """Description of one particle type a component declares."""
+
+    type: str
+    description: str | None
+    fields: list[ParticleFieldInfo]
+
+
 class ComponentInfo(DataObject):
     """Recursive description of a component, its procedures, connections, and children."""
 
@@ -51,6 +71,8 @@ class ComponentInfo(DataObject):
     connections: list[ConnectionInfo]
     components: list[ComponentInfo]
     tags: list[str]
+    particles: list[ParticleTypeInfo]
+    """The particle types the component declares, with their field schemas."""
 
 
 ComponentInfo.__name__ = "Component"
@@ -72,10 +94,12 @@ def _describe_component(component: Component, *, visible: bool) -> ComponentInfo
             if connection.name is not None
         ]
         tags = system.tags
+        particles = _described_particle_classes(component)
     else:
         procedures = []
         connections = []
         tags = []
+        particles = []
 
     return ComponentInfo(
         name=system.name,
@@ -84,6 +108,7 @@ def _describe_component(component: Component, *, visible: bool) -> ComponentInfo
         connections=connections,
         components=[],
         tags=tags,
+        particles=particles,
     )
 
 
@@ -165,6 +190,24 @@ async def get_component(engine: Engine, actor: Actor, address: Address) -> Compo
     return info
 
 
+async def _resolve_component(engine: Engine, actor: Actor, address: Address) -> Component:
+    """Resolve the component at `address`, checking that `actor` may view it.
+
+    Raises:
+        NotFoundError: If no component matches the given address.
+        NotPermittedError: If the caller has no access to the component.
+    """
+    component = engine.get_component(address)
+    if component is None:
+        raise NotFoundError()
+
+    access = await get_component_access(engine, actor.user, component)
+    if not actor.unrestricted and access is None:
+        raise NotPermittedError()
+
+    return component
+
+
 async def get_component_config(
     engine: Engine,
     actor: Actor,
@@ -181,14 +224,7 @@ async def get_component_config(
         NotFoundError: If no component matches the given address.
         NotPermittedError: If the caller has no access to the component.
     """
-    component = engine.get_component(address)
-    if component is None:
-        raise NotFoundError()
-
-    access = await get_component_access(engine, actor.user, component)
-    if not actor.unrestricted and access is None:
-        raise NotPermittedError()
-
+    component = await _resolve_component(engine, actor, address)
     return component.system.config
 
 
@@ -213,14 +249,7 @@ async def get_component_connections(
         NotFoundError: If no component matches the given address.
         NotPermittedError: If the caller has no access to the component.
     """
-    component = engine.get_component(address)
-    if component is None:
-        raise NotFoundError()
-
-    access = await get_component_access(engine, actor.user, component)
-    if not actor.unrestricted and access is None:
-        raise NotPermittedError()
-
+    component = await _resolve_component(engine, actor, address)
     return [
         ConnectionStateInfo(
             name=connection.name,
@@ -269,14 +298,7 @@ async def get_component_jobs(
         NotFoundError: If no component matches the given address.
         NotPermittedError: If the caller has no access to the component.
     """
-    component = engine.get_component(address)
-    if component is None:
-        raise NotFoundError()
-
-    access = await get_component_access(engine, actor.user, component)
-    if not actor.unrestricted and access is None:
-        raise NotPermittedError()
-
+    component = await _resolve_component(engine, actor, address)
     jobs = component.system.jobs
     return [
         JobInfo(
@@ -287,6 +309,45 @@ async def get_component_jobs(
         )
         for job in jobs.get_all()
     ]
+
+
+@cache
+def _describe_particle_class(cls: type[Particle]) -> ParticleTypeInfo:
+    """Describe one particle class from its `data` model's JSON schema.
+
+    Each field's schema subtree is inlined against the model's `$defs` since it ships on
+    its own, detached from the schema that defined those references. The result is cached
+    per class and shared across responses, so callers must not mutate it.
+    """
+    schema = to_json_schema(cls.Data)
+    definitions = schema.get("$defs", {})
+    fields = [
+        ParticleFieldInfo(name=name, schema=_self_contained(property, definitions, frozenset()))
+        for name, property in schema.get("properties", {}).items()
+    ]
+
+    discriminator = _get_cls_particle_type(cls)
+    if discriminator is None:
+        raise ValueError(f"`{cls}` has no `type` discriminator.")
+
+    return ParticleTypeInfo(
+        type=discriminator,
+        description=cls.__doc__,
+        fields=fields,
+    )
+
+
+def _described_particle_classes(component: Component) -> list[ParticleTypeInfo]:
+    """Describe the component's declared particle classes, dropping any whose schema fails
+    to generate so one bad model cannot fail the whole components listing."""
+    result: list[ParticleTypeInfo] = []
+    for cls in declared_particle_classes(component):
+        try:
+            result.append(_describe_particle_class(cls))
+        except Exception:
+            traceback.print_exc()
+
+    return result
 
 
 async def get_procedures(engine: Engine, address: Address) -> list[ProcedureBinding]:

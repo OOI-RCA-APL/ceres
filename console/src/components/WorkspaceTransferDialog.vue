@@ -66,11 +66,12 @@ function submit() {
 
         <q-option-group
           v-model="mode"
+          :class="$style.modes"
           color="primary"
           dense
           :options="[
-            { label: 'Copy, leaving the original where it is', value: 'copy' },
-            { label: 'Move it', value: 'move', disable: !canMove },
+            { label: 'Copy, leaving the original where it is.', value: 'copy' },
+            { label: 'Move it.', value: 'move', disable: !canMove },
           ]"
         />
         <div v-if="!canMove" class="q-mt-sm q-pl-sm text-grey-6">
@@ -109,5 +110,9 @@ function submit() {
 .card {
   max-width: 520px;
   width: 520px;
+}
+
+.modes > div + div {
+  margin-top: 4px;
 }
 </style>

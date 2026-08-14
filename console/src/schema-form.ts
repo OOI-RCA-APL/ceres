@@ -582,6 +582,61 @@ export function isType(schema: Schema, type: string): boolean {
   return schema.type === type
 }
 
+/** Whether `schema` or one of its `anyOf` members carries `format`, the way an optional field
+wraps its real schema in a union with null. */
+export function hasFormat(schema: Schema, format: string): boolean {
+  if (typeof schema === 'boolean' || schema == null) {
+    return false
+  }
+
+  if (schema.format === format) {
+    return true
+  }
+
+  return (schema.anyOf ?? []).some((member) => hasFormat(member, format))
+}
+
+/** The display name for the value `schema` describes, in the same vocabulary the form's own
+controls hint with, such as `str`, `date-time`, and `duration`. */
+export function describeSchemaType(schema: Schema): string {
+  if (typeof schema === 'object' && schema != null && schema.enum != null) {
+    return 'enum'
+  }
+
+  if (isType(schema, 'boolean')) {
+    return 'boolean'
+  }
+
+  // Number-like unions read as plain numbers, so this check comes before the integer one.
+  if (isType(schema, 'number')) {
+    return 'number'
+  }
+
+  if (isType(schema, 'integer')) {
+    return 'integer'
+  }
+
+  if (isType(schema, 'string')) {
+    for (const format of ['date-time', 'date', 'duration', 'address-selector']) {
+      if (hasFormat(schema, format)) {
+        return format
+      }
+    }
+
+    return 'str'
+  }
+
+  if (isType(schema, 'array')) {
+    return 'array'
+  }
+
+  if (isType(schema, 'object')) {
+    return 'object'
+  }
+
+  return 'value'
+}
+
 export function isEmptyObjectSchema(schema: Schema | null | undefined) {
   if (typeof schema === 'boolean' || schema?.properties == null) {
     return false

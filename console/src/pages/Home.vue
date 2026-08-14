@@ -4,6 +4,9 @@ import { watch } from 'vue'
 import { useAccess } from '@/api/access'
 import { Address, engineRoot } from '@/api/address'
 import { useAuth } from '@/api/auth'
+import ComponentWorkspaceStrip, {
+  overviewFillHeight,
+} from '@/components/ComponentWorkspaceStrip.vue'
 import ComponentWorkspaceTabs from '@/components/ComponentWorkspaceTabs.vue'
 import ComponentWorkspacesSection from '@/components/ComponentWorkspacesSection.vue'
 import FullPage, { appHeaderHeight, pageHeaderHeight } from '@/components/FullPage.vue'
@@ -43,6 +46,8 @@ const persisted = usePersisted({
     object({
       overviewCollapsed: boolean().default(false),
       overviewHeight: number().default(320),
+      workspaces: boolean().default(true),
+      workspaceCollapsed: boolean().default(false),
     }),
   methods: [{ type: 'local-storage', key: 'home-overview' }],
 })
@@ -51,8 +56,7 @@ const persisted = usePersisted({
 // These are the deployment's own workspaces rather than any one component's.
 let placedWorkspaces = $ref<Workspace[]>([])
 
-// What the deployment lands on. Only the workspaces marked for logged-out display since these
-// are what a new user inherits.
+// What a new user's tab strip starts from. Only the workspaces flagged `show_when_logged_out`.
 const defaults = $computed(() =>
   placedWorkspaces.filter((workspace) => workspace.show_when_logged_out)
 )
@@ -85,7 +89,7 @@ const openableWorkspaces = $computed(() => {
 
 async function openHome(id: string) {
   await tabs.open(placement, id)
-  showWorkspace(id)
+  revealHome(id)
 }
 
 // A copy belongs next to its original so the strip reads as the original followed by its copy.
@@ -96,7 +100,7 @@ async function openBesideHome(afterId: string, id: string) {
     afterId,
     homeWorkspaces.map((workspace) => workspace.id)
   )
-  showWorkspace(id)
+  revealHome(id)
 }
 
 const lastWorkspace = useLastWorkspace(placement)
@@ -110,6 +114,16 @@ let activeWorkspaceId = $ref<string | null>(null)
 const requestedIds = $computed(() => requestedWorkspaces(navigation.route.query))
 
 let overviewElement = $ref<HTMLElement | null>(null)
+
+// The dragged overview height, never less than what puts the strip at the bottom edge.
+const overviewHeightStyle = $computed(() => ({
+  height: overviewFillHeight(workspaceStickyTop, persisted.overviewHeight),
+}))
+
+// Followed reactively so the floating action bar can yield while the strip rests at the
+// bottom edge.
+let stripRef = $ref<InstanceType<typeof ComponentWorkspaceStrip> | null>(null)
+const stripDocked = $computed(() => stripRef?.docked ?? false)
 
 /** How far the page must be scrolled for the tab strip to have pinned under the header.
 
@@ -146,19 +160,23 @@ useScrollMemory(
   pinnedAt
 )
 
-// With tabs to show but no workspace beneath them, the strip sits at the bottom of the screen
-// rather than floating below the overview with empty space under it. An empty strip has nothing to
-// hold down there, and collapsing the overview leaves nothing to push it away from so in either
-// case it goes back to sitting under the overview.
-const pinTabs = $computed(
-  () => activeWorkspaceId == null && !persisted.overviewCollapsed && homeWorkspaces.length > 0
-)
-
 // Whatever is showing is what home reopens on so it is recorded here rather than at each of the
 // places that can choose one.
 function showWorkspace(id: string) {
   activeWorkspaceId = id
   lastWorkspace.id = id
+}
+
+// Reached for the tab strip's active workspace actions and state, drawn on this page.
+let workspacePageRef = $ref<InstanceType<typeof WorkspacePage> | null>(null)
+
+/** Show a workspace the user explicitly chose, bringing hidden content back and scrolling to
+it when the strip is stuck to the bottom edge. The fallback selections after a close keep to
+`showWorkspace`. */
+function revealHome(id: string) {
+  persisted.workspaceCollapsed = false
+  showWorkspace(id)
+  void stripRef?.scrollToPin(pinnedAt())
 }
 
 /** Give the address what it asked for, then take the request back out of it.
@@ -237,7 +255,7 @@ function createHome() {
   dialogs.createWorkspace(placement).onOk(async (created: Workspace) => {
     await tabs.open(placement, created.id)
     await refreshPlaced()
-    showWorkspace(created.id)
+    revealHome(created.id)
   })
 }
 
@@ -250,21 +268,24 @@ async function importHome(files: File[]) {
   await Promise.all(imported.map((workspace) => tabs.open(placement, workspace.id)))
   await refreshPlaced()
   if (imported.length > 0) {
-    showWorkspace(imported[0].id)
+    revealHome(imported[0].id)
   }
 }
 
-await tabs.load()
-await refreshPlaced()
+// Logged out, there is nothing to fetch and nothing to seed. The template shows a sign-in
+// state instead.
+if (auth.user != null) {
+  await tabs.load()
+  await refreshPlaced()
 
-// A first login starts from what the deployment shows when logged out so a new person lands on
-// the same view an anonymous visitor sees and then makes it their own. Seeding is skipped once the
-// user has arranged this strip so it never overwrites their own choices.
-if (!tabs.isTouched(placement)) {
-  await tabs.seed(
-    placement,
-    defaults.map((workspace) => workspace.id)
-  )
+  // A first login seeds this strip from the workspaces flagged `show_when_logged_out`. Seeding
+  // stops once the user has arranged the strip, so it never overwrites their own choices.
+  if (!tabs.isTouched(placement)) {
+    await tabs.seed(
+      placement,
+      defaults.map((workspace) => workspace.id)
+    )
+  }
 }
 
 watch(
@@ -309,8 +330,8 @@ watch(
 </script>
 
 <template>
-  <full-page :fill="pinTabs" title="Home">
-    <template #header-append>
+  <full-page fill title="Home">
+    <template v-if="auth.user != null" #header-append>
       <q-space />
       <!-- Flush with the right edge of the widgets below, whose cards sit half a gutter in. -->
       <q-btn
@@ -329,90 +350,94 @@ watch(
       </q-btn>
     </template>
 
-    <div v-if="!persisted.overviewCollapsed" ref="overviewElement" class="relative-position">
-      <div
-        :class="[$style.overviewContent, 'scroll']"
-        :style="activeWorkspaceId != null ? { height: `${persisted.overviewHeight}px` } : undefined"
-      >
-        <!-- The engine root's own workspaces, which are the deployment's rather than any one
-        component's. A workspace placed on a component is reached from that component, and appears
-        here only once it has been opened as a tab below. -->
-        <component-workspaces-section
-          :can-manage="canManage"
-          class="q-pa-md"
-          :open-ids="homeWorkspaces.map((workspace) => workspace.id)"
-          :placement="placement"
-          :workspaces="placedWorkspaces"
-          @close="closeHome"
-          @open="showWorkspace"
-          @open-beside="openBesideHome"
-          @share="shareHome"
+    <div v-if="auth.user == null" class="col column flex flex-center text-grey-6">
+      <q-icon :name="icons.locked" size="32px" />
+      <q-btn class="q-mt-md" color="primary" label="Log In" no-caps to="/login" unelevated />
+    </div>
+    <template v-else>
+      <div v-if="!persisted.overviewCollapsed" ref="overviewElement" class="relative-position">
+        <!-- Never less than what puts the strip at the bottom edge, where it rests until the
+        page is scrolled. With workspace content hidden the overview takes its full height. -->
+        <div
+          :class="[$style.overviewContent, 'scroll']"
+          :style="
+            activeWorkspaceId != null && !persisted.workspaceCollapsed
+              ? overviewHeightStyle
+              : undefined
+          "
+        >
+          <!-- The engine root's own workspaces, which are the deployment's rather than any one
+          component's. A workspace placed on a component is reached from that component, and
+          appears here only once it has been opened as a tab below. -->
+          <component-workspaces-section
+            v-model:expanded="persisted.workspaces"
+            :can-manage="canManage"
+            class="q-pa-md"
+            collapsible
+            :open-ids="homeWorkspaces.map((workspace) => workspace.id)"
+            :placement="placement"
+            :workspaces="placedWorkspaces"
+            @close="closeHome"
+            @open="showWorkspace"
+            @open-beside="openBesideHome"
+            @share="shareHome"
+          />
+        </div>
+        <resize-handle
+          v-if="activeWorkspaceId != null && !persisted.workspaceCollapsed"
+          v-model="persisted.overviewHeight"
+          :class="$style.overviewResizeHandle"
+          direction="vertical"
+          :max="800"
+          :min="120"
         />
       </div>
-      <resize-handle
-        v-if="activeWorkspaceId != null"
-        v-model="persisted.overviewHeight"
-        :class="$style.overviewResizeHandle"
-        direction="vertical"
-        :max="800"
-        :min="120"
-      />
-    </div>
 
-    <!-- Deliberately not keyed on the workspace ID. The workspace context follows its ID, so
-    switching tabs updates this page in place and leaves the tab strip in its header mounted. -->
-    <workspace-page
-      v-if="activeWorkspaceId != null"
-      :id="activeWorkspaceId"
-      :sticky-top="workspaceStickyTop"
-      @duplicated="openBesideHome"
-    >
-      <template #header-prepend="{ actions, state }">
-        <component-workspace-tabs
-          :active="activeWorkspaceId"
-          :active-actions="actions"
-          :active-state="state"
-          :can-create="canCreate"
-          :can-manage="canManage"
-          class="q-ml-sm"
-          :openable="openableWorkspaces"
-          :show-placement="showPlacement"
-          :workspaces="homeWorkspaces"
-          @close="closeHome"
-          @close-all="closeAllHome"
-          @close-others="closeOtherHome"
-          @create="createHome"
-          @import="importHome"
-          @open="openHome"
-          @open-beside="openBesideHome"
-          @reorder="reorderHome"
-          @select="showWorkspace"
-          @share="shareHome"
-        />
-      </template>
-    </workspace-page>
-    <div v-else-if="homeWorkspaces.length > 0 || canCreate" :class="pinTabs && $style.pinnedTabs">
-      <q-separator />
-      <component-workspace-tabs
-        :active="activeWorkspaceId"
-        :can-create="canCreate"
-        :can-manage="canManage"
-        class="q-px-sm q-py-xs"
-        :openable="openableWorkspaces"
-        :show-placement="showPlacement"
-        :workspaces="homeWorkspaces"
-        @close="closeHome"
-        @close-all="closeAllHome"
-        @close-others="closeOtherHome"
-        @create="createHome"
-        @import="importHome"
-        @open="openHome"
-        @open-beside="openBesideHome"
-        @reorder="reorderHome"
-        @select="showWorkspace"
-        @share="shareHome"
+      <!-- The strip sits in flow between the overview and the workspace, and sticks at both
+      edges so it is always on screen, pinning under the header the way it always has and
+      resting at the bottom while its own place is still below the fold. -->
+      <component-workspace-strip
+        v-if="homeWorkspaces.length > 0 || canCreate"
+        ref="stripRef"
+        v-model:collapsed="persisted.workspaceCollapsed"
+        :sticky-top="workspaceStickyTop"
+      >
+        <template #default="{ docked, trailingInset }">
+          <component-workspace-tabs
+            :active="activeWorkspaceId"
+            :active-actions="workspacePageRef?.headerActions"
+            :active-state="workspacePageRef?.headerState"
+            :can-create="canCreate"
+            :can-manage="canManage"
+            :docked="docked"
+            :openable="openableWorkspaces"
+            :show-placement="showPlacement"
+            :trailing-inset="trailingInset"
+            :workspaces="homeWorkspaces"
+            @close="closeHome"
+            @close-all="closeAllHome"
+            @close-others="closeOtherHome"
+            @create="createHome"
+            @import="importHome"
+            @open="openHome"
+            @open-beside="openBesideHome"
+            @reorder="reorderHome"
+            @select="revealHome"
+            @share="shareHome"
+          />
+        </template>
+      </component-workspace-strip>
+      <!-- Deliberately not keyed on the workspace ID. The workspace context follows its ID, so
+      switching tabs updates this page in place. -->
+      <workspace-page
+        v-if="activeWorkspaceId != null && !persisted.workspaceCollapsed"
+        :id="activeWorkspaceId"
+        ref="workspacePageRef"
+        :sticky-top="workspaceStickyTop"
+        :strip-docked="stripDocked"
+        @duplicated="openBesideHome"
       />
-    </div>
+    </template>
   </full-page>
 </template>
 
@@ -422,10 +447,6 @@ watch(
 .overviewContent {
   overflow-x: hidden;
   max-height: calc(100vh - 92px);
-}
-
-.pinnedTabs {
-  margin-top: auto;
 }
 
 .overviewResizeHandle {

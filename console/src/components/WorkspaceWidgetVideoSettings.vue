@@ -3,7 +3,7 @@ import { watch } from 'vue'
 
 import { Address } from '@/api/address'
 import { useEngine } from '@/api/engine'
-import CommonText from '@/components/CommonText.vue'
+import WorkspaceWidgetSettings from '@/components/WorkspaceWidgetSettings.vue'
 import SchemaFormValue from '@/components/schema-form/SchemaFormValue.vue'
 import type { VideoWidget } from '@/workspace'
 
@@ -52,8 +52,7 @@ watch(
 </script>
 
 <template>
-  <div class="q-pb-none q-px-md q-py-md">
-    <common-text class="q-mb-sm" variant="title1">{{ widget.name }}</common-text>
+  <workspace-widget-settings :widget>
     <div class="column">
       <div class="q-mb-sm">
         <schema-form-value
@@ -99,5 +98,5 @@ watch(
         </q-card>
       </div>
     </div>
-  </div>
+  </workspace-widget-settings>
 </template>

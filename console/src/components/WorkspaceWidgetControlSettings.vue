@@ -154,9 +154,10 @@ const takesArguments = $computed(() => !isEmptyObjectSchema(form.getSchema([])))
         }"
       />
     </div>
-    <div v-if="takesArguments" class="col-12">
-      <!-- The confirm and the lock ride the arguments they govern, the same controls in the same
-      corner as the popup's, so the two places read as one thing. -->
+    <div v-if="button.action != null" class="col-12">
+      <!-- The confirm and the lock ride the action they govern, the same controls in the same
+      corner as the popup's, so the two places read as one thing. The lock only means anything
+      for an action taking arguments, so only there is it offered. -->
       <div class="items-center no-wrap row">
         <common-text class="monospace-sm" variant="th">{{ actionPath }}</common-text>
         <q-space />
@@ -173,8 +174,11 @@ const takesArguments = $computed(() => !isEmptyObjectSchema(form.getSchema([])))
             {{ button.confirm ? 'Confirm Dialog Enabled' : 'Confirm Dialog Disabled' }}
           </q-tooltip>
         </q-btn>
+        <!-- Locked runs with one less look at the arguments, which is the riskier state, so it
+        is the one that carries the warning color. -->
         <q-btn
-          :color="button.locked ? 'primary' : 'warning'"
+          v-if="takesArguments"
+          :color="button.locked ? 'warning' : 'primary'"
           dense
           flat
           :icon="button.locked ? icons.locked : icons.unlocked"
@@ -182,12 +186,12 @@ const takesArguments = $computed(() => !isEmptyObjectSchema(form.getSchema([])))
           size="sm"
           @click="button.locked = !button.locked"
         >
-          <q-tooltip :class="button.locked ? 'bg-primary text-white' : 'bg-warning text-dark'">
+          <q-tooltip :class="button.locked ? 'bg-warning text-dark' : 'bg-primary text-white'">
             {{ button.locked ? 'Arguments Locked' : 'Arguments Unlocked' }}
           </q-tooltip>
         </q-btn>
       </div>
-      <q-card bordered class="q-mt-xs q-pa-sm" flat>
+      <q-card v-if="takesArguments" bordered class="q-mt-xs q-pa-sm" flat>
         <schema-form :form />
       </q-card>
     </div>

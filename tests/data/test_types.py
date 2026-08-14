@@ -1,6 +1,6 @@
 from datetime import UTC, date, datetime, timedelta, timezone
 from re import RegexFlag
-from typing import Any, override
+from typing import Annotated, Any, override
 
 import pytest
 from pydantic import TypeAdapter, ValidationError
@@ -23,6 +23,7 @@ from ceres.data.types import (
     RegexFlags,
     StrEnum,
     TimeDelta,
+    Unit,
     Username,
 )
 
@@ -482,3 +483,15 @@ class TestJSONSerializable:
         adapter = TypeAdapter(JSONSerializable[Any])
         with pytest.raises(ValidationError, match="not serializable to JSON"):
             adapter.validate_python(object())
+
+
+class TestUnit:
+    def test_unit_lands_in_the_json_schema(self) -> None:
+        adapter = TypeAdapter(Annotated[float, Unit("degC")])
+        schema = adapter.json_schema()
+        assert schema["type"] == "number"
+        assert schema["unit"] == "degC"
+
+    def test_validation_is_unaffected(self) -> None:
+        adapter = TypeAdapter(Annotated[float, Unit("degC")])
+        assert adapter.validate_python(21.5) == 21.5
