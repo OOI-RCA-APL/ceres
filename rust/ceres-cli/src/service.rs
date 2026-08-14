@@ -149,20 +149,8 @@ fn current_user() -> String {
         .unwrap_or_else(|_| "unknown".to_string())
 }
 
-/// Run a command silently and return its exit status code.
-fn execute(program: &str, arguments: &[&str], environment: &[(&str, String)]) -> Result<i32> {
-    Ok(output_of(program, arguments, environment)?
-        .status
-        .code()
-        .unwrap_or(1))
-}
-
 /// Run a command silently, failing with its captured stderr on a non-zero exit.
-fn execute_checked(
-    program: &str,
-    arguments: &[&str],
-    environment: &[(&str, String)],
-) -> Result<()> {
+fn execute(program: &str, arguments: &[&str], environment: &[(&str, String)]) -> Result<()> {
     let output = output_of(program, arguments, environment)?;
     if output.status.success() {
         return Ok(());
@@ -177,6 +165,15 @@ fn execute_checked(
         if detail.is_empty() { "" } else { " " },
         detail,
     ))
+}
+
+/// Run a command silently and return its exit status code, for queries whose non-zero
+/// exit is an answer rather than a failure.
+fn execute_code(program: &str, arguments: &[&str], environment: &[(&str, String)]) -> Result<i32> {
+    Ok(output_of(program, arguments, environment)?
+        .status
+        .code()
+        .unwrap_or(1))
 }
 
 fn output_of(
@@ -246,14 +243,16 @@ impl SystemDService {
             .join(self.label())
     }
 
-    fn systemctl(&self, arguments: &[&str]) -> Result<i32> {
+    /// Run `systemctl`, failing loudly on a non-zero exit rather than reporting success
+    /// over a command that did nothing.
+    fn systemctl(&self, arguments: &[&str]) -> Result<()> {
         execute("systemctl", arguments, &user_bus_environment())
     }
 
-    /// Run `systemctl`, failing loudly on a non-zero exit rather than reporting success
-    /// over a command that did nothing.
-    fn systemctl_checked(&self, arguments: &[&str]) -> Result<()> {
-        execute_checked("systemctl", arguments, &user_bus_environment())
+    /// Run `systemctl` and return its exit code, for queries whose non-zero exit is an
+    /// answer rather than a failure, such as `is-active` reporting an inactive unit.
+    fn systemctl_code(&self, arguments: &[&str]) -> Result<i32> {
+        execute_code("systemctl", arguments, &user_bus_environment())
     }
 
     /// Enable `loginctl` linger so the service persists after logout.
@@ -265,7 +264,7 @@ impl SystemDService {
         self.context
             .log(format!("Enabling loginctl linger for user '{user}'..."));
 
-        if execute("loginctl", &["enable-linger", &user], &[]).unwrap_or(1) != 0 {
+        if execute_code("loginctl", &["enable-linger", &user], &[]).unwrap_or(1) != 0 {
             self.context.log(format!(
                 "WARNING: Failed to enable loginctl linger. Execute 'loginctl enable-linger \
                  {user}' to persist the service after logout."
@@ -292,10 +291,10 @@ impl SystemDService {
     /// Create or update the unit file and register the service.
     fn create(&self) -> Result<()> {
         if write_if_changed(&self.path(), &self.generate()?)? {
-            self.systemctl_checked(&["daemon-reload", "--user"])?;
+            self.systemctl(&["daemon-reload", "--user"])?;
         }
 
-        self.systemctl_checked(&["enable", "--user", &self.label()])?;
+        self.systemctl(&["enable", "--user", &self.label()])?;
         Ok(())
     }
 
@@ -307,7 +306,7 @@ impl SystemDService {
 
 impl Service for SystemDService {
     fn state(&self) -> ServiceState {
-        match self.systemctl(&["is-active", "--user", &self.label()]) {
+        match self.systemctl_code(&["is-active", "--user", &self.label()]) {
             Ok(0) => ServiceState::Running,
             _ => ServiceState::Stopped,
         }
@@ -351,9 +350,9 @@ impl Service for SystemDService {
         }
 
         self.create()?;
-        self.systemctl_checked(&["daemon-reload", "--user"])?;
-        self.systemctl_checked(&["start", "--user", &self.label()])?;
-        self.systemctl_checked(&["enable", "--user", &self.label()])?;
+        self.systemctl(&["daemon-reload", "--user"])?;
+        self.systemctl(&["start", "--user", &self.label()])?;
+        self.systemctl(&["enable", "--user", &self.label()])?;
         Ok(())
     }
 
@@ -362,8 +361,8 @@ impl Service for SystemDService {
             return Ok(());
         }
 
-        self.systemctl_checked(&["stop", "--user", &self.label()])?;
-        self.systemctl_checked(&["disable", "--user", &self.label()])?;
+        self.systemctl(&["stop", "--user", &self.label()])?;
+        self.systemctl(&["disable", "--user", &self.label()])?;
         self.delete()
     }
 
@@ -399,14 +398,16 @@ impl LaunchDService {
         format!("user/{}/{}", user_id(), self.label())
     }
 
-    fn launchctl(&self, arguments: &[&str]) -> Result<i32> {
+    /// Run `launchctl`, failing loudly on a non-zero exit rather than reporting success
+    /// over a command that did nothing.
+    fn launchctl(&self, arguments: &[&str]) -> Result<()> {
         execute("launchctl", arguments, &[])
     }
 
-    /// Run `launchctl`, failing loudly on a non-zero exit rather than reporting success
-    /// over a command that did nothing.
-    fn launchctl_checked(&self, arguments: &[&str]) -> Result<()> {
-        execute_checked("launchctl", arguments, &[])
+    /// Run `launchctl` and return its exit code, for queries whose non-zero exit is an
+    /// answer rather than a failure, such as `list` reporting an unloaded job.
+    fn launchctl_code(&self, arguments: &[&str]) -> Result<i32> {
+        execute_code("launchctl", arguments, &[])
     }
 
     /// Build the plist definition for the launchd agent.
@@ -451,7 +452,7 @@ impl LaunchDService {
     /// Create or update the plist file and register the service.
     fn create(&self) -> Result<()> {
         write_if_changed(&self.path(), &self.generate()?)?;
-        self.launchctl_checked(&["enable", &self.target()])?;
+        self.launchctl(&["enable", &self.target()])?;
         Ok(())
     }
 
@@ -467,7 +468,7 @@ impl Service for LaunchDService {
             return ServiceState::Stopped;
         }
 
-        match self.launchctl(&["list", &self.label()]) {
+        match self.launchctl_code(&["list", &self.label()]) {
             Ok(0) => ServiceState::Running,
             _ => ServiceState::Stopped,
         }
@@ -494,9 +495,9 @@ impl Service for LaunchDService {
         self.create()?;
 
         let path = self.path().to_string_lossy().into_owned();
-        self.launchctl_checked(&["load", "-w", &path])?;
-        self.launchctl_checked(&["enable", &self.target()])?;
-        let _ = self.launchctl(&["start", &self.target()]);
+        self.launchctl(&["load", "-w", &path])?;
+        self.launchctl(&["enable", &self.target()])?;
+        let _ = self.launchctl_code(&["start", &self.target()]);
         Ok(())
     }
 
@@ -506,7 +507,7 @@ impl Service for LaunchDService {
         }
 
         let path = self.path().to_string_lossy().into_owned();
-        self.launchctl_checked(&["unload", "-w", &path])?;
+        self.launchctl(&["unload", "-w", &path])?;
         self.delete()
     }
 
