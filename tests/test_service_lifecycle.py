@@ -38,14 +38,22 @@ def _state(cwd: Path) -> str:
     return "Running" if "Running" in status.stdout else "Stopped"
 
 
-def _diagnostics() -> str:
+def _diagnostics(cwd: Path) -> str:
     """The unit's own story for a failure message, since the state alone says nothing."""
-    report = subprocess.run(
-        ["journalctl", "--user", "-u", f"{_SERVICE_NAME}.service", "-n", "20", "--no-pager"],
-        capture_output=True,
-        text=True,
-    )
-    return "The service never reported Running.\n" + report.stdout + report.stderr
+    status = _run("service", "status", cwd=cwd)
+    environment = {key: value for key, value in os.environ.items() if key != "XDG_RUNTIME_DIR"}
+    environment["XDG_RUNTIME_DIR"] = f"/run/user/{os.getuid()}"
+    pieces = ["The service never reported Running.", status.stdout + status.stderr]
+    for command in (
+        ["journalctl", "--user", "-u", f"{_SERVICE_NAME}.service", "-n", "10", "--no-pager"],
+        ["systemctl", "--user", "is-active", f"{_SERVICE_NAME}.service"],
+        ["systemctl", "--user", "status", f"{_SERVICE_NAME}.service", "--no-pager"],
+    ):
+        report = subprocess.run(command, capture_output=True, text=True, env=environment)
+        pieces.append(f"$ {' '.join(command)} -> {report.returncode}")
+        pieces.append(report.stdout + report.stderr)
+
+    return "\n".join(pieces)
 
 
 def test_service_lifecycle(tmp_path: Path) -> None:
@@ -64,7 +72,7 @@ def test_service_lifecycle(tmp_path: Path) -> None:
 
         deadline = time.monotonic() + 60
         while _state(tmp_path) != "Running":
-            assert time.monotonic() < deadline, _diagnostics()
+            assert time.monotonic() < deadline, _diagnostics(tmp_path)
             time.sleep(1)
 
         # Still up moments later, so a crash looping under Restart=always cannot pass as
