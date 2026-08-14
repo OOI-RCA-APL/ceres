@@ -38,6 +38,16 @@ def _state(cwd: Path) -> str:
     return "Running" if "Running" in status.stdout else "Stopped"
 
 
+def _diagnostics() -> str:
+    """The unit's own story for a failure message, since the state alone says nothing."""
+    report = subprocess.run(
+        ["journalctl", "--user", "-u", f"{_SERVICE_NAME}.service", "-n", "20", "--no-pager"],
+        capture_output=True,
+        text=True,
+    )
+    return "The service never reported Running.\n" + report.stdout + report.stderr
+
+
 def test_service_lifecycle(tmp_path: Path) -> None:
     """The service starts, stays up, and stops, all without a session's own bus."""
     (tmp_path / "ceres.yaml").write_text(
@@ -54,7 +64,7 @@ def test_service_lifecycle(tmp_path: Path) -> None:
 
         deadline = time.monotonic() + 60
         while _state(tmp_path) != "Running":
-            assert time.monotonic() < deadline, "The service never reported Running."
+            assert time.monotonic() < deadline, _diagnostics()
             time.sleep(1)
 
         # Still up moments later, so a crash looping under Restart=always cannot pass as

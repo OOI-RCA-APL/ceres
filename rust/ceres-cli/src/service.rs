@@ -107,10 +107,17 @@ impl ServiceContext {
     }
 
     /// The command line the service executes, this binary's `run` command.
+    ///
+    /// The path is the one this binary was invoked as rather than its resolved location,
+    /// so the service keeps running inside the virtual environment whose `bin` links it
+    /// and its runtime finds that environment's interpreter from a clean spawn.
     fn command(&self) -> Result<Vec<String>> {
-        let current = std::env::current_exe()
-            .and_then(|path| path.canonicalize())
-            .map_err(|error| failure!("Failed to resolve the CLI path. {error}"))?;
+        let current = match crate::runtime::invoked_executable() {
+            Some(path) => path,
+            None => std::env::current_exe()
+                .and_then(|path| path.canonicalize())
+                .map_err(|error| failure!("Failed to resolve the CLI path. {error}"))?,
+        };
 
         Ok(vec![
             current.to_string_lossy().into_owned(),
