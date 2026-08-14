@@ -13,6 +13,8 @@ written, and the release workflow refuses a version that has no entry here.
 - Point `systemctl --user` at the user bus when the session lacks one, enable linger
   before anything needs that bus, and fail service commands loudly when the underlying
   `systemctl` or `launchctl` call fails.
+- Resolve the runtime interpreter from the path the binary was invoked as, so a service
+  spawned with a clean environment finds its own virtual environment.
 
 ## [0.42.0] - 2026-08-14
 
