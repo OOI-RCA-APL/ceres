@@ -28,10 +28,12 @@ let collapsed = $(defineModel<boolean>('collapsed', { required: true }))
 let element = $ref<HTMLElement | null>(null)
 const docked = $(useStripDocked(() => element))
 
-/** Toggle the workspace content, easing a step down into it as it appears. */
+/** Toggle the workspace content, easing a step down into it as it appears. Decided before
+the write because the model reads stale until the parent flushes it back. */
 function toggle() {
+  const showing = collapsed
   collapsed = !collapsed
-  if (!collapsed) {
+  if (showing) {
     void stepIntoWorkspaces()
   }
 }
@@ -67,7 +69,7 @@ defineExpose({ docked: $$(docked), scrollToPin })
         <q-btn
           dense
           flat
-          :icon="collapsed ? icons.menuDown : icons.menuUp"
+          :icon="collapsed ? icons.menuUp : icons.menuDown"
           size="sm"
           @click="toggle"
         >
