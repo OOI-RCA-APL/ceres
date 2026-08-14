@@ -150,13 +150,55 @@ fn current_user() -> String {
 }
 
 /// Run a command silently and return its exit status code.
-fn execute(program: &str, arguments: &[&str]) -> Result<i32> {
-    let result = Command::new(program)
-        .args(arguments)
-        .output()
-        .map_err(|error| failure!("Failed to execute {program}. {error}"))?;
+fn execute(program: &str, arguments: &[&str], environment: &[(&str, String)]) -> Result<i32> {
+    Ok(output_of(program, arguments, environment)?
+        .status
+        .code()
+        .unwrap_or(1))
+}
 
-    Ok(result.status.code().unwrap_or(1))
+/// Run a command silently, failing with its captured stderr on a non-zero exit.
+fn execute_checked(
+    program: &str,
+    arguments: &[&str],
+    environment: &[(&str, String)],
+) -> Result<()> {
+    let output = output_of(program, arguments, environment)?;
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let detail = String::from_utf8_lossy(&output.stderr);
+    let detail = detail.trim();
+    Err(failure!(
+        "`{program} {}` failed with status {}.{}{}",
+        arguments.join(" "),
+        output.status.code().unwrap_or(1),
+        if detail.is_empty() { "" } else { " " },
+        detail,
+    ))
+}
+
+fn output_of(
+    program: &str,
+    arguments: &[&str],
+    environment: &[(&str, String)],
+) -> Result<std::process::Output> {
+    Command::new(program)
+        .args(arguments)
+        .envs(environment.iter().map(|(key, value)| (key, value)))
+        .output()
+        .map_err(|error| failure!("Failed to execute {program}. {error}"))
+}
+
+/// Environment for `systemctl --user`, pointing it at the user bus when the session lacks
+/// the variable, which a shell reached through `su` or a bare ssh session does.
+fn user_bus_environment() -> Vec<(&'static str, String)> {
+    if std::env::var_os("XDG_RUNTIME_DIR").is_some() {
+        return Vec::new();
+    }
+
+    vec![("XDG_RUNTIME_DIR", format!("/run/user/{}", user_id()))]
 }
 
 /// Write a definition file when its contents changed, returning whether a write happened.
@@ -205,16 +247,25 @@ impl SystemDService {
     }
 
     fn systemctl(&self, arguments: &[&str]) -> Result<i32> {
-        execute("systemctl", arguments)
+        execute("systemctl", arguments, &user_bus_environment())
+    }
+
+    /// Run `systemctl`, failing loudly on a non-zero exit rather than reporting success
+    /// over a command that did nothing.
+    fn systemctl_checked(&self, arguments: &[&str]) -> Result<()> {
+        execute_checked("systemctl", arguments, &user_bus_environment())
     }
 
     /// Enable `loginctl` linger so the service persists after logout.
+    ///
+    /// Also what brings the user manager and its bus up on a session-less shell, since
+    /// `loginctl` talks to logind over the system bus and needs no user session itself.
     fn enable_linger(&self) {
         let user = self.context.user();
         self.context
             .log(format!("Enabling loginctl linger for user '{user}'..."));
 
-        if execute("loginctl", &["enable-linger", &user]).unwrap_or(1) != 0 {
+        if execute("loginctl", &["enable-linger", &user], &[]).unwrap_or(1) != 0 {
             self.context.log(format!(
                 "WARNING: Failed to enable loginctl linger. Execute 'loginctl enable-linger \
                  {user}' to persist the service after logout."
@@ -222,13 +273,29 @@ impl SystemDService {
         }
     }
 
+    /// Wait for the user manager's runtime directory after a fresh linger, since logind
+    /// creates it asynchronously and `systemctl --user` fails until it exists.
+    fn await_user_bus(&self) {
+        let Some((_, directory)) = user_bus_environment().into_iter().next() else {
+            return;
+        };
+
+        for _ in 0..50 {
+            if Path::new(&directory).join("bus").exists() {
+                return;
+            }
+
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    }
+
     /// Create or update the unit file and register the service.
     fn create(&self) -> Result<()> {
         if write_if_changed(&self.path(), &self.generate()?)? {
-            self.systemctl(&["daemon-reload", "--user"])?;
+            self.systemctl_checked(&["daemon-reload", "--user"])?;
         }
 
-        self.systemctl(&["enable", "--user", &self.label()])?;
+        self.systemctl_checked(&["enable", "--user", &self.label()])?;
         Ok(())
     }
 
@@ -273,15 +340,20 @@ impl Service for SystemDService {
     }
 
     fn start(&self) -> Result<()> {
+        // Linger comes first because it is what starts the user manager on a machine
+        // nobody is logged in to, and everything after needs that manager's bus.
+        self.enable_linger();
+        self.await_user_bus();
+
         if self.state() == ServiceState::Running {
+            self.context.log("The service is already running.");
             return Ok(());
         }
 
         self.create()?;
-        self.systemctl(&["daemon-reload", "--user"])?;
-        self.systemctl(&["start", "--user", &self.label()])?;
-        self.systemctl(&["enable", "--user", &self.label()])?;
-        self.enable_linger();
+        self.systemctl_checked(&["daemon-reload", "--user"])?;
+        self.systemctl_checked(&["start", "--user", &self.label()])?;
+        self.systemctl_checked(&["enable", "--user", &self.label()])?;
         Ok(())
     }
 
@@ -290,8 +362,8 @@ impl Service for SystemDService {
             return Ok(());
         }
 
-        self.systemctl(&["stop", "--user", &self.label()])?;
-        self.systemctl(&["disable", "--user", &self.label()])?;
+        self.systemctl_checked(&["stop", "--user", &self.label()])?;
+        self.systemctl_checked(&["disable", "--user", &self.label()])?;
         self.delete()
     }
 
@@ -328,7 +400,13 @@ impl LaunchDService {
     }
 
     fn launchctl(&self, arguments: &[&str]) -> Result<i32> {
-        execute("launchctl", arguments)
+        execute("launchctl", arguments, &[])
+    }
+
+    /// Run `launchctl`, failing loudly on a non-zero exit rather than reporting success
+    /// over a command that did nothing.
+    fn launchctl_checked(&self, arguments: &[&str]) -> Result<()> {
+        execute_checked("launchctl", arguments, &[])
     }
 
     /// Build the plist definition for the launchd agent.
@@ -373,7 +451,7 @@ impl LaunchDService {
     /// Create or update the plist file and register the service.
     fn create(&self) -> Result<()> {
         write_if_changed(&self.path(), &self.generate()?)?;
-        self.launchctl(&["enable", &self.target()])?;
+        self.launchctl_checked(&["enable", &self.target()])?;
         Ok(())
     }
 
@@ -416,8 +494,8 @@ impl Service for LaunchDService {
         self.create()?;
 
         let path = self.path().to_string_lossy().into_owned();
-        self.launchctl(&["load", "-w", &path])?;
-        self.launchctl(&["enable", &self.target()])?;
+        self.launchctl_checked(&["load", "-w", &path])?;
+        self.launchctl_checked(&["enable", &self.target()])?;
         let _ = self.launchctl(&["start", &self.target()]);
         Ok(())
     }
@@ -428,7 +506,7 @@ impl Service for LaunchDService {
         }
 
         let path = self.path().to_string_lossy().into_owned();
-        self.launchctl(&["unload", "-w", &path])?;
+        self.launchctl_checked(&["unload", "-w", &path])?;
         self.delete()
     }
 
