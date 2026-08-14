@@ -6,6 +6,10 @@ export default defineNuxtConfig({
   ssr: false,
   // Nuxt UI registers the Tailwind Vite plugin itself, adding it here breaks the build.
   modules: ['@vue-macros/nuxt', '@nuxt/eslint', '@pinia/nuxt', '@nuxt/ui'],
+  ui: {
+    // Nuxt UI components register as C* (c-button, c-modal), the console's own prefix.
+    prefix: 'C',
+  },
   vue: {
     // Allow safe destructured assignment of component props.
     propsDestructure: true,

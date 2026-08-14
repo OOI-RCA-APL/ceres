@@ -1,7 +1,10 @@
 <script lang="ts" setup>
 import { type TextVariant, variantClasses } from '@/components/base/c-text.vue'
+import icons from '@/icons'
 
 const colorMode = useColorMode()
+
+const iconEntries = Object.entries(icons)
 
 // Written out statically so the Tailwind scanner sees every class.
 const semanticColors = [
@@ -82,6 +85,16 @@ function toggleColorMode() {
     <section class="flex flex-col gap-3">
       <c-text element="h2" variant="title2">Monospace</c-text>
       <c-text element="pre" variant="mono-lg">ceres run all --watch 0123456789</c-text>
+    </section>
+
+    <section class="flex flex-col gap-3">
+      <c-text element="h2" variant="title2">Icons</c-text>
+      <div class="grid grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-2">
+        <div v-for="[name, icon] in iconEntries" :key="name" class="flex items-center gap-2">
+          <c-icon class="size-5" :name="icon" />
+          <c-text element="span" variant="description">{{ name }}</c-text>
+        </div>
+      </div>
     </section>
   </div>
 </template>
