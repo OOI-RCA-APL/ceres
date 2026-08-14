@@ -2,6 +2,8 @@
 export type ConfirmDialogProps = {
   title?: string
   message?: string
+  /** Secondary consequence text shown under the message, muted. */
+  note?: string
   persistent?: boolean
   okLabel?: string
   okColor?: 'primary' | 'error' | 'warning'
@@ -23,6 +25,9 @@ const emit = defineEmits<{ close: [boolean] }>()
 
 <template>
   <c-modal :description="message" :dismissible="!persistent" :title="title">
+    <template v-if="note != null" #body>
+      <c-text class="italic" variant="description">{{ note }}</c-text>
+    </template>
     <template #footer>
       <div class="flex w-full justify-end gap-2">
         <c-button color="neutral" variant="ghost" @click="emit('close', false)">

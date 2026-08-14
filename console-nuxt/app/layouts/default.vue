@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import { useEngine } from '@/api/engine'
+import { appHeaderHeight } from '@/components/c-full-page.vue'
 import constants from '@/constants'
 import { useDrawer } from '@/drawer'
 import icons from '@/icons'
@@ -10,9 +11,14 @@ const drawer = useDrawer()
 const navigation = useNavigation()
 </script>
 
+<!-- The window is the scroll container, which is what lets page headers and the workspace tab
+strip pin with `position: sticky` and the scroll-memory helpers read `window.scrollY`. -->
 <template>
-  <div class="flex h-screen flex-col">
-    <header class="flex shrink-0 items-center gap-3 bg-primary px-3 py-2 text-white">
+  <div>
+    <header
+      class="sticky top-0 z-10 flex items-center gap-3 bg-primary px-3 text-white"
+      :style="{ height: `${appHeaderHeight}px` }"
+    >
       <c-button
         color="neutral"
         :icon="icons.drawer"
@@ -26,17 +32,15 @@ const navigation = useNavigation()
       <div class="flex-1" />
       <c-utc-clock />
     </header>
-    <div class="flex min-h-0 flex-1">
-      <aside
-        v-if="drawer.isOpen"
-        class="shrink-0 overflow-y-auto border-r border-accented"
-        :style="{ width: `${drawer.width}px` }"
-      >
-        <c-text class="p-4" variant="description">The component tree lands in slice 3.</c-text>
-      </aside>
-      <main class="min-w-0 flex-1 overflow-y-auto">
-        <slot />
-      </main>
-    </div>
+    <aside
+      v-if="drawer.isOpen"
+      class="fixed bottom-0 z-10 overflow-y-auto border-r border-accented bg-default"
+      :style="{ top: `${appHeaderHeight}px`, width: `${drawer.width}px` }"
+    >
+      <c-text class="p-4" variant="description">The component tree lands in slice 3.</c-text>
+    </aside>
+    <main :style="{ marginLeft: drawer.isOpen ? `${drawer.width}px` : undefined }">
+      <slot />
+    </main>
   </div>
 </template>

@@ -1,6 +1,6 @@
 import { useEventListener, useResizeObserver } from '@vueuse/core'
 import { defineStore } from 'pinia'
-import { computed, type MaybeRefOrGetter, nextTick, ref, toValue, watch } from 'vue'
+import { computed, type MaybeRefOrGetter, nextTick, toValue, watch } from 'vue'
 import type { LocationQuery } from 'vue-router'
 import * as z from 'zod'
 
@@ -31,7 +31,7 @@ horizontal scrollbar band the sticky strip pins above, and re-measured on scroll
 whenever the page's own size changes, and as the strip appears.
 */
 export function useStripDocked(element: MaybeRefOrGetter<HTMLElement | null>) {
-  const docked = ref(false)
+  let docked = $ref(false)
   let scheduled = false
 
   // One layout read per frame however many triggers fire, so a scroll never pays a forced
@@ -47,7 +47,7 @@ export function useStripDocked(element: MaybeRefOrGetter<HTMLElement | null>) {
 
       // The slack covers the fractional pixels browser zoom introduces on both measurements.
       const box = toValue(element)?.getBoundingClientRect()
-      docked.value = box != null && box.bottom >= document.documentElement.clientHeight - 2
+      docked = box != null && box.bottom >= document.documentElement.clientHeight - 2
     })
   }
 
@@ -63,7 +63,7 @@ export function useStripDocked(element: MaybeRefOrGetter<HTMLElement | null>) {
     { immediate: true },
   )
 
-  return docked
+  return $$(docked)
 }
 
 export type TabSet = z.infer<typeof TabSetModel>

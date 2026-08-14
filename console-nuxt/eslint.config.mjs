@@ -26,7 +26,18 @@ export default withNuxt([
       'vue/attributes-order': ['warn', { alphabetical: true }],
       'vue/block-order': ['warn', { order: ['script', 'template', 'style'] }],
       'vue/multi-word-component-names': 'off',
+      // Workspace models are live objects edited in place through props, so only reassigning a
+      // prop binding itself is an error.
+      'vue/no-mutating-props': ['error', { shallowOnly: true }],
       'vue/require-default-prop': 'off',
+    },
+  },
+  {
+    files: ['**/*.vue'],
+    rules: {
+      // A component with a plain script block for named exports and a setup block for the rest
+      // reads as exports-before-imports once the blocks are concatenated.
+      'import/first': 'off',
     },
   },
 ])
