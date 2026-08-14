@@ -15,13 +15,11 @@ export default defineNuxtConfig({
     preference: 'dark',
     fallback: 'dark',
   },
-  // Don't prefix global component names with their path. The base layer is excluded
-  // so every base component arrives by explicit import from @/components/base.
+  // Don't prefix global component names with their path.
   components: [
     {
       path: '@/components',
       pathPrefix: false,
-      ignore: ['base/**'],
     },
   ],
   devServer: {

@@ -1,6 +1,6 @@
 <template>
-  <div class="p-8">
-    <h1 class="text-[22px] font-light leading-normal">Ceres</h1>
-    <p class="text-sm text-muted">The app shell lands in task 0.7.</p>
+  <div class="flex flex-col gap-2 p-8">
+    <c-text element="h1" variant="title1">Ceres</c-text>
+    <c-text variant="description">The app shell lands in task 0.7.</c-text>
   </div>
 </template>

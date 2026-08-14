@@ -1,4 +1,6 @@
 <script lang="ts" setup>
+import { type TextVariant, variantClasses } from '@/components/base/c-text.vue'
+
 const colorMode = useColorMode()
 
 // Written out statically so the Tailwind scanner sees every class.
@@ -19,16 +21,7 @@ const surfaces = [
   { name: 'inverted', classes: 'bg-inverted' },
 ]
 
-const typeRamp = [
-  { variant: 'title1', classes: 'text-[22px] font-light leading-normal' },
-  { variant: 'title2', classes: 'text-lg font-light leading-normal' },
-  { variant: 'title3', classes: 'text-sm font-light leading-normal' },
-  { variant: 'body1', classes: 'text-base font-normal leading-6 tracking-[0.03125em]' },
-  { variant: 'body2', classes: 'text-sm font-normal leading-6 tracking-[0.03125em]' },
-  { variant: 'th', classes: 'text-xs font-medium' },
-  { variant: 'description', classes: 'text-[11px] text-muted' },
-  { variant: 'value', classes: 'text-lg font-light leading-normal' },
-]
+const typeRamp = Object.keys(variantClasses) as TextVariant[]
 
 function toggleColorMode() {
   colorMode.preference = colorMode.value === 'dark' ? 'light' : 'dark'
@@ -38,18 +31,14 @@ function toggleColorMode() {
 <template>
   <div class="flex flex-col gap-8 p-8">
     <div class="flex items-center gap-4">
-      <h1 class="text-[22px] font-light leading-normal">Theme</h1>
-      <button
-        class="rounded border border-accented px-3 py-1 text-sm"
-        type="button"
-        @click="toggleColorMode"
-      >
+      <c-text element="h1" variant="title1">Theme</c-text>
+      <c-button color="neutral" variant="outline" @click="toggleColorMode">
         {{ colorMode.value === 'dark' ? 'Switch to light' : 'Switch to dark' }}
-      </button>
+      </c-button>
     </div>
 
     <section class="flex flex-col gap-3">
-      <h2 class="text-lg font-light leading-normal">Semantic Colors</h2>
+      <c-text element="h2" variant="title2">Semantic Colors</c-text>
       <div class="flex flex-wrap gap-4">
         <div
           v-for="color in semanticColors"
@@ -57,13 +46,13 @@ function toggleColorMode() {
           class="flex flex-col items-center gap-1"
         >
           <div class="h-16 w-24 rounded" :class="color.classes" />
-          <span class="text-xs font-medium">{{ color.name }}</span>
+          <c-text element="span" variant="th">{{ color.name }}</c-text>
         </div>
       </div>
     </section>
 
     <section class="flex flex-col gap-3">
-      <h2 class="text-lg font-light leading-normal">Surfaces</h2>
+      <c-text element="h2" variant="title2">Surfaces</c-text>
       <div class="flex flex-wrap gap-4">
         <div
           v-for="surface in surfaces"
@@ -71,24 +60,28 @@ function toggleColorMode() {
           class="flex flex-col items-center gap-1"
         >
           <div class="h-16 w-24 rounded border border-accented" :class="surface.classes" />
-          <span class="text-xs font-medium">{{ surface.name }}</span>
+          <c-text element="span" variant="th">{{ surface.name }}</c-text>
         </div>
       </div>
     </section>
 
     <section class="flex flex-col gap-3">
-      <h2 class="text-lg font-light leading-normal">Type Ramp</h2>
+      <c-text element="h2" variant="title2">Type Ramp</c-text>
       <div class="flex flex-col gap-2">
-        <div v-for="entry in typeRamp" :key="entry.variant" class="flex items-baseline gap-4">
-          <span class="w-24 shrink-0 text-xs font-medium text-muted">{{ entry.variant }}</span>
-          <span :class="entry.classes">The five boxing wizards jump quickly. 0123456789</span>
+        <div v-for="variant in typeRamp" :key="variant" class="flex items-baseline gap-4">
+          <c-text class="w-24 shrink-0 text-muted" element="span" variant="th">
+            {{ variant }}
+          </c-text>
+          <c-text element="span" :variant="variant">
+            The five boxing wizards jump quickly. 0123456789
+          </c-text>
         </div>
       </div>
     </section>
 
     <section class="flex flex-col gap-3">
-      <h2 class="text-lg font-light leading-normal">Monospace</h2>
-      <pre class="font-mono text-sm">ceres run all --watch  0123456789</pre>
+      <c-text element="h2" variant="title2">Monospace</c-text>
+      <c-text element="pre" variant="mono-lg">ceres run all --watch 0123456789</c-text>
     </section>
   </div>
 </template>
