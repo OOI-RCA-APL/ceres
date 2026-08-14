@@ -14,6 +14,7 @@ endif
 
 build: install
 	cd console && make build
+	cd console-nuxt && make build
 	mkdir -p ceres.__internal__.core.data/scripts
 	touch ceres.__internal__.core.data/scripts/.keep
 # Built one at a time, because a plain `uv build` builds the wheel from the unpacked sdist
@@ -23,17 +24,20 @@ build: install
 install:
 	uv sync
 	cd console && make install
+	cd console-nuxt && make install
 	cd rust && cargo build $(CARGO_PROFILE) -p ceres-cli
 	ln -sf ../../rust/target/$(CARGO_OUTPUT)/ceres .venv/bin/ceres
 update:
 	uv update
 	cd console && make update
+	cd console-nuxt && make update
 # Distributed across cores, which needs the capture that `-s` in the pytest options turns
 # off. A bare `pytest` still runs serially, where `-s` is what makes a single test readable.
 test:
 	uv run pytest -n auto --capture=fd
 	cd rust && cargo test && cargo test -p ceres-core
 	cd console && make test
+	cd console-nuxt && make test
 test-postgres:
 	uv run pytest -vv -s --database postgres
 test-turso:
@@ -61,11 +65,13 @@ test-all:
 lint:
 	uv run sh -c "ruff check . && ruff format --check . && pyright"
 	cd console && make lint
+	cd console-nuxt && make lint
 	cd rust && cargo fmt --check && cargo clippy --all-targets -- -D warnings
 	cd rust && cargo clippy -p ceres-core --all-targets -- -D warnings
 fix:
 	uv run sh -c "ruff check --fix . && ruff format ."
 	cd console && make fix
+	cd console-nuxt && make fix
 	cd rust && cargo fmt && cargo clippy --fix --allow-dirty --allow-staged --all-targets
 	cd rust && cargo stubs
 build-docs: install-docs
