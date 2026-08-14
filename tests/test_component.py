@@ -344,6 +344,8 @@ class RoutineComponent(Component):
 
 
 async def test_routines() -> None:
+    from tests.testing import wait_for_condition
+
     class RunsOnce(RoutineComponent):
         @routine
         async def main(self) -> None:
@@ -409,7 +411,18 @@ async def test_routines() -> None:
     for component in components:
         component.system.start()
 
-    await sleep(2)
+    # Waited on rather than slept for, since a loaded runner can hold any of these tasks
+    # past a fixed window. The thresholds match the assertions below.
+    await wait_for_condition(
+        "every routine has made the progress the assertions require",
+        lambda: (
+            runs_once.count == 1
+            and runs_forever.count > 1
+            and restarts_forever.count > 2
+            and crashes_forever.count > 2
+        ),
+        timeout=30,
+    )
 
     for component in components:
         await component.system.settle()
