@@ -1,2 +1,34 @@
 @import 'tailwindcss';
 @import '@nuxt/ui';
+@import '@fontsource-variable/inter';
+@import '@fontsource/roboto-mono';
+
+@theme {
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Roboto Mono', ui-monospace, monospace;
+}
+
+/* Static, because the scale is reached only through Nuxt UI's --ui-color-* indirection
+   and Tailwind would otherwise tree-shake it as unused. */
+@theme static {
+  /* The brand blue, anchored at the 600 step. */
+  --color-ceres-50: #f0f9fc;
+  --color-ceres-100: #ddf1f8;
+  --color-ceres-200: #bce3f1;
+  --color-ceres-300: #8bcfe6;
+  --color-ceres-400: #4fb3d6;
+  --color-ceres-500: #1897c2;
+  --color-ceres-600: #007dab;
+  --color-ceres-700: #00648a;
+  --color-ceres-800: #065371;
+  --color-ceres-900: #0b455e;
+  --color-ceres-950: #062c3e;
+}
+
+:root {
+  --ui-primary: var(--ui-color-primary-600);
+}
+
+.dark {
+  --ui-primary: var(--ui-color-primary-400);
+}
