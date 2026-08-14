@@ -35,7 +35,8 @@ def _run(*arguments: str, cwd: Path) -> subprocess.CompletedProcess[str]:
 def _state(cwd: Path) -> str:
     status = _run("service", "status", cwd=cwd)
     assert status.returncode == 0, status.stdout + status.stderr
-    return "Running" if "Running" in status.stdout else "Stopped"
+    # The CLI renders tables to stderr, keeping stdout for structured results.
+    return "Running" if "Running" in status.stderr else "Stopped"
 
 
 def _diagnostics(cwd: Path) -> str:
