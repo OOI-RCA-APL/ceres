@@ -40,7 +40,7 @@ function toggleColorMode() {
     <div class="flex items-center gap-4">
       <h1 class="text-[22px] font-light leading-normal">Theme</h1>
       <button
-        class="cursor-pointer rounded border border-accented px-3 py-1 text-sm"
+        class="rounded border border-accented px-3 py-1 text-sm"
         type="button"
         @click="toggleColorMode"
       >

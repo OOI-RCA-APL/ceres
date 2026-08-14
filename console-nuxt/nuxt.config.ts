@@ -15,11 +15,13 @@ export default defineNuxtConfig({
     preference: 'dark',
     fallback: 'dark',
   },
-  // Don't prefix global component names with their path.
+  // Don't prefix global component names with their path. The base layer is excluded
+  // so every base component arrives by explicit import from @/components/base.
   components: [
     {
       path: '@/components',
       pathPrefix: false,
+      ignore: ['base/**'],
     },
   ],
   devServer: {
@@ -31,7 +33,7 @@ export default defineNuxtConfig({
     'pages:extend'(pages) {
       if (process.env.NODE_ENV === 'production') {
         const withoutDeveloperPages = pages.filter(
-          (page) => !(page.path ?? '').startsWith('/developer')
+          (page) => !(page.path ?? '').startsWith('/developer'),
         )
         pages.splice(0, pages.length, ...withoutDeveloperPages)
       }
