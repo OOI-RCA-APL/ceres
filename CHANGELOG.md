@@ -8,6 +8,8 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+## [0.43.0] - 2026-08-14
+
 **CLI**
 
 - Require and type-check create arguments in the parser, so a missing flag or a value
