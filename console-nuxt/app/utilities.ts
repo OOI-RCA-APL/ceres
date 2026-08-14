@@ -213,3 +213,17 @@ export function getHttpUrl(relative: string) {
 export function toTitle(text: string): string {
   return titleCase(text.replace(/[-_ \t\n\r]+/g, ' '))
 }
+
+export async function copyText(text: string) {
+  await navigator.clipboard.writeText(text)
+}
+
+/** Save `content` as a file download named `name`. */
+export function downloadFile(name: string, content: string, type = 'application/json') {
+  const url = URL.createObjectURL(new Blob([content], { type }))
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = name
+  anchor.click()
+  URL.revokeObjectURL(url)
+}
