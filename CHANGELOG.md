@@ -8,6 +8,8 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+## [0.42.1] - 2026-08-14
+
 **CLI**
 
 - Point `systemctl --user` at the user bus when the session lacks one, enable linger
