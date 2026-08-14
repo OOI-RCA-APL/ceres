@@ -191,10 +191,14 @@ export function roundTo(number: number, increment: number, offset: number = 0) {
   return Math.round((number - offset) / increment) * increment + offset
 }
 
-// The dev server proxies /api over the same origin, websockets included, so production and
-// development both derive from the page location.
+// In development the engine is reached on its own port, because the dev proxy covers
+// plain HTTP but cannot upgrade websockets. Production serves same-origin.
 function originUrl(protocol: string, relative: string) {
-  const port = window.location.port !== '' ? ':' + window.location.port : ''
+  const port = import.meta.dev
+    ? `:${import.meta.env.VITE_CERES_API_PORT ?? '8080'}`
+    : window.location.port !== ''
+      ? ':' + window.location.port
+      : ''
   return `${protocol}://${window.location.hostname}${port}${relative}`
 }
 

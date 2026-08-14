@@ -41,12 +41,13 @@ export default defineNuxtConfig({
       }
     },
   },
+  // HTTP only. Websockets connect straight to the engine port in development, the dev
+  // proxy cannot upgrade them and a failed upgrade restarts the dev server.
   nitro: {
     devProxy: {
       '/api': {
         target: 'http://localhost:8080/api',
         changeOrigin: true,
-        ws: true,
       },
     },
   },

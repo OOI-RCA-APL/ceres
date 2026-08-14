@@ -1,0 +1,104 @@
+import { defineStore } from 'pinia'
+import { computed, reactive } from 'vue'
+import {
+  type RouteLocationNormalizedLoaded,
+  type RouteLocationRaw,
+  useRoute,
+  useRouter,
+} from 'vue-router'
+
+declare module 'vue-router' {
+  interface RouteMeta {
+    /** `true` requires a signed-in user, `'admin'` requires an administrator. */
+    auth?: boolean | 'admin'
+  }
+}
+
+declare module '#app' {
+  interface PageMeta {
+    auth?: boolean | 'admin'
+  }
+}
+
+/** Whether `user` may visit `route`, per the route's `auth` metadata. */
+export function userCanAccess(
+  user: { admin?: boolean } | null,
+  route: { matched: { meta: { auth?: boolean | 'admin' } }[] },
+): boolean {
+  const requiresAdmin = route.matched.some((record) => record.meta.auth === 'admin')
+  const requiresAuthenticated = route.matched.some((record) => record.meta.auth === true)
+
+  if (requiresAdmin) {
+    return user?.admin === true
+  }
+
+  if (requiresAuthenticated) {
+    return user != null
+  }
+
+  return true
+}
+
+export function getLoginRedirectPath(redirect: string) {
+  return `/login?redirect=${encodeURI(redirect)}`
+}
+
+export const useNavigation = defineStore('navigation', () => {
+  const route = useRoute()
+  const router = useRouter()
+
+  const state = reactive({
+    reloads: 0,
+  })
+
+  const self = {
+    key: computed(() => `${route.path}|${state.reloads}`),
+    route: computed(() => route),
+    router: computed(() => router),
+
+    reload() {
+      state.reloads++
+    },
+
+    refresh() {
+      router.go(0)
+    },
+
+    async go(to: RouteLocationRaw) {
+      const { href } = router.resolve(to)
+      const url = new URL(`http://domain${href}`)
+      const path = url.pathname
+
+      if (route.path === path) {
+        await router.replace(to)
+        self.reload()
+      } else {
+        await router.push(to)
+      }
+    },
+
+    async push(to: RouteLocationRaw) {
+      await router.push(to)
+    },
+
+    async replace(to: RouteLocationRaw) {
+      await router.replace(to)
+    },
+
+    resolve(to: RouteLocationRaw, currentLocation?: RouteLocationNormalizedLoaded) {
+      return router.resolve(to, currentLocation)
+    },
+
+    back() {
+      router.back()
+    },
+
+    forward() {
+      router.forward()
+    },
+  }
+
+  return self
+})
+
+export type Navigation = ReturnType<typeof useNavigation>
