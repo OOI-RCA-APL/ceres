@@ -17,7 +17,9 @@ export default withNuxt([
       'max-len': ['warn', 100, 2, { ignoreStrings: true }],
       'no-undef': 'off', // Handled by TypeScript.
       'prefer-const': 'off', // For `$ref` macros to use `let` properly.
+      '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-unused-vars': 'warn',
+      '@typescript-eslint/restrict-template-expressions': 'off',
       'imports/no-unresolved': 'off',
       'imports/order': ['warn', { 'newlines-between': 'always', alphabetize: { order: 'asc' } }],
       'unused-imports/no-unused-imports': 'warn',
