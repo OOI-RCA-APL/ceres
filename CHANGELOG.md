@@ -8,6 +8,32 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+**Web Console**
+
+- Build chart and meter widgets from a component's declared particle fields, selected in a
+  searchable tree, dragged into a workspace, or created from the context menu.
+- Rename value widgets to meters, migrating stored widgets on load.
+- Derive a chart's Y axis unit from the plotted fields' declared units when its own unit
+  setting is blank.
+- Keep the workspace tab strip on screen at both edges of the page, with a toggle that
+  shows and hides the workspace content.
+- Drag workspaces between the "Shared" and "Private" groups with a copy-or-move choice,
+  and edit visibility from "Workspace Settings" behind the same lost-access warning.
+- Serve workspaces flagged "Show On Home" to anonymous visitors, redacted, and offer a
+  "Log In" button on the signed-out home page.
+- Unlock control widget arguments by default and show them in the confirm dialog.
+- Offer widget rename on hover, and link procedures and meter widgets to their component
+  from the widget context menu.
+
+**API**
+
+- Embed each component's declared particle types in the components listing.
+
+**Engine**
+
+- Derive the particle types a component emits, retrievable with their field schemas.
+- Add a `Unit` field marker that publishes a measurement unit in a field's JSON schema.
+
 ## [0.41.2] - 2026-08-10
 
 **Fixes**

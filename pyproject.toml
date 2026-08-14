@@ -8,7 +8,7 @@ build-backend = "maturin"
 # `ceres` alias wheel, one pure-Python shim pinning this distribution, so the bare name
 # resolves from the project's own package index.
 name = "ceres-engine"
-version = "0.41.2"
+version = "0.42.0"
 description = "A Python framework for data collection, monitoring and device control."
 # The documentation home page doubles as the rendered description on PyPI, which is why its
 # links and images are absolute rather than relative to the repository.
