@@ -1339,9 +1339,9 @@ Create a setting
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
 | `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
-| `--user-id` `VALUE` |  | The setting's user-id. |
-| `--name` `VALUE` |  | The setting's name. |
-| `--value` `VALUE` |  | The setting's value. |
+| `--user-id` `VALUE` | yes | The setting's user-id. |
+| `--name` `VALUE` | yes | The setting's name. |
+| `--value` `VALUE` | yes | The setting's value. |
 
 #### `ceres settings update`
 
@@ -1493,9 +1493,9 @@ Create a user
 | `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--id` `VALUE` |  | The user's id. |
-| `--username` `VALUE` |  | The user's username. |
-| `--email` `VALUE` |  | The user's email. |
-| `--password` `VALUE` |  | The user's password. |
+| `--username` `VALUE` | yes | The user's username. |
+| `--email` `VALUE` | yes | The user's email. |
+| `--password` `VALUE` |  | The user's password. Prompted for, hidden, when omitted. |
 | `--admin` |  | Mark the user admin. Pass `--no-admin` for the opposite. |
 | `--disabled` |  | Mark the user disabled. Pass `--no-disabled` for the opposite. |
 
@@ -1651,9 +1651,9 @@ Create a variable
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
 | `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
-| `--address` `VALUE` |  | The variable's address. |
-| `--name` `VALUE` |  | The variable's name. |
-| `--value` `VALUE` |  | The variable's value. |
+| `--address` `VALUE` | yes | The variable's address. |
+| `--name` `VALUE` | yes | The variable's name. |
+| `--value` `VALUE` | yes | The variable's value. |
 
 #### `ceres variables update`
 
@@ -1808,7 +1808,7 @@ Create a workspace
 | `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--id` `VALUE` |  | The workspace's id. |
-| `--name` `VALUE` |  | The workspace's name. |
+| `--name` `VALUE` | yes | The workspace's name. |
 | `--scope` `VALUE` |  | The workspace's scope. |
 | `--owner-id` `VALUE` |  | The workspace's owner-id. |
 | `--show-when-logged-out` |  | Mark the workspace show-when-logged-out. Pass `--no-show-when-logged-out` for the opposite. |
@@ -1946,9 +1946,9 @@ Create a workspace edit
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
 | `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
-| `--user-id` `VALUE` |  | The workspace edit's user-id. |
-| `--workspace-id` `VALUE` |  | The workspace edit's workspace-id. |
-| `--data` `VALUE` |  | The workspace edit's data. |
+| `--user-id` `VALUE` | yes | The workspace edit's user-id. |
+| `--workspace-id` `VALUE` | yes | The workspace edit's workspace-id. |
+| `--data` `VALUE` | yes | The workspace edit's data. |
 
 #### `ceres workspace-edits update`
 
@@ -2076,7 +2076,7 @@ Create a group
 | `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--id` `VALUE` |  | The group's id. |
-| `--name` `VALUE` |  | The group's name. |
+| `--name` `VALUE` | yes | The group's name. |
 | `--description` `VALUE` |  | The group's description. |
 
 #### `ceres groups update`
@@ -2201,8 +2201,8 @@ Create a group membership
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
 | `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
-| `--user-id` `VALUE` |  | The group membership's user-id. |
-| `--group-id` `VALUE` |  | The group membership's group-id. |
+| `--user-id` `VALUE` | yes | The group membership's user-id. |
+| `--group-id` `VALUE` | yes | The group membership's group-id. |
 
 #### `ceres group-memberships update`
 
@@ -2326,10 +2326,10 @@ Create a user permission
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
 | `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
-| `--user-id` `VALUE` |  | The user permission's user-id. |
-| `--target-type` `VALUE` |  | The user permission's target-type. |
-| `--target` `VALUE` |  | The user permission's target. |
-| `--level` `VALUE` |  | The user permission's level. |
+| `--user-id` `VALUE` | yes | The user permission's user-id. |
+| `--target-type` `VALUE` | yes | The user permission's target-type. |
+| `--target` `VALUE` | yes | The user permission's target. |
+| `--level` `VALUE` | yes | The user permission's level. |
 
 #### `ceres user-permissions update`
 
@@ -2457,10 +2457,10 @@ Create a group permission
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
 | `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
-| `--group-id` `VALUE` |  | The group permission's group-id. |
-| `--target-type` `VALUE` |  | The group permission's target-type. |
-| `--target` `VALUE` |  | The group permission's target. |
-| `--level` `VALUE` |  | The group permission's level. |
+| `--group-id` `VALUE` | yes | The group permission's group-id. |
+| `--target-type` `VALUE` | yes | The group permission's target-type. |
+| `--target` `VALUE` | yes | The group permission's target. |
+| `--level` `VALUE` | yes | The group permission's level. |
 
 #### `ceres group-permissions update`
 

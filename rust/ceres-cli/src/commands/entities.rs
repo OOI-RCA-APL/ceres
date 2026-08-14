@@ -53,7 +53,7 @@ impl Dumpable for EntityTable {
         self,
         pairs: &[(String, String)],
         credentials: Option<Credentials>,
-    ) -> Option<Entities> {
+    ) -> std::result::Result<Entities, String> {
         ceres_database::build_entity(self, pairs, credentials)
     }
 
@@ -154,7 +154,7 @@ mod tests {
         // ordinary case carries rules and every verb serves.
         assert!(rules().is_some());
         for arguments in [
-            &["create", "--username", "ada"][..],
+            &["create", "--username", "ada", "--email", "ada@example.com"][..],
             &["load", "users.jsonl"][..],
             &["update", "--assign", "{}"][..],
             &["select"][..],
@@ -171,7 +171,7 @@ mod tests {
         // password hashed some other way than the database asked for is worse than not
         // storing it. Reads carry on natively.
         for arguments in [
-            &["create", "--username", "ada"][..],
+            &["create", "--username", "ada", "--email", "ada@example.com"][..],
             &["load", "users.jsonl"][..],
             &["update", "--assign", "{}"][..],
         ] {
@@ -184,12 +184,18 @@ mod tests {
         assert!(EntityTable::Users.serves(&read(EntityTable::Users, &["select"]), None));
 
         // No other table has a column these rules touch so none of them ever needs one.
-        for table in [
-            EntityTable::Variables,
-            EntityTable::Settings,
-            EntityTable::Workspaces,
+        for (table, arguments) in [
+            (
+                EntityTable::Variables,
+                &["create", "--address", "@a", "--name", "x", "--value", "1"][..],
+            ),
+            (
+                EntityTable::Settings,
+                &["create", "--user-id", "u", "--name", "x", "--value", "1"][..],
+            ),
+            (EntityTable::Workspaces, &["create", "--name", "x"][..]),
         ] {
-            assert!(table.serves(&read(table, &["create", "--name", "x"]), None));
+            assert!(table.serves(&read(table, arguments), None));
             assert!(table.serves(&read(table, &["load", "rows.jsonl"]), None));
         }
     }
@@ -282,13 +288,22 @@ mod tests {
         // be able to set one so the two surfaces are built from different lists.
         let invocation = read(
             EntityTable::Users,
-            &["create", "--username", "ada", "--password", "secret"],
+            &[
+                "create",
+                "--username",
+                "ada",
+                "--email",
+                "ada@example.com",
+                "--password",
+                "secret",
+            ],
         );
 
         assert_eq!(
             invocation.pairs,
             vec![
                 ("username".to_string(), "ada".to_string()),
+                ("email".to_string(), "ada@example.com".to_string()),
                 ("password".to_string(), "secret".to_string()),
             ]
         );

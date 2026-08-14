@@ -39,7 +39,7 @@ impl Dumpable for RecordTable {
         self,
         pairs: &[(String, String)],
         _credentials: Option<Credentials>,
-    ) -> Option<Records> {
+    ) -> std::result::Result<Records, String> {
         ceres_database::build(self, pairs)
     }
 

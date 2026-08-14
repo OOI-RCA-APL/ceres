@@ -879,12 +879,12 @@ where
         Filter::parse(self, pairs)
     }
 
-    /// Build the one row a create names, `None` when a value cannot be stored as given.
+    /// Build the one row a create names, the failure naming the field and reason.
     fn build(
         self,
         pairs: &[(String, String)],
         credentials: Option<Credentials>,
-    ) -> Option<Self::Batch>;
+    ) -> std::result::Result<Self::Batch, String>;
 
     /// Open a load's batches, `None` when the file's first row names no columns.
     fn batches(
@@ -999,6 +999,29 @@ pub(crate) fn render<B: RenderRows>(
         .map_err(|error| ceres_database::Error::Decode(error.to_string()))
 }
 
+/// Ask for a password with echo off, twice, so a typo cannot land in the database.
+fn prompt_password() -> Result<String> {
+    use std::io::IsTerminal;
+
+    if !std::io::stdin().is_terminal() {
+        return Err(crate::error::Exit::failed(
+            "A password is required. Pass --password, or run interactively to be \
+             prompted for one.",
+        ));
+    }
+
+    let read = |prompt| {
+        rpassword::prompt_password(prompt)
+            .map_err(|error| crate::error::Exit::failed(format!("Failed to read it. {error}")))
+    };
+    let password = read("Password: ")?;
+    if password != read("Repeat password: ")? {
+        return Err(crate::error::Exit::failed("The passwords do not match."));
+    }
+
+    Ok(password)
+}
+
 /// Run one table command.
 pub(crate) fn run<T: Dumpable>(
     table: T,
@@ -1045,12 +1068,18 @@ where
         let parsed = table.parse(&invocation.pairs).map_err(refused)?;
         filter = Some(parsed);
     } else if invocation.verb == Verb::Create {
-        let Some(built) = table.build(&invocation.pairs, credentials) else {
-            return Err(crate::error::Exit::failed(
-                "This create names a value that cannot be stored as given. Check the \
-                 types each field takes with --help.",
-            ));
-        };
+        // A password never has to travel on the command line, where it lands in shell
+        // history. An absent one is prompted for with echo off.
+        let mut pairs = invocation.pairs.clone();
+        if table.surface().dynamic().create_requires("password")
+            && !pairs.iter().any(|(key, _)| key == "password")
+        {
+            pairs.push(("password".into(), prompt_password()?));
+        }
+
+        let built = table
+            .build(&pairs, credentials)
+            .map_err(crate::error::Exit::failed)?;
 
         incoming.push(built);
     } else {

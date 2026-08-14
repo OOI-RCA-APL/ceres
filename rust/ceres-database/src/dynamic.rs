@@ -61,11 +61,30 @@ impl Table {
     }
 
     /// The family a named column belongs to, `None` for one the table does not declare.
-    fn family(&self, column: &str) -> Option<FieldFamily> {
+    pub fn family(&self, column: &str) -> Option<FieldFamily> {
         self.columns()
             .iter()
             .find(|field| field.key == column)
             .map(|field| field.family)
+    }
+
+    /// Whether a create must name this column, absent any model default.
+    ///
+    /// A record column always has a default or reads as null, so only entity columns
+    /// are ever required here. A name outside the table's columns is not required, it
+    /// is not a column at all.
+    pub fn create_requires(&self, column: &str) -> bool {
+        match self {
+            Self::Record(_) => false,
+            Self::Entity(table) => {
+                table
+                    .schema()
+                    .columns
+                    .iter()
+                    .any(|field| field.key == column)
+                    && table.default_value(column).is_none()
+            }
+        }
     }
 }
 
