@@ -186,6 +186,10 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
 
   let data = $ref<WorkspaceData | null>(null)
 
+  // The workspace the working copy was seeded from. A switch can outrun a fetch, and without
+  // this a save would write one workspace's rows into another's draft.
+  let dataId: string | null = $ref(null)
+
   // Undo history for the working copy, capped so a long editing session cannot grow without
   // bound. Snapshots are recorded on the same debounce as the autosave, which groups a burst of
   // drags or keystrokes into one undo step rather than one per frame.
@@ -237,11 +241,10 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
   async function saveEdit() {
     // Seeding the working copy schedules a save too, and writing then would leave a no-op
     // draft behind for every workspace ever opened.
-    if (workspace == null || data == null || !edited) {
+    if (workspace == null || data == null || dataId !== id || !edited) {
       return
     }
 
-    console.log(`Saving edit for workspace ${id}.`)
     await workspaces.assignEdit(id, data)
   }
 
@@ -871,6 +874,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
       }
 
       data = edit?.data ?? deepClone(workspace?.data ?? null) ?? null
+      dataId = data == null ? null : id
 
       // Seed the history with the loaded state so the first edit has something to undo back to.
       if (data != null) {
@@ -903,6 +907,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     async () => {
       loading = true
       data = null
+      dataId = null
       history = []
       historyIndex = -1
       await query.promise.value
