@@ -544,7 +544,8 @@ function menuItems(
                   <c-icon :name="icons.dragVertical" size="17" />
                 </span>
                 <c-icon
-                  class="shrink-0"
+                  class="shrink-0 transition-opacity"
+                  :class="group.canReorder && $style.rowIcon"
                   :name="workspace.owner_id != null ? icons.privateWorkspace : icons.workspace"
                   size="18"
                 />
@@ -629,24 +630,24 @@ function menuItems(
 
 .row {
   position: relative;
-  padding-left: 22px;
+  padding-left: 8px;
   transition:
     background-color 0.2s,
     transform 0.16s ease;
   touch-action: none;
 }
 
-/* The grip's box runs from the row's leading edge to the far side of the workspace icon so that
-whole end reads as the place to take hold of. Zero opacity still receives the pointer, carrying
-the cursor before the grip fades in. */
+/* The grip takes the workspace icon's own place, trading a column that would stand empty whenever
+nothing is being dragged for one the row already spends. Zero opacity still receives the pointer,
+carrying the cursor before the grip fades in. */
 .grip {
   position: absolute;
   top: 50%;
-  left: 2px;
+  left: 8px;
   z-index: 1;
   display: flex;
   align-items: center;
-  width: 38px;
+  width: 24px;
   cursor: grab;
   opacity: 0;
   transform: translateY(-50%);
@@ -655,6 +656,11 @@ the cursor before the grip fades in. */
 
 .row:hover .grip {
   opacity: 0.7;
+}
+
+/* Out of the way of the grip that replaces it, rather than sitting beside it. */
+.row:hover .rowIcon {
+  opacity: 0;
 }
 
 /* While a drag is in progress the list must not clip the lifted row, and hover highlighting on
