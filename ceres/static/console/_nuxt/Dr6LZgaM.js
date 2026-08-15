@@ -1,1 +1,0 @@
-import{Kt as e,b as t,k as n,mt as r}from"./B4b-2GOK.js";import{r as i}from"./CQc4fWfw.js";var a=n({__name:`[...path]`,async setup(n){let a,o,s=i();return[a,o]=e(()=>s.replace(`/`)),await a,o(),(e,n)=>(r(),t(`div`))}});export{a as default};

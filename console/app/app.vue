@@ -5,7 +5,7 @@ import { computed, watchEffect } from 'vue'
 import { refreshDelayMs } from '@/api/auth'
 import { useEngine } from '@/api/engine'
 import constants from '@/constants'
-import { getLoginRedirectPath, useNavigation, userCanAccess } from '@/navigation'
+import { useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
 
 const engine = useEngine()
@@ -40,10 +40,7 @@ useEventListener(window, 'focus', () => {
       notify.warn('You have been signed out due to inactivity.')
     }
 
-    if (!userCanAccess(engine.auth.user, navigation.route)) {
-      void navigation.replace(getLoginRedirectPath(navigation.route.fullPath))
-      notify.warn('You do not have access to that resource.')
-    }
+    void navigation.enforceAccess(engine.auth.user)
   })
 })
 

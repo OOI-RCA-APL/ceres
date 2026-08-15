@@ -139,6 +139,7 @@ async function adoptIdentity(change: Promise<unknown>) {
   await guard(change, () => notify.error('Failed to change user.'))
   await engine.access.refresh()
   await engine.workspaces.refresh()
+  await navigation.enforceAccess(engine.auth.user)
   navigation.reload()
 }
 

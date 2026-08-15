@@ -1,1 +1,0 @@
-import{k as e,mt as t,v as n}from"./B4b-2GOK.js";import{t as r}from"./CNs_Ozdc.js";import{t as i}from"./CZWVg5FN.js";var a=e({__name:`create`,setup(e){return r({auth:`admin`}),(e,r)=>{let a=i;return t(),n(a,{id:null})}}});export{a as default};

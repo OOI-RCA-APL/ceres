@@ -179,9 +179,11 @@ export const useAuth = defineStore('auth', () => {
     isAdmin: computed(() => identity?.user?.admin ?? false),
     isViewer: computed(() => identity?.user),
     canImpersonate: computed(() => features?.impersonate === true),
-    // Taken from the identity rather than from the stashed token, because the server is what knows
-    // this and the stash is only what makes returning cheap. Reading the stash instead would hide
-    // the way out precisely when the stash is the thing that went missing.
-    isImpersonating: computed(() => identity?.impersonated_by != null),
+    // Either signal is enough, because either one alone goes missing. A refreshed token comes back
+    // without `impersonated_by`, and a stash can be lost with the tab. Whichever survives has to
+    // still offer the way out, and stopping without a stash signs out rather than stranding anyone.
+    isImpersonating: computed(
+      () => identity?.impersonated_by != null || tokenBeforeImpersonating != null,
+    ),
   }
 })

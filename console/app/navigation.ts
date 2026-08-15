@@ -7,6 +7,8 @@ import {
   useRouter,
 } from 'vue-router'
 
+import { useNotify } from '@/notify'
+
 declare module 'vue-router' {
   interface RouteMeta {
     /** `true` requires a signed-in user, `'admin'` requires an administrator. */
@@ -83,6 +85,20 @@ export const useNavigation = defineStore('navigation', () => {
       } else {
         await router.push(to)
       }
+    },
+
+    /** Send `user` to the login page when they cannot reach the page they are on.
+
+    Route middleware only runs on a navigation, so an identity that changes underneath one leaves
+    whoever holds it now looking at a page they were never let into.
+    */
+    async enforceAccess(user: { admin?: boolean } | null) {
+      if (userCanAccess(user, route)) {
+        return
+      }
+
+      useNotify().warn('You do not have access to that resource.')
+      await router.replace(getLoginRedirectPath(route.fullPath))
     },
 
     async push(to: RouteLocationRaw) {

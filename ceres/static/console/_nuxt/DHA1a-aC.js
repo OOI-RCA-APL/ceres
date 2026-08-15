@@ -1,1 +1,0 @@
-import{On as e,k as t,mt as n,v as r}from"./B4b-2GOK.js";import{t as i}from"./S-30YUp_.js";import{t as a}from"./Dgv_R-dL.js";import{t as o}from"./CNs_Ozdc.js";var s=t({__name:`account`,setup(t){o({auth:!0});let s=i();return(t,i)=>{let o=a;return n(),r(o,{id:e(s).auth.user?.id??null},null,8,[`id`])}}});export{s as default};

@@ -1,1 +1,0 @@
-import{g as e,k as t,mt as n,v as r}from"./B4b-2GOK.js";import{m as i}from"./Djvyx7cJ.js";import{t as a}from"./Dgv_R-dL.js";import{t as o}from"./CNs_Ozdc.js";var s=t({__name:`[id]`,setup(t){o({auth:`admin`});let s=i(),c=e(()=>String(s.params.id));return(e,t)=>{let i=a;return n(),r(i,{id:c.value},null,8,[`id`])}}});export{s as default};
