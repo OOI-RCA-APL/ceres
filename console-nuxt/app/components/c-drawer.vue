@@ -4,6 +4,7 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 
 import { useEngine } from '@/api/engine'
+import type { User } from '@/api/users'
 import { useDialogs } from '@/dialogs'
 import { isOnPathTo, useDrawer } from '@/drawer'
 import { guard } from '@/errors'
@@ -127,13 +128,27 @@ function promptReload() {
     })
 }
 
+// The engine decides whether impersonation exists at all, and only an administrator may do it.
+const canImpersonate = $computed(() => engine.auth.canImpersonate && engine.auth.isAdmin)
+
+let isChoosingIdentity = $ref(false)
+
 // Everything the console shows is filtered by who the caller is, so the access map, the workspace
 // list and the current page all have to be rebuilt around the new identity.
-async function stopImpersonating() {
-  await guard(engine.auth.stopImpersonating(), () => notify.error('Failed to change user.'))
+async function adoptIdentity(change: Promise<unknown>) {
+  await guard(change, () => notify.error('Failed to change user.'))
   await engine.access.refresh()
   await engine.workspaces.refresh()
   navigation.reload()
+}
+
+async function impersonate(userId: string) {
+  isChoosingIdentity = false
+  await adoptIdentity(engine.auth.impersonate(userId))
+}
+
+async function stopImpersonating() {
+  await adoptIdentity(engine.auth.stopImpersonating())
 }
 
 const footerRowClass =
@@ -192,6 +207,31 @@ const footerRowClass =
         <c-icon class="size-5" :name="icons.configuration" />
         <span class="grow text-left">Reload Configuration</span>
       </button>
+
+      <!-- Taking on another identity is something an administrator does, so it sits with the rest
+      of what only they can reach rather than behind the switch about development tools. -->
+      <c-popover
+        v-if="canImpersonate"
+        v-model:open="isChoosingIdentity"
+        :content="{ side: 'right', align: 'start' }"
+        :ui="{ content: 'w-[300px]' }"
+      >
+        <div :class="footerRowClass">
+          <c-icon class="size-5" :name="icons.viewer" />
+          <span class="grow text-left">
+            Impersonate
+            <c-text variant="description">Intended for development.</c-text>
+          </span>
+          <c-icon class="size-5" :name="icons.menuRight" />
+        </div>
+        <template #content>
+          <c-user-chooser
+            empty="No other users to impersonate."
+            :omit="(user: User) => user.id === engine.auth.user?.id"
+            @select="(user: User) => impersonate(user.id)"
+          />
+        </template>
+      </c-popover>
 
       <c-popover :content="{ side: 'right', align: 'end' }" :ui="{ content: 'w-[350px]' }">
         <div :class="footerRowClass">

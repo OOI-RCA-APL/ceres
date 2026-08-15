@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 
 import CConfirmDialog, { type ConfirmDialogProps } from '@/components/base/c-confirm-dialog.vue'
+import CChangePasswordDialog from '@/components/c-change-password-dialog.vue'
 import CWorkspaceDialog from '@/components/c-workspace-dialog.vue'
 import CWorkspaceTransferDialog from '@/components/c-workspace-transfer-dialog.vue'
 import type { Workspace, WorkspaceData } from '@/workspace'
@@ -19,6 +20,7 @@ export const useDialogs = defineStore('dialogs', () => {
   const confirmDialog = overlay.create(CConfirmDialog)
   const workspaceDialog = overlay.create(CWorkspaceDialog)
   const workspaceTransferDialog = overlay.create(CWorkspaceTransferDialog)
+  const changePasswordDialog = overlay.create(CChangePasswordDialog)
 
   function handleOf<TPayload>(result: Promise<TPayload>): DialogHandle<TPayload> {
     const handle: DialogHandle<TPayload> = {
@@ -56,6 +58,7 @@ export const useDialogs = defineStore('dialogs', () => {
         okColor: 'error',
         ...options,
       }),
+    changePassword: (userId: string) => handleOf(changePasswordDialog.open({ userId }).result),
     /** Create a workspace on `scope`. `isPrivate` presets the choice for a caller that already
     knows which kind is wanted, such as one adding to a named group.
     */
