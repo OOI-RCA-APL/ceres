@@ -13,7 +13,7 @@ const solidOnWhiteText = solidColors.map((color) => ({
 export default defineAppConfig({
   ui: {
     colors: {
-      primary: 'ceres',
+      primary: 'brand',
       success: 'green',
       warning: 'amber',
       error: 'red',

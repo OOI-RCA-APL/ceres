@@ -1,0 +1,1 @@
+import{F as e,K as t,N as n,jt as r}from"./C_zar9Yu.js";import{n as i}from"./BPVKY9bH.js";import{t as a}from"./Pk7zn4Zd.js";import{t as o}from"./CNs_Ozdc.js";var s=t({__name:`[id]`,setup(t){o({auth:`admin`});let s=i(),c=n(()=>String(s.route.params.id));return(t,n)=>{let i=a;return r(),e(i,{id:c.value},null,8,[`id`])}}});export{s as default};

@@ -12,17 +12,17 @@
    and Tailwind would otherwise tree-shake it as unused. */
 @theme static {
   /* The brand blue, anchored at the 600 step. */
-  --color-ceres-50: #f0f9fc;
-  --color-ceres-100: #ddf1f8;
-  --color-ceres-200: #bce3f1;
-  --color-ceres-300: #8bcfe6;
-  --color-ceres-400: #4fb3d6;
-  --color-ceres-500: #1897c2;
-  --color-ceres-600: #007dab;
-  --color-ceres-700: #00648a;
-  --color-ceres-800: #065371;
-  --color-ceres-900: #0b455e;
-  --color-ceres-950: #062c3e;
+  --color-brand-50: #f0f9fc;
+  --color-brand-100: #ddf1f8;
+  --color-brand-200: #bce3f1;
+  --color-brand-300: #8bcfe6;
+  --color-brand-400: #4fb3d6;
+  --color-brand-500: #1897c2;
+  --color-brand-600: #007dab;
+  --color-brand-700: #00648a;
+  --color-brand-800: #065371;
+  --color-brand-900: #0b455e;
+  --color-brand-950: #062c3e;
 }
 
 /* Tailwind 4 dropped the default pointer on interactive elements, every clickable
