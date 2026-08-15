@@ -32,13 +32,11 @@ strip pin with `position: sticky` and the scroll-memory helpers read `window.scr
       <div class="flex-1" />
       <c-utc-clock />
     </header>
-    <aside
+    <c-drawer
       v-if="drawer.isOpen"
-      class="fixed bottom-0 z-10 overflow-y-auto border-r border-accented bg-default"
+      class="fixed bottom-0 z-10"
       :style="{ top: `${appHeaderHeight}px`, width: `${drawer.width}px` }"
-    >
-      <c-text class="p-4" variant="description">The component tree lands in slice 3.</c-text>
-    </aside>
+    />
     <main :style="{ marginLeft: drawer.isOpen ? `${drawer.width}px` : undefined }">
       <slot />
     </main>

@@ -43,6 +43,19 @@ export function getLoginRedirectPath(redirect: string) {
   return `/login?redirect=${encodeURI(redirect)}`
 }
 
+/** The component address `route` is on, or null anywhere else.
+
+The component route is a catch-all so an address carrying a separator still resolves, which is
+why the parameter arrives already split.
+*/
+export function routeComponentAddress(route: {
+  params: Record<string, string | string[]>
+}): string | null {
+  const parameter = route.params.address
+  const path = Array.isArray(parameter) ? parameter.join('/') : parameter
+  return path == null || path === '' ? null : path
+}
+
 export const useNavigation = defineStore('navigation', () => {
   const route = useRoute()
   const router = useRouter()
