@@ -71,12 +71,12 @@
      over a dark card needing more of one than a filled control does. Hex, and not the semantic
      tokens, because the color is stored on the series and edited in a color input, which takes
      nothing else. */
-  --console-series-1: var(--color-brand-400);
-  --console-series-2: #f59e0b;
-  --console-series-3: #22c55e;
-  --console-series-4: #ef4444;
-  --console-series-5: #a78bfa;
-  --console-series-6: #2dd4bf;
+  --console-series-1: var(--color-brand-300);
+  --console-series-2: #fbbf24;
+  --console-series-3: #4ade80;
+  --console-series-4: #f87171;
+  --console-series-5: #c4b5fd;
+  --console-series-6: #5eead4;
   --console-series-7: #f472b6;
 }
 
