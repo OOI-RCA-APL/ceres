@@ -88,6 +88,10 @@ const developerItems = $computed<DropdownMenuItem[][]>(() => [
       to: '/developer/schema-form-playground',
     },
   ],
+  [
+    { label: 'Base Components', icon: icons.baseComponents, to: '/developer/components' },
+    { label: 'Theme', icon: icons.palette, to: '/developer/theme' },
+  ],
 ])
 
 function clearLocalStorage() {

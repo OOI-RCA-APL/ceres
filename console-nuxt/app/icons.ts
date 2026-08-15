@@ -6,6 +6,7 @@ const icons = {
   arrowDown: 'i-mdi-arrow-down',
   arrowLeft: 'i-mdi-arrow-left',
   arrowUp: 'i-mdi-arrow-up',
+  baseComponents: 'i-mdi-toy-brick-outline',
   cancel: 'i-mdi-close-circle',
   carousel: 'i-mdi-view-carousel-outline',
   changeRole: 'i-mdi-account-convert',
@@ -39,6 +40,7 @@ const icons = {
   duplicate: 'i-mdi-content-duplicate',
   edit: 'i-mdi-pencil',
   editor: 'i-mdi-account-edit',
+  email: 'i-mdi-email-outline',
   enable: 'i-mdi-check-circle-outline',
   export: 'i-mdi-download',
   filter: 'i-mdi-filter',
@@ -72,6 +74,7 @@ const icons = {
   operations: 'i-mdi-cog-transfer',
   // A page with its top band highlighted, matching the overview the toggle collapses.
   overview: 'i-mdi-page-layout-header',
+  palette: 'i-mdi-palette',
   password: 'i-mdi-form-textbox-password',
   paste: 'i-mdi-content-paste',
   pause: 'i-mdi-pause',

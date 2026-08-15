@@ -34,7 +34,9 @@ export type SchemaFormOptions = {
   value?: MaybeRefOrGetter<Plain>
   initial?: Plain
   readonly?: MaybeRefOrGetter<boolean>
-  schema?: MaybeRefOrGetter<Schema>
+  /** Undefined compiles as the permissive schema, so a caller editing a schema as text can hand
+  over nothing while the text is briefly invalid. */
+  schema?: MaybeRefOrGetter<Schema | undefined>
   persist?: MaybeRefOrGetter<KeyInput>
 
   /** A heading drawn inside the form, under the root description and over the fields, so what the
