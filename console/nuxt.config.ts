@@ -1,10 +1,30 @@
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+
 import { defineNuxtConfig } from 'nuxt/config'
+
+/**
+ * Read the project version, which is the one the engine shipping this console reports.
+ *
+ * Throws when the version is missing, a build that guessed one being worse than no build.
+ */
+function projectVersion(): string {
+  const path = fileURLToPath(new URL('../pyproject.toml', import.meta.url))
+  const project = /^\[project\]$(.*?)(?=^\[)/ms.exec(readFileSync(path, 'utf8'))
+  const version = project && /^version = "([^"]+)"$/m.exec(project[1]!)
+  if (version == null) {
+    throw new Error(`No [project] version found in ${path}.`)
+  }
+
+  return version[1]!
+}
 
 export default defineNuxtConfig({
   compatibilityDate: '2026-08-14',
-  // Fixed so a rebuild of unchanged sources produces an unchanged bundle. The default is a
-  // fresh UUID per build, and the bundle is committed, so every build would show as a diff.
-  buildId: 'ceres-console',
+  // The release this console ships in. Nuxt compares it to tell a running console that a
+  // newer one is being served, and the default is a fresh UUID that would make the
+  // committed bundle differ on every build.
+  buildId: projectVersion(),
   // The console is a static bundle the engine serves, with no server side of its own.
   ssr: false,
   // Nuxt UI registers the Tailwind Vite plugin itself, adding it here breaks the build.
