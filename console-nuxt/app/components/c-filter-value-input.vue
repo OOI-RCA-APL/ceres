@@ -30,8 +30,20 @@ const text = $computed({
   },
 })
 
-// Sized to its content so a chip hugs its value, with room to click into when empty.
-const width = $computed(() => `${Math.max(3, text.length + 1)}ch`)
+const placeholder = $computed(() => {
+  if (input.type === 'duration') {
+    return '1h'
+  }
+  if (input.type === 'date-time') {
+    return 'time...'
+  }
+
+  return '...'
+})
+
+// Sized to its content so a chip hugs its value, and never narrower than the placeholder, which
+// would otherwise be clipped on an empty condition.
+const width = $computed(() => `${Math.max(placeholder.length, text.length + 1)}ch`)
 
 const isMenuInput = $computed(() => input.type === 'enum' || input.type === 'address')
 
@@ -87,7 +99,7 @@ function onIntegerBlur() {
     v-model="text"
     :autofocus="autofocus"
     class="bg-transparent font-mono text-[11px] outline-none"
-    :placeholder="input.type === 'duration' ? '1h' : input.type === 'date-time' ? 'time...' : '...'"
+    :placeholder="placeholder"
     spellcheck="false"
     :style="{ width }"
     type="text"

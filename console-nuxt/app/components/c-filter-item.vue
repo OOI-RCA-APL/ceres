@@ -34,8 +34,8 @@ const definition = $computed(() => (isBlock(item) ? null : getFilterDefinition(i
   <div
     v-if="isBlock(item)"
     :class="[
-      'border-accented flex min-h-6 items-center gap-1 rounded-md border border-dashed',
-      'py-0.5 pr-0.5 pl-1.5 select-none',
+      'border-accented flex min-h-6 cursor-default items-center gap-1 rounded-md border',
+      'border-dashed py-0.5 pr-0.5 pl-1.5 select-none',
       selected && $style.selected,
     ]"
   >
@@ -52,8 +52,9 @@ const definition = $computed(() => (isBlock(item) ? null : getFilterDefinition(i
         @remove="(id) => emit('remove', id)"
       />
     </template>
+    <!-- Set apart from the last child's own remove so the two do not read as one control. -->
     <button
-      class="text-muted hover:text-default cursor-pointer p-0.5"
+      class="text-muted hover:text-default ml-1 cursor-pointer p-0.5"
       type="button"
       @click.stop="emit('remove', item.id)"
       @pointerdown.stop
@@ -63,8 +64,11 @@ const definition = $computed(() => (isBlock(item) ? null : getFilterDefinition(i
   </div>
   <div
     v-else
-    class="bg-elevated/60 flex min-h-6 items-center gap-1 rounded-md py-0.5 pr-0.5 pl-1.5"
-    :class="[selected && $style.selected, 'select-none']"
+    :class="[
+      'bg-elevated hover:bg-accented/60 flex min-h-6 cursor-default items-center gap-1',
+      'rounded-md py-0.5 pr-0.5 pl-1.5 select-none',
+      selected && $style.selected,
+    ]"
   >
     <c-text class="text-muted" element="span" variant="mono-xs">
       {{ definition?.label ?? item.kind }}:
