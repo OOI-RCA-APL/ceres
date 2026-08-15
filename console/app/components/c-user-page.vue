@@ -186,8 +186,6 @@ async function logout() {
   await engine.auth.logout()
   notify.success('You have signed out.', { icon: icons.logout })
 }
-
-const rowClass = 'flex items-center gap-2 px-3 py-1.5'
 </script>
 
 <template>
@@ -356,13 +354,8 @@ const rowClass = 'flex items-center gap-2 px-3 py-1.5'
     >
       <c-card-page-section :title="`Groups (${userGroups.length})`">
         <div class="p-4">
-          <div class="divide-default divide-y rounded-md border border-default">
-            <nuxt-link
-              v-for="group in userGroups"
-              :key="group.id"
-              :class="[rowClass, 'hover:bg-elevated']"
-              :to="`/groups/${group.id}`"
-            >
+          <c-list>
+            <c-list-item v-for="group in userGroups" :key="group.id" :to="`/groups/${group.id}`">
               <span class="min-w-0 grow">
                 <c-text class="block truncate" variant="body2">{{ group.name }}</c-text>
                 <c-text v-if="group.description" class="block truncate" variant="description">
@@ -376,11 +369,11 @@ const rowClass = 'flex items-center gap-2 px-3 py-1.5'
                 variant="ghost"
                 @click.prevent="promptRemoveFromGroup(group)"
               />
-            </nuxt-link>
-            <div v-if="userGroups.length === 0" :class="rowClass">
+            </c-list-item>
+            <c-list-item v-if="userGroups.length === 0">
               <c-text class="text-muted block" variant="body2">No groups.</c-text>
-            </div>
-          </div>
+            </c-list-item>
+          </c-list>
           <div class="mt-2 flex justify-center">
             <c-popover
               v-model:open="isAddingToGroup"

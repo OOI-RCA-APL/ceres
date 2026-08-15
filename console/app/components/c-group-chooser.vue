@@ -73,17 +73,12 @@ function submitFirst() {
     <c-text v-if="groups.length === 0" class="block p-2 text-center opacity-50" variant="body2">
       {{ empty ?? 'No groups found.' }}
     </c-text>
-    <div
-      v-else
-      class="max-h-[120px] divide-y divide-default overflow-y-auto rounded-md border border-default"
-    >
-      <button
+    <c-list v-else class="max-h-[120px] overflow-y-auto">
+      <c-list-item
         v-for="group in groups"
         :key="group.id"
-        class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-elevated disabled:opacity-50"
         :class="groups.length === 1 && 'bg-elevated'"
         :disabled="disable?.(group) ?? false"
-        type="button"
         @click="emit('select', group)"
       >
         <c-icon class="shrink-0" :name="icons.group" size="18" />
@@ -93,7 +88,7 @@ function submitFirst() {
             {{ group.description }}
           </c-text>
         </span>
-      </button>
-    </div>
+      </c-list-item>
+    </c-list>
   </div>
 </template>

@@ -187,19 +187,15 @@ function promptRemovePermission(targetType: PermissionTargetType, target: string
       await refreshAfterChange()
     })
 }
-
-const rowClass = 'flex items-center gap-2 px-3 py-1.5'
-const listClass = 'divide-y divide-default rounded-md border border-default'
 </script>
 
 <template>
   <c-card-page-section :title="`Permissions (${permissions.length + inheritedPermissions.length})`">
     <div class="p-4">
-      <div :class="listClass">
-        <div
+      <c-list>
+        <c-list-item
           v-for="permission in permissions"
           :key="`${permission.target_type}-${permission.target}`"
-          :class="rowClass"
         >
           <span class="grow truncate text-sm">{{ permissionTargetLabel(permission) }}</span>
           <c-badge color="primary" :icon="icons[permission.level]" size="sm">
@@ -212,11 +208,10 @@ const listClass = 'divide-y divide-default rounded-md border border-default'
             variant="ghost"
             @click="promptRemovePermission(permission.target_type, permission.target)"
           />
-        </div>
-        <nuxt-link
+        </c-list-item>
+        <c-list-item
           v-for="permission in inheritedPermissions"
           :key="`${permission.group_id}-${permission.target_type}-${permission.target}`"
-          :class="[rowClass, 'hover:bg-elevated']"
           :to="`/groups/${permission.group_id}`"
         >
           <span class="min-w-0 grow">
@@ -228,16 +223,16 @@ const listClass = 'divide-y divide-default rounded-md border border-default'
           <c-badge color="primary" :icon="icons[permission.level]" size="sm">
             {{ upperFirst(permission.level) }}
           </c-badge>
-        </nuxt-link>
-        <div v-if="permissions.length === 0 && inheritedPermissions.length === 0" :class="rowClass">
+        </c-list-item>
+        <c-list-item v-if="permissions.length === 0 && inheritedPermissions.length === 0">
           <span class="block">
             <c-text class="text-muted block" variant="body2">No permissions granted.</c-text>
             <c-text class="block" variant="description">
               Components may still be reachable through their default access level.
             </c-text>
           </span>
-        </div>
-      </div>
+        </c-list-item>
+      </c-list>
       <div class="mt-2 flex justify-center">
         <c-popover
           v-model:open="isAddingPermission"
@@ -285,13 +280,12 @@ const listClass = 'divide-y divide-default rounded-md border border-default'
         What this user can actually do, after grants, group memberships, and each component's
         default access level are resolved together.
       </c-text>
-      <div :class="listClass">
-        <component
-          :is="entry.groupId != null ? 'nuxt-link' : 'div'"
+      <c-list>
+        <!-- A level a group conferred links to that group, which is where it can be changed. -->
+        <c-list-item
           v-for="entry in effectiveAccess"
           :key="entry.address"
-          :class="[rowClass, entry.groupId != null && 'hover:bg-elevated']"
-          :to="entry.groupId != null ? `/groups/${entry.groupId}` : undefined"
+          :to="entry.groupId == null ? null : `/groups/${entry.groupId}`"
         >
           <span class="min-w-0 grow">
             <c-text class="block truncate" variant="mono-sm">{{ entry.address }}</c-text>
@@ -303,11 +297,11 @@ const listClass = 'divide-y divide-default rounded-md border border-default'
             {{ upperFirst(entry.level) }}
           </c-badge>
           <c-icon v-else class="text-muted size-4" :name="icons.locked" />
-        </component>
-        <div v-if="effectiveAccess.length === 0" :class="rowClass">
+        </c-list-item>
+        <c-list-item v-if="effectiveAccess.length === 0">
           <c-text class="text-muted block" variant="body2">No components.</c-text>
-        </div>
-      </div>
+        </c-list-item>
+      </c-list>
     </div>
   </c-card-page-section>
 </template>

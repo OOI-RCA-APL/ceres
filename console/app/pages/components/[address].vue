@@ -627,7 +627,7 @@ const configHighlighted = $computed(() =>
                 @share="shareScoped"
               />
 
-              <div class="border-default divide-default divide-y rounded-md border">
+              <c-list>
                 <c-detail-section
                   v-model:expanded="persisted.connections"
                   :title="`Connections (${connections.length})`"
@@ -670,9 +670,9 @@ const configHighlighted = $computed(() =>
                     <c-text variant="description">{{ jobLabel(job) }}</c-text>
                   </div>
                 </c-detail-section>
-              </div>
+              </c-list>
 
-              <div class="border-default divide-default mt-4 divide-y rounded-md border">
+              <c-list class="mt-4">
                 <c-detail-section
                   v-model:expanded="persisted.queries"
                   :title="`Queries (${queries.length})`"
@@ -718,7 +718,7 @@ const configHighlighted = $computed(() =>
                     </c-tooltip>
                   </div>
                 </c-detail-section>
-              </div>
+              </c-list>
 
               <c-component-particles-section
                 v-model:expanded="persisted.particles"
@@ -748,11 +748,10 @@ const configHighlighted = $computed(() =>
 
             <div v-if="component.components.length > 0" class="col-span-12">
               <c-text class="mb-1" variant="th">Subcomponents</c-text>
-              <div class="border-default divide-default divide-y rounded-md border">
-                <nuxt-link
+              <c-list>
+                <c-list-item
                   v-for="child in component.components"
                   :key="child.name"
-                  class="hover:bg-elevated flex items-center gap-2 px-3 py-1.5"
                   :to="`/components/${child.address}`"
                 >
                   <div class="grow">
@@ -760,8 +759,8 @@ const configHighlighted = $computed(() =>
                     <c-text variant="description">{{ child.address }}</c-text>
                   </div>
                   <c-status-badge :address="child.address" />
-                </nuxt-link>
-              </div>
+                </c-list-item>
+              </c-list>
             </div>
           </div>
         </div>

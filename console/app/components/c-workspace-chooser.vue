@@ -95,17 +95,12 @@ function submitFirst() {
       </c-text>
       <!-- The same bordered, separated rows the overview lists workspaces in, so a workspace looks
       like itself wherever it is being picked from. -->
-      <div
-        v-else
-        class="max-h-[120px] divide-y divide-default overflow-y-auto rounded-md border border-default"
-      >
-        <button
+      <c-list v-else class="max-h-[120px] overflow-y-auto">
+        <c-list-item
           v-for="workspace in workspaces"
           :key="workspace.id"
-          class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-elevated disabled:opacity-50"
           :class="workspaces.length === 1 && 'bg-elevated'"
           :disabled="disable?.(workspace) ?? false"
-          type="button"
           @click="$emit('select', workspace)"
         >
           <c-tooltip
@@ -129,8 +124,8 @@ function submitFirst() {
               {{ placementOf(workspace) }}
             </c-text>
           </span>
-        </button>
-      </div>
+        </c-list-item>
+      </c-list>
     </div>
     <!-- Offered under the list, so making a new one is reached from the same place as finding an
     existing one, and worn as a row so it sits with whatever else the caller offers beneath it

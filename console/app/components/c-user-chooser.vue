@@ -69,17 +69,12 @@ function submitFirst() {
     <c-text v-if="users.length === 0" class="block p-2 text-center opacity-50" variant="body2">
       {{ empty ?? 'No users found.' }}
     </c-text>
-    <div
-      v-else
-      class="max-h-[120px] divide-y divide-default overflow-y-auto rounded-md border border-default"
-    >
-      <button
+    <c-list v-else class="max-h-[120px] overflow-y-auto">
+      <c-list-item
         v-for="user in users"
         :key="user.id"
-        class="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-elevated disabled:opacity-50"
         :class="users.length === 1 && 'bg-elevated'"
         :disabled="disable?.(user) ?? false"
-        type="button"
         @click="emit('select', user)"
       >
         <c-icon class="shrink-0" :name="icons.user" size="18" />
@@ -87,7 +82,7 @@ function submitFirst() {
           <c-text class="block truncate" variant="body2">{{ user.username }}</c-text>
           <c-text class="block truncate" variant="description">{{ user.email }}</c-text>
         </span>
-      </button>
-    </div>
+      </c-list-item>
+    </c-list>
   </div>
 </template>

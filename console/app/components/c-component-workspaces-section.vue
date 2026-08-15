@@ -517,10 +517,7 @@ function menuItems(
               </button>
             </c-tooltip>
           </div>
-          <div
-            v-if="group.items.length > 0"
-            class="divide-y divide-default rounded-md border border-default"
-          >
+          <c-list v-if="group.items.length > 0">
             <c-context-menu
               v-for="(workspace, index) in group.items"
               :key="workspace.id"
@@ -599,7 +596,7 @@ function menuItems(
                 </c-dropdown-menu>
               </div>
             </c-context-menu>
-          </div>
+          </c-list>
         </div>
       </template>
     </define-groups>

@@ -75,21 +75,14 @@ function promptDelete() {
       await navigation.go('/groups')
     })
 }
-
-const rowClass = 'flex items-center gap-2 px-3 py-1.5'
 </script>
 
 <template>
   <c-group-page :id>
     <c-card-page-section :title="`Members (${memberUsers.length})`">
       <div class="p-4">
-        <div class="divide-default divide-y rounded-md border border-default">
-          <nuxt-link
-            v-for="user in memberUsers"
-            :key="user.id"
-            :class="[rowClass, 'hover:bg-elevated']"
-            :to="`/users/${user.id}`"
-          >
+        <c-list>
+          <c-list-item v-for="user in memberUsers" :key="user.id" :to="`/users/${user.id}`">
             <span class="min-w-0 grow">
               <c-text class="block truncate" variant="body2">{{ user.username }}</c-text>
               <c-text class="block truncate" variant="description">{{ user.email }}</c-text>
@@ -101,11 +94,11 @@ const rowClass = 'flex items-center gap-2 px-3 py-1.5'
               variant="ghost"
               @click.prevent="promptRemoveMember(user)"
             />
-          </nuxt-link>
-          <div v-if="memberUsers.length === 0" :class="rowClass">
+          </c-list-item>
+          <c-list-item v-if="memberUsers.length === 0">
             <c-text class="text-muted block" variant="body2">No members.</c-text>
-          </div>
-        </div>
+          </c-list-item>
+        </c-list>
         <div class="mt-2 flex justify-center">
           <c-popover
             v-model:open="isAddingMember"

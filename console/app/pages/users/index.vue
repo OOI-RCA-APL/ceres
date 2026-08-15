@@ -49,22 +49,15 @@ const users = $computed(() => query.data.value ?? [])
           <c-badge color="neutral" size="sm" variant="outline">{{ users.length }}</c-badge>
         </template>
       </c-input>
-      <div
-        class="divide-default h-[258px] divide-y overflow-y-auto rounded-md border border-default"
-      >
-        <nuxt-link
-          v-for="user in users"
-          :key="user.id"
-          class="hover:bg-elevated flex items-center gap-2 px-3 py-1.5"
-          :to="`/users/${user.id}`"
-        >
+      <c-list class="h-[258px] overflow-y-auto">
+        <c-list-item v-for="user in users" :key="user.id" :to="`/users/${user.id}`">
           <c-icon class="shrink-0" :name="user.admin ? icons.admin : icons.user" size="16" />
           <c-text class="min-w-0 flex-1 truncate" variant="body2">{{ user.username }}</c-text>
           <c-text class="text-muted min-w-0 flex-1 truncate" variant="body2">
             {{ user.email }}
           </c-text>
-        </nuxt-link>
-      </div>
+        </c-list-item>
+      </c-list>
     </div>
   </c-card-page>
 </template>
