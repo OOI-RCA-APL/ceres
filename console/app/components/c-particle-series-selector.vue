@@ -2,6 +2,7 @@
 import { Address } from '@/api/address'
 import type { ParticleTypeInfo } from '@/api/components'
 import { useEngine } from '@/api/engine'
+import { defaultSeriesColor } from '@/chart'
 import icons from '@/icons'
 import {
   addParticleSeries,
@@ -212,6 +213,17 @@ const selectedGroups = $computed<SelectedAddressGroup[]>(() => {
   }))
 })
 
+// What the chart draws this series in. A widget stored before series carried a color has none to
+// show, and the swatch must still stand for the line it edits.
+function colorOf(series: ChartWidgetSeries): string {
+  if (series.color != null) {
+    return series.color
+  }
+
+  const drawn = modelValue.flatMap((particle) => particle.series)
+  return defaultSeriesColor(Math.max(0, drawn.indexOf(series)))
+}
+
 function removeSeries(seriesId: string) {
   modelValue = removeParticleSeries(modelValue, seriesId)
 }
@@ -332,6 +344,12 @@ function addManualEntry() {
                 spellcheck="false"
                 type="text"
               />
+              <c-tooltip text="Series Color">
+                <c-color-input
+                  :model-value="colorOf(series)"
+                  @update:model-value="series.color = $event"
+                />
+              </c-tooltip>
               <c-button
                 color="neutral"
                 :icon="icons.cancel"

@@ -86,6 +86,8 @@ export const ChartWidgetSeriesModel = z.object({
   id: z.string().catch(() => v7()),
   field: z.string().nullish(),
   label: z.string().nullish(),
+  /** The line's color as `#rrggbb`, written when the series is added and editable after. */
+  color: z.string().nullish(),
 })
 
 export type ChartWidgetParticle = z.infer<typeof ChartWidgetParticleModel>

@@ -10,6 +10,27 @@ export type ChartPalette = {
   border: string
   borderMuted: string
   backgroundElevated: string
+  series: string[]
+}
+
+/** The tokens a series takes its color from, in the order series are drawn. */
+const seriesTokens = [
+  '--console-series-1',
+  '--console-series-2',
+  '--console-series-3',
+  '--console-series-4',
+  '--console-series-5',
+  '--console-series-6',
+  '--console-series-7',
+]
+
+/** The color a series in `index` position takes when nothing has been chosen for it.
+
+Wraps rather than running out, since a chart may carry more series than the theme names colors.
+*/
+export function defaultSeriesColor(index: number): string {
+  const palette = chartPalette().series
+  return palette[index % palette.length] ?? '#007dab'
 }
 
 /** Resolve the token palette from the document's computed styles.
@@ -27,13 +48,13 @@ export function chartPalette(): ChartPalette {
     border: token('--ui-border-accented'),
     borderMuted: token('--ui-border'),
     backgroundElevated: token('--ui-bg-elevated'),
+    series: seriesTokens.map(token).filter((color) => color !== ''),
   }
 }
 
 /** An echarts theme object built from `palette`.
 
-Series colors stay echarts' defaults, which hold up on both modes. The theme covers the
-chrome: text, axes, split lines, and tooltips.
+Covers the series colors and the chrome around them: text, axes, split lines, and tooltips.
 */
 export function chartTheme(palette: ChartPalette): object {
   const axis = {
@@ -46,6 +67,7 @@ export function chartTheme(palette: ChartPalette): object {
   }
 
   return {
+    color: palette.series,
     textStyle: { color: palette.textMuted },
     title: { textStyle: { color: palette.text } },
     legend: { textStyle: { color: palette.textMuted } },

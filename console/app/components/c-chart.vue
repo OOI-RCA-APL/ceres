@@ -27,6 +27,14 @@ const defaultOptions = Object.freeze<Option>({
     },
   },
   useUTC: true,
+  // Paged rather than wrapped, so the legend keeps to the one row the grid reserves for it below
+  // instead of growing down over the plot as series are added.
+  legend: {
+    type: 'scroll',
+    top: 8,
+    left: 'center',
+    padding: [0, 32],
+  },
   grid: {
     containLabel: true,
     left: 32,

@@ -7,6 +7,7 @@ import type { Stream } from '@/api/client'
 import { useEngine } from '@/api/engine'
 import { ParticleModel } from '@/api/particles'
 import type { Particle } from '@/api/particles'
+import { defaultSeriesColor } from '@/chart'
 import type { DataValue, Option } from '@/chart'
 import CChart from '@/components/c-chart.vue'
 import icons from '@/icons'
@@ -152,15 +153,22 @@ function getSeriesName(series: ChartWidgetSeries, index: number): string {
 
 const baseAxisOption = $computed(() => axisOption)
 const baseOption: Option = $computed(() => {
+  // Counted across every particle entry rather than within one, the chart drawing them as a
+  // single run, so a widget stored before series carried colors falls back to the right one.
+  let position = 0
   const series = widget.particles.flatMap((particle) =>
     particle.series.map((series, index) => {
       const name = getSeriesName(series, index)
+      const color = series.color ?? defaultSeriesColor(position)
+      position += 1
       const result = {
         // The stable ID is what `replaceMerge` matches on, keeping surviving series merged
         // in place rather than recreated.
         id: series.id,
         name,
         type: widget.display,
+        itemStyle: { color },
+        lineStyle: { color },
         ...({ progressive: false } as any),
         data: getData(name),
         ...animation,
