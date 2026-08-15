@@ -16,6 +16,8 @@ export function groupMatches(group: Group, search: string): boolean {
 </script>
 
 <script lang="ts" setup>
+import type { CommandPaletteItem } from '@nuxt/ui'
+
 import { useQuery } from '@/api/client'
 import { useEngine } from '@/api/engine'
 import icons from '@/icons'
@@ -50,45 +52,42 @@ const query = useQuery({
 
 const groups = $computed(() => query.data.value ?? [])
 
-function submitFirst() {
-  const first = groups[0]
-  if (first != null) {
-    emit('select', first)
+// `groupMatches` has already answered the search, so the palette shows what it was given rather
+// than narrowing it again against the same text.
+const paletteGroups = $computed(() => [
+  {
+    id: 'groups',
+    ignoreFilter: true,
+    items: groups.map((group) => ({
+      label: group.name,
+      description: group.description,
+      icon: icons.group,
+      disabled: disable?.(group) ?? false,
+      group,
+    })),
+  },
+])
+
+function onSelect(item: CommandPaletteItem & { group?: Group }) {
+  if (item.group != null) {
+    emit('select', item.group)
   }
 }
 </script>
 
 <template>
-  <div class="p-2">
-    <c-input
-      v-model="search"
-      autofocus
-      class="mb-2 w-full"
-      :icon="icons.search"
-      placeholder="Groups"
-      size="sm"
-      :spellcheck="false"
-      @keyup.enter="submitFirst"
-    />
-    <c-text v-if="groups.length === 0" class="block p-2 text-center opacity-50" variant="body2">
-      {{ empty ?? 'No groups found.' }}
-    </c-text>
-    <c-list v-else class="max-h-[120px] overflow-y-auto">
-      <c-list-item
-        v-for="group in groups"
-        :key="group.id"
-        :class="groups.length === 1 && 'bg-elevated'"
-        :disabled="disable?.(group) ?? false"
-        @click="emit('select', group)"
-      >
-        <c-icon class="shrink-0" :name="icons.group" size="18" />
-        <span class="min-w-0">
-          <c-text class="block truncate" variant="body2">{{ group.name }}</c-text>
-          <c-text v-if="group.description" class="block truncate" variant="description">
-            {{ group.description }}
-          </c-text>
-        </span>
-      </c-list-item>
-    </c-list>
-  </div>
+  <c-command-palette
+    v-model:search-term="search"
+    class="max-h-[210px]"
+    :groups="paletteGroups"
+    :loading="query.isLoading.value"
+    placeholder="Groups"
+    @update:model-value="onSelect"
+  >
+    <template #empty>
+      <c-text class="block p-2 text-center opacity-50" variant="body2">
+        {{ empty ?? 'No groups found.' }}
+      </c-text>
+    </template>
+  </c-command-palette>
 </template>

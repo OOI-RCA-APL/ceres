@@ -1,4 +1,6 @@
 <script lang="ts" setup>
+import type { CommandPaletteItem } from '@nuxt/ui'
+
 import { useQuery } from '@/api/client'
 import { useEngine } from '@/api/engine'
 import type { User, UserFilter } from '@/api/users'
@@ -46,43 +48,42 @@ const query = useQuery({
 
 const users = $computed(() => query.data.value ?? [])
 
-function submitFirst() {
-  const first = users[0]
-  if (first != null) {
-    emit('select', first)
+// The engine has already matched the search, so the palette shows what it was given rather than
+// narrowing it again against the same text.
+const groups = $computed(() => [
+  {
+    id: 'users',
+    ignoreFilter: true,
+    items: users.map((user) => ({
+      label: user.username,
+      description: user.email,
+      icon: icons.user,
+      disabled: disable?.(user) ?? false,
+      user,
+    })),
+  },
+])
+
+function onSelect(item: CommandPaletteItem & { user?: User }) {
+  if (item.user != null) {
+    emit('select', item.user)
   }
 }
 </script>
 
 <template>
-  <div class="p-2">
-    <c-input
-      v-model="search"
-      autofocus
-      class="mb-2 w-full"
-      :icon="icons.search"
-      placeholder="Users"
-      size="sm"
-      :spellcheck="false"
-      @keyup.enter="submitFirst"
-    />
-    <c-text v-if="users.length === 0" class="block p-2 text-center opacity-50" variant="body2">
-      {{ empty ?? 'No users found.' }}
-    </c-text>
-    <c-list v-else class="max-h-[120px] overflow-y-auto">
-      <c-list-item
-        v-for="user in users"
-        :key="user.id"
-        :class="users.length === 1 && 'bg-elevated'"
-        :disabled="disable?.(user) ?? false"
-        @click="emit('select', user)"
-      >
-        <c-icon class="shrink-0" :name="icons.user" size="18" />
-        <span class="min-w-0">
-          <c-text class="block truncate" variant="body2">{{ user.username }}</c-text>
-          <c-text class="block truncate" variant="description">{{ user.email }}</c-text>
-        </span>
-      </c-list-item>
-    </c-list>
-  </div>
+  <c-command-palette
+    v-model:search-term="search"
+    class="max-h-[210px]"
+    :groups
+    :loading="query.isLoading.value"
+    placeholder="Users"
+    @update:model-value="onSelect"
+  >
+    <template #empty>
+      <c-text class="block p-2 text-center opacity-50" variant="body2">
+        {{ empty ?? 'No users found.' }}
+      </c-text>
+    </template>
+  </c-command-palette>
 </template>
