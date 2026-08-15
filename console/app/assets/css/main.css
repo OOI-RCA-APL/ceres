@@ -67,15 +67,17 @@
 
   /* The colors a chart's series cycle through, led by the brand so a lone series is the app's
      own and then ordered to put the widest hue gap between neighbours, which is the pair a
-     reader has to tell apart. Written as hex, and not off the semantic tokens, because a series
-     color is stored on the series and edited in a color input, which takes nothing else. */
-  --console-series-1: #007dab;
-  --console-series-2: #d97706;
-  --console-series-3: #16a34a;
-  --console-series-4: #dc2626;
-  --console-series-5: #8bcfe6;
-  --console-series-6: #7c3aed;
-  --console-series-7: #065371;
+     reader has to tell apart. Taken a few steps brighter than the semantic colors, a thin line
+     over a dark card needing more of one than a filled control does. Hex, and not the semantic
+     tokens, because the color is stored on the series and edited in a color input, which takes
+     nothing else. */
+  --console-series-1: var(--color-brand-400);
+  --console-series-2: #f59e0b;
+  --console-series-3: #22c55e;
+  --console-series-4: #ef4444;
+  --console-series-5: #a78bfa;
+  --console-series-6: #2dd4bf;
+  --console-series-7: #f472b6;
 }
 
 .dark {
