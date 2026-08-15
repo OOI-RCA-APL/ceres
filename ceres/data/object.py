@@ -135,6 +135,11 @@ if TYPE_CHECKING:
         if TYPE_CHECKING:
             __pydantic_fields__: ClassVar[dict[str, FieldInfo]]
 
+    class _SupportsToDict(Protocol):
+        """Protocol for natively-backed objects, which name their own fields."""
+
+        def __to_dict__(self) -> dict[str, Any]: ...
+
     class _SupportsPydanticFieldsSet(_SupportsPydanticFields, Protocol):
         """Protocol extending `_SupportsPydanticFields` with a fields-set property."""
 
@@ -180,6 +185,10 @@ def _supports_fields_set(obj: object) -> TypeIs[_SupportsPydanticFieldsSet]:
 
 def _supports_replace(obj: object) -> TypeIs[_SupportsReplace]:
     return hasattr(obj, "__replace__") and not isinstance(obj, type)
+
+
+def _supports_to_dict(obj: object) -> TypeIs[_SupportsToDict]:
+    return hasattr(obj, "__to_dict__")
 
 
 @cached(storage=_cached_dataclasses)
@@ -286,8 +295,11 @@ def computed_fields_of(
         if cached is not Undefined:
             return cached
 
-    if isinstance(obj, BaseModel):
-        fields = MappingProxyType(obj.__pydantic_computed_fields__)
+    # Asked of the class rather than of `obj`, which may be the class itself and so is not an
+    # instance of anything. Reading it off `obj` answered only for instances, and a class was
+    # refused unless an instance had already been asked about and filled the cache.
+    if issubclass(cls, BaseModel):
+        fields = MappingProxyType(cls.__pydantic_computed_fields__)
     elif _is_dataclass(cls):
         cls = _as_pydantic_dataclass(cls)
         fields = MappingProxyType(
@@ -306,7 +318,7 @@ def computed_fields_of(
 
 
 def to_items(
-    obj: _SupportsPydanticFields | Dataclass,
+    obj: _SupportsPydanticFields | Dataclass | _SupportsToDict,
     *,
     include: set[str] | None = None,
     exclude: set[str] | None = None,
@@ -327,10 +339,13 @@ def to_items(
     """
     # Natively-backed objects name their fields through `__to_dict__`, and their values come
     # from the attributes so enum and path types keep their Python forms.
-    native = getattr(obj, "__to_dict__", None)
-    if native is not None:
+    if _supports_to_dict(obj):
         provided = getattr(obj, "provided", None)
-        names = provided().keys() if exclude_unset and provided is not None else native().keys()
+        names = (
+            provided().keys()
+            if exclude_unset and provided is not None
+            else obj.__to_dict__().keys()
+        )
         for field in names:
             if include is not None and field not in include:
                 continue
@@ -393,7 +408,7 @@ def fields_set_on(obj: _SupportsPydanticFieldsSet, /) -> Set[str]:
 
 
 def to_dict(
-    obj: _SupportsPydanticFields | Dataclass,
+    obj: _SupportsPydanticFields | Dataclass | _SupportsToDict,
     *,
     include: set[str] | None = None,
     exclude: set[str] | None = None,
