@@ -64,10 +64,12 @@ lint:
 	cd rust && cargo fmt --check && cargo clippy --all-targets -- -D warnings
 	cd rust && cargo clippy -p ceres-core --all-targets -- -D warnings
 fix:
+# Regenerated before the formatters run, the generator's output not being formatted to the
+# rules `make lint` then holds it to.
+	cd rust && cargo stubs
 	uv run sh -c "ruff check --fix . && ruff format ."
 	cd console && make fix
 	cd rust && cargo fmt && cargo clippy --fix --allow-dirty --allow-staged --all-targets
-	cd rust && cargo stubs
 build-docs: install-docs
 	uv run mkdocs build
 install-docs:
