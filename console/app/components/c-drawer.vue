@@ -8,7 +8,7 @@ import { useDialogs } from '@/dialogs'
 import { isOnPathTo, useDrawer } from '@/drawer'
 import { guard } from '@/errors'
 import icons from '@/icons'
-import { routeComponentAddress, useNavigation } from '@/navigation'
+import { useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
 import { usePreferences } from '@/preferences'
 import { displayDuration, duration } from '@/time'
@@ -28,7 +28,7 @@ let componentFilter = $ref('')
 // Which top level component the open one is in, or below. The tree's own rows work this out for
 // their children, and this is the same answer for the header, which the tree hangs from.
 const activeTopLevelIndex = $computed(() => {
-  const active = routeComponentAddress(navigation.route)
+  const active = navigation.component
   if (active == null) {
     return -1
   }

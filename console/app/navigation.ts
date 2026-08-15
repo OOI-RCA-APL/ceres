@@ -45,14 +45,6 @@ export function getLoginRedirectPath(redirect: string) {
   return `/login?redirect=${encodeURI(redirect)}`
 }
 
-/** The component address `route` is on, or null anywhere else. */
-export function routeComponentAddress(route: {
-  params: Record<string, string | string[]>
-}): string | null {
-  const parameter = route.params.address
-  return typeof parameter === 'string' && parameter !== '' ? parameter : null
-}
-
 export const useNavigation = defineStore('navigation', () => {
   const route = useRoute()
   const router = useRouter()
@@ -65,6 +57,12 @@ export const useNavigation = defineStore('navigation', () => {
     key: computed(() => `${route.path}|${state.reloads}`),
     route: computed(() => route),
     router: computed(() => router),
+
+    /** The component address the current route is on, or null anywhere else. */
+    component: computed(() => {
+      const parameter = route.params.address
+      return typeof parameter === 'string' && parameter !== '' ? parameter : null
+    }),
 
     reload() {
       state.reloads++

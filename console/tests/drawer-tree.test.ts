@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
 import { isOnPathTo, treeColumnCenter, treeColumnStart, treeToggleWidth } from '@/drawer'
-import { routeComponentAddress } from '@/navigation'
 
 describe('recognizing the branch leading to the open component', () => {
   it('lights the open component itself', () => {
@@ -35,16 +34,5 @@ describe('the tree indent columns', () => {
   // touching.
   it('opens a column half a toggle before its center', () => {
     expect(treeColumnCenter(2) - treeColumnStart(2)).toBe(treeToggleWidth / 2)
-  })
-})
-
-describe('reading the open component off the route', () => {
-  it('returns the address the route names', () => {
-    expect(routeComponentAddress({ params: { address: '@one.two' } })).toBe('@one.two')
-  })
-
-  it('returns null anywhere other than a component page', () => {
-    expect(routeComponentAddress({ params: {} })).toBeNull()
-    expect(routeComponentAddress({ params: { address: '' } })).toBeNull()
   })
 })

@@ -45,8 +45,8 @@ const notify = useNotify()
 const tabs = useTabs()
 const workspaces = useWorkspaces()
 
-// An address holds no path separator, so the route parameter carries the whole of it.
-const address = $computed(() => Address.parse(String(navigation.route.params.address)))
+// Never null here, this being the page the address route resolves to.
+const address = $computed(() => Address.parse(navigation.component!))
 
 const component = $computed(() => engine.components.get(address))
 

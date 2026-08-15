@@ -4,7 +4,7 @@ import type { Address } from '@/api/address'
 import type { ComponentInfo } from '@/api/components'
 import { isOnPathTo, treeColumnCenter, treeColumnStart, treeNodeSize, useDrawer } from '@/drawer'
 import icons from '@/icons'
-import { routeComponentAddress, useNavigation } from '@/navigation'
+import { useNavigation } from '@/navigation'
 
 const {
   address,
@@ -48,11 +48,9 @@ const drawer = useDrawer()
 const access = useAccess()
 const navigation = useNavigation()
 
-const openAddress = $computed(() => routeComponentAddress(navigation.route))
-
 // The branch down to the open component is drawn stronger the whole way, not just the corner
 // reaching it, so the tree traces the way back to where you are.
-const isOnPath = $computed(() => isOnPathTo(openAddress, address.toString()))
+const isOnPath = $computed(() => isOnPathTo(navigation.component, address.toString()))
 
 // Components the user can only look at read quieter than the ones they can control so a glance
 // down the tree separates what can be acted on from what can only be read.
@@ -106,13 +104,12 @@ Only a parent knows what order its children are in so this is where each of them
 the path carries on past it to a later one.
 */
 const activeChildIndex = $computed(() => {
-  if (openAddress == null) {
+  const open = navigation.component
+  if (open == null) {
     return -1
   }
 
-  return component.components.findIndex((child) =>
-    isOnPathTo(openAddress, `${address}.${child.name}`),
-  )
+  return component.components.findIndex((child) => isOnPathTo(open, `${address}.${child.name}`))
 })
 
 /** The corner joining this row to whatever it hangs from, drawn in that column.
