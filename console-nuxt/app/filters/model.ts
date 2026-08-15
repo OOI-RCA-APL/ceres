@@ -142,6 +142,17 @@ export function withGrouped(
   return result
 }
 
+/** The query with condition `id` carrying `value`, wherever it nests. */
+export function withConditionValue(query: FilterQuery, id: string, value: unknown): FilterQuery {
+  return query.map((item): FilterItem => {
+    if (isBlock(item)) {
+      return { ...item, children: withConditionValue(item.children, id, value) }
+    }
+
+    return item.id === id ? { ...item, value } : item
+  })
+}
+
 /** The block `id` dissolved, its children standing where it stood. */
 export function withUngrouped(query: FilterQuery, id: string): FilterQuery {
   return query.flatMap((item): FilterItem[] => {

@@ -9,6 +9,7 @@ import { LogEntryFilterModel } from '@/api/logs'
 import { MessageFilterModel } from '@/api/messages'
 import { ParticleFilterModel } from '@/api/particles'
 import { DateTimeModel } from '@/api/shared'
+import { FilterQueryModel } from '@/filters/model'
 import { safeArrayOf } from '@/utilities'
 
 export type BaseWidget = z.infer<typeof BaseWidgetModel>
@@ -32,6 +33,7 @@ export const MessagesWidgetModel = BaseWidgetModel.extend({
   type: z.literal('messages'),
   name: z.string().catch('Messages'),
   filter: MessageFilterModel.catch(() => ({})),
+  query: FilterQueryModel.catch(() => []),
   dataDisplay: MessageDataDisplayModel,
   commandAddress: AddressModel.nullish(),
   commandConnection: z.string().nullish(),
@@ -48,6 +50,7 @@ export const ParticlesWidgetModel = BaseWidgetModel.extend({
   type: z.literal('particles'),
   name: z.string().catch('Particles'),
   filter: ParticleFilterModel.catch(() => ({})),
+  query: FilterQueryModel.catch(() => []),
 })
 
 export type AlertsWidget = z.infer<typeof AlertsWidgetModel>
@@ -55,6 +58,7 @@ export const AlertsWidgetModel = BaseWidgetModel.extend({
   type: z.literal('alerts'),
   name: z.string().catch('Alerts'),
   filter: AlertFilterModel.catch(() => ({})),
+  query: FilterQueryModel.catch(() => []),
 })
 
 export type LogsWidget = z.infer<typeof LogsWidgetModel>
@@ -62,6 +66,7 @@ export const LogsWidgetModel = BaseWidgetModel.extend({
   type: z.literal('logs'),
   name: z.string().catch('Logs'),
   filter: LogEntryFilterModel.catch(() => ({})),
+  query: FilterQueryModel.catch(() => []),
 })
 
 export type ProceduresWidget = z.infer<typeof ProceduresWidgetModel>

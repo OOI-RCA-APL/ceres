@@ -25,6 +25,7 @@ const icons = {
   confirmDialog: 'i-mdi-comment-question-outline',
   connection: 'i-mdi-routes',
   copy: 'i-mdi-content-copy',
+  cut: 'i-mdi-content-cut',
   darkMode: 'i-mdi-weather-night',
   delete: 'i-mdi-delete',
   details: 'i-mdi-information-outline',
@@ -70,6 +71,7 @@ const icons = {
   // A page with its top band highlighted, matching the overview the toggle collapses.
   overview: 'i-mdi-page-layout-header',
   password: 'i-mdi-form-textbox-password',
+  paste: 'i-mdi-content-paste',
   pause: 'i-mdi-pause',
   preferences: 'i-mdi-theme-light-dark',
   privateWorkspace: 'i-mdi-account',

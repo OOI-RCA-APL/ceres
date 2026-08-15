@@ -1,0 +1,267 @@
+<script lang="ts" setup>
+import type { DropdownMenuItem } from '@nuxt/ui'
+import { nextTick } from 'vue'
+
+import { defaultTextKind, definitionsFor, matchDefinitions } from '@/filters/definitions'
+import type { FilterDefinition, RecordKind } from '@/filters/definitions'
+import { createCondition, isBlock, withConditionValue, withoutItems } from '@/filters/model'
+import type { FilterQuery } from '@/filters/model'
+import { createFilterSelection } from '@/filters/selection'
+import icons from '@/icons'
+import { moved, usePointerReorder } from '@/reorder'
+import type { SelectMode } from '@/workspace'
+
+const { recordKind, addressOptions = [] } = defineProps<{
+  recordKind: RecordKind
+  /** The choices an address condition offers, from the hosting view's scope. */
+  addressOptions?: readonly string[]
+}>()
+
+let query = $(defineModel<FilterQuery>({ required: true }))
+
+const selection = createFilterSelection({
+  query: () => query,
+  onUpdate: (updated) => {
+    query = updated
+  },
+})
+
+const selectedIds = $(selection.selectedIds)
+
+let rootElement = $ref<HTMLElement | null>(null)
+let inputElement = $ref<HTMLInputElement | null>(null)
+
+/** What the bar's own input holds, matched against the registry as it grows. */
+let search = $ref('')
+let isInputFocused = $ref(false)
+
+/** The row the arrow keys stand on in the suggestion list. */
+let highlighted = $ref(0)
+
+/** The condition whose value input claims focus, the one just accepted. */
+let focusId = $ref<string | null>(null)
+
+const suggestions = $computed(() => matchDefinitions(definitionsFor(recordKind), search))
+const isSuggesting = $computed(() => isInputFocused && suggestions.length > 0)
+
+function accept(definition: FilterDefinition) {
+  const condition = createCondition(definition.kind, null)
+  query = [...query, condition]
+  search = ''
+  highlighted = 0
+  focusId = condition.id
+}
+
+function acceptFreeText() {
+  const condition = createCondition(defaultTextKind(recordKind), search.trim())
+  query = [...query, condition]
+  search = ''
+  highlighted = 0
+}
+
+function onEnter() {
+  if (search.trim() === '') {
+    return
+  }
+
+  // A ranked match wins, and text matching nothing becomes the record kind's text search.
+  const definition = suggestions[highlighted] ?? suggestions[0]
+  if (definition != null) {
+    accept(definition)
+  } else {
+    acceptFreeText()
+  }
+}
+
+function onInputBackspace() {
+  if (search === '' && query.length > 0) {
+    query = query.slice(0, -1)
+  }
+}
+
+/** Focus flows back to the bar's input once a value is finished, keeping typing continuous. */
+async function onCommit() {
+  focusId = null
+  await nextTick()
+  inputElement?.focus()
+}
+
+function onChange(id: string, value: unknown) {
+  query = withConditionValue(query, id, value)
+}
+
+function onRemove(id: string) {
+  query = withoutItems(query, new Set([id]))
+}
+
+function modeOf(event: MouseEvent): SelectMode {
+  if (event.shiftKey) {
+    return 'extend'
+  }
+
+  return event.metaKey || event.ctrlKey ? 'toggle' : 'replace'
+}
+
+function onChipClick(id: string, event: MouseEvent) {
+  if (reorder.consumeClick()) {
+    return
+  }
+
+  selection.select(id, modeOf(event))
+}
+
+function onBarKeydown(event: KeyboardEvent) {
+  // Value inputs and the bar's own input handle their own keys.
+  if (event.target instanceof HTMLInputElement) {
+    return
+  }
+
+  if (event.key === 'Delete' || event.key === 'Backspace') {
+    selection.removeSelected()
+    event.preventDefault()
+  } else if ((event.metaKey || event.ctrlKey) && event.key === 'c') {
+    selection.copySelected()
+  } else if ((event.metaKey || event.ctrlKey) && event.key === 'x') {
+    selection.cutSelected()
+  } else if ((event.metaKey || event.ctrlKey) && event.key === 'v') {
+    selection.paste()
+  } else if (event.key === 'Escape') {
+    selection.clear()
+  }
+}
+
+const contextMenuItems = $computed<DropdownMenuItem[][]>(() => {
+  const single = selectedIds.size === 1 ? query.find((item) => selectedIds.has(item.id)) : null
+
+  const grouping: DropdownMenuItem[] = []
+  if (selectedIds.size > 1) {
+    grouping.push(
+      { label: 'Group as OR', onSelect: () => selection.groupSelected('or') },
+      { label: 'Group as AND', onSelect: () => selection.groupSelected('and') },
+    )
+  }
+  if (single != null && isBlock(single)) {
+    grouping.push({ label: 'Ungroup', onSelect: () => selection.ungroup(single.id) })
+  }
+
+  const clipboard: DropdownMenuItem[] = [
+    { label: 'Copy', icon: icons.copy, onSelect: () => selection.copySelected() },
+    { label: 'Cut', icon: icons.cut, onSelect: () => selection.cutSelected() },
+    {
+      label: 'Paste',
+      icon: icons.paste,
+      disabled: !selection.canPaste(),
+      onSelect: () => selection.paste(),
+    },
+  ]
+
+  const removal: DropdownMenuItem[] = [
+    { label: 'Remove', icon: icons.delete, onSelect: () => selection.removeSelected() },
+  ]
+
+  return grouping.length > 0 ? [grouping, clipboard, removal] : [clipboard, removal]
+})
+
+/** Append a condition of `kind` and focus its value input, the header quick filters' path
+into the bar. */
+function appendKind(kind: string) {
+  const condition = createCondition(kind, null)
+  query = [...query, condition]
+  focusId = condition.id
+}
+
+defineExpose({ appendKind })
+
+const reorder = usePointerReorder({
+  axis: 'horizontal',
+  elements: () => [...(rootElement?.querySelectorAll<HTMLElement>('[data-filter-chip]') ?? [])],
+  onReorder: (from, to) => {
+    const dragged = query[from]
+    if (dragged == null) {
+      return
+    }
+
+    // A drag of a selected chip carries the whole selection as a unit.
+    if (selectedIds.has(dragged.id) && selectedIds.size > 1) {
+      selection.moveSelected(to > from ? to + 1 : to)
+    } else {
+      query = moved([...query], from, to)
+    }
+  },
+})
+</script>
+
+<template>
+  <div
+    ref="rootElement"
+    class="flex min-h-7 flex-wrap items-center gap-1 px-1.5 py-0.5"
+    tabindex="-1"
+    @keydown="onBarKeydown"
+    @pointerdown.self="selection.clear()"
+  >
+    <c-icon class="text-muted shrink-0" :name="icons.filter" size="12" />
+    <c-context-menu :items="contextMenuItems">
+      <div class="flex flex-wrap items-center gap-1">
+        <div
+          v-for="(item, index) in query"
+          :key="item.id"
+          data-filter-chip
+          :style="reorder.styleFor(index)"
+          v-on="reorder.handlers(index)"
+          @click="onChipClick(item.id, $event)"
+          @contextmenu="selection.ensureSelected(item.id)"
+        >
+          <c-filter-item
+            :address-options="addressOptions"
+            :focus-id="focusId"
+            :item="item"
+            :selected="selection.isSelected(item.id)"
+            @change="onChange"
+            @commit="onCommit"
+            @remove="onRemove"
+          />
+        </div>
+      </div>
+    </c-context-menu>
+    <div class="relative min-w-24 grow">
+      <input
+        ref="inputElement"
+        v-model="search"
+        class="w-full bg-transparent py-1 font-mono text-[11px] outline-none"
+        :placeholder="query.length === 0 ? 'Filter...' : ''"
+        spellcheck="false"
+        type="text"
+        @blur="isInputFocused = false"
+        @focus="isInputFocused = true"
+        @keydown.backspace="onInputBackspace()"
+        @keydown.down.prevent="highlighted = Math.min(highlighted + 1, suggestions.length - 1)"
+        @keydown.enter.prevent="onEnter()"
+        @keydown.escape="search = ''"
+        @keydown.up.prevent="highlighted = Math.max(highlighted - 1, 0)"
+      />
+      <!-- Offered while typing, mousedown so the pick lands before the input's blur. -->
+      <div
+        v-if="isSuggesting && search.trim() !== ''"
+        :class="[
+          'bg-elevated border-default absolute top-full left-0 z-10 mt-1',
+          'max-h-64 min-w-44 overflow-y-auto rounded-md border py-1 shadow-lg',
+        ]"
+      >
+        <button
+          v-for="(definition, index) in suggestions"
+          :key="definition.kind"
+          class="flex w-full cursor-pointer items-baseline gap-2 px-2 py-0.5 text-left"
+          :class="index === highlighted && 'bg-accented/60'"
+          type="button"
+          @mousedown.prevent="accept(definition)"
+          @mousemove="highlighted = index"
+        >
+          <c-text element="span" variant="mono-sm">{{ definition.label }}</c-text>
+          <c-text class="text-muted" element="span" variant="mono-xs">
+            {{ definition.input.type }}
+          </c-text>
+        </button>
+      </div>
+    </div>
+  </div>
+</template>
