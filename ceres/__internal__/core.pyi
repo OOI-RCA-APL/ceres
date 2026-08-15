@@ -100,6 +100,14 @@ class Argon2HashingConfig:
 
         Called through `ceres.data.to_dict` rather than directly.
         """
+    def __replace__(self, **changes: Any) -> Self:
+        r"""
+        Return a copy of this configuration with the given fields replaced.
+
+        Called through `copy.replace` and `ceres.data.replacing` rather than
+        directly. The replacement is built through the constructor, so a change
+        that does not validate is refused here rather than later.
+        """
     @staticmethod
     def __json_schema__() -> dict[str, Any]:
         r"""
@@ -130,6 +138,14 @@ class BCryptHashingConfig:
         Return the configuration as a plain dictionary of JSON-compatible values.
 
         Called through `ceres.data.to_dict` rather than directly.
+        """
+    def __replace__(self, **changes: Any) -> Self:
+        r"""
+        Return a copy of this configuration with the given fields replaced.
+
+        Called through `copy.replace` and `ceres.data.replacing` rather than
+        directly. The replacement is built through the constructor, so a change
+        that does not validate is refused here rather than later.
         """
     @staticmethod
     def __json_schema__() -> dict[str, Any]:
@@ -217,6 +233,14 @@ class ConsoleConfig:
 
         Called through `ceres.data.to_dict` rather than directly.
         """
+    def __replace__(self, **changes: Any) -> Self:
+        r"""
+        Return a copy of this configuration with the given fields replaced.
+
+        Called through `copy.replace` and `ceres.data.replacing` rather than
+        directly. The replacement is built through the constructor, so a change
+        that does not validate is refused here rather than later.
+        """
     @staticmethod
     def __json_schema__() -> dict[str, Any]:
         r"""
@@ -258,6 +282,14 @@ class DatabaseConfigHooks:
         Return the configuration as a plain dictionary of JSON-compatible values.
 
         Called through `ceres.data.to_dict` rather than directly.
+        """
+    def __replace__(self, **changes: Any) -> Self:
+        r"""
+        Return a copy of this configuration with the given fields replaced.
+
+        Called through `copy.replace` and `ceres.data.replacing` rather than
+        directly. The replacement is built through the constructor, so a change
+        that does not validate is refused here rather than later.
         """
     @staticmethod
     def __json_schema__() -> dict[str, Any]:
@@ -546,6 +578,14 @@ class PostgresDatabaseConfig:
 
         Called through `ceres.data.to_dict` rather than directly.
         """
+    def __replace__(self, **changes: Any) -> Self:
+        r"""
+        Return a copy of this configuration with the given fields replaced.
+
+        Called through `copy.replace` and `ceres.data.replacing` rather than
+        directly. The replacement is built through the constructor, so a change
+        that does not validate is refused here rather than later.
+        """
     @staticmethod
     def __json_schema__() -> dict[str, Any]:
         r"""
@@ -670,6 +710,14 @@ class SQLiteDatabaseConfig:
 
         Called through `ceres.data.to_dict` rather than directly.
         """
+    def __replace__(self, **changes: Any) -> Self:
+        r"""
+        Return a copy of this configuration with the given fields replaced.
+
+        Called through `copy.replace` and `ceres.data.replacing` rather than
+        directly. The replacement is built through the constructor, so a change
+        that does not validate is refused here rather than later.
+        """
     @staticmethod
     def __json_schema__() -> dict[str, Any]:
         r"""
@@ -711,6 +759,14 @@ class ServerAuthenticationConfig:
         Return the configuration as a plain dictionary of JSON-compatible values.
 
         Called through `ceres.data.to_dict` rather than directly.
+        """
+    def __replace__(self, **changes: Any) -> Self:
+        r"""
+        Return a copy of this configuration with the given fields replaced.
+
+        Called through `copy.replace` and `ceres.data.replacing` rather than
+        directly. The replacement is built through the constructor, so a change
+        that does not validate is refused here rather than later.
         """
     @staticmethod
     def __json_schema__() -> dict[str, Any]:
@@ -784,6 +840,14 @@ class ServerCORSConfig:
 
         Called through `ceres.data.to_dict` rather than directly.
         """
+    def __replace__(self, **changes: Any) -> Self:
+        r"""
+        Return a copy of this configuration with the given fields replaced.
+
+        Called through `copy.replace` and `ceres.data.replacing` rather than
+        directly. The replacement is built through the constructor, so a change
+        that does not validate is refused here rather than later.
+        """
     @staticmethod
     def __json_schema__() -> dict[str, Any]:
         r"""
@@ -856,6 +920,14 @@ class ServerCompressionConfig:
 
         Called through `ceres.data.to_dict` rather than directly.
         """
+    def __replace__(self, **changes: Any) -> Self:
+        r"""
+        Return a copy of this configuration with the given fields replaced.
+
+        Called through `copy.replace` and `ceres.data.replacing` rather than
+        directly. The replacement is built through the constructor, so a change
+        that does not validate is refused here rather than later.
+        """
     @staticmethod
     def __json_schema__() -> dict[str, Any]:
         r"""
@@ -916,6 +988,14 @@ class ServerConfig:
 
         Called through `ceres.data.to_dict` rather than directly.
         """
+    def __replace__(self, **changes: Any) -> Self:
+        r"""
+        Return a copy of this configuration with the given fields replaced.
+
+        Called through `copy.replace` and `ceres.data.replacing` rather than
+        directly. The replacement is built through the constructor, so a change
+        that does not validate is refused here rather than later.
+        """
     @staticmethod
     def __json_schema__() -> dict[str, Any]:
         r"""
@@ -970,6 +1050,14 @@ class ServerSSLConfig:
 
         Called through `ceres.data.to_dict` rather than directly.
         """
+    def __replace__(self, **changes: Any) -> Self:
+        r"""
+        Return a copy of this configuration with the given fields replaced.
+
+        Called through `copy.replace` and `ceres.data.replacing` rather than
+        directly. The replacement is built through the constructor, so a change
+        that does not validate is refused here rather than later.
+        """
     @staticmethod
     def __json_schema__() -> dict[str, Any]:
         r"""
@@ -1017,6 +1105,14 @@ class ServiceConfig:
         Return the configuration as a plain dictionary of JSON-compatible values.
 
         Called through `ceres.data.to_dict` rather than directly.
+        """
+    def __replace__(self, **changes: Any) -> Self:
+        r"""
+        Return a copy of this configuration with the given fields replaced.
+
+        Called through `copy.replace` and `ceres.data.replacing` rather than
+        directly. The replacement is built through the constructor, so a change
+        that does not validate is refused here rather than later.
         """
     @staticmethod
     def __json_schema__() -> dict[str, Any]:
@@ -1129,6 +1225,14 @@ class TursoDatabaseConfig(SQLiteDatabaseConfig):
         Return the configuration as a plain dictionary of JSON-compatible values.
 
         Called through `ceres.data.to_dict` rather than directly.
+        """
+    def __replace__(self, **changes: Any) -> Self:
+        r"""
+        Return a copy of this configuration with the given fields replaced.
+
+        Called through `copy.replace` and `ceres.data.replacing` rather than
+        directly. The replacement is built through the constructor, so a change
+        that does not validate is refused here rather than later.
         """
     @staticmethod
     def __json_schema__() -> dict[str, Any]:
