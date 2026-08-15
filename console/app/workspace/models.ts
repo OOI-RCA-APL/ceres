@@ -365,7 +365,6 @@ export const WidgetModel = z.preprocess(
 ) as unknown as z.ZodType<Widget>
 
 export const widgetWidthSubdivisions = 120
-export const minWidgetWidthPixels = 100
 
 /** Written out rather than inferred for the same reason as `WidgetPage`, the types are
 mutually recursive. */
@@ -413,7 +412,7 @@ export function withPages(widget: Widget, pages: WidgetPage[]): Widget {
 
 /** Return `widget` in its current shape, upgrading the legacy `button` kind and its inline
 action fields to a `controls` widget. */
-export function upgradedWidget(widget: Widget): Widget {
+function upgradedWidget(widget: Widget): Widget {
   const pages = pagesOf(widget).map((page) => ({
     ...page,
     layout: upgradedRows(page.layout),
@@ -450,7 +449,7 @@ export function upgradedWidget(widget: Widget): Widget {
   }
 }
 
-export function upgradedRows(rows: WidgetRow[]): WidgetRow[] {
+function upgradedRows(rows: WidgetRow[]): WidgetRow[] {
   return rows.map((row) => ({ ...row, widgets: row.widgets.map(upgradedWidget) }))
 }
 

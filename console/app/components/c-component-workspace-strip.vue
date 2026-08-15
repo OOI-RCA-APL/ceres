@@ -1,10 +1,10 @@
 <script lang="ts">
 /** The strip band's height, its 32px tab row plus the separator beneath it. */
-export const stripBandHeight = 33
+const stripBandHeight = 33
 
 /** Width of the collapse toggle overlaid on the trailing edge, matching the button width in
 the styles below. Passed to the slot so the tabs' own picker can sit beside it. */
-export const stripToggleInset = 34
+const stripToggleInset = 34
 
 /** The overview height that rests the strip at the bottom edge, floored by the dragged
 height. */

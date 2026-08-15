@@ -102,7 +102,7 @@ export function describeFieldDescription(schema: unknown): string | undefined {
 /** The Y axis unit a chart derives when its setting is blank, the units its plotted fields
 declare, joined when they differ. `resolveAddress` maps a particle entry's address selector
 to the concrete address its types are keyed by. */
-export function deriveChartUnit(
+function deriveChartUnit(
   particles: ChartWidgetParticle[],
   resolveAddress: (address: ChartWidgetParticle['address']) => string | null,
   typesByAddress: Map<string, ParticleTypeInfo[]>,
@@ -167,7 +167,7 @@ export function useDerivedChartUnit(
 An optional field holds the unit on its non-null `anyOf` member rather than at the top, so
 union members are searched too.
 */
-export function describeFieldUnit(schema: unknown): string | undefined {
+function describeFieldUnit(schema: unknown): string | undefined {
   if (typeof schema !== 'object' || schema == null) {
     return undefined
   }

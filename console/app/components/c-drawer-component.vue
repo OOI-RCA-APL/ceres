@@ -244,9 +244,8 @@ thing rather than a circle drawn behind a square. Sized to `treeNodeSize`, which
 reaching it stop.
 
 Pulled in by a pixel on each side so a ring wider than its column still advances the row by exactly
-one column and a gap, leaving a parent's name in line with a leaf's. The width and that gap mirror
-`treeToggleWidth` and `treeLabelGap`, which CSS cannot read, so changing either means changing
-both. */
+one column and a gap, leaving a parent's name in line with a leaf's. The width mirrors
+`treeToggleWidth`, which CSS cannot read, so changing one means changing both. */
 .toggle {
   position: relative;
   display: flex;

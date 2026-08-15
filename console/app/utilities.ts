@@ -1,8 +1,7 @@
-import Color from 'color'
-import { debounce, isEqual, throttle } from 'lodash-es'
+import { debounce, isEqual } from 'lodash-es'
 import Prism from 'prismjs'
 import { titleCase } from 'title-case'
-import { type ComputedRef, type Ref, computed, isRef, shallowRef, watch } from 'vue'
+import { type ComputedRef, type Ref, computed, shallowRef, watch } from 'vue'
 import type * as z from 'zod'
 
 import 'prismjs/components/prism-json'
@@ -31,20 +30,6 @@ export function deepClone<T>(value: T) {
   return JSON.parse(JSON.stringify(value))
 }
 
-export function asRef<T>(value: MaybeRef<T>): Readonly<Ref<T>> {
-  return isRef(value) ? value : computed(() => value)
-}
-
-export function hash(text: string): string {
-  let result = 0
-  for (let index = 0; index < text.length; index++) {
-    result = (result << 5) - result + text.charCodeAt(index)
-    result &= result
-  }
-
-  return new Uint32Array([result])[0]!.toString(36)
-}
-
 export function debouncedComputed<T>(factory: () => T, delay: number): ComputedRef<T> {
   const result: Ref<T> = shallowRef(factory())
   watch(
@@ -55,26 +40,6 @@ export function debouncedComputed<T>(factory: () => T, delay: number): ComputedR
   )
 
   return computed(() => result.value)
-}
-
-export function throttledComputed<T>(factory: () => T, delay: number): ComputedRef<T> {
-  const result: Ref<T> = shallowRef(factory())
-  watch(
-    () => factory(),
-    throttle((update) => {
-      result.value = update
-    }, delay),
-  )
-
-  return computed(() => result.value)
-}
-
-export function isLight(color: string): boolean {
-  return new Color(color).isLight()
-}
-
-export function isDark(color: string): boolean {
-  return !isLight(color)
 }
 
 export function selectFile(options?: { accept?: string; multiple: false }): Promise<File | null>

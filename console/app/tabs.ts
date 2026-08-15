@@ -81,7 +81,7 @@ neither the `:` a per-strip name would need nor the `.` a component address uses
 would be writable and not readable. Keying by placement inside a single value keeps every
 semantic and reads every strip in one request.
 */
-export const tabsSettingName = 'workspaces'
+const tabsSettingName = 'workspaces'
 
 const emptySet: TabSet = { open: [], closed: [] }
 

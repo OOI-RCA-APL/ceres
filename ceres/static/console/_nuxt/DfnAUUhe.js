@@ -1,1 +1,0 @@
-import{F as e,Gn as t,K as n,jt as r}from"./C_zar9Yu.js";import{t as i}from"./1uEjVj23.js";import{t as a}from"./BEjhiI4_.js";import{t as o}from"./CNs_Ozdc.js";var s=n({__name:`account`,setup(n){o({auth:!0});let s=i();return(n,i)=>{let o=a;return r(),e(o,{id:t(s).auth.user?.id??null},null,8,[`id`])}}});export{s as default};

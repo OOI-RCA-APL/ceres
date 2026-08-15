@@ -28,7 +28,7 @@ export type GuardMatch = {
 }
 export type GuardMapping = Partial<Record<ErrorType, GuardErrorHandler>>
 
-export function escape(): never {
+function escape(): never {
   throw new Escape()
 }
 

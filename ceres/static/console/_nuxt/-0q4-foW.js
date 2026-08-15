@@ -1,1 +1,0 @@
-import{F as e,K as t,N as n,jt as r}from"./C_zar9Yu.js";import{m as i}from"./Cl2YV6cF.js";import{t as a}from"./BEjhiI4_.js";import{t as o}from"./CNs_Ozdc.js";var s=t({__name:`[id]`,setup(t){o({auth:`admin`});let s=i(),c=n(()=>String(s.params.id));return(t,n)=>{let i=a;return r(),e(i,{id:c.value},null,8,[`id`])}}});export{s as default};

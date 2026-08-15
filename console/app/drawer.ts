@@ -10,7 +10,7 @@ Shared because the tree hangs off the header above it, which has to know where c
 order to drop a line into it. The step can be no narrower than the toggle, since a toggle sits in
 its own column and the line down the column before it has to pass without touching.
 */
-export const treeColumnStep = 14
+const treeColumnStep = 14
 export const treeToggleWidth = 14
 /** Column zero, set to the middle of the header's own icon so the tree hangs off it squarely.
 
@@ -18,10 +18,7 @@ A pixel left of that middle rather than on it, because a one pixel line covers t
 position. Placed on the middle exactly, the line would sit half a pixel to the right of the icon it
 hangs from.
 */
-export const treeRootColumn = 24
-
-/** Gap between a row's toggle column and the name that follows it. */
-export const treeLabelGap = 6
+const treeRootColumn = 24
 
 /** Diameter of the ring drawn around a toggle, which the lines reaching it stop at. */
 export const treeNodeSize = 16

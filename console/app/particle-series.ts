@@ -32,7 +32,7 @@ export function seriesForGroup(
 
 /** Replace every entry for `address`'s `type` with one carrying `series`, dropping the pair
 entirely once `series` is empty. Entries this pair does not touch keep their order. */
-export function withGroupSeries(
+function withGroupSeries(
   particles: ChartWidgetParticle[],
   address: string,
   type: string,

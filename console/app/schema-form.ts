@@ -563,10 +563,6 @@ export function useSchemaForm(options: SchemaFormOptions) {
 
 export type SchemaPath = ReadonlyArray<string | number>
 
-export function isSchemaForm(value: unknown): value is SchemaForm {
-  return value != null && typeof value === 'object' && 'schema' in value && 'validator' in value
-}
-
 export function isType(schema: Schema | undefined, type: string): boolean {
   if (typeof schema === 'boolean' || schema === undefined) {
     return false
@@ -585,7 +581,7 @@ export function isType(schema: Schema | undefined, type: string): boolean {
 
 /** Whether `schema` or one of its `anyOf` members carries `format`, the way an optional field
 wraps its real schema in a union with null. */
-export function hasFormat(schema: Schema, format: string): boolean {
+function hasFormat(schema: Schema, format: string): boolean {
   if (typeof schema === 'boolean' || schema == null) {
     return false
   }
@@ -646,6 +642,6 @@ export function isEmptyObjectSchema(schema: Schema | null | undefined) {
   return Object.keys(schema.properties).length === 0
 }
 
-export function isEmptyObject(object: any) {
+function isEmptyObject(object: any) {
   return typeof object === 'object' && !Array.isArray(object) && Object.keys(object).length === 0
 }
