@@ -2,15 +2,13 @@
 
 import asyncio
 import contextlib
-import shutil
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Final
 
-import ceres
 from ceres.__internal__.cli.shared import write
 
-_PACKAGE_ROOT: Final = Path(ceres.__file__).parent.parent
+_PACKAGE_ROOT: Final = Path(__file__).parent.parent.parent.parent
 """The directory the `ceres` package sits in, which is the repository root in a source checkout."""
 
 
@@ -65,6 +63,10 @@ async def console_dev_server(source: Path | None) -> AsyncIterator[None]:
     if source is None:
         yield
         return
+
+    # Imported here rather than at module scope, nothing outside this development-only path
+    # needing it, and the CLI pays for every import on every invocation.
+    import shutil
 
     console = find_console_source(source)
     if shutil.which("npm") is None:
