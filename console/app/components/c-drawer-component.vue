@@ -255,7 +255,7 @@ one column and a gap, leaving a parent's name in line with a leaf's. The width m
   align-items: center;
   justify-content: center;
   margin: 0 5px 0 -1px;
-  border: 1px solid color-mix(in srgb, var(--ui-text) 16%, transparent);
+  border: 1px solid var(--ui-border);
   border-radius: 50%;
   color: var(--ui-text-toned);
   cursor: pointer;

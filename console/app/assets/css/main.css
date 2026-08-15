@@ -57,11 +57,19 @@
      swaps with the mode, so the pair is named here rather than picked at each card. */
   --console-page: var(--ui-bg-elevated);
   --console-card: var(--ui-bg);
+
+  /* Every hairline in the console comes off the text rather than off the neutral scale, so a
+     border separates whatever it is drawn against. Nuxt UI's own lands on the same value as the
+     raised fill and disappears into it. The strength is the knob, and dark needs more of it to
+     read as the same line. */
+  --console-border-strength: 12%;
+  --ui-border: --alpha(var(--ui-text) / var(--console-border-strength));
 }
 
 .dark {
   --console-page: var(--ui-bg);
   --console-card: var(--ui-bg-elevated);
+  --console-border-strength: 28%;
 }
 
 /* Prism token colors, which the highlighter's markup carries no styling of its own for. */
