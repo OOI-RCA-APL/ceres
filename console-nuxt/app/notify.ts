@@ -1,3 +1,4 @@
+import type { ButtonProps } from '@nuxt/ui'
 import { defineStore } from 'pinia'
 
 export type Notify = ReturnType<typeof useNotify>
@@ -10,7 +11,14 @@ export type NotifyOptions = Partial<{
   color: NotifyColor
   icon: string
   duration: number
+  actions: ButtonProps[]
 }>
+
+/** A toast held open while whatever it reports on is still going. */
+export type NotifyHandle = {
+  update: (options: NotifyOptions) => void
+  close: () => void
+}
 
 export const useNotify = defineStore('notify', () => {
   const toast = useToast()
@@ -22,8 +30,19 @@ export const useNotify = defineStore('notify', () => {
     })
   }
 
+  /** Show a toast that stays until it is closed, for work whose progress it reports. */
+  function open(options: NotifyOptions): NotifyHandle {
+    const { id } = toast.add({ duration: 0, ...options })
+
+    return {
+      update: (changes) => toast.update(id, changes),
+      close: () => toast.remove(id),
+    }
+  }
+
   return {
     show,
+    open,
     error: (message: string, options: NotifyOptions = {}) =>
       show({ description: message, color: 'error', icon: 'i-mdi-alert-circle', ...options }),
     info: (message: string, options: NotifyOptions = {}) =>

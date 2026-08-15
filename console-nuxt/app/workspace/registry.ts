@@ -117,7 +117,10 @@ export const widgetInfos = {
     type: 'video',
     name: 'Video',
     model: widgetModels.video,
-    component: pendingComponent,
+    component: defineAsyncComponent(() => import('@/components/c-workspace-widget-video.vue')),
+    settingsComponent: defineAsyncComponent(
+      () => import('@/components/c-workspace-widget-video-settings.vue'),
+    ),
     options: widgetOptions({
       paddingClass: [],
     }),
@@ -126,7 +129,7 @@ export const widgetInfos = {
     type: 'tabs',
     name: 'Tabs',
     model: widgetModels.tabs,
-    component: pendingComponent,
+    component: defineAsyncComponent(() => import('@/components/c-workspace-widget-tabs.vue')),
     // No settings dialog. Its pages are arranged on the strip itself.
     options: widgetOptions({
       paddingClass: [],
@@ -147,7 +150,7 @@ export const widgetInfos = {
     type: 'controls',
     name: 'Controls',
     model: widgetModels.controls,
-    component: pendingComponent,
+    component: defineAsyncComponent(() => import('@/components/c-workspace-widget-controls.vue')),
     // No settings dialog. Each control is configured from the control itself.
     options: widgetOptions({
       minHeight: 90,

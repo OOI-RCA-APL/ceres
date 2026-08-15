@@ -4,6 +4,7 @@ import { useResizeObserver } from '@vueuse/core'
 import { nextTick, watch } from 'vue'
 
 import { useAuth } from '@/api/auth'
+import strip from '@/assets/css/tab-strip.module.css'
 import { useDialogs } from '@/dialogs'
 import { isWorkspaceFile, useFileDrop } from '@/filedrop'
 import icons from '@/icons'
@@ -409,7 +410,8 @@ grows and the tabs pass beneath it. -->
     <div
       ref="scrollerElement"
       class="flex min-w-0 flex-nowrap items-stretch pl-2"
-      :class="$style.scroller"
+      :class="strip.scroller"
+      style="--tab-grip-width: 32px"
     >
       <c-context-menu
         v-for="(workspace, index) in workspaces"
@@ -419,12 +421,12 @@ grows and the tabs pass beneath it. -->
         <div
           :aria-selected="workspace.id === active"
           :class="[
-            $style.tab,
-            workspace.id === active && $style.activeTab,
-            reorder.isSwapping && $style.swapping,
-            reorder.isDragging && $style.arranging,
-            reorder.isHeld(index) && $style.held,
-            reorder.isGrabbed(index) && $style.grabbed,
+            strip.tab,
+            workspace.id === active && strip.activeTab,
+            reorder.isSwapping && strip.swapping,
+            reorder.isDragging && strip.arranging,
+            reorder.isHeld(index) && strip.held,
+            reorder.isGrabbed(index) && strip.grabbed,
           ]"
           data-tab
           role="tab"
@@ -439,7 +441,7 @@ grows and the tabs pass beneath it. -->
             <!-- The tab's leading edge carries the grab cursor, which is all a tab needs to say it
             can be dragged since a strip of tabs already reads as one. The whole tab is the drag
             target so this is a hint rather than a handle. -->
-            <span :class="$style.grip" />
+            <span :class="strip.grip" />
             <c-workspace-tab-label
               :claim="editingId === workspace.id"
               :editing="isNaming(workspace)"
@@ -472,7 +474,7 @@ grows and the tabs pass beneath it. -->
             </c-dropdown-menu>
             <c-tooltip :delay-duration="500" text="Close Workspace">
               <button
-                :class="[$style.close, workspace.id === active && $style.closeShown]"
+                :class="[strip.close, workspace.id === active && strip.closeShown]"
                 type="button"
                 @click.stop="emit('close', workspace.id)"
                 @mousedown.stop
@@ -598,77 +600,11 @@ grows and the tabs pass beneath it. -->
 </template>
 
 <style module>
-/* The scroller hides its bar, the way a browser's tab bar does, and a tab held near either end
-carries the strip along instead. */
-.scroller {
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.scroller::-webkit-scrollbar {
-  display: none;
-}
-
 /* An inset outline rather than a border so the strip does not shift by a pixel when a file is
 dragged over it. */
 .dropTarget {
   box-shadow: inset 0 0 0 2px var(--ui-primary);
   border-radius: 4px;
-}
-
-.tab {
-  position: relative;
-  height: 100%;
-  border-radius: 4px 4px 0 0;
-  opacity: 0.7;
-  transition:
-    background-color 0.2s,
-    opacity 0.2s,
-    transform 0.16s ease;
-  touch-action: none;
-  cursor: pointer;
-  user-select: none;
-}
-
-.tab:hover {
-  opacity: 1;
-}
-
-.activeTab {
-  opacity: 1;
-  background-color: var(--ui-primary);
-  color: #fff;
-}
-
-/* Reaching past the workspace icon so the whole leading edge of the tab says it can be dragged. */
-.grip {
-  position: absolute;
-  z-index: 1;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 32px;
-  cursor: grab;
-}
-
-/* The close button holds its place whether or not it is showing, so a tab is exactly as wide
-hovered as it is at rest and the strip does not shuffle under the pointer. */
-.close {
-  position: absolute;
-  top: 50%;
-  right: 4px;
-  display: flex;
-  align-items: center;
-  opacity: 0;
-  transform: translateY(-50%);
-  transition: opacity 0.15s;
-}
-
-/* The selected tab keeps its close button visible since that is the one most likely to be closed
-next. */
-.tab:hover .close,
-.closeShown {
-  opacity: 1;
 }
 
 /* A workspace with local changes rings its menu dots rather than carrying an icon of its own. The
@@ -679,31 +615,5 @@ clean. */
   border-radius: 50%;
   outline: 1px dotted currentColor;
   outline-offset: 0;
-}
-
-/* While a drag is in progress the strip must not clip the lifted tab, and hover highlighting on
-the tabs sliding aside would read as a second thing happening at once. */
-.arranging:hover {
-  opacity: inherit;
-}
-
-/* The tab that has been picked up, which is drawn over the ones it is passing. */
-.held {
-  z-index: 2;
-  opacity: 1;
-}
-
-/* The held tab tracks the pointer directly so it must not smooth its own movement. It regains
-the transition once released, which animates it into the gap. */
-.grabbed {
-  cursor: grabbing;
-  transition:
-    background-color 0.2s,
-    opacity 0.2s;
-}
-
-/* The tabs sliding aside move at once rather than each animating from wherever it was. */
-.swapping {
-  transition: none;
 }
 </style>

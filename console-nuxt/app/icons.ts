@@ -1,5 +1,6 @@
 const icons = {
   add: 'i-mdi-plus',
+  abort: 'i-mdi-stop-circle-outline',
   admin: 'i-mdi-shield-account',
   all: 'i-mdi-asterisk',
   arrowDown: 'i-mdi-arrow-down',
@@ -54,6 +55,7 @@ const icons = {
   json: 'i-mdi-code-json',
   leave: 'i-mdi-exit-run',
   lightMode: 'i-mdi-weather-sunny',
+  loading: 'i-mdi-loading',
   locked: 'i-mdi-lock-outline',
   logout: 'i-mdi-logout',
   manage: 'i-mdi-cog',
