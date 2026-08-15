@@ -474,15 +474,9 @@ def defaulting[T: _SupportsDefaulting](
     return replace(original, **updates)
 
 
-if TYPE_CHECKING:
-
-    class _SupportsReplacing(_SupportsPydanticFieldsSet, _SupportsReplace, Protocol):
-        """Protocol for objects that support fields-set tracking and `__replace__`."""
-
-
-def replacing[T: _SupportsReplacing](
+def replacing[T: _SupportsReplace](
     original: T,
-    updates_object: T | dict[str, Any] | None = None,
+    updates_object: _SupportsPydanticFieldsSet | dict[str, Any] | None = None,
     /,
     **updates: Any,
 ) -> T:
