@@ -10,8 +10,8 @@ const navigation = useNavigation()
 </script>
 
 <template>
-  <div class="flex flex-col items-center px-2 py-10">
-    <div class="border-default bg-elevated relative w-full max-w-[440px] rounded-lg border">
+  <div class="flex min-h-full flex-col items-center bg-(--console-page) px-2 py-10">
+    <div class="border-default relative w-full max-w-[440px] rounded-lg border bg-(--console-card)">
       <div class="pr-4">
         <div class="flex items-center">
           <!-- Parked outside the card, since the card's width is the page's measure and a control

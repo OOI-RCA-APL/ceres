@@ -19,7 +19,10 @@ strip pin with `position: sticky` and the scroll-memory helpers read `window.scr
       class="sticky top-0 z-10 flex items-center gap-3 bg-primary px-3 text-white"
       :style="{ height: `${appHeaderHeight}px` }"
     >
+      <!-- Sits on the brand fill rather than the page, so it takes the header's own foreground
+      instead of the neutral one a ghost button carries by default. -->
       <c-button
+        class="text-white hover:bg-white/15 hover:text-white"
         color="neutral"
         :icon="icons.drawer"
         size="sm"

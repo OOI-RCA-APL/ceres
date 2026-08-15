@@ -42,12 +42,26 @@
   }
 }
 
+/* One shade in both modes. Nuxt UI lightens these on dark so they pair with the dark text its
+   solid variants switch to, and the app config pins that text to white instead, which leaves the
+   lighter steps washed out with nothing to gain by them. Neutral is left alone, being the one
+   color that is meant to follow the mode. */
 :root {
   --ui-primary: var(--ui-color-primary-600);
+  --ui-success: var(--ui-color-success-600);
+  --ui-warning: var(--ui-color-warning-600);
+  --ui-error: var(--ui-color-error-600);
+  --ui-info: var(--ui-color-info-600);
+
+  /* A card lifts off the page it sits on, and which of the two surfaces is the lighter one
+     swaps with the mode, so the pair is named here rather than picked at each card. */
+  --console-page: var(--ui-bg-elevated);
+  --console-card: var(--ui-bg);
 }
 
 .dark {
-  --ui-primary: var(--ui-color-primary-400);
+  --console-page: var(--ui-bg);
+  --console-card: var(--ui-bg-elevated);
 }
 
 /* Prism token colors, which the highlighter's markup carries no styling of its own for. */

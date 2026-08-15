@@ -6,7 +6,7 @@ defineProps<{
 
 <template>
   <!-- Held to the same measure as the card above it, so the page reads as one column. -->
-  <div class="border-default bg-elevated mt-4 w-full max-w-[440px] rounded-lg border">
+  <div class="border-default mt-4 w-full max-w-[440px] rounded-lg border bg-(--console-card)">
     <c-text class="block px-4 py-2" element="h2" variant="title2">{{ title }}</c-text>
     <c-separator />
     <slot />
