@@ -641,3 +641,249 @@ def test_generics():
     assert PartiallySpecialized.__data_object_generic_alias__ is None
     assert get_generic_superclass_argument(Inherited[int], Inherited, 0) is int
     assert get_generic_superclass_argument(Inherited[int], Base, 0) is int
+
+
+class TestReplace:
+    def test_overwrites_whatever_it_is_given(self) -> None:
+        from ceres.data import replace
+
+        class Example(DataObject):
+            a: int
+            b: str = "default"
+
+        original = Example(a=1)
+        assert replace(original, a=2).a == 2
+
+        # Set or not, a field named here is overwritten, which is what separates this from
+        # `defaulting`.
+        assert replace(original, b="given").b == "given"
+
+    def test_leaves_the_original_alone(self) -> None:
+        from ceres.data import replace
+
+        class Example(DataObject):
+            a: int
+
+        original = Example(a=1)
+        replace(original, a=2)
+        assert original.a == 1
+
+    def test_carries_fields_it_was_not_given(self) -> None:
+        from ceres.data import replace
+
+        class Example(DataObject):
+            a: int
+            b: str
+
+        assert replace(Example(a=1, b="kept"), a=2).b == "kept"
+
+    def test_takes_values_from_an_object_or_a_mapping(self) -> None:
+        from ceres.data import replace
+
+        class Example(DataObject):
+            a: int
+            b: str = "default"
+
+        original = Example(a=1)
+        assert replace(original, {"a": 5}).a == 5
+
+        # Keywords win over the object, which is what lets a caller override one field of it.
+        assert replace(original, {"a": 5}, a=9).a == 9
+
+    def test_replaces_a_native_configuration_section(self) -> None:
+        from ceres.config import ServerConfig
+        from ceres.data import replace
+
+        # The sections are native objects rather than models, so they answer `__replace__`
+        # through the macro that generates them rather than through pydantic.
+        original = ServerConfig(host="0.0.0.0", port=8080)
+        replaced = replace(original, port=9999)
+
+        assert replaced.port == 9999
+        assert replaced.host == "0.0.0.0"
+        assert original.port == 8080
+
+    def test_a_native_section_refuses_a_replacement_that_does_not_validate(self) -> None:
+        from ceres.config import ServerConfig
+        from ceres.data import replace
+
+        # Rebuilt through the constructor, so the refusal lands where the change was made
+        # rather than when the configuration is next used.
+        with pytest.raises((OverflowError, ValueError, TypeError)):
+            replace(ServerConfig(host="0.0.0.0", port=8080), port=-1)
+
+        with pytest.raises(TypeError):
+            replace(ServerConfig(host="0.0.0.0", port=8080), not_a_field=1)
+
+
+class TestToItems:
+    def test_yields_every_field_with_its_value(self) -> None:
+        from ceres.data import to_items
+
+        class Example(DataObject):
+            a: int
+            b: str = "default"
+
+        assert dict(to_items(Example(a=1))) == {"a": 1, "b": "default"}
+
+    def test_narrows_to_what_was_asked_for(self) -> None:
+        from ceres.data import to_items
+
+        class Example(DataObject):
+            a: int
+            b: str = "default"
+            c: float = 1.0
+
+        instance = Example(a=1, c=2.5)
+        assert dict(to_items(instance, include={"a", "b"})) == {"a": 1, "b": "default"}
+        assert dict(to_items(instance, exclude={"b"})) == {"a": 1, "c": 2.5}
+        assert dict(to_items(instance, exclude_unset=True)) == {"a": 1, "c": 2.5}
+
+    def test_skips_computed_fields_unless_asked(self) -> None:
+        from ceres.data import to_items
+
+        class Example(DataObject):
+            a: int
+
+            @property
+            def doubled(self) -> int:
+                return self.a * 2
+
+        assert "doubled" not in dict(to_items(Example(a=2)))
+
+    def test_reads_a_native_section_through_its_own_field_names(self) -> None:
+        from ceres.config import ServerConfig
+        from ceres.data import to_items
+
+        # Native objects name their fields through `__to_dict__` rather than pydantic, so this
+        # is the path that would silently yield nothing if that were missed.
+        items = dict(to_items(ServerConfig(host="0.0.0.0", port=8080)))
+        assert items["port"] == 8080
+        assert items["host"] == "0.0.0.0"
+
+
+class TestFieldsSetOn:
+    def test_reports_only_what_was_given(self) -> None:
+        from ceres.data import fields_set_on
+
+        class Example(DataObject):
+            a: int
+            b: str = "default"
+
+        assert fields_set_on(Example(a=1)) == {"a"}
+        assert fields_set_on(Example(a=1, b="given")) == {"a", "b"}
+
+
+class TestComputedFieldsOf:
+    def test_finds_computed_fields_and_not_ordinary_ones(self) -> None:
+        from pydantic import computed_field
+
+        from ceres.data import computed_fields_of
+
+        class Example(DataModel):
+            a: int
+
+            @computed_field
+            @property
+            def doubled(self) -> int:
+                return self.a * 2
+
+        computed = computed_fields_of(Example)
+        assert "doubled" in computed
+        assert "a" not in computed
+
+    def test_answers_for_a_class_that_has_never_been_instantiated(self) -> None:
+        from pydantic import computed_field
+
+        from ceres.data import computed_fields_of
+
+        class Example(DataModel):
+            a: int = 1
+
+            @computed_field
+            @property
+            def doubled(self) -> int:
+                return self.a * 2
+
+        # Asked of the class before any instance, so nothing has filled the cache on its
+        # behalf and the class has to be understood on its own.
+        assert "doubled" in computed_fields_of(Example)
+
+    def test_answers_the_same_for_a_class_and_an_instance(self) -> None:
+        from pydantic import computed_field
+
+        from ceres.data import computed_fields_of
+
+        class Example(DataModel):
+            a: int = 1
+
+            @computed_field
+            @property
+            def doubled(self) -> int:
+                return self.a * 2
+
+        assert set(computed_fields_of(Example)) == set(computed_fields_of(Example(a=1)))
+
+
+class TestWithDefaults:
+    def test_fills_only_the_fields_that_were_never_set(self) -> None:
+        from typing import Annotated
+
+        from ceres.data import WithDefaults
+
+        class Example(DataModel):
+            a: int = 0
+            b: str = "unset"
+
+        Filled = Annotated[Example, WithDefaults(b="filled")]
+
+        # `a` was given, so it stands. `b` was not, so the default reaches it.
+        result = validate(Filled, {"a": 5})
+        assert result.a == 5
+        assert result.b == "filled"
+
+        assert validate(Filled, {"a": 5, "b": "given"}).b == "given"
+
+
+class TestToKwargs:
+    def test_positional_construction_reaches_a_validator_by_field_name(self) -> None:
+        from ceres.data import to_kwargs
+
+        seen: list[Any] = []
+
+        # Positional construction is opt-in through `kw_only=False`, and it is the whole
+        # reason this decorator exists, a validator otherwise being handed an `ArgsKwargs`
+        # that carries the values without their names.
+        class Example(DataObject, kw_only=False):
+            a: int
+            b: int = 0
+
+            @model_validator(mode="before")
+            @to_kwargs
+            @classmethod
+            def _record(cls, data: Any) -> Any:
+                seen.append(data)
+                return data
+
+        instance = Example(1, 2)
+        assert (instance.a, instance.b) == (1, 2)
+        assert seen == [{"a": 1, "b": 2}]
+
+    def test_keyword_construction_is_unaffected(self) -> None:
+        from ceres.data import to_kwargs
+
+        seen: list[Any] = []
+
+        class Example(DataObject, kw_only=False):
+            a: int
+            b: int = 0
+
+            @model_validator(mode="before")
+            @to_kwargs
+            @classmethod
+            def _record(cls, data: Any) -> Any:
+                seen.append(data)
+                return data
+
+        assert Example(a=5).a == 5
+        assert seen == [{"a": 5}]
