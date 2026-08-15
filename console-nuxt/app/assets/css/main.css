@@ -49,3 +49,73 @@
 .dark {
   --ui-primary: var(--ui-color-primary-400);
 }
+
+/* Prism token colors, which the highlighter's markup carries no styling of its own for. */
+.token.comment,
+.token.prolog,
+.token.doctype,
+.token.cdata,
+.token.operator,
+.token.entity,
+.token.url {
+  color: #676f7d;
+}
+
+.token.tag,
+.token.boolean,
+.token.number,
+.token.constant,
+.token.symbol,
+.token.deleted {
+  color: #00455f;
+}
+
+.dark .token.tag,
+.dark .token.boolean,
+.dark .token.number,
+.dark .token.constant,
+.dark .token.symbol,
+.dark .token.deleted {
+  color: #4299cf;
+}
+
+.token.selector,
+.token.attr-name,
+.token.string,
+.token.char,
+.token.builtin,
+.token.inserted,
+.token.function {
+  color: #008a7c;
+}
+
+.dark .token.selector,
+.dark .token.attr-name,
+.dark .token.string,
+.dark .token.char,
+.dark .token.builtin,
+.dark .token.inserted,
+.dark .token.function {
+  color: #00bba8;
+}
+
+.token.atrule,
+.token.attr-value,
+.token.keyword {
+  color: #56b6c2;
+}
+
+.token.regex,
+.token.important,
+.token.variable {
+  color: #61afef;
+}
+
+.token.important,
+.token.bold {
+  font-weight: bold;
+}
+
+.token.italic {
+  font-style: italic;
+}
