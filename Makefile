@@ -51,8 +51,10 @@ reference:
 reference-check:
 	cd rust && cargo test -p ceres-cli reference::
 	uv run ./scripts/update-reference.py --check
+# The dependencies come from `install`, which every path here has already run, so this
+# builds rather than reinstalling them once per target that wants a bundle.
 console:
-	cd console && make build
+	cd console && npm run build
 # The bundle ships in the wheel exactly as committed, so a frontend change that was never
 # rebuilt releases a stale console. Compared rather than fingerprinted, a hash admitting
 # the false pass where it is regenerated without the bundle.
