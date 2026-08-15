@@ -235,7 +235,9 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
   }
 
   async function saveEdit() {
-    if (workspace == null || data == null) {
+    // Seeding the working copy schedules a save too, and writing then would leave a no-op
+    // draft behind for every workspace ever opened.
+    if (workspace == null || data == null || !edited) {
       return
     }
 
@@ -849,12 +851,23 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
 
   async function afterFetch() {
     if (data == null) {
+      // A switch can outrun the fetch, and seeding from the previous workspace here would
+      // write its rows into this one's draft on the first edit. The workspace watcher below
+      // seeds once the right fetch lands.
+      if (workspace != null && workspace.id !== id) {
+        return
+      }
+
       // A failed fetch falls through to stored data, the same as there being no pending edit.
       let edit: WorkspaceEdit | null = null
       try {
         edit = await workspaces.getEdit(id)
       } catch {
         // Ignore.
+      }
+
+      if (edit != null && workspace != null && workspace.id !== id) {
+        return
       }
 
       data = edit?.data ?? deepClone(workspace?.data ?? null) ?? null
@@ -894,7 +907,21 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
       historyIndex = -1
       await query.promise.value
       await afterFetch()
-      loading = false
+      if (data != null) {
+        loading = false
+      }
+    },
+  )
+
+  // Seeds the working copy once the fetch for the current ID lands, covering a switch whose
+  // promise still belonged to the previous workspace.
+  watch(
+    () => workspace,
+    async () => {
+      if (data == null && workspace != null && workspace.id === id) {
+        await afterFetch()
+        loading = false
+      }
     },
   )
 
