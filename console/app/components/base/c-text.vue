@@ -5,6 +5,7 @@ export type TextVariant =
   | 'title3'
   | 'body1'
   | 'body2'
+  | 'body3'
   | 'th'
   | 'description'
   | 'value'
@@ -15,10 +16,11 @@ export type TextVariant =
 
 export const variantClasses: Record<TextVariant, string> = {
   title1: 'text-[22px] font-light leading-normal',
-  title2: 'text-lg font-light leading-normal',
+  title2: 'text-base font-light leading-normal',
   title3: 'text-sm font-light leading-normal',
   body1: 'text-base font-normal leading-6 tracking-[0.03125em]',
   body2: 'text-sm font-normal leading-6 tracking-[0.03125em]',
+  body3: 'text-xs font-normal leading-5 tracking-[0.03125em]',
   th: 'text-xs font-medium',
   description: 'text-[11px] text-muted',
   value: 'text-lg font-light leading-normal',

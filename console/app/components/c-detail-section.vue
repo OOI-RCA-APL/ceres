@@ -17,7 +17,7 @@ caller can stack several inside one frame. -->
       type="button"
       @click="expanded = !expanded"
     >
-      <c-text variant="body1">{{ title }}</c-text>
+      <c-text variant="title3">{{ title }}</c-text>
       <div class="flex-1" />
       <c-icon :name="expanded ? icons.menuUp : icons.menuDown" size="18" />
     </button>

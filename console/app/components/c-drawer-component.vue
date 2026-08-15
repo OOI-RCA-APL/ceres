@@ -214,7 +214,7 @@ function toggleExpanded() {
       </span>
       <!-- Reserve the width an indicator would take so every row has the same status hover
       target. -->
-      <div class="mr-1 flex min-w-11 items-center justify-end">
+      <div class="mr-3 flex min-w-11 items-center justify-end">
         <c-status-badge :address>
           <template #leading>
             <c-alerts-indicator :address class="mr-1" />

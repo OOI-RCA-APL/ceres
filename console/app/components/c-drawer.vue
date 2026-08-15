@@ -158,6 +158,8 @@ const footerRowClass =
   <!-- The drawer does not clip, since the resize handle sits on its right edge. The tree below
   scrolls on its own. -->
   <aside class="bg-default border-default flex flex-col border-r">
+    <!-- Drawn by the edge it sits on rather than by the handle, whose own line would stack
+    against that border in a color the theme does not decide. -->
     <c-resize-handle
       v-model="drawer.width"
       class="absolute top-0 z-10"
@@ -165,6 +167,7 @@ const footerRowClass =
       :max="600"
       :min="250"
       :style="{ left: `${drawer.width}px` }"
+      visibility="hidden"
     />
     <div class="grow overflow-y-auto">
       <nuxt-link :class="[footerRowClass, 'py-3']" to="/">

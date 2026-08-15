@@ -509,7 +509,7 @@ function menuItems(
             <div class="flex-1" />
             <c-tooltip v-if="group.canAdd" :text="`Create ${group.label} Workspace`">
               <button
-                class="mr-4 flex items-center rounded-full opacity-50 transition-opacity hover:opacity-100"
+                class="mr-2 flex items-center rounded-full opacity-50 transition-opacity hover:opacity-100"
                 type="button"
                 @click="create(group.key as 'shared' | 'private')"
               >
@@ -554,7 +554,7 @@ function menuItems(
                   whole row. -->
                   <c-text
                     class="self-start"
-                    variant="body2"
+                    variant="body3"
                     @mouseenter="setNameHovered(workspace, true)"
                     @mouseleave="setNameHovered(workspace, false)"
                   >
@@ -607,7 +607,7 @@ function menuItems(
         type="button"
         @click="expanded = !expanded"
       >
-        <c-text variant="body1">Workspaces</c-text>
+        <c-text variant="title3">Workspaces</c-text>
         <div class="flex-1" />
         <c-icon :name="expanded ? icons.menuUp : icons.menuDown" size="18" />
       </button>
@@ -616,7 +616,7 @@ function menuItems(
       </div>
     </div>
     <template v-else>
-      <c-text class="mb-1 block" variant="body1">Workspaces</c-text>
+      <c-text class="mb-1 block" variant="title3">Workspaces</c-text>
       <reuse-groups />
     </template>
   </div>

@@ -22,7 +22,7 @@ const descender = `${treeColumnCenter(0)}px`
 <!-- Names the tree, narrows it, and carries the engine's own status. -->
 <template>
   <div
-    class="relative flex cursor-text items-center gap-2 py-1 pr-1 pl-3 text-sm"
+    class="relative flex cursor-text items-center gap-2 py-1 pr-3 pl-3 text-sm"
     :class="$style.root"
     @click="field?.focus()"
   >
