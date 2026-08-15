@@ -30,8 +30,9 @@ export default defineNuxtConfig({
     },
   ],
   devServer: {
-    // Taken from the environment so the CLI can put this console on the port the built-in one
-    // would have had, standing in for it rather than sitting beside it.
+    // Taken from the environment so the CLI can put this console on the address the built-in
+    // one would have had, standing in for it rather than sitting beside it.
+    host: process.env.NUXT_HOST,
     port: Number(process.env.NUXT_PORT ?? 8086),
   },
   hooks: {

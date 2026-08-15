@@ -19,7 +19,7 @@ from pydantic_settings import (
 )
 
 from ceres.__internal__.cli.development import (
-    assign_ports,
+    assign_addresses,
     console_dev_server,
     is_development_build,
 )
@@ -367,7 +367,7 @@ async def _run(
 
             # Decided before the engine starts, since moving it aside means rewriting the
             # server section it is about to bind from.
-            ports = assign_ports(engine.config, development_console_port)
+            development_addresses = assign_addresses(engine.config, development_console_port)
 
             exiting = AsyncEvent()
 
@@ -386,7 +386,7 @@ async def _run(
                 exiting.set()
 
             with temporary_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
-                async with console_dev_server(development_source, ports):
+                async with console_dev_server(development_source, development_addresses):
                     await main()
     except Exception as exception:
         if isinstance(exception, CLICommandFailed):

@@ -47,8 +47,12 @@ def find_console_source(source: Path) -> Path:
     return console
 
 
-def _free_port() -> int:
+def _free_port(host: str) -> int:
     """Ask the operating system for a port nothing is listening on.
+
+    Args:
+        host: The host the caller goes on to bind, probed so a port taken on it alone is
+            not reported as free.
 
     Returns:
         A port number that was free a moment ago.
@@ -56,18 +60,19 @@ def _free_port() -> int:
     import socket
 
     with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
+        probe.bind((host, 0))
         return probe.getsockname()[1]
 
 
-class DevelopmentPorts(NamedTuple):
+class DevelopmentAddresses(NamedTuple):
     """Where the engine and the console's dev server each listen."""
 
+    host: str
     engine: int
     console: int
 
 
-def assign_ports(config: Config, console_port: int | None) -> DevelopmentPorts:
+def assign_addresses(config: Config, console_port: int | None) -> DevelopmentAddresses:
     """Decide which port the engine and the dev console each take, moving the engine if needed.
 
     Without a console port the dev console stands in for the built-in one, taking the configured
@@ -79,23 +84,26 @@ def assign_ports(config: Config, console_port: int | None) -> DevelopmentPorts:
         console_port: Port to serve the dev console on, or None to take the engine's.
 
     Returns:
-        The port each one listens on.
+        The host and port each one listens on.
     """
     from ceres.data import replace
 
+    host = config.server.host
     configured = config.server.port or 8080
     if console_port is not None:
-        return DevelopmentPorts(engine=configured, console=console_port)
+        return DevelopmentAddresses(host=host, engine=configured, console=console_port)
 
     # The port field is not writable, the section being a native object, so the section is
     # replaced rather than edited.
-    engine_port = _free_port()
+    engine_port = _free_port(host)
     config.server = replace(config.server, port=engine_port)
-    return DevelopmentPorts(engine=engine_port, console=configured)
+    return DevelopmentAddresses(host=host, engine=engine_port, console=configured)
 
 
 @contextlib.asynccontextmanager
-async def console_dev_server(source: Path | None, ports: DevelopmentPorts) -> AsyncIterator[None]:
+async def console_dev_server(
+    source: Path | None, addresses: DevelopmentAddresses
+) -> AsyncIterator[None]:
     """Run the console's dev server alongside the engine for as long as the engine runs.
 
     The dev server proxies API calls through to the engine and holds its websockets straight to
@@ -103,7 +111,7 @@ async def console_dev_server(source: Path | None, ports: DevelopmentPorts) -> As
 
     Args:
         source: Root of the Ceres source tree, or None to run nothing.
-        ports: Where the engine and the dev console each listen.
+        addresses: Where the engine and the dev console each listen.
 
     Yields:
         None, once the dev server has been spawned.
@@ -130,16 +138,19 @@ async def console_dev_server(source: Path | None, ports: DevelopmentPorts) -> As
 
     environment = {
         **os.environ,
-        "NUXT_PORT": str(ports.console),
+        # Bound where the engine's own server would be, standing in for it. Nuxt otherwise
+        # defaults to `localhost`, which Node resolves to the IPv6 loopback alone.
+        "NUXT_HOST": addresses.host,
+        "NUXT_PORT": str(addresses.console),
         # Read by the dev proxy for API calls and by the console itself for websockets, which
         # the proxy cannot upgrade and which therefore go straight to the engine.
-        "CERES_API_PORT": str(ports.engine),
-        "VITE_CERES_API_PORT": str(ports.engine),
+        "CERES_API_PORT": str(addresses.engine),
+        "VITE_CERES_API_PORT": str(addresses.engine),
     }
     process = await asyncio.create_subprocess_exec(
         "npm", "run", "dev", cwd=console, env=environment
     )
-    write(f"Console dev server on port {ports.console}, engine on {ports.engine}.")
+    write(f"Console dev server on port {addresses.console}, engine on {addresses.engine}.")
 
     try:
         yield
