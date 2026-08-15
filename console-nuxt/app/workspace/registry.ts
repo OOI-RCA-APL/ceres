@@ -89,7 +89,10 @@ export const widgetInfos = {
     type: 'chart',
     name: 'Chart',
     model: widgetModels.chart,
-    component: pendingComponent,
+    component: defineAsyncComponent(() => import('@/components/c-workspace-widget-chart.vue')),
+    settingsComponent: defineAsyncComponent(
+      () => import('@/components/c-workspace-widget-chart-settings.vue'),
+    ),
     options: widgetOptions({
       minHeight: 200,
       paddingClass: ['py-2', 'pr-4'],
@@ -100,7 +103,10 @@ export const widgetInfos = {
     type: 'meter',
     name: 'Meter',
     model: widgetModels.meter,
-    component: pendingComponent,
+    component: defineAsyncComponent(() => import('@/components/c-workspace-widget-meter.vue')),
+    settingsComponent: defineAsyncComponent(
+      () => import('@/components/c-workspace-widget-meter-settings.vue'),
+    ),
     options: widgetOptions({
       minHeight: 50,
       initialHeight: 60,
