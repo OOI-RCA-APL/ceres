@@ -30,7 +30,9 @@ export default defineNuxtConfig({
     },
   ],
   devServer: {
-    port: 8086,
+    // Taken from the environment so the CLI can put this console on the port the built-in one
+    // would have had, standing in for it rather than sitting beside it.
+    port: Number(process.env.NUXT_PORT ?? 8086),
   },
   hooks: {
     // The developer section is a dev-only surface for iterating on the theme and
@@ -52,7 +54,9 @@ export default defineNuxtConfig({
     // every time the dev server starts, taking the committed bundle with it.
     devProxy: {
       '/api': {
-        target: 'http://localhost:8080/api',
+        // The engine moves aside when the CLI serves this console in place of the built-in one,
+        // so where it ended up is passed in rather than assumed.
+        target: `http://localhost:${process.env.CERES_API_PORT ?? 8080}/api`,
         changeOrigin: true,
       },
     },
