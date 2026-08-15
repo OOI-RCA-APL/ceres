@@ -12,8 +12,7 @@ ifeq ($(PROFILE),dev)
 export MATURIN_PEP517_ARGS = --profile dev
 endif
 
-build: install
-	cd console && make build
+build: install console
 	mkdir -p ceres.__internal__.core.data/scripts
 	touch ceres.__internal__.core.data/scripts/.keep
 # Built one at a time, because a plain `uv build` builds the wheel from the unpacked sdist
@@ -52,6 +51,17 @@ reference:
 reference-check:
 	cd rust && cargo test -p ceres-cli reference::
 	uv run ./scripts/update-reference.py --check
+console:
+	cd console && make build
+# The bundle ships in the wheel exactly as committed, so a frontend change that was never
+# rebuilt releases a stale console. Compared rather than fingerprinted, a hash admitting
+# the false pass where it is regenerated without the bundle.
+console-check: console
+	@if [ -n "$$(git status --porcelain -- ceres/static/console)" ]; then \
+		echo "The committed console bundle differs from a fresh build. Run make console."; \
+		git status --porcelain -- ceres/static/console; \
+		exit 1; \
+	fi
 release:
 	uv run ./scripts/release.py
 release-check:

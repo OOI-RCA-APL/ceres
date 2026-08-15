@@ -50,10 +50,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+      # Pinned exactly, because the console bundle is compared byte for byte against the
+      # committed one and a different Node can change what the bundler emits.
       - name: Install Node
         uses: actions/setup-node@v6
         with:
-          node-version: ">=24.0.0"
+          node-version-file: console/.nvmrc
       - name: Install UV
         uses: astral-sh/setup-uv@v8.0.0
         with:
@@ -89,6 +91,10 @@ jobs:
       # pages moving with it fails here.
       - name: Check Generated Reference
         run: make reference-check
+      # The wheel ships the committed bundle as it stands, so a frontend change that was
+      # never rebuilt would release a stale console.
+      - name: Check Generated Console
+        run: make console-check
       # The service test drives the runner's own systemd user manager. Linger is what
       # starts that manager, and doing it here stands in for the polkit approval the test
       # user cannot grant itself.
