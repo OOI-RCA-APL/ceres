@@ -63,3 +63,12 @@ export const useDrawer = defineStore('drawer', () => {
     toggle: () => (state.isOpen = !state.isOpen),
   }
 })
+
+/** Whether `open` is `own` or sits somewhere below it.
+
+The whole branch down to the open component is drawn stronger, so every row on the way has to
+recognize itself. The separator guards against a sibling whose name merely starts the same way.
+*/
+export function isOnPathTo(open: string | null, own: string): boolean {
+  return open != null && (open === own || open.startsWith(`${own}.`))
+}

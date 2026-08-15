@@ -4,7 +4,7 @@ import { useRoute } from 'vue-router'
 import { useAccess } from '@/api/access'
 import type { Address } from '@/api/address'
 import type { ComponentInfo } from '@/api/components'
-import { treeColumnCenter, treeColumnStart, treeNodeSize, useDrawer } from '@/drawer'
+import { isOnPathTo, treeColumnCenter, treeColumnStart, treeNodeSize, useDrawer } from '@/drawer'
 import icons from '@/icons'
 import { routeComponentAddress } from '@/navigation'
 
@@ -52,20 +52,9 @@ const route = useRoute()
 
 const openAddress = $computed(() => routeComponentAddress(route))
 
-/** Whether the component being looked at is this one or sits somewhere below it.
-
-The whole branch down to it is drawn stronger, not just the corner reaching it, so the tree traces
-the way back to where you are rather than marking only the end of it. The dot guards against a
-sibling whose name merely starts the same way.
-*/
-const isOnPath = $computed(() => {
-  if (openAddress == null) {
-    return false
-  }
-
-  const own = address.toString()
-  return openAddress === own || openAddress.startsWith(`${own}.`)
-})
+// The branch down to the open component is drawn stronger the whole way, not just the corner
+// reaching it, so the tree traces the way back to where you are.
+const isOnPath = $computed(() => isOnPathTo(openAddress, address.toString()))
 
 // Components the user can only look at read quieter than the ones they can control so a glance
 // down the tree separates what can be acted on from what can only be read.
@@ -123,10 +112,9 @@ const activeChildIndex = $computed(() => {
     return -1
   }
 
-  return component.components.findIndex((child) => {
-    const childAddress = `${address}.${child.name}`
-    return openAddress === childAddress || openAddress.startsWith(`${childAddress}.`)
-  })
+  return component.components.findIndex((child) =>
+    isOnPathTo(openAddress, `${address}.${child.name}`),
+  )
 })
 
 /** The corner joining this row to whatever it hangs from, drawn in that column.

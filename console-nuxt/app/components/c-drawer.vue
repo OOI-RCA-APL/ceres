@@ -4,7 +4,7 @@ import { useRoute } from 'vue-router'
 
 import { useEngine } from '@/api/engine'
 import { useDialogs } from '@/dialogs'
-import { useDrawer } from '@/drawer'
+import { isOnPathTo, useDrawer } from '@/drawer'
 import { guard } from '@/errors'
 import icons from '@/icons'
 import { routeComponentAddress, useNavigation } from '@/navigation'
@@ -33,10 +33,9 @@ const activeTopLevelIndex = $computed(() => {
     return -1
   }
 
-  return engine.components.topLevel.findIndex((component) => {
-    const own = component.address.toString()
-    return active === own || active.startsWith(`${own}.`)
-  })
+  return engine.components.topLevel.findIndex((component) =>
+    isOnPathTo(active, component.address.toString()),
+  )
 })
 
 // What the header reports. Components that answer the filter rather than rows left showing, since
