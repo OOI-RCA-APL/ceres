@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import type { DropdownMenuItem } from '@nuxt/ui'
+import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 
 import { useEngine } from '@/api/engine'
@@ -55,14 +56,17 @@ const isDeveloperMode = $computed(() => isDevelopment && preferences.isDeveloper
 
 void engine.auth.loadFeatures()
 
-const statisticsDurations = [
-  duration(1, 'm'),
-  duration(5, 'm'),
-  duration(30, 'm'),
-  duration(1, 'h'),
-  duration(12, 'h'),
-  duration(1, 'd'),
-]
+// Carried as seconds because the select matches an item by value, and two `Duration` objects
+// built from the same length are never the same object.
+const statisticsDurationItems = [60, 5 * 60, 30 * 60, 3600, 12 * 3600, 86400].map((seconds) => ({
+  label: displayDuration(duration(seconds, 'seconds')),
+  value: seconds,
+}))
+
+const statisticsSeconds = computed({
+  get: () => preferences.statisticsDuration.asSeconds(),
+  set: (seconds: number) => (preferences.statisticsDuration = duration(seconds, 'seconds')),
+})
 
 const adminItems: DropdownMenuItem[][] = [
   [
@@ -133,7 +137,9 @@ const footerRowClass =
 </script>
 
 <template>
-  <aside class="bg-default border-default flex flex-col overflow-hidden border-r">
+  <!-- The drawer does not clip, since the resize handle sits on its right edge. The tree below
+  scrolls on its own. -->
+  <aside class="bg-default border-default flex flex-col border-r">
     <c-resize-handle
       v-model="drawer.width"
       class="absolute top-0 z-10"
@@ -201,18 +207,14 @@ const footerRowClass =
           <c-separator />
           <div class="p-3">
             <c-form-field
-              hint="The time over which statistics, like alert counts, are calculated."
+              description="The time over which statistics, like alert counts, are calculated."
               label="Statistics Duration"
             >
-              <c-select-menu
-                v-model="preferences.statisticsDuration"
+              <c-select
+                v-model="statisticsSeconds"
                 class="w-full"
-                :items="statisticsDurations"
-                :search-input="false"
-              >
-                <template #default>{{ displayDuration(preferences.statisticsDuration) }}</template>
-                <template #item-label="{ item }">{{ displayDuration(item) }}</template>
-              </c-select-menu>
+                :items="statisticsDurationItems"
+              />
             </c-form-field>
           </div>
         </template>
