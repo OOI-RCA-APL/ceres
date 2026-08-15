@@ -2,7 +2,6 @@
 import { until, useMediaQuery } from '@vueuse/core'
 import { upperFirst } from 'lodash-es'
 import { computed, watch } from 'vue'
-import { useRoute } from 'vue-router'
 import { stringify } from 'yaml'
 
 import { useAccess } from '@/api/access'
@@ -43,12 +42,11 @@ const auth = useAuth()
 const dialogs = useDialogs()
 const navigation = useNavigation()
 const notify = useNotify()
-const route = useRoute()
 const tabs = useTabs()
 const workspaces = useWorkspaces()
 
 // An address holds no path separator, so the route parameter carries the whole of it.
-const address = $computed(() => Address.parse(String(route.params.address)))
+const address = $computed(() => Address.parse(String(navigation.route.params.address)))
 
 const component = $computed(() => engine.components.get(address))
 

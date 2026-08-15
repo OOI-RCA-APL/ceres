@@ -1,6 +1,5 @@
 <script lang="ts" setup>
 import { computed } from 'vue'
-import { useRoute } from 'vue-router'
 
 import { useQuery } from '@/api/client'
 import { useEngine } from '@/api/engine'
@@ -14,12 +13,11 @@ import { useNotify } from '@/notify'
 definePageMeta({ auth: 'admin' })
 
 const engine = useEngine()
-const route = useRoute()
 const navigation = useNavigation()
 const dialogs = useDialogs()
 const notify = useNotify()
 
-const id = $computed(() => String(route.params.id))
+const id = $computed(() => String(navigation.route.params.id))
 
 const membersQuery = useQuery({
   queryKey: computed(() => ['group-members', id]),

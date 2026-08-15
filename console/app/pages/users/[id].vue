@@ -1,10 +1,10 @@
 <script lang="ts" setup>
-import { useRoute } from 'vue-router'
+import { useNavigation } from '@/navigation'
 
 definePageMeta({ auth: 'admin' })
 
-const route = useRoute()
-const id = $computed(() => String(route.params.id))
+const navigation = useNavigation()
+const id = $computed(() => String(navigation.route.params.id))
 </script>
 
 <template>

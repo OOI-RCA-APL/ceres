@@ -1,7 +1,6 @@
 <script lang="ts" setup>
 import type { DropdownMenuItem } from '@nuxt/ui'
 import { computed } from 'vue'
-import { useRoute } from 'vue-router'
 
 import { useEngine } from '@/api/engine'
 import type { User } from '@/api/users'
@@ -20,7 +19,6 @@ const navigation = useNavigation()
 const notify = useNotify()
 const dialogs = useDialogs()
 const preferences = usePreferences()
-const route = useRoute()
 const isDevelopment = import.meta.dev
 
 // Narrows the tree to what answers it, keeping the path down to each match. Held here rather than
@@ -30,7 +28,7 @@ let componentFilter = $ref('')
 // Which top level component the open one is in, or below. The tree's own rows work this out for
 // their children, and this is the same answer for the header, which the tree hangs from.
 const activeTopLevelIndex = $computed(() => {
-  const active = routeComponentAddress(route)
+  const active = routeComponentAddress(navigation.route)
   if (active == null) {
     return -1
   }

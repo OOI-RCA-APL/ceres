@@ -1,12 +1,10 @@
 <script lang="ts" setup>
-import { useRoute } from 'vue-router'
-
 import { useAccess } from '@/api/access'
 import type { Address } from '@/api/address'
 import type { ComponentInfo } from '@/api/components'
 import { isOnPathTo, treeColumnCenter, treeColumnStart, treeNodeSize, useDrawer } from '@/drawer'
 import icons from '@/icons'
-import { routeComponentAddress } from '@/navigation'
+import { routeComponentAddress, useNavigation } from '@/navigation'
 
 const {
   address,
@@ -48,9 +46,9 @@ const {
 
 const drawer = useDrawer()
 const access = useAccess()
-const route = useRoute()
+const navigation = useNavigation()
 
-const openAddress = $computed(() => routeComponentAddress(route))
+const openAddress = $computed(() => routeComponentAddress(navigation.route))
 
 // The branch down to the open component is drawn stronger the whole way, not just the corner
 // reaching it, so the tree traces the way back to where you are.
