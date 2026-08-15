@@ -2,6 +2,9 @@ import { defineNuxtConfig } from 'nuxt/config'
 
 export default defineNuxtConfig({
   compatibilityDate: '2026-08-14',
+  // Fixed so a rebuild of unchanged sources produces an unchanged bundle. The default is a
+  // fresh UUID per build, and the bundle is committed, so every build would show as a diff.
+  buildId: 'ceres-console',
   // The console is a static bundle the engine serves, with no server side of its own.
   ssr: false,
   // Nuxt UI registers the Tailwind Vite plugin itself, adding it here breaks the build.
@@ -44,10 +47,9 @@ export default defineNuxtConfig({
   // HTTP only. Websockets connect straight to the engine port in development, the dev
   // proxy cannot upgrade them and a failed upgrade restarts the dev server.
   nitro: {
-    // Built straight into the package, which is where the engine serves the console from.
-    output: {
-      publicDir: '../ceres/static/console',
-    },
+    // The build output stays inside this directory and `postbuild` copies it into the
+    // package. Pointing `output.publicDir` at the package instead empties that directory
+    // every time the dev server starts, taking the committed bundle with it.
     devProxy: {
       '/api': {
         target: 'http://localhost:8080/api',
