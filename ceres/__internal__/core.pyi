@@ -104,7 +104,7 @@ class Argon2HashingConfig:
         r"""
         Return a copy of this configuration with the given fields replaced.
 
-        Called through `copy.replace` and `ceres.data.replacing` rather than
+        Called through `copy.replace` and `ceres.data.replace` rather than
         directly. The replacement is built through the constructor, so a change
         that does not validate is refused here rather than later.
         """
@@ -143,7 +143,7 @@ class BCryptHashingConfig:
         r"""
         Return a copy of this configuration with the given fields replaced.
 
-        Called through `copy.replace` and `ceres.data.replacing` rather than
+        Called through `copy.replace` and `ceres.data.replace` rather than
         directly. The replacement is built through the constructor, so a change
         that does not validate is refused here rather than later.
         """
@@ -237,7 +237,7 @@ class ConsoleConfig:
         r"""
         Return a copy of this configuration with the given fields replaced.
 
-        Called through `copy.replace` and `ceres.data.replacing` rather than
+        Called through `copy.replace` and `ceres.data.replace` rather than
         directly. The replacement is built through the constructor, so a change
         that does not validate is refused here rather than later.
         """
@@ -287,7 +287,7 @@ class DatabaseConfigHooks:
         r"""
         Return a copy of this configuration with the given fields replaced.
 
-        Called through `copy.replace` and `ceres.data.replacing` rather than
+        Called through `copy.replace` and `ceres.data.replace` rather than
         directly. The replacement is built through the constructor, so a change
         that does not validate is refused here rather than later.
         """
@@ -582,7 +582,7 @@ class PostgresDatabaseConfig:
         r"""
         Return a copy of this configuration with the given fields replaced.
 
-        Called through `copy.replace` and `ceres.data.replacing` rather than
+        Called through `copy.replace` and `ceres.data.replace` rather than
         directly. The replacement is built through the constructor, so a change
         that does not validate is refused here rather than later.
         """
@@ -714,7 +714,7 @@ class SQLiteDatabaseConfig:
         r"""
         Return a copy of this configuration with the given fields replaced.
 
-        Called through `copy.replace` and `ceres.data.replacing` rather than
+        Called through `copy.replace` and `ceres.data.replace` rather than
         directly. The replacement is built through the constructor, so a change
         that does not validate is refused here rather than later.
         """
@@ -764,7 +764,7 @@ class ServerAuthenticationConfig:
         r"""
         Return a copy of this configuration with the given fields replaced.
 
-        Called through `copy.replace` and `ceres.data.replacing` rather than
+        Called through `copy.replace` and `ceres.data.replace` rather than
         directly. The replacement is built through the constructor, so a change
         that does not validate is refused here rather than later.
         """
@@ -844,7 +844,7 @@ class ServerCORSConfig:
         r"""
         Return a copy of this configuration with the given fields replaced.
 
-        Called through `copy.replace` and `ceres.data.replacing` rather than
+        Called through `copy.replace` and `ceres.data.replace` rather than
         directly. The replacement is built through the constructor, so a change
         that does not validate is refused here rather than later.
         """
@@ -924,7 +924,7 @@ class ServerCompressionConfig:
         r"""
         Return a copy of this configuration with the given fields replaced.
 
-        Called through `copy.replace` and `ceres.data.replacing` rather than
+        Called through `copy.replace` and `ceres.data.replace` rather than
         directly. The replacement is built through the constructor, so a change
         that does not validate is refused here rather than later.
         """
@@ -992,7 +992,7 @@ class ServerConfig:
         r"""
         Return a copy of this configuration with the given fields replaced.
 
-        Called through `copy.replace` and `ceres.data.replacing` rather than
+        Called through `copy.replace` and `ceres.data.replace` rather than
         directly. The replacement is built through the constructor, so a change
         that does not validate is refused here rather than later.
         """
@@ -1054,7 +1054,7 @@ class ServerSSLConfig:
         r"""
         Return a copy of this configuration with the given fields replaced.
 
-        Called through `copy.replace` and `ceres.data.replacing` rather than
+        Called through `copy.replace` and `ceres.data.replace` rather than
         directly. The replacement is built through the constructor, so a change
         that does not validate is refused here rather than later.
         """
@@ -1110,7 +1110,7 @@ class ServiceConfig:
         r"""
         Return a copy of this configuration with the given fields replaced.
 
-        Called through `copy.replace` and `ceres.data.replacing` rather than
+        Called through `copy.replace` and `ceres.data.replace` rather than
         directly. The replacement is built through the constructor, so a change
         that does not validate is refused here rather than later.
         """
@@ -1230,7 +1230,7 @@ class TursoDatabaseConfig(SQLiteDatabaseConfig):
         r"""
         Return a copy of this configuration with the given fields replaced.
 
-        Called through `copy.replace` and `ceres.data.replacing` rather than
+        Called through `copy.replace` and `ceres.data.replace` rather than
         directly. The replacement is built through the constructor, so a change
         that does not validate is refused here rather than later.
         """

@@ -81,7 +81,7 @@ def assign_ports(config: Config, console_port: int | None) -> DevelopmentPorts:
     Returns:
         The port each one listens on.
     """
-    from ceres.data import replacing
+    from ceres.data import replace
 
     configured = config.server.port or 8080
     if console_port is not None:
@@ -90,7 +90,7 @@ def assign_ports(config: Config, console_port: int | None) -> DevelopmentPorts:
     # The port field is not writable, the section being a native object, so the section is
     # replaced rather than edited.
     engine_port = _free_port()
-    config.server = replacing(config.server, port=engine_port)
+    config.server = replace(config.server, port=engine_port)
     return DevelopmentPorts(engine=engine_port, console=configured)
 
 

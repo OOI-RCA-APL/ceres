@@ -459,7 +459,7 @@ impl ClassDefinition {
 
                 /// Return a copy of this configuration with the given fields replaced.
                 ///
-                /// Called through `copy.replace` and `ceres.data.replacing` rather than
+                /// Called through `copy.replace` and `ceres.data.replace` rather than
                 /// directly. The replacement is built through the constructor, so a change
                 /// that does not validate is refused here rather than later.
                 #[pyo3(signature = (**changes))]

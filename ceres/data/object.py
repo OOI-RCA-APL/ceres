@@ -85,7 +85,7 @@ __all__ = [
     "fields_set_on",
     "to_dict",
     "to_items",
-    "replacing",
+    "replace",
     "defaulting",
     "WithDefaults",
     "to_kwargs",
@@ -474,7 +474,7 @@ def defaulting[T: _SupportsDefaulting](
     return replace(original, **updates)
 
 
-def replacing[T: _SupportsReplace](
+def replace[T: _SupportsReplace](
     original: T,
     updates_object: _SupportsPydanticFieldsSet | dict[str, Any] | None = None,
     /,
@@ -495,12 +495,13 @@ def replacing[T: _SupportsReplace](
     Returns:
         A copy of `original` with the specified fields replaced.
     """
-    from copy import replace
+    # The module rather than the name, which this function shadows.
+    import copy
 
     for field, value in _get_items(updates_object):
         updates.setdefault(field, value)
 
-    return replace(original, **updates)
+    return copy.replace(original, **updates)
 
 
 def WithDefaults(
