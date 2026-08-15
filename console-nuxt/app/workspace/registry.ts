@@ -42,11 +42,6 @@ function widgetOptions(options: WidgetOptionsInput): WidgetOptions {
   }
 }
 
-// Stands in for every widget kind whose real component lands in a later slice.
-const pendingComponent = defineAsyncComponent(
-  () => import('@/components/c-workspace-widget-pending.vue'),
-)
-
 export const widgetInfos = {
   messages: {
     type: 'messages',
@@ -80,7 +75,7 @@ export const widgetInfos = {
     type: 'procedures',
     name: 'Procedures View',
     model: widgetModels.procedures,
-    component: pendingComponent,
+    component: defineAsyncComponent(() => import('@/components/c-workspace-widget-procedures.vue')),
     options: widgetOptions({
       fullHeight: false,
     }),
@@ -139,7 +134,7 @@ export const widgetInfos = {
     type: 'carousel',
     name: 'Carousel',
     model: widgetModels.carousel,
-    component: pendingComponent,
+    component: defineAsyncComponent(() => import('@/components/c-workspace-widget-carousel.vue')),
     // No settings dialog. Its slides are arranged in place and its behavior is set from the
     // control band under them.
     options: widgetOptions({
