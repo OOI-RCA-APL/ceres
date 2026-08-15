@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import { watch } from 'vue'
 
+import { useAccess } from '@/api/access'
 import { Address } from '@/api/address'
 import { useEngine } from '@/api/engine'
 import icons from '@/icons'
@@ -14,17 +15,23 @@ const { widget } = defineProps<{
 
 const engine = useEngine()
 const workspace = useWorkspace()
+const access = useAccess()
 
 const resolvedCommandAddress = $computed(() => {
   const resolved = workspace.resolveAddress(widget.commandAddress)
   return resolved == null ? null : Address.parse(resolved.toString())
 })
 
-// Only connections the workspace can address. A command sent to a component outside the
-// placement would be refused anyway, so offering it is a dead end dressed up as a choice.
+// Only connections the workspace can address and the user may operate. Sending is an operation
+// on the component addressed, and either refusal would come back from the engine anyway, so
+// offering one is a dead end dressed up as a choice.
 const connectionEntries = $computed(() =>
   engine.components.all
-    .filter((component) => workspace.isWithinScope(component.address))
+    .filter(
+      (component) =>
+        workspace.isWithinScope(component.address) &&
+        access.canOperate(component.address.toString()),
+    )
     .flatMap((component) =>
       component.connections.map((connection) => [component.address, connection.name] as const),
     ),
@@ -139,6 +146,13 @@ async function submit() {
     return
   }
 
+  // Checked again at the point of sending, the target having been chosen before whatever access
+  // change may have landed since.
+  if (!access.canOperate(resolvedCommandAddress.toString())) {
+    notify.error('You do not have permission to send on this connection.')
+    return
+  }
+
   if (!isConnected) {
     notify.error('Command failed to send. We cannot access the device at this time.')
     return
@@ -164,7 +178,7 @@ async function submit() {
 
 <template>
   <c-record-view :columns="columns" :widget>
-    <template v-if="engine.auth.isAdmin" #default>
+    <template v-if="connectionOptions.length > 0" #default>
       <form @submit.prevent="submit">
         <c-separator />
         <div class="flex items-center">
