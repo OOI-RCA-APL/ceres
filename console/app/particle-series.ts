@@ -1,5 +1,4 @@
 import { AddressSelector } from '@/api/address'
-import { defaultSeriesColor } from '@/chart'
 import { ChartWidgetParticleModel, ChartWidgetSeriesModel } from '@/workspace'
 import type { ChartWidgetParticle, ChartWidgetSeries } from '@/workspace'
 
@@ -17,12 +16,6 @@ export function fieldRefKey(ref: ParticleFieldRef): string {
 
 function isSameGroup(particle: ChartWidgetParticle, address: string, type: string): boolean {
   return (particle.address?.toString() ?? null) === address && particle.type === type
-}
-
-/** The color a series added to `particles` takes, which is the one its place in the draw order
-names. Counted across every particle entry, since the chart draws them as one flat run. */
-function nextSeriesColor(particles: ChartWidgetParticle[]): string {
-  return defaultSeriesColor(particles.reduce((count, entry) => count + entry.series.length, 0))
 }
 
 /** Every series `address`'s `type` carries, merged across any duplicate entries a stored widget
@@ -86,7 +79,7 @@ export function toggleParticleField(
   const series = value
     ? hasField
       ? current
-      : [...current, ChartWidgetSeriesModel.parse({ field, color: nextSeriesColor(particles) })]
+      : [...current, ChartWidgetSeriesModel.parse({ field })]
     : current.filter((series) => series.field !== field)
 
   return withGroupSeries(particles, address, type, series)
@@ -102,7 +95,7 @@ export function addParticleSeries(
 ): ChartWidgetParticle[] {
   return withGroupSeries(particles, address, type, [
     ...seriesForGroup(particles, address, type),
-    { ...series, color: series.color ?? nextSeriesColor(particles) },
+    series,
   ])
 }
 

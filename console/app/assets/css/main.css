@@ -67,10 +67,23 @@
 
   /* The colors a chart's series cycle through, led by the brand so a lone series is the app's
      own and then ordered to put the widest hue gap between neighbours, which is the pair a
-     reader has to tell apart. Taken a few steps brighter than the semantic colors, a thin line
-     over a dark card needing more of one than a filled control does. Hex, and not the semantic
-     tokens, because the color is stored on the series and edited in a color input, which takes
-     nothing else. */
+     reader has to tell apart. A thin line needs to carry against the card behind it, so these
+     go darker here and lighter on dark. Hex, and not the semantic tokens, because a color input
+     takes nothing else. */
+  --console-series-1: var(--color-brand-600);
+  --console-series-2: #d97706;
+  --console-series-3: #16a34a;
+  --console-series-4: #dc2626;
+  --console-series-5: #7c3aed;
+  --console-series-6: #0d9488;
+  --console-series-7: #db2777;
+}
+
+.dark {
+  --console-page: var(--ui-bg);
+  --console-card: var(--ui-bg-elevated);
+  --console-border-strength: 28%;
+
   --console-series-1: var(--color-brand-400);
   --console-series-2: #fbbf24;
   --console-series-3: #4ade80;
@@ -78,12 +91,6 @@
   --console-series-5: #c4b5fd;
   --console-series-6: #5eead4;
   --console-series-7: #f472b6;
-}
-
-.dark {
-  --console-page: var(--ui-bg);
-  --console-card: var(--ui-bg-elevated);
-  --console-border-strength: 28%;
 }
 
 /* Prism token colors, which the highlighter's markup carries no styling of its own for. */
