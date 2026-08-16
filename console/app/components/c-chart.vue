@@ -141,18 +141,6 @@ defineExpose({
 
     instance?.setOption(option, params as any)
   },
-  appendData(params: Parameters<ECharts['appendData']>[0]) {
-    if (instance == null) {
-      return
-    }
-
-    instance.appendData(params)
-    // Appending marks the chart dirty without drawing it, and the draw is left to the next
-    // animation frame, so records sit in the series store unpainted until one comes. Driving a
-    // frame here paints them, which nothing else in a chart that is only receiving data does.
-    instance.resize()
-    instance.getZr().animation.update()
-  },
   resize(...args: Parameters<ECharts['resize']>) {
     return instance?.resize(...args)
   },

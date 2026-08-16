@@ -39,6 +39,11 @@ let frozenXMin = $ref(0)
 let frozenXMax = $ref(0)
 const pending: Data = $ref({})
 
+// What each series holds, owned here rather than read back from the chart, whose own copy an
+// option rebuild replaces. Plain arrays, off the reactive graph, since a record arriving must
+// redraw two lines and not rebuild the option around them.
+const plotted: Data = {}
+
 function togglePause() {
   if (!isPaused) {
     frozenXMin = start.valueOf()
@@ -76,33 +81,38 @@ function append(seriesName: string, entries: DataEntry[], to: 'pending' | 'insta
   if (to === 'pending') {
     pending[seriesName] ??= []
     pending[seriesName].push(...entries)
-  } else {
-    const seriesIndex = seriesIndexes[seriesName] ?? null
-    if (seriesIndex == null) {
-      console.error(`Append data series ${seriesName} not found.`)
-      return
-    }
+    return
+  }
 
-    try {
-      if (instance != null) {
-        instance.appendData({ seriesIndex, data: entries })
-      }
-    } catch {
-      console.error(`Append data series index ${seriesIndex} not found internally.`)
-    }
+  plotted[seriesName] ??= []
+  plotted[seriesName].push(...entries)
+}
+
+/** Draw what `names` hold, or every series when no names are given.
+
+One partial application per batch, carrying only ids and data, so a tick costs one draw however
+many series received records, and none of the option around them is rebuilt.
+*/
+function draw(names?: string[]) {
+  const series = (names ?? Object.keys(plotted)).flatMap((name) => {
+    const id = seriesIds[name]
+    return id == null ? [] : [{ id, data: plotted[name] ?? [] }]
+  })
+
+  if (series.length > 0) {
+    instance?.setOption({ series })
   }
 }
 
-const seriesIndexes = $computed(() => {
-  const indexes = {} as Record<string, number>
-  let i = 0
+const seriesIds = $computed(() => {
+  const ids = {} as Record<string, string>
   for (const particle of widget.particles) {
-    for (const [j, series] of particle.series.entries()) {
-      indexes[getSeriesName(series, j)] = i++
+    for (const [index, series] of particle.series.entries()) {
+      ids[getSeriesName(series, index)] = series.id
     }
   }
 
-  return indexes
+  return ids
 })
 
 const xMin = $computed(() => (isPaused ? frozenXMin : start.valueOf()))
@@ -169,6 +179,13 @@ const seriesColors = $computed(() => {
 })
 
 const baseAxisOption = $computed(() => axisOption)
+
+/** Everything about the series except what they hold.
+
+The records belong to the chart, which `load` and the arriving stream write into directly. Naming
+`data` here would carry a copy taken when this was last built, and the option is applied a frame
+later, so each rebuild would put back a list from before the records that arrived in between.
+*/
 const baseOption: Option = $computed(() => {
   // Counted across every particle entry rather than within one, the chart drawing them as a
   // single run.
@@ -187,7 +204,6 @@ const baseOption: Option = $computed(() => {
         itemStyle: { color },
         lineStyle: { color },
         ...({ progressive: false } as any),
-        data: getData(name),
         ...animation,
         showSymbol: false, // Disable showing dots, for performance.
         symbolSize: 3,
@@ -196,6 +212,10 @@ const baseOption: Option = $computed(() => {
         } as any,
         large: true, // Enable large data set optimization.
         largeThreshold: 1,
+        // Drawn at the resolution of the axis rather than of the feed, which at a hundred
+        // records a second puts thousands of them on the same column of pixels. The shape is
+        // kept, peaks included, rather than thinned by taking every nth record.
+        sampling: 'lttb',
       }
 
       return result
@@ -298,9 +318,10 @@ async function load() {
       }
 
       for (const [name, entries] of Object.entries(data)) {
-        clear(name)
-        append(name, entries, 'instance')
+        plotted[name] = [...entries]
       }
+
+      draw(Object.keys(data))
     }),
   )
 }
@@ -314,11 +335,19 @@ function clearPending() {
 let lastPendingApplied = $shallowRef(time.now)
 
 function applyPending() {
+  const arrived: string[] = []
   for (const name in pending) {
-    append(name, pending[name]!, 'instance')
+    if (pending[name]!.length > 0) {
+      append(name, pending[name]!, 'instance')
+      arrived.push(name)
+    }
   }
 
   clearPending()
+  if (arrived.length > 0) {
+    draw(arrived)
+  }
+
   lastPendingApplied = time.now
 }
 
@@ -383,72 +412,26 @@ function getSeries(option: Option) {
   return list.filter((series) => series != null)
 }
 
-function clear(seriesName?: string) {
-  const option = instance?.getOption()
-  if (option == null) {
-    return
-  }
-
-  const series = getSeries(option)
-  for (const current of series) {
-    if (seriesName == null || current.name !== seriesName) {
-      continue
-    }
-
-    const data = current.data as any[][] | undefined
-    if (data != null) {
-      data.length = 0
-    }
-  }
-
-  instance?.setOption({ series })
-}
-
-function getData(seriesName: string) {
-  const option = instance?.getOption()
-  if (option == null) {
-    return []
-  }
-
-  const series = getSeries(option)
-  for (const current of series) {
-    if (current.name === seriesName) {
-      return current.data as any[][] | undefined
-    }
-  }
-
-  return []
-}
-
+// Records older than the window are dropped rather than left to grow without bound, the chart
+// being open for as long as the workspace is.
 function prune() {
-  const option = instance?.getOption()
-  if (option == null) {
-    return
-  }
-
-  const series = getSeries(option)
-  for (const current of series) {
-    const data = current.data as any[][] | undefined
-    if (data == null) {
-      continue
+  const dropped: string[] = []
+  for (const name in plotted) {
+    const data = plotted[name]!
+    let index = 0
+    while (index < data.length && utc(data[index]![0]).isBefore(start)) {
+      index++
     }
 
-    let i = 0
-    while (i < data.length) {
-      const [timestamp] = data[i]!
-      if (utc(timestamp).isSameOrAfter(start)) {
-        break
-      }
-
-      i++
-    }
-
-    if (i > 0) {
-      current.data = data.slice(i)
+    if (index > 0) {
+      plotted[name] = data.slice(index)
+      dropped.push(name)
     }
   }
 
-  instance?.setOption({ series })
+  if (dropped.length > 0) {
+    draw(dropped)
+  }
 }
 
 useIntervalFn(prune, () => duration(1, 'minute').asMilliseconds())
