@@ -76,27 +76,34 @@ function append(seriesName: string, entries: DataEntry[], to: 'pending' | 'insta
   if (to === 'pending') {
     pending[seriesName] ??= []
     pending[seriesName].push(...entries)
-    return
-  }
+  } else {
+    const seriesIndex = seriesIndexes[seriesName] ?? null
+    if (seriesIndex == null) {
+      console.error(`Append data series ${seriesName} not found.`)
+      return
+    }
 
-  // Written through the option rather than `appendData`, which lands the records in the series
-  // store without redrawing the line, leaving a chart that reports the data it never plots.
-  const option = instance?.getOption()
-  if (option == null) {
-    return
+    try {
+      if (instance != null) {
+        instance.appendData({ seriesIndex, data: entries })
+      }
+    } catch {
+      console.error(`Append data series index ${seriesIndex} not found internally.`)
+    }
   }
-
-  const series = getSeries(option)
-  const target = series.find((current) => current.name === seriesName)
-  if (target == null) {
-    console.error(`Append data series ${seriesName} not found.`)
-    return
-  }
-
-  const data = (target.data ??= []) as DataEntry[]
-  data.push(...entries)
-  instance?.setOption({ series })
 }
+
+const seriesIndexes = $computed(() => {
+  const indexes = {} as Record<string, number>
+  let i = 0
+  for (const particle of widget.particles) {
+    for (const [j, series] of particle.series.entries()) {
+      indexes[getSeriesName(series, j)] = i++
+    }
+  }
+
+  return indexes
+})
 
 const xMin = $computed(() => (isPaused ? frozenXMin : start.valueOf()))
 const xMax = $computed(() => (isPaused ? frozenXMax : (end ?? time.now).valueOf()))
