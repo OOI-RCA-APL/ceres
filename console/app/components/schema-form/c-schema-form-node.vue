@@ -95,6 +95,11 @@ function isFormat(format: string) {
           v-bind="forward"
           @update:model-value="update"
         />
+        <c-schema-form-address
+          v-else-if="isFormat('address')"
+          v-bind="forward"
+          @update:model-value="update"
+        />
         <c-schema-form-string v-else v-bind="forward" @update:model-value="update" />
       </template>
       <template v-else-if="is('array')">

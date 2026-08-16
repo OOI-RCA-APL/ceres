@@ -122,8 +122,14 @@ function onInput(value: string | number) {
 </script>
 
 <template>
-  <div>
-    <label class="mb-1 flex cursor-text items-baseline gap-1" @click="focusInput()">
+  <div :class="form.compact && 'contents'">
+    <!-- Compact leaves the naming to whatever the field is sitting in, which is the only reason
+    a field would be drawn without it. -->
+    <label
+      v-if="!form.compact"
+      class="mb-1 flex cursor-text items-baseline gap-1"
+      @click="focusInput()"
+    >
       <c-text element="span" variant="mono-sm">{{ title }}</c-text>
       <c-text class="text-muted" element="span" variant="mono-sm">
         <span class="mx-1">{{ '⸱' }}</span>
@@ -138,14 +144,15 @@ function onInput(value: string | number) {
       ref="input"
       :aria-required="isRequired"
       autoresize
-      class="w-full font-mono"
+      :class="form.compact ? 'font-mono' : 'w-full font-mono'"
       :model-value="text"
       :placeholder="format(defaultValue)"
       :rows="1"
-      size="sm"
+      :size="form.compact ? 'xs' : 'sm'"
       spellcheck="false"
       :type="autogrow ? undefined : inputType"
-      :ui="{ base: 'font-mono text-xs' }"
+      :ui="{ base: form.compact ? 'font-mono text-[11px] px-0 py-0' : 'font-mono text-xs' }"
+      :variant="form.compact ? 'none' : undefined"
       @blur="onBlur"
       @focus="onFocus"
       @keydown.backspace="onBackspace"
@@ -172,7 +179,7 @@ function onInput(value: string | number) {
         />
       </template>
     </component>
-    <c-text v-if="description" class="mt-1 ml-3 pb-1" variant="description">
+    <c-text v-if="description && !form.compact" class="mt-1 ml-3 pb-1" variant="description">
       {{ description }}
     </c-text>
   </div>

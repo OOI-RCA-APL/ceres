@@ -34,6 +34,13 @@ export type SchemaFormOptions = {
   value?: MaybeRefOrGetter<Plain>
   initial?: Plain
   readonly?: MaybeRefOrGetter<boolean>
+
+  /** Draw the fields to sit inline, without the chrome a form lays around them.
+
+  For the places a value is edited in the run of something else, a filter condition among the
+  rest of a bar, where the field is already named by what it sits in.
+  */
+  compact?: MaybeRefOrGetter<boolean>
   /** Undefined compiles as the permissive schema, so a caller editing a schema as text can hand
   over nothing while the text is briefly invalid. */
   schema?: MaybeRefOrGetter<Schema | undefined>
@@ -71,6 +78,7 @@ export function useSchemaForm(options: SchemaFormOptions) {
   const modelValue = $computed(() => toValue(options.value))
   const rootSchema = $computed(() => toValue(options.schema))
   const readonly = $computed(() => toValue(options.readonly) ?? false)
+  const compact = $computed(() => toValue(options.compact) ?? false)
   const onUpdate = $computed(() => options.onUpdate ?? (() => {}))
   const onSubmit = $computed(() => options.onSubmit ?? (() => {}))
   const persist = $computed(() => toValue(options.persist))
@@ -532,6 +540,7 @@ export function useSchemaForm(options: SchemaFormOptions) {
     canSubmit: computed(() => canSubmit),
     editable: computed(() => state === 'editing'),
     readonly: computed(() => state !== 'editing'),
+    compact: computed(() => compact),
     submitting: computed(() => state === 'submitting'),
     reset,
     submit,
