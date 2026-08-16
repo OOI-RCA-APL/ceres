@@ -7,11 +7,12 @@ import type { Stream } from '@/api/client'
 import { useEngine } from '@/api/engine'
 import { ParticleModel } from '@/api/particles'
 import type { Particle } from '@/api/particles'
-import { defaultSeriesColor } from '@/chart'
+import { chartPalette } from '@/chart'
 import type { DataValue, Option } from '@/chart'
 import CChart from '@/components/c-chart.vue'
 import icons from '@/icons'
 import { useDerivedChartUnit } from '@/particle-types'
+import { usePreferences } from '@/preferences'
 import { duration, useTime, utc, parseDuration } from '@/time'
 import { debouncedComputed, toTitle } from '@/utilities'
 import { useWorkspace } from '@/workspace'
@@ -25,6 +26,7 @@ const engine = useEngine()
 const client = useClient()
 const time = useTime()
 const workspace = useWorkspace()
+const preferences = usePreferences()
 
 type DataEntry = [number, DataValue]
 type Data = Record<string, DataEntry[]>
@@ -151,15 +153,30 @@ function getSeriesName(series: ChartWidgetSeries, index: number): string {
   return String(index + 1)
 }
 
+/** The color each series is drawn in, in the flat order the chart draws them.
+
+Resolved apart from the data, `chartPalette` reading computed styles and the option around it
+being rebuilt on every record that arrives. A series carries a color only once one has been
+chosen for it, so the rest follow the color mode rather than whichever mode they were added in.
+*/
+const seriesColors = $computed(() => {
+  // The palette is read off the document, so the mode is what says to read it again.
+  void preferences.isDarkModeEnabled
+  const palette = chartPalette().series
+  return widget.particles
+    .flatMap((particle) => particle.series)
+    .map((series, index) => series.color ?? palette[index % palette.length] ?? palette[0]!)
+})
+
 const baseAxisOption = $computed(() => axisOption)
 const baseOption: Option = $computed(() => {
   // Counted across every particle entry rather than within one, the chart drawing them as a
-  // single run, so a widget stored before series carried colors falls back to the right one.
+  // single run.
   let position = 0
   const series = widget.particles.flatMap((particle) =>
     particle.series.map((series, index) => {
       const name = getSeriesName(series, index)
-      const color = series.color ?? defaultSeriesColor(position)
+      const color = seriesColors[position]
       position += 1
       const result = {
         // The stable ID is what `replaceMerge` matches on, keeping surviving series merged
