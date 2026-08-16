@@ -367,7 +367,10 @@ watch(
     debouncedComputed(() => [widget.after, widget.timespan], 250),
   ],
   async () => {
+    // Nothing to load into yet. The flag starts set, and leaving it that way here would hold off
+    // every later batch of records, since applying them waits on the load being finished.
     if (instance == null || !isInitialized) {
+      isLoading = false
       return
     }
 
