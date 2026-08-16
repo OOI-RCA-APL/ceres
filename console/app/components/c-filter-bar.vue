@@ -2,7 +2,12 @@
 import type { DropdownMenuItem } from '@nuxt/ui'
 import { nextTick } from 'vue'
 
-import { defaultTextKind, definitionsFor, matchDefinitions } from '@/filters/definitions'
+import {
+  defaultTextKind,
+  definitionsFor,
+  getFilterDefinition,
+  matchDefinitions,
+} from '@/filters/definitions'
 import type { FilterDefinition, RecordKind } from '@/filters/definitions'
 import { createCondition, isBlock, withConditionValue, withoutItems } from '@/filters/model'
 import type { FilterQuery } from '@/filters/model'
@@ -42,7 +47,24 @@ let highlighted = $ref(0)
 let focusId = $ref<string | null>(null)
 
 const suggestions = $computed(() => matchDefinitions(definitionsFor(recordKind), search))
-const isSuggesting = $computed(() => isInputFocused && suggestions.length > 0)
+
+/** The record kind's own text search, offered with the text as typed.
+
+Listed alongside the fields so searching for a phrase is a visible choice rather than what
+happens only when the phrase resembles no field name.
+*/
+const freeTextDefinition = $computed(() => {
+  if (search.trim() === '') {
+    return null
+  }
+
+  return getFilterDefinition(defaultTextKind(recordKind))
+})
+
+/** Where the free text entry sits, which is after every field it is offered beneath. */
+const freeTextIndex = $computed(() => (freeTextDefinition == null ? -1 : suggestions.length))
+const suggestionCount = $computed(() => suggestions.length + (freeTextDefinition == null ? 0 : 1))
+const isSuggesting = $computed(() => isInputFocused && suggestionCount > 0)
 
 function accept(definition: FilterDefinition) {
   const condition = createCondition(definition.kind, null)
@@ -57,6 +79,7 @@ function acceptFreeText() {
   query = [...query, condition]
   search = ''
   highlighted = 0
+  focusId = condition.id
 }
 
 function onEnter() {
@@ -64,7 +87,13 @@ function onEnter() {
     return
   }
 
-  // A ranked match wins, and text matching nothing becomes the record kind's text search.
+  // The text search when it is the highlighted row, and otherwise the ranked field match. Text
+  // resembling no field at all leaves nothing else to take.
+  if (highlighted === freeTextIndex) {
+    acceptFreeText()
+    return
+  }
+
   const definition = suggestions[highlighted] ?? suggestions[0]
   if (definition != null) {
     accept(definition)
@@ -194,12 +223,12 @@ const reorder = usePointerReorder({
 <template>
   <div
     ref="rootElement"
-    class="flex min-h-7 flex-wrap items-center gap-1 px-1.5 py-0.5"
+    class="flex min-h-6 flex-wrap items-center gap-1 px-1.5 py-0.5"
     tabindex="-1"
     @keydown="onBarKeydown"
     @pointerdown.self="selection.clear()"
   >
-    <c-icon class="text-muted shrink-0" :name="icons.filter" size="12" />
+    <c-icon class="text-muted shrink-0" :name="icons.search" size="12" />
     <c-context-menu :items="contextMenuItems">
       <div class="flex flex-wrap items-center gap-1">
         <div
@@ -228,13 +257,13 @@ const reorder = usePointerReorder({
         ref="inputElement"
         v-model="search"
         class="w-full bg-transparent py-1 font-mono text-[11px] outline-none"
-        :placeholder="query.length === 0 ? 'Filter...' : ''"
+        placeholder=""
         spellcheck="false"
         type="text"
         @blur="isInputFocused = false"
         @focus="isInputFocused = true"
         @keydown.backspace="onInputBackspace()"
-        @keydown.down.prevent="highlighted = Math.min(highlighted + 1, suggestions.length - 1)"
+        @keydown.down.prevent="highlighted = Math.min(highlighted + 1, suggestionCount - 1)"
         @keydown.enter.prevent="onEnter()"
         @keydown.escape="search = ''"
         @keydown.up.prevent="highlighted = Math.max(highlighted - 1, 0)"
@@ -259,6 +288,19 @@ const reorder = usePointerReorder({
           <c-text element="span" variant="mono-sm">{{ definition.label }}</c-text>
           <c-text class="text-muted" element="span" variant="mono-xs">
             {{ definition.input.type }}
+          </c-text>
+        </button>
+        <button
+          v-if="freeTextDefinition != null"
+          class="flex w-full cursor-pointer items-baseline gap-2 px-2 py-0.5 text-left"
+          :class="freeTextIndex === highlighted && 'bg-accented/60'"
+          type="button"
+          @mousedown.prevent="acceptFreeText()"
+          @mousemove="highlighted = suggestions.length"
+        >
+          <c-text element="span" variant="mono-sm">{{ freeTextDefinition.label }}</c-text>
+          <c-text class="text-muted truncate" element="span" variant="mono-xs">
+            {{ search.trim() }}
           </c-text>
         </button>
       </div>

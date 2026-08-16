@@ -34,7 +34,7 @@ const definition = $computed(() => (isBlock(item) ? null : getFilterDefinition(i
   <div
     v-if="isBlock(item)"
     :class="[
-      'border-default flex min-h-6 cursor-default items-center gap-1 rounded-md border',
+      'border-default flex min-h-5 cursor-default items-center gap-1 rounded-md border',
       'border-dashed py-0.5 pr-0.5 pl-1.5 select-none',
       selected && $style.selected,
     ]"
@@ -65,7 +65,7 @@ const definition = $computed(() => (isBlock(item) ? null : getFilterDefinition(i
   <div
     v-else
     :class="[
-      'bg-elevated hover:bg-accented/60 flex min-h-6 cursor-default items-center gap-1',
+      'bg-elevated hover:bg-accented/60 flex min-h-5 cursor-default items-center gap-1',
       'rounded-md py-0.5 pr-0.5 pl-1.5 select-none',
       selected && $style.selected,
     ]"

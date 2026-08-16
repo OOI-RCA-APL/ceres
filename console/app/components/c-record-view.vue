@@ -537,6 +537,9 @@ useStream(debouncedFilter as never, async (record: Record) => {
                 :class="[
                   'group border-default flex h-4.75 cursor-pointer items-center',
                   'border-r px-2 text-left text-[10px] last:border-r-0',
+                  // The last column is given no width, so it takes what the sized ones leave
+                  // and the header reaches as far as the rows under it.
+                  i === columns.length - 1 && 'grow',
                 ]"
                 :style="[
                   i < columns.length - 1 ? { width: `${context.getColumnWidth(i)}px` } : {},

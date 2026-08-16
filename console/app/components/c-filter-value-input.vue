@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import type { DropdownMenuItem } from '@nuxt/ui'
+import { watchEffect } from 'vue'
 
 import type { FilterValueInput } from '@/filters/definitions'
 import icons from '@/icons'
@@ -22,6 +23,16 @@ const emit = defineEmits<{
   /** The user finished the value, with Enter or by leaving the input. */
   commit: []
 }>()
+
+let inputElement = $ref<HTMLInputElement | null>(null)
+
+// Taken here rather than left to the attribute, which a browser acts on only while first
+// loading the page. These arrive when a condition is added, long after that.
+watchEffect(() => {
+  if (autofocus) {
+    inputElement?.focus()
+  }
+})
 
 const text = $computed({
   get: () => (modelValue == null ? '' : String(modelValue)),
