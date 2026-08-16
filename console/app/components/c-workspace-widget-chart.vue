@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { useElementVisibility, useIntervalFn } from '@vueuse/core'
+import { useIntervalFn } from '@vueuse/core'
 import { computed, watch, watchEffect } from 'vue'
 
 import { useClient } from '@/api/client'
@@ -322,25 +322,7 @@ function applyPending() {
   lastPendingApplied = time.now
 }
 
-const isVisible = $(useElementVisibility(() => instance?.getDom()))
-const pendingApplyInterval = $computed(() => {
-  if (isVisible) {
-    return duration(0.5, 'seconds')
-  } else {
-    return duration(1, 'minute')
-  }
-})
-
-// What arrived out of view goes in the moment the chart is back, rather than waiting out the
-// interval a hidden chart falls back to, which would leave a minute of records unplotted.
-watch(
-  () => isVisible,
-  (visible) => {
-    if (visible && !isPaused && !isLoading) {
-      applyPending()
-    }
-  },
-)
+const pendingApplyInterval = duration(0.5, 'seconds')
 
 watch(
   () => time.now,
@@ -355,7 +337,12 @@ watch(
   },
 )
 
-watch([() => JSON.stringify(widget.particles), () => [widget.after, widget.timespan]], () => {
+// Compared as text rather than as a fresh array, which is a new object on every read and so
+// reports a change whenever anything touches the widget, reloading a chart that never moved and
+// discarding the records waiting to be drawn.
+const windowKey = $computed(() => `${widget.after ?? ''}|${widget.timespan ?? ''}`)
+
+watch([() => JSON.stringify(widget.particles), () => windowKey], () => {
   isLoading = true
 })
 
@@ -364,7 +351,7 @@ watch(
     () => instance,
     () => isInitialized,
     debouncedComputed(() => JSON.stringify(widget.particles), 1000),
-    debouncedComputed(() => [widget.after, widget.timespan], 250),
+    debouncedComputed(() => windowKey, 250),
   ],
   async () => {
     // Nothing to load into yet. The flag starts set, and leaving it that way here would hold off
