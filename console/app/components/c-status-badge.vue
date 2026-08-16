@@ -234,12 +234,14 @@ const rowClass = 'flex min-h-[26px] items-center gap-2 px-2.5 py-0.5'
         <!-- Each state row flies its actions out beside it, so the menu reads as the state first
         and what can be done about it second. A viewer gets no flyout, which `open` pins shut
         while `undefined` leaves the hover card to run itself. -->
-        <!-- The flyout touches the row it opens from. Its content is portaled out of this menu,
-        so any gap between the two is inside neither and crossing it closes the whole stack. -->
+        <!-- Kept in place rather than portaled, so that reaching the flyout still counts as
+        hovering the menu it came from. Portaled to the body it sits outside that menu, and the
+        pointer arriving on it reads as the pointer having left, closing the whole stack. -->
         <c-popover
           v-if="status.running != null"
           :close-delay="300"
           :content="{ side: 'right', align: 'start', sideOffset: 0 }"
+          :portal="false"
           enable-touch
           mode="hover"
           :open="canControl ? undefined : false"
