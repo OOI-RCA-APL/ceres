@@ -67,12 +67,33 @@ const statisticsSeconds = computed({
   set: (seconds: number) => (preferences.statisticsDuration = duration(seconds, 'seconds')),
 })
 
-const adminItems: DropdownMenuItem[][] = [
+// Everything only an administrator may do, gathered behind the one entry that says so rather
+// than standing along the foot of the drawer beside what anyone can reach.
+const adminItems = $computed<DropdownMenuItem[][]>(() => [
   [
     { label: 'Users', icon: icons.user, to: '/users' },
     { label: 'Groups', icon: icons.group, to: '/groups' },
   ],
-]
+  [{ label: 'Reload Configuration', icon: icons.configuration, onSelect: promptReload }],
+  // Standing apart from the rest, since becoming someone else changes what every other entry
+  // here would do.
+  ...(canImpersonate
+    ? [
+        [
+          {
+            label: 'Impersonate',
+            icon: icons.impersonate,
+            slot: 'impersonate',
+            onSelect: (event: Event) => {
+              // Held open, since choosing who to become happens after this menu would close.
+              event.preventDefault()
+              isChoosingIdentity = true
+            },
+          },
+        ],
+      ]
+    : []),
+])
 
 const developerItems = $computed<DropdownMenuItem[][]>(() => [
   [
@@ -204,36 +225,24 @@ const footerRowClass =
           <span class="grow text-left">Admin</span>
           <c-icon class="size-5" :name="icons.menuRight" />
         </div>
+        <template #impersonate>
+          <c-tooltip :content="{ side: 'right' }" text="Intended for development.">
+            <span class="grow text-left">Impersonate</span>
+          </c-tooltip>
+        </template>
       </c-dropdown-menu>
-      <button v-if="engine.auth.isAdmin" :class="footerRowClass" @click="promptReload">
-        <c-icon class="size-5" :name="icons.configuration" />
-        <span class="grow text-left">Reload Configuration</span>
-      </button>
 
-      <!-- Taking on another identity is something an administrator does, so it sits with the rest
-      of what only they can reach rather than behind the switch about development tools. -->
-      <c-popover
-        v-if="canImpersonate"
-        v-model:open="isChoosingIdentity"
-        :content="{ side: 'right', align: 'start' }"
-        :ui="{ content: 'w-[300px]' }"
-      >
-        <div :class="footerRowClass">
-          <c-icon class="size-5" :name="icons.viewer" />
-          <span class="grow text-left">
-            Impersonate
-            <c-text variant="description">Intended for development.</c-text>
-          </span>
-          <c-icon class="size-5" :name="icons.menuRight" />
-        </div>
-        <template #content>
+      <!-- Choosing who to become outlives the menu it is started from, so it stands on its own
+      rather than inside a panel that closes on the way to it. -->
+      <c-modal v-model:open="isChoosingIdentity" title="Impersonate">
+        <template #body>
           <c-user-chooser
             empty="No other users to impersonate."
             :omit="(user: User) => user.id === engine.auth.user?.id"
             @select="(user: User) => impersonate(user.id)"
           />
         </template>
-      </c-popover>
+      </c-modal>
 
       <c-popover :content="{ side: 'right', align: 'end' }" :ui="{ content: 'w-[350px]' }">
         <div :class="footerRowClass">

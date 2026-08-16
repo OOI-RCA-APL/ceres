@@ -102,6 +102,7 @@ const icons = {
   user: 'i-mdi-account',
   view: 'i-mdi-eye',
   viewer: 'i-mdi-account-eye',
+  impersonate: 'i-mdi-account-switch',
   viewOriginal: 'i-mdi-eye-arrow-left',
   workingCopy: 'i-mdi-pencil-box-multiple',
   workspace: 'i-mdi-dots-grid',

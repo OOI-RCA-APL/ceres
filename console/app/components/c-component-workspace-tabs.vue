@@ -457,7 +457,7 @@ grows and the tabs pass beneath it. -->
                 text="This workspace has unsaved changes."
               >
                 <button
-                  class="ml-1 flex items-center rounded-full opacity-60 hover:opacity-100"
+                  class="mr-2 ml-1 flex items-center rounded-full opacity-60 hover:opacity-100"
                   type="button"
                   @click.stop
                   @mousedown.stop

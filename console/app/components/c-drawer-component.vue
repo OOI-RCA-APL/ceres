@@ -52,6 +52,9 @@ const navigation = useNavigation()
 // reaching it, so the tree traces the way back to where you are.
 const isOnPath = $computed(() => isOnPathTo(navigation.component, address.toString()))
 
+/** Whether this row is the component being looked at, rather than one on the way down to it. */
+const isOpen = $computed(() => navigation.component === address.toString())
+
 // Components the user can only look at read quieter than the ones they can control so a glance
 // down the tree separates what can be acted on from what can only be read.
 const canControl = $computed(() => access.canOperate(address.toString()))
@@ -154,7 +157,8 @@ function toggleExpanded() {
 <template>
   <template v-if="isShown">
     <nuxt-link
-      class="hover:bg-primary/14 relative flex items-center py-1 text-sm"
+      class="hover:bg-primary/14 relative flex items-center py-1 text-[13px]"
+      :class="[isOpen && 'bg-primary/16 text-primary', !isOpen && isOnPath && 'text-toned']"
       :to="`/components/${address}`"
     >
       <!-- One column per level. The lines are drawn rather than the space merely being left, so

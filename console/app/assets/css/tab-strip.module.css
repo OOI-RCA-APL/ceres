@@ -53,7 +53,7 @@ hovered as it is at rest and the strip does not shuffle under the pointer. */
 .close {
   position: absolute;
   top: 50%;
-  right: 4px;
+  right: 8px;
   display: flex;
   align-items: center;
   opacity: 0;
@@ -62,9 +62,14 @@ hovered as it is at rest and the strip does not shuffle under the pointer. */
 }
 
 /* The selected tab keeps its close button visible since that is the one most likely to be closed
-next. */
+next. Held back until the pointer is on the button itself, so it reads as available rather than
+as the thing the tab is for. */
 .tab:hover .close,
 .closeShown {
+  opacity: 0.6;
+}
+
+.close:hover {
   opacity: 1;
 }
 
