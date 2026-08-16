@@ -281,13 +281,25 @@ let isFollowing = $ref(true)
 /** When the scroller last moved for any reason, marking a scroll in progress. */
 let lastScrolledAt = 0
 
+/** Where the scroller stood at the previous event, for telling a move up from a move down. */
+let previousScrollTop = 0
+
 async function onScroll() {
   lastScrolledAt = performance.now()
+  const previous = previousScrollTop
   updateContainerInfo()
+  previousScrollTop = containerInfo.scrollTop
+
+  // Following ends on a move upwards alone. A record landing between the move to the end and the
+  // event announcing it grows the list underneath, which position on its own reads as leaving.
   if (isScrollingToBottom) {
     isFollowing = true
   } else if (!isDocumentJustVisible && !isWindowJustResized) {
-    isFollowing = isAtBottom()
+    if (isAtBottom()) {
+      isFollowing = true
+    } else if (containerInfo.scrollTop < previous - 1) {
+      isFollowing = false
+    }
   }
 
   if (isLoadingCurrent || !isDocumentVisible) {
