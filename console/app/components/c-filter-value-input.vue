@@ -1,9 +1,8 @@
 <script lang="ts" setup>
-import type { DropdownMenuItem } from '@nuxt/ui'
-import { watchEffect } from 'vue'
+import { nextTick, watchEffect } from 'vue'
 
 import type { FilterValueInput } from '@/filters/definitions'
-import icons from '@/icons'
+import type { SchemaObject } from '@/schema-form'
 
 const {
   input,
@@ -24,99 +23,69 @@ const emit = defineEmits<{
   commit: []
 }>()
 
-let inputElement = $ref<HTMLInputElement | null>(null)
+/** The condition's value as a schema, so a filter edits it with the same field a form would.
+
+The bar names the condition itself, so nothing here carries a title, and the value is always
+optional: a condition is added before it is filled in.
+*/
+const schema = $computed<SchemaObject>(() => {
+  switch (input.type) {
+    case 'date-time':
+      return { type: 'string', format: 'date-time', optional: true }
+    case 'duration':
+      return { type: 'string', format: 'duration', optional: true }
+    case 'address':
+      return { type: 'string', format: 'address', optional: true, examples: [...addressOptions] }
+    case 'enum':
+      return { type: 'string', enum: [...input.options], optional: true }
+    case 'integer':
+      return {
+        type: 'integer',
+        optional: true,
+        minimum: input.minimum,
+        exclusiveMaximum: input.exclusiveMaximum,
+      }
+    default:
+      return { type: 'string', optional: true }
+  }
+})
+
+let root = $ref<HTMLElement | null>(null)
+
+function focusField() {
+  root?.querySelector<HTMLElement>('input, [role="combobox"], button')?.focus()
+}
 
 // Taken here rather than left to the attribute, which a browser acts on only while first
 // loading the page. These arrive when a condition is added, long after that.
 watchEffect(() => {
   if (autofocus) {
-    inputElement?.focus()
+    void nextTick(focusField)
   }
 })
 
-const text = $computed({
-  get: () => (modelValue == null ? '' : String(modelValue)),
-  set: (value: string) => {
-    modelValue = value === '' ? null : value
-  },
-})
-
-const placeholder = $computed(() => {
-  if (input.type === 'duration') {
-    return '1h'
-  }
-  if (input.type === 'date-time') {
-    return 'time...'
-  }
-
-  return '...'
-})
-
-// Sized to its content so a chip hugs its value, and never narrower than the placeholder, which
-// would otherwise be clipped on an empty condition.
-const width = $computed(() => `${Math.max(placeholder.length, text.length + 1)}ch`)
-
-const isMenuInput = $computed(() => input.type === 'enum' || input.type === 'address')
-
-const menuItems = $computed<DropdownMenuItem[]>(() => {
-  const options =
-    input.type === 'enum' ? input.options : input.type === 'address' ? (addressOptions ?? []) : []
-
-  return options.map((option) => ({
-    label: option,
-    onSelect: () => {
-      modelValue = option
-      emit('commit')
-    },
-  }))
-})
-
-function onIntegerBlur() {
-  if (input.type !== 'integer' || modelValue == null) {
+/** Whether focus has left the field entirely, rather than moved within it. */
+function onFocusOut(event: FocusEvent) {
+  const next = event.relatedTarget
+  if (next instanceof Node && root?.contains(next)) {
     return
   }
 
-  let value = Math.floor(Number(modelValue))
-  if (Number.isNaN(value)) {
-    modelValue = null
-    return
-  }
-
-  if (input.minimum != null && value < input.minimum) {
-    value = input.minimum
-  }
-  if (input.exclusiveMaximum != null && value >= input.exclusiveMaximum) {
-    value = input.exclusiveMaximum - 1
-  }
-
-  modelValue = value
+  emit('commit')
 }
 </script>
 
 <template>
-  <c-dropdown-menu v-if="isMenuInput" :items="menuItems" size="sm">
-    <button
-      class="hover:text-primary flex cursor-pointer items-center gap-0.5 font-mono text-[11px]"
-      :class="modelValue == null && 'text-muted'"
-      type="button"
-      @pointerdown.stop
-    >
-      {{ modelValue ?? 'choose...' }}
-      <c-icon :name="icons.chevronDown" size="10" />
-    </button>
-  </c-dropdown-menu>
-  <input
-    v-else
-    v-model="text"
-    :autofocus="autofocus"
-    class="bg-transparent font-mono text-[11px] outline-none"
-    :placeholder="placeholder"
-    spellcheck="false"
-    :style="{ width }"
-    type="text"
-    @blur="(input.type === 'integer' ? onIntegerBlur() : undefined, emit('commit'))"
+  <!-- The bar owns the keys that reach it, so what is typed into a value stays in the value.
+  Pointer events are held back for the same reason, a click here not being a click on the chip. -->
+  <span
+    ref="root"
+    class="inline-flex items-center"
+    @focusout="onFocusOut"
     @keydown.enter.prevent="emit('commit')"
     @keydown.stop
     @pointerdown.stop
-  />
+  >
+    <c-schema-form-value v-model="modelValue" compact :schema />
+  </span>
 </template>
