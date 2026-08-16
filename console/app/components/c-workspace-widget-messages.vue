@@ -135,7 +135,29 @@ function onDownKeyPressed() {
   }
 }
 
-const isConnected = true
+// Only an explicit refusal blocks a send, so a target whose status has not arrived yet, or one
+// still connecting, stays writable rather than disabling the input on every reconnect.
+const isConnected = $computed(() => {
+  if (resolvedCommandAddress == null) {
+    return true
+  }
+
+  const status = engine.statuses.get(resolvedCommandAddress)
+  if (status == null) {
+    return true
+  }
+
+  if (!status.running) {
+    return false
+  }
+
+  const connectivity =
+    status.connectivity ??
+    status.connections.find((connection) => connection.name === widget.commandConnection)
+      ?.connectivity
+
+  return connectivity !== 'disconnected'
+})
 
 async function submit() {
   if (
