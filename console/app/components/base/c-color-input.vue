@@ -8,35 +8,24 @@ const modelValue = defineModel<string>({ required: true })
 </script>
 
 <template>
-  <!-- The swatch is the control rather than a preview beside one, a native color input being a
-  color well already. Its own chrome is cleared so the dot is the whole of what is drawn. -->
-  <input
-    v-model="modelValue"
-    :class="$style.swatch"
-    :style="{ width: `${size}px`, height: `${size}px` }"
-    type="color"
-  />
+  <!-- The swatch stands for the value and opens the picker, a full panel being too much to sit
+  inline in a row. The picker writes hex, which is the form the value is stored and read in. -->
+  <c-popover :content="{ side: 'bottom', align: 'end' }">
+    <button
+      :class="$style.swatch"
+      :style="{ width: `${size}px`, height: `${size}px`, background: modelValue }"
+      type="button"
+    />
+    <template #content>
+      <c-color-picker v-model="modelValue" class="p-2" />
+    </template>
+  </c-popover>
 </template>
 
 <style module>
 .swatch {
-  padding: 0;
   border: 1px solid var(--ui-border);
   border-radius: 50%;
-  background: none;
   cursor: pointer;
-  appearance: none;
-}
-
-/* The well fills the control edge to edge, which needs the browser's own padding and border
-around the drawn color removed in each engine's spelling of it. */
-.swatch::-webkit-color-swatch-wrapper {
-  padding: 0;
-}
-
-.swatch::-webkit-color-swatch,
-.swatch::-moz-color-swatch {
-  border: none;
-  border-radius: 50%;
 }
 </style>

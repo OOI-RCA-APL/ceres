@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import { CInput, CTextarea } from '#components'
 import type { DropdownMenuItem } from '@nuxt/ui'
 import { watch } from 'vue'
 
@@ -130,8 +131,10 @@ function onInput(value: string | number) {
         <slot name="label-append" />
       </c-text>
     </label>
+    <!-- The imported components, not their names, a string here resolving only against locally
+    registered ones and rendering an unknown element with no field in it. -->
     <component
-      :is="autogrow ? 'c-textarea' : 'c-input'"
+      :is="autogrow ? CTextarea : CInput"
       ref="input"
       :aria-required="isRequired"
       autoresize
