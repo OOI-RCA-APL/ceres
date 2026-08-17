@@ -119,12 +119,37 @@ function columnIsFiltered(name: string): boolean {
 
 let filterBar = $ref<InstanceType<typeof CFilterBar> | null>(null)
 
+/** How a message's data column can be spelled out, matching what the widget stores. */
+const messageDataDisplays = [
+  { label: 'Default', value: 'default' },
+  { label: 'Hex', value: 'hex' },
+  { label: 'Binary', value: 'binary' },
+] as const
+
 function columnMenuItems(name: string): DropdownMenuItem[][] {
   const filters = definitionsForColumn(recordKind, name).map((definition) => ({
     label: definition.label,
     icon: icons.filter,
     onSelect: () => afterMenuCloses(() => filterBar?.appendKind(definition.kind)),
   }))
+
+  // How a message's bytes are spelled out belongs to the column that draws them, which is the
+  // only place left to reach it from.
+  const display: DropdownMenuItem[] =
+    widget.type === 'messages' && name === 'data'
+      ? [
+          {
+            label: 'Display',
+            icon: icons.display,
+            children: messageDataDisplays.map((option) => ({
+              label: option.label,
+              type: 'checkbox' as const,
+              checked: (widget as MessagesWidget).dataDisplay === option.value,
+              onUpdateChecked: () => ((widget as MessagesWidget).dataDisplay = option.value),
+            })),
+          },
+        ]
+      : []
 
   // The last column keeps no hide, a view drawn with no columns leaving nothing to bring one
   // back from.
@@ -133,7 +158,7 @@ function columnMenuItems(name: string): DropdownMenuItem[][] {
       ? [{ label: 'Hide', icon: icons.hide, onSelect: () => hideColumn(name) }]
       : []
 
-  return [filters, hide].filter((group) => group.length > 0)
+  return [filters, [...display, ...hide]].filter((group) => group.length > 0)
 }
 
 const get = $computed(() => {

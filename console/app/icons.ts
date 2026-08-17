@@ -34,6 +34,7 @@ const icons = {
   developer: 'i-mdi-hammer-wrench',
   disable: 'i-mdi-minus-circle-outline',
   discard: 'i-mdi-arrow-u-left-top',
+  display: 'i-mdi-eye-settings',
   dragHorizontal: 'i-mdi-drag-horizontal',
   dragVertical: 'i-mdi-drag-vertical',
   drawer: 'i-mdi-menu',
