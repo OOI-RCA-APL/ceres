@@ -8,6 +8,11 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+**Fixes**
+
+- Fix `ceres run` serving the web console and API on a random port instead of the
+  configured one.
+
 ## [0.44.0] - 2026-08-17
 
 **Web Console**
