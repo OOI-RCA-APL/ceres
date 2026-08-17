@@ -475,7 +475,10 @@ async function focusSlideName() {
       >
         <!-- A slide is a workspace in miniature, arranged through the same editor the workspace
         itself is drawn by so everything that can be done to a layout can be done to one. -->
-        <div :key="slide.id" class="absolute inset-0 overflow-auto px-2" :class="$style.slide">
+        <!-- The gutter is held whether or not a scrollbar shows, since a slide is as tall as its
+        rows say and content reflowing each time one arrives would leave the widgets at the right
+        edge jumping under the hand arranging them. -->
+        <div :key="slide.id" class="absolute inset-0 overflow-auto px-2 [scrollbar-gutter:stable]">
           <c-workspace-layout
             :expand="widget.expand"
             :host="container"
@@ -493,8 +496,10 @@ async function focusSlideName() {
     <div
       v-if="slide != null"
       ref="bandElement"
-      class="border-default grid items-center border-t px-2 py-[3px]"
-      :class="$style.controls"
+      :class="[
+        'border-default grid items-center border-t px-2 py-[3px]',
+        'grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]',
+      ]"
       data-no-drop
       @pointerleave="onBandPointerLeave"
       @pointerover="onBandPointerOver"
@@ -616,13 +621,6 @@ async function focusSlideName() {
 </template>
 
 <style module>
-/* Room for the scrollbar whether or not one is showing. A slide is as tall as its rows say, so one
-arrives and goes as rows are added and resized, and content that reflowed each time it did would
-leave the widgets at the right edge jumping under the hand arranging them. */
-.slide {
-  scrollbar-gutter: stable;
-}
-
 /* Long enough to be followed across the width of a widget, and short enough not to be waited on. */
 .travelling {
   transition: transform 260ms cubic-bezier(0.2, 0, 0, 1);
@@ -634,12 +632,6 @@ leave the widgets at the right edge jumping under the hand arranging them. */
 
 .offLeft {
   transform: translateX(-100%);
-}
-
-/* Three columns with the outer two forced to equal width, holding the middle one centred however
-many buttons sit at the end. */
-.controls {
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
 }
 
 /* Small enough to sit under a slide without competing with it, and large enough to aim at. Drawn

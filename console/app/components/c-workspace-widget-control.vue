@@ -339,7 +339,7 @@ const tooltip = $computed(() => {
   <!-- A button carries its own menu so the press that opens it must not reach the widget's, which
   is hung off the card around everything here. -->
   <c-context-menu :items="menuItems" @update:open="(value: boolean) => (isShowingMenu = value)">
-    <div class="relative inline-flex" @contextmenu.stop>
+    <div class="group relative inline-flex" @contextmenu.stop>
       <c-popover v-model:open="isShowingArguments" :ui="{ content: 'w-[420px] max-w-[90vw]' }">
         <c-tooltip :disabled="tooltip == null" :text="tooltip ?? ''">
           <c-button
@@ -415,8 +415,15 @@ const tooltip = $computed(() => {
         </template>
       </c-popover>
       <c-dropdown-menu :items="menuItems">
+        <!-- The dots wait just under the button rather than beside or over it, so a bar of
+        buttons is a bar of buttons and arranging one costs no room until it is reached for. -->
         <c-button
-          :class="[$style.more, isShowingMenu && $style.moreOpen]"
+          :class="[
+            'absolute top-[calc(100%+2px)] left-1/2 z-1 min-h-0 -translate-x-1/2 px-[3px]',
+            'opacity-0 transition-opacity duration-150',
+            'group-hover:opacity-50 hover:opacity-100! focus:opacity-100!',
+            isShowingMenu && 'opacity-100!',
+          ]"
           :icon="icons.more"
           size="xs"
           variant="link"
@@ -454,7 +461,7 @@ const tooltip = $computed(() => {
       </c-text>
       <pre
         v-if="confirmingArguments != null"
-        :class="$style.confirmArguments"
+        class="m-0 mt-2 max-h-60 overflow-auto text-[12px] leading-normal"
       ><!-- eslint-disable-next-line vue/no-v-html --><code v-html="confirmingArguments" /></pre>
     </template>
     <template #footer>
@@ -465,38 +472,3 @@ const tooltip = $computed(() => {
     </template>
   </c-modal>
 </template>
-
-<style module>
-/* The dots wait just under the button rather than beside or over it so a bar of buttons is a bar
-of buttons and arranging one costs no room until it is reached for. */
-.more {
-  position: absolute;
-  top: calc(100% + 2px);
-  left: 50%;
-  z-index: 1;
-  min-height: 0;
-  padding: 0 3px;
-  opacity: 0;
-  transform: translateX(-50%);
-  transition: opacity 0.15s;
-}
-
-.more:hover,
-.more:focus,
-.more.moreOpen {
-  opacity: 1;
-}
-
-div:hover > .more {
-  opacity: 0.5;
-}
-
-/* The same shape the configuration block wears, capped so long arguments scroll in place. */
-.confirmArguments {
-  overflow: auto;
-  max-height: 240px;
-  margin: 8px 0 0;
-  font-size: 12px;
-  line-height: 1.5;
-}
-</style>

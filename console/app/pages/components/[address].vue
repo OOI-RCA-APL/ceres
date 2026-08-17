@@ -585,8 +585,7 @@ const configHighlighted = $computed(() =>
         than what puts the strip at the bottom edge, where it rests until the page is scrolled.
         With workspace content hidden the overview is the page and takes its full height. -->
         <div
-          class="overflow-y-auto"
-          :class="$style.overviewContent"
+          class="max-h-[calc(100vh-92px)] overflow-x-hidden overflow-y-auto"
           :style="
             activeWorkspaceId != null && !persisted.workspaceCollapsed && !overviewStacks
               ? overviewHeightStyle
@@ -603,7 +602,9 @@ const configHighlighted = $computed(() =>
                 <c-detail-section v-model:expanded="persisted.configuration" title="Configuration">
                   <!-- eslint-disable vue/no-v-html -->
                   <!-- prettier-ignore -->
-                  <pre :class="$style.config"><code v-html="configHighlighted" /></pre>
+                  <pre
+                    class="m-0 overflow-x-auto px-3 pb-3 text-[12px] leading-normal"
+                  ><code v-html="configHighlighted" /></pre>
                   <!-- eslint-enable vue/no-v-html -->
                 </c-detail-section>
               </div>
@@ -832,23 +833,6 @@ const configHighlighted = $computed(() =>
 </template>
 
 <style module>
-/* With a workspace below, the panel takes the height dragged onto it, set inline. On its own it
-grows with its content up to what is left of the viewport, then scrolls. This is a maximum rather
-than a fixed height so a collapsed configuration does not leave the panel padded out with empty
-space down to the fold. */
-.config {
-  margin: 0;
-  overflow-x: auto;
-  padding: 0 12px 12px;
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.overviewContent {
-  overflow-x: hidden;
-  max-height: calc(100vh - 92px);
-}
-
 .dot {
   display: inline-block;
   width: 8px;

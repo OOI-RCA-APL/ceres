@@ -268,8 +268,10 @@ const menuItems = $computed<MenuItem[][]>(() => {
       class="relative flex h-full flex-col overflow-hidden rounded-lg"
       :class="[
         !widget.frameless && 'border border-default bg-elevated',
-        widget.frameless && $style.frameless,
-        workspace.isSelected(widget.id) && $style.selected,
+        widget.frameless && 'group/frameless',
+        // Outside the card's own border rather than in place of it, so picking a widget out does
+        // not nudge everything inside it by a pixel.
+        workspace.isSelected(widget.id) && 'outline-2 outline-offset-[-1px] outline-primary',
       ]"
       :data-widget-id="widget.id"
     >
@@ -277,7 +279,14 @@ const menuItems = $computed<MenuItem[][]>(() => {
       the header carried comes up over its own corner while the pointer is on it. -->
       <div
         v-if="widget.frameless"
-        :class="$style.handle"
+        :class="[
+          'bg-elevated absolute top-0 right-0 z-2 flex items-center gap-0.5 rounded-bl px-0.5',
+          'py-px opacity-0 transition-opacity duration-150 touch-none',
+          // Out of reach while out of sight, so a tap on a widget's top-right corner reaches the
+          // widget rather than a handle nothing on a touchscreen ever showed.
+          'pointer-events-none group-hover/frameless:pointer-events-auto',
+          'group-hover/frameless:opacity-85 hover:opacity-100!',
+        ]"
         data-widget-header
         :style="{ cursor: workspace.drag != null ? 'grabbing' : 'grab' }"
         @mousedown.prevent="onPress"
@@ -380,7 +389,10 @@ const menuItems = $computed<MenuItem[][]>(() => {
         <div
           :key="key"
           :class="[
-            $style.content,
+            // The box takes the card's size rather than its own contents', in both directions.
+            // Left to itself it grows to whatever it holds, and something wide inside, a long
+            // strip of tabs most of all, drags the whole row wider instead of scrolling.
+            'h-0! w-full',
             'grow overflow-auto',
             !widget.frameless && 'bg-default',
             !widget.frameless && info.options.paddingClass,
@@ -424,53 +436,3 @@ const menuItems = $computed<MenuItem[][]>(() => {
     </div>
   </c-context-menu>
 </template>
-
-<style module>
-/* No card is drawn on a frameless widget so its content is all that shows and it sits directly
-on the layout rather than in a box on it. The handle stands in for the header, over the widget's
-own corner so it costs no room, and only while the pointer is on the widget. */
-.handle {
-  position: absolute;
-  top: 0;
-  right: 0;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 1px 2px;
-  border-radius: 0 0 0 4px;
-  opacity: 0;
-  touch-action: none;
-  transition: opacity 0.15s;
-  background-color: var(--ui-bg-elevated);
-
-  /* Out of reach while it is out of sight so a tap on a widget's top-right corner reaches the
-  widget rather than a handle nothing on a touchscreen ever showed. */
-  pointer-events: none;
-}
-
-.frameless:hover .handle {
-  opacity: 0.85;
-  pointer-events: auto;
-}
-
-.handle:hover {
-  opacity: 1 !important;
-}
-
-/* Drawn outside the card's own border rather than in place of it so picking a widget out does
-not nudge everything inside it by a pixel. */
-.selected {
-  outline: 2px solid var(--ui-primary);
-  outline-offset: -1px;
-}
-
-/* The box a widget is drawn in takes the card's size rather than its own contents', in both
-directions. Left to itself it grows to whatever it is holding, and something wide inside it, a
-long strip of tabs most of all, pushes the widget out past the column it was given and drags the
-whole row wider. Being told its width is what makes the box scroll instead. */
-.content {
-  height: 0 !important;
-  width: 100%;
-}
-</style>
