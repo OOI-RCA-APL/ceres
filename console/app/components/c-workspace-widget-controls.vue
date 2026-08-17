@@ -74,7 +74,7 @@ function duplicateButton(at: number) {
   <div
     :class="
       widget.buttons.length > 0
-        ? ['group flex flex-wrap items-center justify-center gap-1.5']
+        ? ['group/bar flex flex-wrap items-center justify-center gap-1.5']
         : ['flex min-h-[34px] flex-col items-center justify-center']
     "
   >
@@ -113,7 +113,7 @@ function duplicateButton(at: number) {
           <c-button
             :class="[
               'absolute top-1/2 left-0 -translate-y-1/2 opacity-0 transition-opacity duration-150',
-              'group-hover:opacity-60 hover:opacity-100 focus:opacity-100',
+              'group-hover/bar:opacity-60 hover:opacity-100 focus:opacity-100',
             ]"
             :icon="icons.add"
             size="xs"

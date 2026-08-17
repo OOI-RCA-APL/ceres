@@ -339,7 +339,9 @@ const tooltip = $computed(() => {
   <!-- A button carries its own menu so the press that opens it must not reach the widget's, which
   is hung off the card around everything here. -->
   <c-context-menu :items="menuItems" @update:open="(value: boolean) => (isShowingMenu = value)">
-    <div class="group relative inline-flex" @contextmenu.stop>
+    <!-- Named, since the bar around this one is a group too and the dots answer only to their
+    own button being pointed at. -->
+    <div class="group/control relative inline-flex" @contextmenu.stop>
       <c-popover v-model:open="isShowingArguments" :ui="{ content: 'w-[420px] max-w-[90vw]' }">
         <c-tooltip :disabled="tooltip == null" :text="tooltip ?? ''">
           <c-button
@@ -421,7 +423,7 @@ const tooltip = $computed(() => {
           :class="[
             'absolute top-[calc(100%+2px)] left-1/2 z-1 min-h-0 -translate-x-1/2 px-[3px]',
             'opacity-0 transition-opacity duration-150',
-            'group-hover:opacity-50 hover:opacity-100! focus:opacity-100!',
+            'group-hover/control:opacity-50 hover:opacity-100! focus:opacity-100!',
             isShowingMenu && 'opacity-100!',
           ]"
           :icon="icons.more"
