@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import type { DropdownMenuItem } from '@nuxt/ui'
+import { createReusableTemplate } from '@vueuse/core'
 import { watch } from 'vue'
 
 import { CInput, CTextarea } from '#components'
@@ -13,6 +14,10 @@ type Preset = {
 
 let modelValue: unknown = $(defineModel<unknown>({ required: true }))
 
+// The trailing controls render either inside the field's own slot or beside it, so they are
+// declared once here and placed twice below.
+const [DefineTrailing, ReuseTrailing] = createReusableTemplate()
+
 const {
   form,
   path,
@@ -23,7 +28,7 @@ const {
   suffix = undefined,
   presets = undefined,
   noClearOnEmpty = false,
-  compactColumns = undefined,
+  compactColumns = 6,
 } = defineProps<{
   form: SchemaForm
   schema: Schema
@@ -38,7 +43,8 @@ const {
   presets?: Preset[]
   noClearOnEmpty?: boolean
 
-  /** How many characters a compact field must show, for a format that reads wrong cut short. */
+  /** The narrowest a compact field goes, in characters. It sizes to its text from there, so this
+  is a floor for an empty field rather than a width. */
   compactColumns?: number
 }>()
 
@@ -143,48 +149,61 @@ function onInput(value: string | number) {
     </label>
     <!-- The imported components, not their names, a string here resolving only against locally
     registered ones and rendering an unknown element with no field in it. -->
-    <component
-      :is="autogrow ? CTextarea : CInput"
-      ref="input"
-      :aria-required="isRequired"
-      autoresize
-      :class="form.compact ? 'font-mono' : 'w-full font-mono'"
-      :model-value="text"
-      :placeholder="format(defaultValue)"
-      :rows="1"
-      :size="form.compact ? 'xs' : 'sm'"
-      spellcheck="false"
-      :style="form.compact && compactColumns != null ? { minWidth: `${compactColumns}ch` } : {}"
-      :type="autogrow ? undefined : inputType"
-      :ui="{ base: form.compact ? 'font-mono text-[11px] px-0 py-0' : 'font-mono text-xs' }"
-      :variant="form.compact ? 'none' : undefined"
-      @blur="onBlur"
-      @focus="onFocus"
-      @keydown.backspace="onBackspace"
-      @update:model-value="onInput"
-    >
-      <template #trailing>
-        <c-text v-if="suffix" class="text-muted" element="span" variant="mono-xs">
-          {{ suffix }}
-        </c-text>
-        <slot name="append" />
-        <c-dropdown-menu v-if="presets" :items="presetItems" size="sm">
-          <c-button
-            color="neutral"
-            :icon="icons.settings"
-            size="xs"
-            square
-            tabindex="-1"
-            variant="ghost"
-          />
-        </c-dropdown-menu>
-        <c-schema-form-node-clear-button
-          v-if="!isRequired && modelValue !== undefined"
-          :compact="form.compact"
-          @click="onClear"
+    <!-- Compact lays the trailing controls out beside the field rather than over it. Nuxt UI
+    positions its own trailing slot absolutely and clears it with padding, which cannot hold once
+    the controls are a suffix and two buttons wide. -->
+    <define-trailing>
+      <c-text v-if="suffix" class="text-muted" element="span" variant="mono-xs">
+        {{ suffix }}
+      </c-text>
+      <slot name="append" />
+      <c-dropdown-menu v-if="presets" :items="presetItems" size="sm">
+        <c-button
+          color="neutral"
+          :icon="icons.settings"
+          size="xs"
+          square
+          tabindex="-1"
+          variant="ghost"
         />
-      </template>
-    </component>
+      </c-dropdown-menu>
+      <c-schema-form-node-clear-button
+        v-if="!isRequired && modelValue !== undefined"
+        :compact="form.compact"
+        @click="onClear"
+      />
+    </define-trailing>
+    <div :class="form.compact ? 'flex min-w-0 items-center gap-0.5' : 'contents'">
+      <component
+        :is="autogrow ? CTextarea : CInput"
+        ref="input"
+        :aria-required="isRequired"
+        autoresize
+        :class="form.compact ? 'w-auto font-mono' : 'w-full font-mono'"
+        :model-value="text"
+        :placeholder="format(defaultValue)"
+        :rows="1"
+        :size="form.compact ? 'xs' : 'sm'"
+        spellcheck="false"
+        :style="form.compact ? { '--field-columns': `${compactColumns}ch` } : {}"
+        :type="autogrow ? undefined : inputType"
+        :ui="{
+          base: form.compact
+            ? 'font-mono text-[10px] px-0 py-0 min-w-(--field-columns) [field-sizing:content]'
+            : 'font-mono text-xs',
+        }"
+        :variant="form.compact ? 'none' : undefined"
+        @blur="onBlur"
+        @focus="onFocus"
+        @keydown.backspace="onBackspace"
+        @update:model-value="onInput"
+      >
+        <template v-if="!form.compact" #trailing>
+          <reuse-trailing />
+        </template>
+      </component>
+      <reuse-trailing v-if="form.compact" />
+    </div>
     <c-text v-if="description && !form.compact" class="mt-1 ml-3 pb-1" variant="description">
       {{ description }}
     </c-text>

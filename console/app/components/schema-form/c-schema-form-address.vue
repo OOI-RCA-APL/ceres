@@ -45,7 +45,7 @@ function onClear() {
       :model-value="selected"
       :search-input="{ placeholder: 'Filter...' }"
       :size="form.compact ? 'xs' : 'sm'"
-      :ui="{ base: form.compact ? 'font-mono text-[11px] px-0 py-0' : 'font-mono text-xs' }"
+      :ui="{ base: form.compact ? 'font-mono text-[10px] ps-0 py-0' : 'font-mono text-xs' }"
       :variant="form.compact ? 'none' : undefined"
       @create="(value: string) => (modelValue = value)"
       @update:model-value="(value: string | undefined) => (modelValue = value)"

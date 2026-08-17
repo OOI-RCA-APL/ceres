@@ -34,7 +34,7 @@ const description = $computed(() => form.getDescription(path))
         :aria-required="isRequired"
         :model-value="resolved === true"
         size="sm"
-        :ui="{ label: 'font-mono text-[11px]' }"
+        :ui="{ label: 'font-mono text-[10px]' }"
         @update:model-value="(value) => (modelValue = resolve(value))"
       >
         <template #label>{{ label }}</template>

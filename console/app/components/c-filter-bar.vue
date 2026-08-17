@@ -357,7 +357,12 @@ const reorder = usePointerReorder({
 <template>
   <div
     ref="rootElement"
-    class="flex min-h-6 flex-wrap items-center gap-1 px-1.5 py-0.5"
+    :class="[
+      'flex min-h-6 flex-nowrap items-center gap-1 overflow-x-auto px-1.5 py-0.5',
+      // The bar scrolls to reach a chip past its edge, so the scrollbar would sit under the
+      // conditions taking a row of its own on a control two rows tall.
+      '[scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+    ]"
     tabindex="-1"
     @keydown="onBarKeydown"
     @pointerdown.self="selection.clear()"
@@ -365,10 +370,11 @@ const reorder = usePointerReorder({
   >
     <c-icon class="text-muted shrink-0" :name="icons.search" size="12" />
     <c-context-menu :items="contextMenuItems">
-      <div class="flex flex-wrap items-center gap-1">
+      <div class="flex flex-nowrap items-center gap-1">
         <div
           v-for="(item, index) in query"
           :key="item.id"
+          class="shrink-0"
           data-filter-chip
           :style="reorder.styleFor(index)"
           v-on="reorder.handlers(index)"

@@ -68,24 +68,33 @@ function onClear() {
         <span>enum</span>
       </c-text>
     </div>
-    <c-select-menu
-      :class="form.compact ? 'font-mono' : 'w-full font-mono'"
-      :items="items"
-      :model-value="selected"
-      :search-input="{ placeholder: 'Filter...' }"
-      :size="form.compact ? 'xs' : 'sm'"
-      :ui="{ base: form.compact ? 'font-mono text-[11px] px-0 py-0' : 'font-mono text-xs' }"
-      :variant="form.compact ? 'none' : undefined"
-      @update:model-value="(item: Item | undefined) => (modelValue = resolve(item?.value))"
-    >
-      <template #trailing>
-        <c-schema-form-node-clear-button
-          v-if="!isRequired && modelValue !== undefined"
-          :compact="form.compact"
-          @click="onClear"
-        />
-      </template>
-    </c-select-menu>
+    <!-- Compact puts the clear beside the field rather than in the trailing slot, which is drawn
+    over the field and would sit on the value it clears. -->
+    <div :class="form.compact ? 'flex min-w-0 items-center gap-0.5' : 'contents'">
+      <c-select-menu
+        :class="form.compact ? 'w-auto font-mono' : 'w-full font-mono'"
+        :items="items"
+        :model-value="selected"
+        :search-input="{ placeholder: 'Filter...' }"
+        :size="form.compact ? 'xs' : 'sm'"
+        :ui="{ base: form.compact ? 'font-mono text-[10px] px-0 py-0' : 'font-mono text-xs' }"
+        :variant="form.compact ? 'none' : undefined"
+        @update:model-value="(item: Item | undefined) => (modelValue = resolve(item?.value))"
+      >
+        <template v-if="!form.compact" #trailing>
+          <c-schema-form-node-clear-button
+            v-if="!isRequired && modelValue !== undefined"
+            :compact="form.compact"
+            @click="onClear"
+          />
+        </template>
+      </c-select-menu>
+      <c-schema-form-node-clear-button
+        v-if="form.compact && !isRequired && modelValue !== undefined"
+        compact
+        @click="onClear"
+      />
+    </div>
     <c-text v-if="description && !form.compact" class="mt-1 ml-3 pb-1" variant="description">
       {{ description }}
     </c-text>
