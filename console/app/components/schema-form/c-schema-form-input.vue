@@ -23,6 +23,7 @@ const {
   suffix = undefined,
   presets = undefined,
   noClearOnEmpty = false,
+  compactColumns = undefined,
 } = defineProps<{
   form: SchemaForm
   schema: Schema
@@ -36,6 +37,9 @@ const {
   suffix?: string
   presets?: Preset[]
   noClearOnEmpty?: boolean
+
+  /** How many characters a compact field must show, for a format that reads wrong cut short. */
+  compactColumns?: number
 }>()
 
 let input = $ref<{ inputRef?: HTMLInputElement; textareaRef?: HTMLTextAreaElement } | null>(null)
@@ -150,6 +154,7 @@ function onInput(value: string | number) {
       :rows="1"
       :size="form.compact ? 'xs' : 'sm'"
       spellcheck="false"
+      :style="form.compact && compactColumns != null ? { minWidth: `${compactColumns}ch` } : {}"
       :type="autogrow ? undefined : inputType"
       :ui="{ base: form.compact ? 'font-mono text-[11px] px-0 py-0' : 'font-mono text-xs' }"
       :variant="form.compact ? 'none' : undefined"
@@ -175,6 +180,7 @@ function onInput(value: string | number) {
         </c-dropdown-menu>
         <c-schema-form-node-clear-button
           v-if="!isRequired && modelValue !== undefined"
+          :compact="form.compact"
           @click="onClear"
         />
       </template>

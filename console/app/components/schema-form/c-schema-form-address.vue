@@ -53,6 +53,7 @@ function onClear() {
       <template #trailing>
         <c-schema-form-node-clear-button
           v-if="!isRequired && modelValue !== undefined"
+          :compact="form.compact"
           @click="onClear"
         />
       </template>

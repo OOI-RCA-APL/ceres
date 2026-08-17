@@ -9,8 +9,16 @@ import {
   matchDefinitions,
 } from '@/filters/definitions'
 import type { FilterDefinition, RecordKind } from '@/filters/definitions'
-import { createCondition, isBlock, withConditionValue, withoutItems } from '@/filters/model'
-import type { FilterQuery } from '@/filters/model'
+import {
+  createBlock,
+  createCondition,
+  isBlock,
+  withAppendedTo,
+  withBlockOp,
+  withConditionValue,
+  withoutItems,
+} from '@/filters/model'
+import type { FilterItem, FilterQuery } from '@/filters/model'
 import { createFilterSelection } from '@/filters/selection'
 import icons from '@/icons'
 import { moved, usePointerReorder } from '@/reorder'
@@ -61,14 +69,63 @@ const freeTextDefinition = $computed(() => {
   return getFilterDefinition(defaultTextKind(recordKind))
 })
 
+/** The grouping an operator typed into the bar would make, which nothing else can express.
+
+Offered above the fields because a word that is exactly `and` or `or` is being typed as the
+operator, no field being named that.
+*/
+const groupingOperator = $computed<'and' | 'or' | null>(() => {
+  const typed = search.trim().toLowerCase()
+  return typed === 'and' || typed === 'or' ? typed : null
+})
+
 /** Where the free text entry sits, which is after every field it is offered beneath. */
-const freeTextIndex = $computed(() => (freeTextDefinition == null ? -1 : suggestions.length))
-const suggestionCount = $computed(() => suggestions.length + (freeTextDefinition == null ? 0 : 1))
+const groupingCount = $computed(() => (groupingOperator == null ? 0 : 1))
+const freeTextIndex = $computed(() =>
+  freeTextDefinition == null ? -1 : groupingCount + suggestions.length,
+)
+const suggestionCount = $computed(
+  () => groupingCount + suggestions.length + (freeTextDefinition == null ? 0 : 1),
+)
 const isSuggesting = $computed(() => isInputFocused && suggestionCount > 0)
+
+/** The group conditions are being added to, set by typing its operator and left behind on the
+first click away, so `Address and Level` builds one group rather than three loose chips. */
+let openBlockId = $ref<string | null>(null)
+
+/** Group the condition to the left under `op`, or start an empty group when there is none.
+
+An operator typed against a group that already joins by it reopens that group rather than nesting
+a second one inside, which would read the same and draw a box around a box.
+*/
+function acceptGrouping(op: 'and' | 'or') {
+  const last = query[query.length - 1]
+  search = ''
+  highlighted = 0
+
+  if (last != null && isBlock(last) && last.op === op) {
+    openBlockId = last.id
+    return
+  }
+
+  const block = createBlock(op, last == null ? [] : [last])
+  query = [...(last == null ? query : query.slice(0, -1)), block]
+  openBlockId = block.id
+}
+
+/** Put `item` in the group being built, or at the end of the bar when there is none. */
+function append(item: FilterItem) {
+  if (openBlockId == null) {
+    query = [...query, item]
+    return
+  }
+
+  query = withAppendedTo(query, openBlockId, item)
+}
 
 function accept(definition: FilterDefinition) {
   const condition = createCondition(definition.kind, null)
-  query = [...query, condition]
+  append(condition)
   search = ''
   highlighted = 0
   focusId = condition.id
@@ -76,7 +133,7 @@ function accept(definition: FilterDefinition) {
 
 function acceptFreeText() {
   const condition = createCondition(defaultTextKind(recordKind), search.trim())
-  query = [...query, condition]
+  append(condition)
   search = ''
   highlighted = 0
   focusId = condition.id
@@ -87,6 +144,11 @@ function onEnter() {
     return
   }
 
+  if (groupingOperator != null && highlighted === 0) {
+    acceptGrouping(groupingOperator)
+    return
+  }
+
   // The text search when it is the highlighted row, and otherwise the ranked field match. Text
   // resembling no field at all leaves nothing else to take.
   if (highlighted === freeTextIndex) {
@@ -94,7 +156,7 @@ function onEnter() {
     return
   }
 
-  const definition = suggestions[highlighted] ?? suggestions[0]
+  const definition = suggestions[highlighted - groupingCount] ?? suggestions[0]
   if (definition != null) {
     accept(definition)
   } else {
@@ -123,6 +185,10 @@ function onRemove(id: string) {
   query = withoutItems(query, new Set([id]))
 }
 
+function onOperator(id: string, op: 'and' | 'or') {
+  query = withBlockOp(query, id, op)
+}
+
 function modeOf(event: MouseEvent): SelectMode {
   if (event.shiftKey) {
     return 'extend'
@@ -135,6 +201,8 @@ function onChipClick(id: string, event: MouseEvent) {
   if (reorder.consumeClick()) {
     return
   }
+
+  openBlockId = null
 
   selection.select(id, modeOf(event))
 }
@@ -195,7 +263,7 @@ const contextMenuItems = $computed<DropdownMenuItem[][]>(() => {
 into the bar. */
 function appendKind(kind: string) {
   const condition = createCondition(kind, null)
-  query = [...query, condition]
+  append(condition)
   focusId = condition.id
 }
 
@@ -247,16 +315,18 @@ const reorder = usePointerReorder({
             :selected="selection.isSelected(item.id)"
             @change="onChange"
             @commit="onCommit"
+            @operator="onOperator"
             @remove="onRemove"
           />
         </div>
       </div>
     </c-context-menu>
-    <div class="relative min-w-24 grow">
+    <!-- Set off from the last chip so the caret does not sit against it. -->
+    <div class="relative min-w-24 grow pl-1">
       <input
         ref="inputElement"
         v-model="search"
-        class="w-full bg-transparent py-1 font-mono text-[11px] outline-none"
+        class="w-full bg-transparent py-0.5 font-mono text-[11px] outline-none"
         placeholder=""
         spellcheck="false"
         type="text"
@@ -277,17 +347,30 @@ const reorder = usePointerReorder({
         ]"
       >
         <button
+          v-if="groupingOperator != null"
+          class="flex w-full cursor-pointer items-baseline gap-2 px-2 py-0.5 text-left"
+          :class="highlighted === 0 && 'bg-accented/60'"
+          type="button"
+          @mousedown.prevent="acceptGrouping(groupingOperator)"
+          @mousemove="highlighted = 0"
+        >
+          <c-text element="span" variant="mono-sm">Group</c-text>
+          <c-text class="text-muted" element="span" variant="mono-xs">
+            : {{ groupingOperator }}
+          </c-text>
+        </button>
+        <button
           v-for="(definition, index) in suggestions"
           :key="definition.kind"
           class="flex w-full cursor-pointer items-baseline gap-2 px-2 py-0.5 text-left"
-          :class="index === highlighted && 'bg-accented/60'"
+          :class="index + groupingCount === highlighted && 'bg-accented/60'"
           type="button"
           @mousedown.prevent="accept(definition)"
-          @mousemove="highlighted = index"
+          @mousemove="highlighted = index + groupingCount"
         >
           <c-text element="span" variant="mono-sm">{{ definition.label }}</c-text>
           <c-text class="text-muted" element="span" variant="mono-xs">
-            {{ definition.input.type }}
+            : {{ definition.input.type }}
           </c-text>
         </button>
         <button
@@ -296,11 +379,13 @@ const reorder = usePointerReorder({
           :class="freeTextIndex === highlighted && 'bg-accented/60'"
           type="button"
           @mousedown.prevent="acceptFreeText()"
-          @mousemove="highlighted = suggestions.length"
+          @mousemove="highlighted = suggestionCount - 1"
         >
           <c-text element="span" variant="mono-sm">{{ freeTextDefinition.label }}</c-text>
+          <!-- The text as typed, shown as the value it would be given, since this row differs from
+          the ones above by carrying one already. -->
           <c-text class="text-muted truncate" element="span" variant="mono-xs">
-            {{ search.trim() }}
+            : str = "{{ search.trim() }}"
           </c-text>
         </button>
       </div>

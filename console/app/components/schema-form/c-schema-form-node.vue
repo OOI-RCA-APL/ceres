@@ -1,4 +1,7 @@
 <script lang="ts" setup>
+import { useResizeObserver } from '@vueuse/core'
+import { nextTick, watchEffect } from 'vue'
+
 import { isType } from '@/schema-form'
 import type { SchemaForm, SchemaPath } from '@/schema-form'
 
@@ -32,6 +35,39 @@ function is(type: string) {
   return isType(schema, type)
 }
 
+let root = $ref<HTMLElement | null>(null)
+
+/** Where the indicator is drawn, which is against the field's own control.
+
+A leaf's label and description sit in this box too, and a bar spanning them reads as belonging to
+the whole row rather than to the value. Container nodes keep the full height, the control they
+would measure being one of their children's.
+*/
+let indicatorBox = $ref<{ top: number; height: number } | null>(null)
+
+function measure() {
+  if (root == null || schema == null || is('object') || is('array')) {
+    indicatorBox = null
+    return
+  }
+
+  const control = root.querySelector<HTMLElement>('input, textarea, [role="combobox"], button')
+  if (control == null) {
+    indicatorBox = null
+    return
+  }
+
+  const box = control.getBoundingClientRect()
+  indicatorBox = { top: box.top - root.getBoundingClientRect().top, height: box.height }
+}
+
+useResizeObserver($$(root), measure)
+watchEffect(() => {
+  void modelValue
+  void schema
+  void nextTick(measure)
+})
+
 function isFormat(format: string) {
   if (schema == null) {
     return false
@@ -58,7 +94,7 @@ function isFormat(format: string) {
     <div>Unable to resolve schema definition at path: {{ JSON.stringify(path) }}</div>
   </template>
   <template v-else>
-    <div class="relative">
+    <div ref="root" class="relative">
       <template v-if="typeof schema === 'boolean'">
         <c-schema-form-any v-bind="forward" @update:model-value="update" />
       </template>
@@ -112,11 +148,17 @@ function isFormat(format: string) {
         <c-schema-form-any v-bind="forward" @update:model-value="update" />
       </template>
       <c-schema-form-node-value-indicator
-        class="absolute top-0 left-0 h-full"
+        class="absolute left-0"
+        :class="indicatorBox == null && 'top-0 h-full'"
         :form
         :model-value="modelValue"
         :path
-        :style="{ zIndex: path.length }"
+        :style="{
+          zIndex: path.length,
+          ...(indicatorBox != null
+            ? { top: `${indicatorBox.top}px`, height: `${indicatorBox.height}px` }
+            : {}),
+        }"
       />
     </div>
   </template>

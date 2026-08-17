@@ -153,6 +153,33 @@ export function withConditionValue(query: FilterQuery, id: string, value: unknow
   })
 }
 
+/** The query with `item` added to the end of block `id`, wherever it nests. */
+export function withAppendedTo(query: FilterQuery, id: string, item: FilterItem): FilterQuery {
+  return query.map((current): FilterItem => {
+    if (!isBlock(current)) {
+      return current
+    }
+
+    if (current.id === id) {
+      return { ...current, children: [...current.children, item] }
+    }
+
+    return { ...current, children: withAppendedTo(current.children, id, item) }
+  })
+}
+
+/** The query with block `id` joining its children by `op`, wherever it nests. */
+export function withBlockOp(query: FilterQuery, id: string, op: 'and' | 'or'): FilterQuery {
+  return query.map((item): FilterItem => {
+    if (!isBlock(item)) {
+      return item
+    }
+
+    const children = withBlockOp(item.children, id, op)
+    return item.id === id ? { ...item, op, children } : { ...item, children }
+  })
+}
+
 /** The block `id` dissolved, its children standing where it stood. */
 export function withUngrouped(query: FilterQuery, id: string): FilterQuery {
   return query.flatMap((item): FilterItem[] => {

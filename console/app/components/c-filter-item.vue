@@ -1,4 +1,6 @@
 <script lang="ts" setup>
+import type { DropdownMenuItem } from '@nuxt/ui'
+
 import { getFilterDefinition } from '@/filters/definitions'
 import { isBlock } from '@/filters/model'
 import type { FilterItem } from '@/filters/model'
@@ -25,7 +27,16 @@ const emit = defineEmits<{
   remove: [id: string]
   /** A value input finished, so the bar can return focus to its own input. */
   commit: []
+  /** A block's joining operator was switched, `id` naming the block wherever it nests. */
+  operator: [id: string, op: 'and' | 'or']
 }>()
+
+const operatorItems = $computed<DropdownMenuItem[]>(() =>
+  (['and', 'or'] as const).map((op) => ({
+    label: op.toUpperCase(),
+    onSelect: () => emit('operator', item.id, op),
+  })),
+)
 
 const definition = $computed(() => (isBlock(item) ? null : getFilterDefinition(item.kind)))
 </script>
@@ -35,20 +46,30 @@ const definition = $computed(() => (isBlock(item) ? null : getFilterDefinition(i
     v-if="isBlock(item)"
     :class="[
       'border-default flex min-h-5 cursor-default items-center gap-1 rounded-md border',
-      'border-dashed py-0.5 pr-0.5 pl-1.5 select-none',
+      'border-dashed py-0 pr-0.5 pl-1.5 select-none',
       selected && $style.selected,
     ]"
   >
     <template v-for="(child, index) in item.children" :key="child.id">
-      <c-text v-if="index > 0" class="text-muted uppercase" element="span" variant="mono-xs">
-        {{ item.op }}
-      </c-text>
+      <!-- The joiner is the block's own control, so switching how the group reads is done where
+      it reads rather than through the menu that built it. -->
+      <c-dropdown-menu v-if="index > 0" :items="operatorItems" size="sm">
+        <button
+          class="text-muted hover:text-default cursor-pointer uppercase"
+          type="button"
+          @click.stop
+          @pointerdown.stop
+        >
+          <c-text element="span" variant="mono-xs">{{ item.op }}</c-text>
+        </button>
+      </c-dropdown-menu>
       <c-filter-item
         :address-options="addressOptions"
         :focus-id="focusId"
         :item="child"
         @change="(id, value) => emit('change', id, value)"
         @commit="emit('commit')"
+        @operator="(id, op) => emit('operator', id, op)"
         @remove="(id) => emit('remove', id)"
       />
     </template>
@@ -66,7 +87,7 @@ const definition = $computed(() => (isBlock(item) ? null : getFilterDefinition(i
     v-else
     :class="[
       'bg-elevated hover:bg-accented/60 flex min-h-5 cursor-default items-center gap-1',
-      'rounded-md py-0.5 pr-0.5 pl-1.5 select-none',
+      'rounded-md py-0 pr-0.5 pl-1.5 select-none',
       selected && $style.selected,
     ]"
   >

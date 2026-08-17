@@ -42,6 +42,7 @@ const description = $computed(() => form.getDescription(path))
       <div class="grow" />
       <c-schema-form-node-clear-button
         v-if="!isRequired && modelValue !== undefined"
+        :compact="form.compact"
         @click="modelValue = undefined"
       />
     </div>
