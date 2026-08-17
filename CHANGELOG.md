@@ -8,6 +8,23 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+**Web Console**
+
+- Rewrite the console on Nuxt, with a refreshed look in both color modes.
+- Build record filters by typing in a filter bar. Field names offer their declared filters,
+  free text matches record data, and conditions group with `and`/`or`, reorder by dragging,
+  and copy between widgets showing the same kind of record.
+- Open filters and a "Hide" entry from each record column's header menu, with hidden
+  columns saved on the widget and a chip to restore them.
+- Choose the displayed encoding of a message's data: text, hex, or binary.
+- Keep record views pinned to arriving records until scrolled up, and scroll smoothly
+  through history without the list shifting underneath.
+
+**Development**
+
+- Add `ceres run --development-source` in source checkouts, serving a console rebuilt as
+  it is edited, with `--development-console-port` to serve it beside the built-in one.
+
 ## [0.43.0] - 2026-08-14
 
 **CLI**
