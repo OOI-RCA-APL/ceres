@@ -123,19 +123,20 @@ onUnmounted(() => {
 
 <template>
   <div
+    class="bg-[#0000001f] dark:bg-[#ffffff47]"
     :class="[
-      $style.root,
-      isVertical ? $style.vertical : $style.horizontal,
-      visibility === 'hidden' && $style.hidden,
-      visibility === 'hover' && $style.visibleHover,
+      isVertical ? 'h-px w-full' : 'h-full w-px',
+      visibility === 'hidden' && 'bg-transparent!',
+      visibility === 'hover' && 'not-hover:bg-transparent!',
     ]"
   >
     <div class="relative h-full w-full">
       <div
         :class="[
-          $style.handle,
-          isVertical ? $style.handleVertical : $style.handleHorizontal,
-          drag != null && $style.handleDragging,
+          'absolute z-10 rounded bg-[grey] opacity-0 transition-opacity duration-250',
+          'hover:opacity-25',
+          isVertical ? 'h-[7px] w-full cursor-row-resize' : 'h-full w-[7px] cursor-col-resize',
+          drag != null && 'opacity-35!',
         ]"
         :style="isVertical ? { top: '-3px' } : { left: '-3px' }"
         @pointerdown="onPointerDown"
@@ -146,7 +147,11 @@ onUnmounted(() => {
     <teleport to="body">
       <div
         v-if="readout && pointer != null"
-        :class="$style.readout"
+        :class="[
+          'pointer-events-none fixed z-[6000] translate-x-3.5 translate-y-3.5 rounded px-1.5',
+          'py-px text-[11px] leading-4 whitespace-nowrap tabular-nums',
+          'bg-[#ffffffe6] text-[#00000099] dark:bg-[#000000b3] dark:text-[#ffffffa6]',
+        ]"
         :style="{ left: `${pointer.x}px`, top: `${pointer.y}px` }"
       >
         {{ Math.round(modelValue) }}px
@@ -154,82 +159,3 @@ onUnmounted(() => {
     </teleport>
   </div>
 </template>
-
-<style module>
-.root {
-  background-color: #0000001f;
-}
-
-:global(.dark) .root {
-  background-color: #ffffff47;
-}
-
-.hidden {
-  background-color: transparent !important;
-}
-
-.visibleHover:not(:hover) {
-  background-color: transparent !important;
-}
-
-.horizontal {
-  width: 1px;
-  height: 100%;
-}
-
-.vertical {
-  height: 1px;
-  width: 100%;
-}
-
-.handle {
-  background-color: grey;
-  opacity: 0;
-  z-index: 10;
-  transition: opacity 0.25s;
-  position: absolute;
-  border-radius: 4px;
-}
-
-.handle:hover {
-  opacity: 0.25;
-}
-
-.handleDragging {
-  opacity: 0.35 !important;
-}
-
-/* The size being dragged out, kept quiet enough to be read without being watched. Offset off the
-cursor rather than under it, so the edge being placed stays in view. */
-.readout {
-  position: fixed;
-  z-index: 6000;
-  transform: translate(14px, 14px);
-  padding: 1px 6px;
-  border-radius: 4px;
-  background-color: #ffffffe6;
-  color: #00000099;
-  font-size: 11px;
-  line-height: 16px;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  pointer-events: none;
-}
-
-:global(.dark) .readout {
-  background-color: #000000b3;
-  color: #ffffffa6;
-}
-
-.handleVertical {
-  cursor: row-resize;
-  height: 7px;
-  width: 100%;
-}
-
-.handleHorizontal {
-  cursor: col-resize;
-  height: 100%;
-  width: 7px;
-}
-</style>

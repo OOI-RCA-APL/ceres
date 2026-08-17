@@ -69,10 +69,12 @@ function duplicateButton(at: number) {
 </script>
 
 <template>
+  <!-- Wrapping lets the widget hold any number of buttons at any width, with the controls of
+  every kind centered in the room the widget gives them. -->
   <div
     :class="
       widget.buttons.length > 0
-        ? [$style.bar, 'items-center']
+        ? ['group flex flex-wrap items-center justify-center gap-1.5']
         : ['flex min-h-[34px] flex-col items-center justify-center']
     "
   >
@@ -81,11 +83,13 @@ function duplicateButton(at: number) {
         v-for="(button, at) in widget.buttons"
         :key="button.id"
         :ref="(item) => setItem(at, item as Element | null)"
+        class="inline-flex touch-none transition-transform duration-[160ms] ease-[ease]"
         :class="[
-          $style.item,
-          reorder.isSwapping && $style.swapping,
-          reorder.isHeld(at) && $style.held,
-          reorder.isGrabbed(at) && $style.grabbed,
+          // A held button tracks the pointer directly, and the ones sliding aside move at once,
+          // so neither smooths its own movement. The transition returns on release.
+          reorder.isSwapping && 'transition-none',
+          reorder.isHeld(at) && 'z-2',
+          reorder.isGrabbed(at) && 'cursor-grabbing transition-none',
         ]"
         :style="reorder.styleFor(at)"
         v-on="reorder.handlers(at)"
@@ -102,10 +106,15 @@ function duplicateButton(at: number) {
       <!-- The anchor spends no room in the row, so the button hangs past the last control
       rather than wrapping alone or skewing the centering, and clips at the widget's edge
       when there is no room left. -->
-      <div :class="$style.addAnchor">
+      <div class="relative w-0 self-stretch">
         <c-tooltip text="Add Button">
+          <!-- Offered only while the bar is being pointed at, so a finished bar reads as its
+          buttons alone. -->
           <c-button
-            :class="$style.add"
+            :class="[
+              'absolute top-1/2 left-0 -translate-y-1/2 opacity-0 transition-opacity duration-150',
+              'group-hover:opacity-60 hover:opacity-100 focus:opacity-100',
+            ]"
             :icon="icons.add"
             size="xs"
             variant="ghost"
@@ -128,62 +137,3 @@ function duplicateButton(at: number) {
     </c-tooltip>
   </div>
 </template>
-
-<style module>
-/* Wraps so the widget holds any number of buttons at any width, with the controls of every
-kind centered in the room the widget gives them. */
-.bar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  justify-content: center;
-}
-
-.item {
-  display: inline-flex;
-  touch-action: none;
-  transition: transform 160ms ease;
-}
-
-.held {
-  z-index: 2;
-}
-
-/* The held button tracks the pointer directly so it must not smooth its own movement. The
-transition returns on release and animates it into the gap. */
-.grabbed {
-  cursor: grabbing;
-  transition: none;
-}
-
-/* The buttons sliding aside move at once rather than each animating from wherever they were. */
-.swapping {
-  transition: none;
-}
-
-.addAnchor {
-  position: relative;
-  align-self: stretch;
-  width: 0;
-}
-
-/* Offered only while the bar is being pointed at so a finished bar reads as its buttons alone. */
-.add {
-  position: absolute;
-  top: 50%;
-  left: 0;
-  transform: translateY(-50%);
-  opacity: 0;
-  transition: opacity 0.15s;
-}
-
-.bar:hover .add,
-.add:focus {
-  opacity: 0.6;
-}
-
-.bar .add:hover,
-.add:focus {
-  opacity: 1;
-}
-</style>
