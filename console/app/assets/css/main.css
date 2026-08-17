@@ -51,6 +51,14 @@ carries, so the cursor is held everywhere rather than on the item alone. */
   summary {
     cursor: pointer;
   }
+
+  /* Half-width bars throughout, a scroller costing less of the thing it scrolls. Set through the
+  standard property rather than the webkit pseudo-elements, which take an exact size but turn an
+  overlay bar into a classic one that never hides and holds room on both axes. In this layer so a
+  scroller that hides its bar outright still overrides it. */
+  * {
+    scrollbar-width: thin;
+  }
 }
 
 /* One shade in both modes. Nuxt UI lightens these on dark so they pair with the dark text its
