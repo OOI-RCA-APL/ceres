@@ -6,10 +6,10 @@ const stripBandHeight = 33
 the styles below. Passed to the slot so the tabs' own picker can sit beside it. */
 const stripToggleInset = 34
 
-/** The overview height that rests the strip at the bottom edge, floored by the dragged
-height. */
-export function overviewFillHeight(stickyTop: number, dragged: number): string {
-  return `max(${dragged}px, calc(100vh - ${stickyTop + stripBandHeight}px))`
+/** The overview height that rests the strip at the bottom edge, which is where an unsized one
+sits. */
+export function overviewFillHeight(stickyTop: number): string {
+  return `calc(100vh - ${stickyTop + stripBandHeight}px)`
 }
 </script>
 

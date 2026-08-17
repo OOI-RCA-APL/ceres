@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { until, useMediaQuery } from '@vueuse/core'
+import { until, useMediaQuery, useResizeObserver } from '@vueuse/core'
 import { upperFirst } from 'lodash-es'
 import { computed, watch } from 'vue'
 import { stringify } from 'yaml'
@@ -19,11 +19,11 @@ import { appHeaderHeight, pageHeaderHeight } from '@/components/c-full-page.vue'
 import CWorkspace from '@/components/c-workspace.vue'
 import { useDialogs } from '@/dialogs'
 import icons from '@/icons'
-import { useNavigation } from '@/navigation'
+import { usePageParameter, useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
 import { usePersisted } from '@/persistence'
 import { useScrollMemory } from '@/scroll'
-import { requestedWorkspaces, resolveTabs, useLastWorkspace, useTabs } from '@/tabs'
+import { resolveTabs, useLastWorkspace, useRequestedWorkspaces, useTabs } from '@/tabs'
 import { utc } from '@/time'
 import { highlight } from '@/utilities'
 import {
@@ -45,8 +45,7 @@ const notify = useNotify()
 const tabs = useTabs()
 const workspaces = useWorkspaces()
 
-// Never null here, this being the page the address route resolves to.
-const address = $computed(() => Address.parse(navigation.component!))
+const address = Address.parse(usePageParameter('address'))
 
 const component = $computed(() => engine.components.get(address))
 
@@ -85,7 +84,7 @@ const persisted = usePersisted({
       queries: boolean().default(false),
       actions: boolean().default(false),
       overviewCollapsed: boolean().default(false),
-      overviewHeight: number().default(320),
+      overviewSize: number().nullable().default(null),
       workspaceCollapsed: boolean().default(false),
     }),
   methods: computed(() => [
@@ -142,14 +141,28 @@ let activeWorkspaceId = $ref<string | null>(null)
 
 // What the address is currently asking for, which the fallback below waits for rather than
 // choosing a workspace that is about to be replaced.
-const requestedIds = $computed(() => requestedWorkspaces(navigation.route.query))
+const requested = useRequestedWorkspaces(navigation.router)
+const requestedIds = $computed(() => requested.workspace)
 
 let overviewElement = $ref<HTMLElement | null>(null)
 
-// The dragged overview height, never less than what puts the strip at the bottom edge.
+// Unsized, the overview reaches to where the strip rests on the bottom edge. Dragged, it is that
+// height exactly, so shortening it takes effect rather than being floored back to the fill.
 const overviewHeightStyle = $computed(() => ({
-  height: overviewFillHeight(workspaceStickyTop, persisted.overviewHeight),
+  height:
+    persisted.overviewSize != null
+      ? `${persisted.overviewSize}px`
+      : overviewFillHeight(workspaceStickyTop),
 }))
+
+// What a drag starts from while the overview is still unsized, read off the box rather than
+// recomputed, so the first move carries on from the height already on screen.
+let overviewMeasuredHeight = $ref(0)
+useResizeObserver($$(overviewElement), ([entry]) => {
+  if (entry != null) {
+    overviewMeasuredHeight = entry.contentRect.height
+  }
+})
 
 /** How far the page must be scrolled for the tab strip to have pinned under the header.
 
@@ -232,7 +245,8 @@ async function adoptRequested() {
     return
   }
 
-  await navigation.replace({ query: {} })
+  // Only this page's own request is taken back out, leaving whatever else the bar carries.
+  requested.workspace = []
   if (opening.length === 0) {
     return
   }
@@ -593,7 +607,7 @@ const configHighlighted = $computed(() =>
                 v-if="workspacesUnderConfig"
                 v-model:expanded="persisted.workspaces"
                 :can-manage="canManage"
-                class="mt-4"
+                class="mt-2"
                 collapsible
                 :open-ids="scopedWorkspaces.map((workspace) => workspace.id)"
                 :placement="address.toString()"
@@ -616,7 +630,7 @@ const configHighlighted = $computed(() =>
                 v-if="!workspacesUnderConfig"
                 v-model:expanded="persisted.workspaces"
                 :can-manage="canManage"
-                class="mb-4"
+                class="mb-2"
                 collapsible
                 :open-ids="scopedWorkspaces.map((workspace) => workspace.id)"
                 :placement="address.toString()"
@@ -635,13 +649,9 @@ const configHighlighted = $computed(() =>
                   <c-text v-if="connections.length === 0" class="px-3" variant="description">
                     No connections.
                   </c-text>
-                  <div
-                    v-for="connection in connections"
-                    :key="connection.name"
-                    class="flex items-center gap-2 px-3 py-1.5"
-                  >
+                  <c-list-item v-for="connection in connections" :key="connection.name">
                     <div class="grow">
-                      <div class="text-sm">{{ connection.name }}</div>
+                      <c-text variant="body3">{{ connection.name }}</c-text>
                       <c-text variant="description">{{ connection.label }}</c-text>
                     </div>
                     <c-tooltip
@@ -656,7 +666,7 @@ const configHighlighted = $computed(() =>
                         ]"
                       />
                     </c-tooltip>
-                  </div>
+                  </c-list-item>
                 </c-detail-section>
                 <c-detail-section
                   v-model:expanded="persisted.jobs"
@@ -665,14 +675,16 @@ const configHighlighted = $computed(() =>
                   <c-text v-if="jobs.length === 0" class="px-3" variant="description">
                     No jobs.
                   </c-text>
-                  <div v-for="job in jobs" :key="job.name" class="px-3 py-1.5">
-                    <div class="text-sm">{{ job.name }}</div>
-                    <c-text variant="description">{{ jobLabel(job) }}</c-text>
-                  </div>
+                  <c-list-item v-for="job in jobs" :key="job.name">
+                    <div class="grow">
+                      <c-text variant="body3">{{ job.name }}</c-text>
+                      <c-text variant="description">{{ jobLabel(job) }}</c-text>
+                    </div>
+                  </c-list-item>
                 </c-detail-section>
               </c-list>
 
-              <c-list class="mt-4">
+              <c-list class="mt-2">
                 <c-detail-section
                   v-model:expanded="persisted.queries"
                   :title="`Queries (${queries.length})`"
@@ -680,13 +692,9 @@ const configHighlighted = $computed(() =>
                   <c-text v-if="queries.length === 0" class="px-3" variant="description">
                     No queries.
                   </c-text>
-                  <div
-                    v-for="query in queries"
-                    :key="query.name"
-                    class="flex items-center gap-2 px-3 py-1.5"
-                  >
+                  <c-list-item v-for="query in queries" :key="query.name">
                     <div class="grow">
-                      <div class="text-sm">{{ query.name }}</div>
+                      <c-text variant="body3">{{ query.name }}</c-text>
                       <c-text variant="description">{{ permissionsLabel(query) }}</c-text>
                     </div>
                     <c-badge v-if="query.live" color="success" size="sm" variant="subtle">
@@ -695,7 +703,7 @@ const configHighlighted = $computed(() =>
                     <c-tooltip v-if="!canInvoke(query)" text="Not available with your access.">
                       <c-icon class="size-4 text-muted" :name="icons.locked" />
                     </c-tooltip>
-                  </div>
+                  </c-list-item>
                 </c-detail-section>
                 <c-detail-section
                   v-model:expanded="persisted.actions"
@@ -704,19 +712,15 @@ const configHighlighted = $computed(() =>
                   <c-text v-if="actions.length === 0" class="px-3" variant="description">
                     No actions.
                   </c-text>
-                  <div
-                    v-for="action in actions"
-                    :key="action.name"
-                    class="flex items-center gap-2 px-3 py-1.5"
-                  >
+                  <c-list-item v-for="action in actions" :key="action.name">
                     <div class="grow">
-                      <div class="text-sm">{{ action.name }}</div>
+                      <c-text variant="body3">{{ action.name }}</c-text>
                       <c-text variant="description">{{ permissionsLabel(action) }}</c-text>
                     </div>
                     <c-tooltip v-if="!canInvoke(action)" text="Not available with your access.">
                       <c-icon class="size-4 text-muted" :name="icons.locked" />
                     </c-tooltip>
-                  </div>
+                  </c-list-item>
                 </c-detail-section>
               </c-list>
 
@@ -724,13 +728,13 @@ const configHighlighted = $computed(() =>
                 v-model:expanded="persisted.particles"
                 v-model:expanded-types="persisted.particleTypes"
                 :address
-                class="mt-4"
+                class="mt-2"
                 :insert-at="workspaceRef?.insertWidgetsAt"
                 :insert-drag="workspaceRef?.startInsertDrag"
                 @create="createWidgetsScoped"
               />
 
-              <div v-if="component.tags.length > 0" class="mt-4">
+              <div v-if="component.tags.length > 0" class="mt-2">
                 <c-text class="mb-1" variant="th">Tags</c-text>
                 <div class="flex flex-wrap gap-1">
                   <c-badge
@@ -755,7 +759,7 @@ const configHighlighted = $computed(() =>
                   :to="`/components/${child.address}`"
                 >
                   <div class="grow">
-                    <div class="text-sm">{{ child.name }}</div>
+                    <c-text variant="body3">{{ child.name }}</c-text>
                     <c-text variant="description">{{ child.address }}</c-text>
                   </div>
                   <c-status-badge :address="child.address" />
@@ -766,11 +770,12 @@ const configHighlighted = $computed(() =>
         </div>
         <c-resize-handle
           v-if="activeWorkspaceId != null && !persisted.workspaceCollapsed && !overviewStacks"
-          v-model="persisted.overviewHeight"
           class="absolute bottom-0 left-0"
           direction="vertical"
           :max="800"
           :min="120"
+          :model-value="persisted.overviewSize ?? overviewMeasuredHeight"
+          @update:model-value="(value: number) => (persisted.overviewSize = value)"
         />
       </div>
       <!-- The strip sits in flow between the overview and the workspace, and sticks at both edges

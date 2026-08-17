@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import { useResizeObserver } from '@vueuse/core'
 import { watch } from 'vue'
 
 import { useAccess } from '@/api/access'
@@ -14,7 +15,7 @@ import icons from '@/icons'
 import { useNavigation } from '@/navigation'
 import { usePersisted } from '@/persistence'
 import { useScrollMemory } from '@/scroll'
-import { requestedWorkspaces, resolveTabs, useLastWorkspace, useTabs } from '@/tabs'
+import { resolveTabs, useLastWorkspace, useRequestedWorkspaces, useTabs } from '@/tabs'
 import { inStandardOrder, useWorkspaces, type Workspace } from '@/workspace'
 
 const access = useAccess()
@@ -42,7 +43,7 @@ const persisted = usePersisted({
   schema: ({ object, boolean, number }) =>
     object({
       overviewCollapsed: boolean().default(false),
-      overviewHeight: number().default(320),
+      overviewSize: number().nullable().default(null),
       workspaces: boolean().default(true),
       workspaceCollapsed: boolean().default(false),
     }),
@@ -108,14 +109,28 @@ let activeWorkspaceId = $ref<string | null>(null)
 
 // What the address is currently asking for, which the fallback below waits for rather than
 // choosing a workspace that is about to be replaced.
-const requestedIds = $computed(() => requestedWorkspaces(navigation.route.query))
+const requested = useRequestedWorkspaces(navigation.router)
+const requestedIds = $computed(() => requested.workspace)
 
 let overviewElement = $ref<HTMLElement | null>(null)
 
-// The dragged overview height, never less than what puts the strip at the bottom edge.
+// Unsized, the overview reaches to where the strip rests on the bottom edge. Dragged, it is that
+// height exactly, so shortening it takes effect rather than being floored back to the fill.
 const overviewHeightStyle = $computed(() => ({
-  height: overviewFillHeight(workspaceStickyTop, persisted.overviewHeight),
+  height:
+    persisted.overviewSize != null
+      ? `${persisted.overviewSize}px`
+      : overviewFillHeight(workspaceStickyTop),
 }))
+
+// What a drag starts from while the overview is still unsized, read off the box rather than
+// recomputed, so the first move carries on from the height already on screen.
+let overviewMeasuredHeight = $ref(0)
+useResizeObserver($$(overviewElement), ([entry]) => {
+  if (entry != null) {
+    overviewMeasuredHeight = entry.contentRect.height
+  }
+})
 
 // Followed reactively so the floating action bar can yield while the strip rests at the
 // bottom edge.
@@ -195,7 +210,8 @@ async function adoptRequested() {
     return
   }
 
-  await navigation.replace({ query: {} })
+  // Only this page's own request is taken back out, leaving whatever else the bar carries.
+  requested.workspace = []
   if (opening.length === 0) {
     return
   }
@@ -383,11 +399,12 @@ watch(
         </div>
         <c-resize-handle
           v-if="activeWorkspaceId != null && !persisted.workspaceCollapsed"
-          v-model="persisted.overviewHeight"
           class="absolute bottom-0 left-0"
           direction="vertical"
           :max="800"
           :min="120"
+          :model-value="persisted.overviewSize ?? overviewMeasuredHeight"
+          @update:model-value="(value: number) => (persisted.overviewSize = value)"
         />
       </div>
 

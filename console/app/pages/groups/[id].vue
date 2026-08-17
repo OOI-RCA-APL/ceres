@@ -7,7 +7,7 @@ import type { User } from '@/api/users'
 import { useDialogs } from '@/dialogs'
 import { guard } from '@/errors'
 import icons from '@/icons'
-import { useNavigation } from '@/navigation'
+import { usePageParameter, useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
 
 definePageMeta({ auth: 'admin' })
@@ -17,7 +17,7 @@ const navigation = useNavigation()
 const dialogs = useDialogs()
 const notify = useNotify()
 
-const id = $computed(() => String(navigation.route.params.id))
+const id = usePageParameter('id')
 
 const membersQuery = useQuery({
   queryKey: computed(() => ['group-members', id]),

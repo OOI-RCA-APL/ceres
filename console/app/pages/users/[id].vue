@@ -1,10 +1,9 @@
 <script lang="ts" setup>
-import { useNavigation } from '@/navigation'
+import { usePageParameter } from '@/navigation'
 
 definePageMeta({ auth: 'admin' })
 
-const navigation = useNavigation()
-const id = $computed(() => String(navigation.route.params.id))
+const id = usePageParameter('id')
 </script>
 
 <template>

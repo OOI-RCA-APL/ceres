@@ -45,6 +45,23 @@ export function getLoginRedirectPath(redirect: string) {
   return `/login?redirect=${encodeURI(redirect)}`
 }
 
+/** The value of a path parameter, read once for the life of the page instance holding it.
+
+A page is mounted per path, and the route changes while the page it is leaving is still on
+screen, so a parameter followed from the route rerenders that page's own state against the next
+page's subject for a frame. Query parameters are excluded on purpose: they change without
+remounting, so a page that answers to one reads it from `useNavigation().route` instead.
+*/
+export function usePageParameter(name: string): string {
+  const value = useRoute().params[name]
+  const parameter = Array.isArray(value) ? value[0] : value
+  if (parameter == null || parameter === '') {
+    throw new Error(`The route has no "${name}" parameter, so no page instance can belong to one.`)
+  }
+
+  return parameter
+}
+
 export const useNavigation = defineStore('navigation', () => {
   const route = useRoute()
   const router = useRouter()

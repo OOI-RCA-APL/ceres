@@ -181,12 +181,27 @@ function readFromUrl<TData extends BaseData<TSchema>, TSchema extends BaseSchema
   const data: Record<string, unknown> = {}
   const search = new URL(window.location.href).searchParams
 
-  search.forEach((value, key) => {
+  for (const key of new Set(search.keys())) {
     const field = camelCase(key)
-    if (field in data) {
-      return
+
+    // An array field takes every appearance of its key, which is how a router writes a list and
+    // how one reaches the page from a hand-written link.
+    if (isFieldOfType(schema, field, 'array')) {
+      const values = search.getAll(key)
+      if (isArrayFieldOfType(schema, field, 'boolean')) {
+        data[field] = values.map(Boolean)
+      } else if (isArrayFieldOfType(schema, field, 'number')) {
+        data[field] = values.map(Number)
+      } else if (isArrayFieldOfType(schema, field, 'enum')) {
+        data[field] = values.map((value) => value.toUpperCase().replace(/-/g, '_'))
+      } else {
+        data[field] = values
+      }
+
+      continue
     }
 
+    const value = search.get(key) ?? ''
     if (value === 'null') {
       data[field] = null
     } else if (isFieldOfType(schema, field, 'boolean')) {
@@ -195,18 +210,10 @@ function readFromUrl<TData extends BaseData<TSchema>, TSchema extends BaseSchema
       data[field] = Number(value)
     } else if (isFieldOfType(schema, field, 'enum')) {
       data[field] = value.toUpperCase().replace(/-/g, '_')
-    } else if (isArrayFieldOfType(schema, field, 'boolean')) {
-      data[field] = value.split(',').map(Boolean)
-    } else if (isArrayFieldOfType(schema, field, 'number')) {
-      data[field] = value.split(',').map(Number)
-    } else if (isArrayFieldOfType(schema, field, 'enum')) {
-      data[field] = value.split(',').map((value) => value.toUpperCase().replace(/-/g, '_'))
-    } else if (isFieldOfType(schema, field, 'array')) {
-      data[field] = value.split(',')
     } else {
       data[field] = value
     }
-  })
+  }
 
   try {
     return schema.partial().parse(data) as Partial<TData>
@@ -244,20 +251,18 @@ function writeToUrl<TData extends BaseData<TSchema>, TSchema extends BaseSchema>
       continue
     }
 
-    if (isArrayFieldOfType(schema, field, 'enum')) {
-      if (Array.isArray(value) && value.length > 0) {
-        search.set(
-          key,
-          value.map((value) => String(value).replace(/_/g, '-').toLowerCase()).join(','),
-        )
-      }
-
-      continue
-    }
-
+    // One appearance of the key per entry, so a list survives values carrying whatever
+    // punctuation they like and reads the same as the one a router writes.
     if (isFieldOfType(schema, field, 'array')) {
-      if (Array.isArray(value) && value.length > 0) {
-        search.set(key, value.join(','))
+      search.delete(key)
+      if (Array.isArray(value)) {
+        const spell = isArrayFieldOfType(schema, field, 'enum')
+          ? (entry: unknown) => String(entry).replace(/_/g, '-').toLowerCase()
+          : String
+
+        for (const entry of value) {
+          search.append(key, spell(entry))
+        }
       }
 
       continue
@@ -267,9 +272,8 @@ function writeToUrl<TData extends BaseData<TSchema>, TSchema extends BaseSchema>
   }
 
   const params = url.searchParams.toString()
-  const serialized = `${url.pathname}${params ? '?' + params : ''}`.replace(/%2C/g, ',')
 
-  void method.router.replace(serialized)
+  void method.router.replace(`${url.pathname}${params ? '?' + params : ''}`)
 }
 
 // Walk through optional/nullable/default wrappers to the underlying schema, comparing against the

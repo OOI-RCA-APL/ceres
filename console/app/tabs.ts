@@ -1,7 +1,7 @@
 import { useEventListener, useResizeObserver } from '@vueuse/core'
 import { defineStore } from 'pinia'
 import { computed, type MaybeRefOrGetter, nextTick, toValue, watch } from 'vue'
-import type { LocationQuery } from 'vue-router'
+import type { Router } from 'vue-router'
 import * as z from 'zod'
 
 import { useSettings } from '@/api/settings'
@@ -85,26 +85,27 @@ const tabsSettingName = 'workspaces'
 
 const emptySet: TabSet = { open: [], closed: [] }
 
-/** Name a strip's address carries when it is asking for workspaces to be shown. */
-export const workspaceQueryKey = 'workspace'
+const RequestedWorkspacesModel = z.object({ workspace: z.array(z.string()).default([]) })
+
+/** Name a strip's address carries when it is asking for workspaces to be shown.
+
+Tied to the field above so the writers below and the readers of the query cannot drift apart.
+*/
+export const workspaceQueryKey = 'workspace' satisfies keyof z.infer<
+  typeof RequestedWorkspacesModel
+>
 
 /** Workspaces the address is asking a page to show, which may name more than one.
 
 The address asks rather than records. A page reads this on arrival, opens what it names, and
-removes it from the bar so a stale address never contradicts later changes to the strip. Links
-are made deliberately, by the share actions.
+empties `workspace` here, which takes the name back out of the bar so a stale address never
+contradicts later changes to the strip. Links are made deliberately, by the share actions.
 */
-export function requestedWorkspaces(query: LocationQuery): string[] {
-  const value = query[workspaceQueryKey]
-  if (typeof value === 'string') {
-    return [value]
-  }
-
-  if (Array.isArray(value)) {
-    return value.filter((current): current is string => typeof current === 'string')
-  }
-
-  return []
+export function useRequestedWorkspaces(router: Router) {
+  return usePersisted({
+    schema: RequestedWorkspacesModel,
+    methods: [{ type: 'url' as const, router }],
+  })
 }
 
 /** Resolve a strip's effective tabs from its defaults and the user's set.
