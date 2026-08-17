@@ -177,11 +177,8 @@ const rowClass = 'flex min-h-[26px] items-center gap-2 px-2.5 py-0.5'
 <template>
   <!-- The whole cluster is the hover target, and the leading slot puts a caller's own indicators
   inside it so one hover reaches the menu from anywhere along the row. -->
-  <c-popover
-    :close-delay="200"
+  <c-hover-menu
     :content="{ side: 'bottom', align: 'start', sideOffset: 6 }"
-    enable-touch
-    mode="hover"
     :ui="{ content: 'w-auto p-0' }"
   >
     <div class="flex cursor-pointer items-center">
@@ -232,19 +229,11 @@ const rowClass = 'flex min-h-[26px] items-center gap-2 px-2.5 py-0.5'
         </div>
 
         <!-- Each state row flies its actions out beside it, so the menu reads as the state first
-        and what can be done about it second. A viewer gets no flyout, which `open` pins shut
-        while `undefined` leaves the hover card to run itself. -->
-        <!-- Kept in place rather than portaled, so that reaching the flyout still counts as
-        hovering the menu it came from. Portaled to the body it sits outside that menu, and the
-        pointer arriving on it reads as the pointer having left, closing the whole stack. -->
-        <c-popover
+        and what can be done about it second. A viewer has nothing to run, so gets no flyout. -->
+        <c-hover-menu
           v-if="status.running != null"
-          :close-delay="300"
-          :content="{ side: 'right', align: 'start', sideOffset: 0 }"
-          enable-touch
-          mode="hover"
-          :open="canControl ? undefined : false"
-          :portal="false"
+          :content="{ side: 'right', align: 'start', sideOffset: 6 }"
+          :disabled="!canControl"
           :ui="{ content: 'w-auto p-0' }"
         >
           <div :class="[rowClass, canControl && 'hover:bg-elevated cursor-pointer']">
@@ -293,15 +282,12 @@ const rowClass = 'flex min-h-[26px] items-center gap-2 px-2.5 py-0.5'
               </button>
             </div>
           </template>
-        </c-popover>
+        </c-hover-menu>
 
-        <c-popover
+        <c-hover-menu
           v-if="status.enabled != null"
-          :close-delay="150"
           :content="{ side: 'right', align: 'start', sideOffset: 6 }"
-          enable-touch
-          mode="hover"
-          :open="canControl ? undefined : false"
+          :disabled="!canControl"
           :ui="{ content: 'w-auto p-0' }"
         >
           <div :class="[rowClass, canControl && 'hover:bg-elevated cursor-pointer']">
@@ -354,7 +340,7 @@ const rowClass = 'flex min-h-[26px] items-center gap-2 px-2.5 py-0.5'
               </button>
             </div>
           </template>
-        </c-popover>
+        </c-hover-menu>
 
         <template v-if="status.connectivity != null || status.connections.length > 0">
           <c-separator class="mt-1" />
@@ -396,7 +382,7 @@ const rowClass = 'flex min-h-[26px] items-center gap-2 px-2.5 py-0.5'
         </div>
       </div>
     </template>
-  </c-popover>
+  </c-hover-menu>
 </template>
 
 <style module>
