@@ -357,19 +357,20 @@ const reorder = usePointerReorder({
 <template>
   <div
     ref="rootElement"
-    :class="[
-      'flex min-h-6 flex-nowrap items-center gap-1 overflow-x-auto px-1.5 py-0.5',
-      // The bar scrolls to reach a chip past its edge, so the scrollbar would sit under the
-      // conditions taking a row of its own on a control two rows tall.
-      '[scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
-    ]"
+    class="flex min-h-6 flex-nowrap items-center gap-1 px-1.5 py-0.5"
     tabindex="-1"
     @keydown="onBarKeydown"
     @pointerdown.self="selection.clear()"
     @pointermove="onBarPointerMove"
   >
     <c-icon class="text-muted shrink-0" :name="icons.search" size="12" />
-    <c-context-menu :items="contextMenuItems">
+    <!-- Only the conditions scroll. An overflow on the bar itself would clip the suggestions,
+    since an overflow on one axis makes the other scroll too. The scrollbar is hidden, a row of
+    its own being most of the height of a control this size. -->
+    <c-context-menu
+      class="min-w-0 shrink overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      :items="contextMenuItems"
+    >
       <div class="flex flex-nowrap items-center gap-1">
         <div
           v-for="(item, index) in query"
