@@ -50,8 +50,10 @@ const definition = $computed(() => (isBlock(item) ? null : getFilterDefinition(i
     :class="[
       'border-default flex min-h-5 cursor-default items-center gap-1 rounded-md border',
       'border-dashed py-0 pr-0.5 pl-1.5 select-none',
-      selected && $style.selected,
-      groupTarget && $style.groupTarget,
+      selected && 'outline-[1.5px] outline-offset-0 outline-primary',
+      // Where a held chip would land to make a group. Dashed to read as the group's own border,
+      // which is drawn the same way, rather than as the solid ring a selection carries.
+      groupTarget && 'outline-[1.5px] outline-offset-2 outline-dashed outline-primary',
     ]"
   >
     <template v-for="(child, index) in item.children" :key="child.id">
@@ -92,8 +94,10 @@ const definition = $computed(() => (isBlock(item) ? null : getFilterDefinition(i
     :class="[
       'bg-elevated hover:bg-accented/60 flex min-h-5 cursor-default items-center gap-1',
       'rounded-md py-0 pr-0.5 pl-1.5 select-none',
-      selected && $style.selected,
-      groupTarget && $style.groupTarget,
+      selected && 'outline-[1.5px] outline-offset-0 outline-primary',
+      // Where a held chip would land to make a group. Dashed to read as the group's own border,
+      // which is drawn the same way, rather than as the solid ring a selection carries.
+      groupTarget && 'outline-[1.5px] outline-offset-2 outline-dashed outline-primary',
     ]"
   >
     <c-text class="text-muted" element="span" variant="mono-xs">
@@ -117,17 +121,3 @@ const definition = $computed(() => (isBlock(item) ? null : getFilterDefinition(i
     </button>
   </div>
 </template>
-
-<style module>
-.selected {
-  outline: 1.5px solid var(--ui-primary);
-  outline-offset: 0;
-}
-
-/* Where a held chip would land to make a group. Dashed to read as the group's own border, which is
-drawn the same way, rather than as the solid ring a selection carries. */
-.groupTarget {
-  outline: 1.5px dashed var(--ui-primary);
-  outline-offset: 2px;
-}
-</style>

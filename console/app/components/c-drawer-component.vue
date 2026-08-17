@@ -216,10 +216,16 @@ function toggleExpanded() {
       >
         {{ isTopLevel ? component.address : '.' + component.name }}
       </span>
-      <!-- Pinned to the right edge and opaque, so an address longer than the sidebar runs under it
-      rather than carrying it out of line with the rows above. The reserved width gives every row
-      the same status hover target. -->
-      <div :class="$style.status">
+      <!-- Pinned to the right edge and filled with the sidebar's own surface, so an address longer
+      than the sidebar runs under it rather than carrying it out of line with the rows above. The
+      leading edge is rounded because that is the edge the address disappears under, and the width
+      holds the 44px the header reserves for the same pair. -->
+      <div
+        :class="[
+          'bg-default absolute inset-y-0 right-0 flex min-w-16 items-center',
+          'justify-end rounded-l-md pr-3 pl-2',
+        ]"
+      >
         <!-- The row's own highlight, over the fill rather than under it, so the tint reaches the
         edge instead of stopping where the fill begins. -->
         <span
@@ -252,24 +258,6 @@ function toggleExpanded() {
 </template>
 
 <style module>
-/* The row's trailing status, filled with the sidebar's own surface so the address behind it is
-covered rather than showing through, and rounded on the leading edge because that edge is the one
-the address disappears under. */
-.status {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  display: flex;
-  /* The 44px the header reserves for the same pair, plus this box's own padding. */
-  min-width: 64px;
-  align-items: center;
-  justify-content: flex-end;
-  padding: 0 12px 0 8px;
-  border-radius: 6px 0 0 6px;
-  background: var(--ui-bg);
-}
-
 /* The toggle carries the branch's own ring as its border so the outline and the button are one
 thing rather than a circle drawn behind a square. Sized to `treeNodeSize`, which is where the lines
 reaching it stop.
