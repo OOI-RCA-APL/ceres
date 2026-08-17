@@ -8,6 +8,8 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+## [0.44.0] - 2026-08-17
+
 **Web Console**
 
 - Rewrite the console on Nuxt, with a refreshed look in both color modes.
