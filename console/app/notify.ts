@@ -35,7 +35,9 @@ export const useNotify = defineStore('notify', () => {
     const { id } = toast.add({ duration: 0, ...options })
 
     return {
-      update: (changes) => toast.update(id, changes),
+      // The duration is repeated on every change, since an update replaces it outright rather than
+      // leaving it be, and a toast that regains one counts down behind a bar that measures nothing.
+      update: (changes) => toast.update(id, { duration: 0, ...changes }),
       close: () => toast.remove(id),
     }
   }
