@@ -51,7 +51,7 @@ function create() {
             <div class="absolute -top-0.5 right-1.5 flex justify-end">
               <c-schema-form-node-clear-button
                 v-if="!isRequired && modelValue !== undefined"
-                :compact="form.compact"
+                :embedded="form.embedded"
                 @click="modelValue = undefined"
               />
               <c-schema-form-node-add-button v-else-if="modelValue === undefined" @click="create" />

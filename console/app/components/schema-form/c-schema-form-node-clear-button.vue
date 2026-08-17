@@ -5,10 +5,10 @@ defineEmits<{
   click: []
 }>()
 
-// Compact drops the button's own padding, which is taller than the row it sits in there and would
+// Embedded drops the button's own padding, which is taller than the row it sits in there and would
 // otherwise push out past the field's edge.
 defineProps<{
-  compact?: boolean
+  embedded?: boolean
 }>()
 </script>
 
@@ -18,7 +18,7 @@ defineProps<{
     :icon="icons.clear"
     size="xs"
     square
-    :ui="compact ? { base: 'p-0' } : undefined"
+    :ui="embedded ? { base: 'p-0' } : undefined"
     variant="ghost"
     @click.stop.prevent="$emit('click')"
   />

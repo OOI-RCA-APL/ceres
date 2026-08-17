@@ -2,11 +2,11 @@
 import { useSchemaForm } from '@/schema-form'
 import type { SchemaObject, SchemaPath } from '@/schema-form'
 
-const { schema, compact = false } = defineProps<{
+const { schema, embedded = false } = defineProps<{
   schema: SchemaObject
 
   /** Draw the field inline, for a value edited in the run of something else. */
-  compact?: boolean
+  embedded?: boolean
 }>()
 
 let modelValue = $(defineModel<unknown>('modelValue', { required: true }))
@@ -18,7 +18,7 @@ const form = useSchemaForm({
     modelValue = value as any
   },
   schema: () => schema,
-  compact: () => compact,
+  embedded: () => embedded,
 })
 </script>
 

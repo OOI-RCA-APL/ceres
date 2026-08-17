@@ -125,7 +125,7 @@ const presets = [
 <template>
   <c-schema-form-input
     v-model="modelValue"
-    :compact-columns="19"
+    :embedded-columns="19"
     :form
     :format
     input-type="text"

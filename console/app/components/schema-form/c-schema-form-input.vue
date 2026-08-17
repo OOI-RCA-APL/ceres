@@ -28,7 +28,7 @@ const {
   suffix = undefined,
   presets = undefined,
   noClearOnEmpty = false,
-  compactColumns = 6,
+  embeddedColumns = 6,
 } = defineProps<{
   form: SchemaForm
   schema: Schema
@@ -43,9 +43,9 @@ const {
   presets?: Preset[]
   noClearOnEmpty?: boolean
 
-  /** The narrowest a compact field goes, in characters. It sizes to its text from there, so this
+  /** The narrowest a embedded field goes, in characters. It sizes to its text from there, so this
   is a floor for an empty field rather than a width. */
-  compactColumns?: number
+  embeddedColumns?: number
 }>()
 
 let input = $ref<{ inputRef?: HTMLInputElement; textareaRef?: HTMLTextAreaElement } | null>(null)
@@ -126,7 +126,7 @@ const fieldClass = $computed(() =>
   [
     'font-mono [appearance:textfield]',
     '[&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none',
-    form.compact
+    form.embedded
       ? 'text-[9px] px-0 py-0 min-w-(--field-columns) [field-sizing:content]'
       : 'text-xs',
   ].join(' '),
@@ -144,11 +144,11 @@ function onInput(value: string | number) {
 </script>
 
 <template>
-  <div :class="form.compact && 'contents'">
-    <!-- Compact leaves the naming to whatever the field is sitting in, which is the only reason
+  <div :class="form.embedded && 'contents'">
+    <!-- Embedded leaves the naming to whatever the field is sitting in, which is the only reason
     a field would be drawn without it. -->
     <label
-      v-if="!form.compact"
+      v-if="!form.embedded"
       class="mb-1 flex cursor-text items-baseline gap-1"
       @click="focusInput()"
     >
@@ -161,7 +161,7 @@ function onInput(value: string | number) {
     </label>
     <!-- The imported components, not their names, a string here resolving only against locally
     registered ones and rendering an unknown element with no field in it. -->
-    <!-- Compact lays the trailing controls out beside the field rather than over it. Nuxt UI
+    <!-- Embedded lays the trailing controls out beside the field rather than over it. Nuxt UI
     positions its own trailing slot absolutely and clears it with padding, which cannot hold once
     the controls are a suffix and two buttons wide. -->
     <define-trailing>
@@ -181,38 +181,38 @@ function onInput(value: string | number) {
       </c-dropdown-menu>
       <c-schema-form-node-clear-button
         v-if="!isRequired && modelValue !== undefined"
-        :compact="form.compact"
+        :embedded="form.embedded"
         @click="onClear"
       />
     </define-trailing>
-    <div :class="form.compact ? 'flex min-w-0 items-center gap-0.5' : 'contents'">
+    <div :class="form.embedded ? 'flex min-w-0 items-center gap-0.5' : 'contents'">
       <component
         :is="autogrow ? CTextarea : CInput"
         ref="input"
         :aria-required="isRequired"
         autoresize
-        :class="form.compact ? 'w-auto font-mono' : 'w-full font-mono'"
+        :class="form.embedded ? 'w-auto font-mono' : 'w-full font-mono'"
         :model-value="text"
         :placeholder="format(defaultValue)"
         :rows="1"
-        :size="form.compact ? 'xs' : 'sm'"
+        :size="form.embedded ? 'xs' : 'sm'"
         spellcheck="false"
-        :style="form.compact ? { '--field-columns': `${compactColumns}ch` } : {}"
+        :style="form.embedded ? { '--field-columns': `${embeddedColumns}ch` } : {}"
         :type="autogrow ? undefined : inputType"
         :ui="{ base: fieldClass }"
-        :variant="form.compact ? 'none' : undefined"
+        :variant="form.embedded ? 'none' : undefined"
         @blur="onBlur"
         @focus="onFocus"
         @keydown.backspace="onBackspace"
         @update:model-value="onInput"
       >
-        <template v-if="!form.compact" #trailing>
+        <template v-if="!form.embedded" #trailing>
           <reuse-trailing />
         </template>
       </component>
-      <reuse-trailing v-if="form.compact" />
+      <reuse-trailing v-if="form.embedded" />
     </div>
-    <c-text v-if="description && !form.compact" class="mt-1 ml-3 pb-1" variant="description">
+    <c-text v-if="description && !form.embedded" class="mt-1 ml-3 pb-1" variant="description">
       {{ description }}
     </c-text>
   </div>

@@ -47,7 +47,7 @@ let indicatorBox = $ref<{ top: number; height: number } | null>(null)
 
 function measure() {
   // Embedded, the bar belongs to the host and spans it, so there is no control to measure against.
-  if (form.compact || root == null || schema == null || is('object') || is('array')) {
+  if (form.embedded || root == null || schema == null || is('object') || is('array')) {
     indicatorBox = null
     return
   }
@@ -97,7 +97,7 @@ function isFormat(format: string) {
   <template v-else>
     <!-- Embedded, the node is not the positioning context, so the bar resolves against the host
     and is drawn at its edge rather than partway into it. -->
-    <div ref="root" :class="!form.compact && 'relative'">
+    <div ref="root" :class="!form.embedded && 'relative'">
       <template v-if="typeof schema === 'boolean'">
         <c-schema-form-any v-bind="forward" @update:model-value="update" />
       </template>
