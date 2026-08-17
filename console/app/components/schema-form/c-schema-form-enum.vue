@@ -79,7 +79,7 @@ function onClear() {
         :size="form.embedded ? 'xs' : 'sm'"
         :ui="{
           base: form.embedded
-            ? 'font-mono text-[9px] md:text-[9px] px-0 py-0'
+            ? 'font-mono text-[10px] md:text-[10px] px-0 py-0'
             : 'font-mono text-xs',
           // The popup is sized from its anchor, and an embedded trigger is only as wide as its
           // value, which would cut the options it is offering short.

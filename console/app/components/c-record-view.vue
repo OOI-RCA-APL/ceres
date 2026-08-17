@@ -200,7 +200,9 @@ const context = provideRecordViewContext(() => widget.hiddenColumns)
 
 const recordHeight = recordRowHeight
 const recordsVisible = $computed(() => Math.ceil(containerInfo.clientHeight / recordHeight))
-const recordLoadSize = $computed(() => Math.min(recordsVisible + 50, 1000))
+// Deep pages rather than screenfuls, since a page buys the scroll its next stretch of travel and
+// a shallow one is spent before the request after it has landed.
+const recordLoadSize = $computed(() => Math.min(recordsVisible + 200, 1000))
 // Screenfuls kept drawn above and below the ones on screen. Nothing here is measured so a
 // row held in reserve costs only the drawing of it.
 const recordOverscan = 2
@@ -209,12 +211,13 @@ const recordCullCount = $computed(() => recordsVisible + 100)
 // How far above the top the records above start being fetched. Deep enough that the request
 // has long landed before the top is reached so arriving there shows records rather than a
 // wait.
-const recordsUntilNearTop = 400
+const recordsUntilNearTop = 800
 
-// How far above the top the records above are actually put in. Short of the top rather than
-// at it so a scroll still travelling runs straight on into them instead of arriving at the
-// end of the list while they are placed.
-const recordsUntilPlacingPrevious = 60
+// How far above the top the records above are actually put in. Far enough out that a scroll
+// running at speed is given its next stretch well before it arrives, the fetch after it starting
+// only once these are in. Reaching the top then means there is nothing above, not that the
+// records above are late.
+const recordsUntilPlacingPrevious = 300
 
 const feed = createRecordFeed<Record>({
   getAll: (filter) => get(filter as never),
@@ -371,8 +374,10 @@ async function onScroll() {
   }
 
   // Fetched well before they are wanted so reaching the top does not mean waiting on a
-  // request.
-  if (isWithinReachOfTop()) {
+  // request. Only once the view has been scrolled up off the newest records, a first page being
+  // short enough to sit within reach of its own top and otherwise walking back through the
+  // history with nobody asking it to.
+  if (!isFollowing && isWithinReachOfTop()) {
     void fetchPrevious()
   }
 
@@ -479,7 +484,39 @@ async function fetchPrevious() {
   // land.
   if (feed.bufferedCount.value > 0 && isCloseToTop()) {
     await placePrevious()
+    return
   }
+
+  // The feed turns down a fetch that comes too soon after the last, and a scroller resting at the
+  // top raises no event to ask a second time, so the asking is carried on from here.
+  if (
+    !isFollowing &&
+    !feed.isExhausted.value &&
+    feed.bufferedCount.value === 0 &&
+    isWithinReachOfTop()
+  ) {
+    retryFetchPrevious()
+  }
+}
+
+/** How long to wait before asking again, which is the stretch the feed turns a fetch down for. */
+const beforeAskingAgain = 1000
+
+let retryPreviousTimer: ReturnType<typeof setTimeout> | null = null
+
+function retryFetchPrevious() {
+  if (retryPreviousTimer != null) {
+    return
+  }
+
+  retryPreviousTimer = setTimeout(() => {
+    retryPreviousTimer = null
+
+    // Gone from the top, or gone entirely, and the records above are nobody's concern now.
+    if (!isFollowing && !isLoadingCurrent && isDocumentVisible && isWithinReachOfTop()) {
+      void fetchPrevious()
+    }
+  }, beforeAskingAgain)
 }
 
 // Older records arrive above whatever is on screen, which would carry it down the list by

@@ -50,7 +50,7 @@ function onClear() {
         :size="form.embedded ? 'xs' : 'sm'"
         :ui="{
           base: form.embedded
-            ? 'font-mono text-[9px] md:text-[9px] px-0 py-0'
+            ? 'font-mono text-[10px] md:text-[10px] px-0 py-0'
             : 'font-mono text-xs',
           content: form.embedded ? 'w-auto min-w-fit' : undefined,
         }"

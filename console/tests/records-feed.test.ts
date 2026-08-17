@@ -143,11 +143,11 @@ describe('fetchPrevious and placePrevious', () => {
     expect(feed.rows.map((row) => row.id)).toEqual(['a', 'b', 'c'])
   })
 
-  it('rate limits against the newest and previous loads', async () => {
+  it('lets the newest load settle, then fetches back to back', async () => {
     responses.push([record('a', '2026-01-01')])
     await feed.loadCurrent()
 
-    // Too soon after the newest load.
+    // Too soon after the newest load, which decides where the pages above it start.
     await feed.fetchPrevious()
     expect(requests).toHaveLength(1)
 
@@ -157,9 +157,11 @@ describe('fetchPrevious and placePrevious', () => {
     expect(requests).toHaveLength(2)
     feed.placePrevious()
 
-    // Too soon after the previous fetch.
+    // A page follows the one before it as soon as that one is placed. Anything slower is a scroll
+    // running out of records, since only one is ever in flight.
+    responses.push([record('c', '2025-12-30')])
     await feed.fetchPrevious()
-    expect(requests).toHaveLength(2)
+    expect(requests).toHaveLength(3)
   })
 
   it('does not fetch again while the buffer holds records', async () => {

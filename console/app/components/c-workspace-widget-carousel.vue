@@ -209,9 +209,9 @@ const reorder = usePointerReorder({
 // as well so reading a slide's name and changing it are the same place rather than two.
 let namingDot = $ref<number | null>(null)
 
-/** Whether the name takes the caret as it opens. A rename asked for from the menu is meant to be
-typed into at once, while a dot press is only showing the name and waits to be clicked into. */
-let isClaimingName = $ref(false)
+/** Whether the popup is holding a field rather than reading the name out. Only ever entered
+deliberately, by clicking into the name or by asking for the rename from the menu. */
+let isEditingName = $ref(false)
 
 function onDotClick(at: number) {
   // A press that turned into a drag has already done what it was for.
@@ -222,7 +222,7 @@ function onDotClick(at: number) {
   // Pressing the dot of the slide already shown reads out its name, since turning to it would
   // change nothing.
   if (at === index) {
-    isClaimingName = false
+    isEditingName = false
     namingDot = at
     return
   }
@@ -231,8 +231,16 @@ function onDotClick(at: number) {
 }
 
 function startNaming() {
-  isClaimingName = true
+  isEditingName = true
   namingDot = index
+}
+
+/** Done with the field, either committed or backed out of, which is the popup's whole purpose. */
+function onNameEditing(editing: boolean) {
+  isEditingName = editing
+  if (!editing) {
+    namingDot = null
+  }
 }
 
 // Slides are added, named and taken away on the carousel itself since a slide is a layout and a
@@ -451,7 +459,7 @@ const menuItems = $computed<DropdownMenuItem[][]>(() => [
 // The field is already standing when the popup arrives, so it never sees the change that would
 // otherwise have it take the caret for itself.
 async function focusSlideName() {
-  if (!isClaimingName) {
+  if (!isEditingName) {
     return
   }
 
@@ -543,7 +551,7 @@ async function focusSlideName() {
             v-for="(current, at) in widget.slides"
             :key="current.id"
             :content="{
-              onOpenAutoFocus: (event: Event) => !isClaimingName && event.preventDefault(),
+              onOpenAutoFocus: (event: Event) => !isEditingName && event.preventDefault(),
             }"
             :open="namingDot === at && !reorder.isDragging && workspace.drag == null"
             :ui="{ content: 'p-1' }"
@@ -589,14 +597,20 @@ async function focusSlideName() {
                 />
               </svg>
             </button>
+            <!-- The name reads as a name until it is clicked into, so a dot pressed to see which
+            slide it stands for does not present a field nobody asked for. -->
             <template #content>
-              <c-text class="block whitespace-nowrap" data-slide-name variant="th">
+              <c-text
+                class="block cursor-text px-1 whitespace-nowrap"
+                data-slide-name
+                variant="th"
+                @click="isEditingName = true"
+              >
                 <c-inline-name-edit
-                  :claim="isClaimingName"
-                  editing
+                  :editing="isEditingName"
                   :name="current.name !== '' ? current.name : `Slide ${at + 1}`"
                   @rename="(value: string) => (current.name = value)"
-                  @update:editing="(editing: boolean) => (namingDot = editing ? at : null)"
+                  @update:editing="onNameEditing"
                 />
               </c-text>
             </template>

@@ -127,7 +127,7 @@ const fieldClass = $computed(() =>
     'font-mono [appearance:textfield]',
     '[&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none',
     form.embedded
-      ? 'text-[9px] md:text-[9px] px-0 py-0 min-w-(--field-columns) [field-sizing:content]'
+      ? 'text-[10px] md:text-[10px] px-0 py-0 min-w-(--field-columns) [field-sizing:content]'
       : 'text-xs',
   ].join(' '),
 )

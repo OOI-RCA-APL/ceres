@@ -108,7 +108,7 @@ const definition = $computed(() => (isBlock(item) ? null : getFilterDefinition(i
     v-else
     :class="[
       'bg-elevated hover:bg-accented/60 relative flex min-h-4.5 shrink-0 cursor-default',
-      'items-center gap-1 overflow-hidden rounded-md py-px pr-0.5 pl-2.5 whitespace-nowrap',
+      'items-center gap-0.5 overflow-hidden rounded-md py-px pr-0.5 pl-2.5 whitespace-nowrap',
       'select-none',
       selected && 'outline-[1.5px] outline-offset-[-1.5px] outline-primary',
       // Where a held chip would land to make a group. Dashed to read as the group's own border,

@@ -43,7 +43,6 @@ export function createRecordFeed<TRecord extends Record>(options: RecordFeedOpti
   let isExhausted = $ref(false)
 
   let lastLoadedCurrent: number | null = null
-  let lastLoadedPrevious: number | null = null
 
   const heldRecordIds = new Set<string>()
 
@@ -176,18 +175,18 @@ export function createRecordFeed<TRecord extends Record>(options: RecordFeedOpti
 
   /** Fetch the page above what is held into the buffer.
 
-  Rate limited so a scroller resting near the top does not hammer the endpoint: nothing
-  fetches until a second after the newest load, or within a second of the last older one.
+  One page is in flight at a time and a filled buffer waits to be placed, which is what holds a
+  scroller near the top to one request rather than a stream of them. Pages otherwise follow each
+  other as fast as they are consumed, since anything slower is a scroll running out of records.
   */
   async function fetchPrevious() {
     if (isExhausted || isLoadingPrevious || previousBuffer.length > 0) {
       return
     }
 
-    if (lastLoadedCurrent == null || now() - lastLoadedCurrent < 1000) {
-      return
-    }
-    if (lastLoadedPrevious != null && now() - lastLoadedPrevious < 1000) {
+    // The first page decides where the ones above it start, so nothing is asked for until it
+    // has landed and settled.
+    if (lastLoadedCurrent == null || now() - lastLoadedCurrent < 250) {
       return
     }
 
@@ -211,7 +210,6 @@ export function createRecordFeed<TRecord extends Record>(options: RecordFeedOpti
       isExhausted = results.length === 0
       const fresh = onlyNewRecords(results.reverse())
       previousBuffer.splice(0, 0, ...fresh)
-      lastLoadedPrevious = now()
       syncCounts()
     } finally {
       isLoadingPrevious = false
