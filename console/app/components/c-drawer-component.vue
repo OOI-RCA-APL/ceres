@@ -157,7 +157,7 @@ function toggleExpanded() {
 <template>
   <template v-if="isShown">
     <nuxt-link
-      class="hover:bg-primary/14 relative flex items-center py-1 text-[13px]"
+      class="hover:bg-primary/14 group relative flex items-center overflow-hidden py-1 text-[13px]"
       :class="[isOpen && 'bg-primary/16 text-primary', !isOpen && isOnPath && 'text-toned']"
       :to="`/components/${address}`"
     >
@@ -216,14 +216,23 @@ function toggleExpanded() {
       >
         {{ isTopLevel ? component.address : '.' + component.name }}
       </span>
-      <!-- Reserve the width an indicator would take so every row has the same status hover
-      target. -->
-      <div class="mr-3 flex min-w-11 items-center justify-end">
-        <c-status-badge :address>
-          <template #leading>
-            <c-alerts-indicator :address class="mr-1" />
-          </template>
-        </c-status-badge>
+      <!-- Pinned to the right edge and opaque, so an address longer than the sidebar runs under it
+      rather than carrying it out of line with the rows above. The reserved width gives every row
+      the same status hover target. -->
+      <div :class="$style.status">
+        <!-- The row's own highlight, over the fill rather than under it, so the tint reaches the
+        edge instead of stopping where the fill begins. -->
+        <span
+          class="group-hover:bg-primary/14 absolute inset-0 rounded-l-md"
+          :class="isOpen && 'bg-primary/16'"
+        />
+        <span class="relative flex items-center">
+          <c-status-badge :address>
+            <template #leading>
+              <c-alerts-indicator :address class="mr-1" />
+            </template>
+          </c-status-badge>
+        </span>
       </div>
     </nuxt-link>
     <div v-if="!isLeaf && isExpanded">
@@ -243,6 +252,24 @@ function toggleExpanded() {
 </template>
 
 <style module>
+/* The row's trailing status, filled with the sidebar's own surface so the address behind it is
+covered rather than showing through, and rounded on the leading edge because that edge is the one
+the address disappears under. */
+.status {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  /* The 44px the header reserves for the same pair, plus this box's own padding. */
+  min-width: 64px;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 12px 0 8px;
+  border-radius: 6px 0 0 6px;
+  background: var(--ui-bg);
+}
+
 /* The toggle carries the branch's own ring as its border so the outline and the button are one
 thing rather than a circle drawn behind a square. Sized to `treeNodeSize`, which is where the lines
 reaching it stop.
