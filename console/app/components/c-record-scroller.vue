@@ -169,6 +169,15 @@ defineExpose({ scrollTo, moveTo, refresh, element: $$(scroller) })
   border-spacing: 0;
 }
 
+/* Each band lays itself out, since the anonymous table a scrolling block would otherwise wrap them
+in shrinks to its content and leaves the last column short of the edge. Wide rows still overflow
+and scroll, `max-content` winning over the floor. */
+.root > tbody {
+  display: table;
+  width: max-content;
+  min-width: 100%;
+}
+
 /* The browser must not anchor the scroll against anything in here. Chrome holds the content
 under the eye still when layout above it changes, by silently moving the scroll position, and
 here the layout above changes on every step of a scroll because that is what virtualization

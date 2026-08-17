@@ -167,11 +167,12 @@ function createRunToast(controller: AbortController) {
   const startedAt = time.now.valueOf()
   const elapsed = () => displayDuration((time.now.valueOf() - startedAt) / 1000, { short: true })
 
+  // No icon while it runs. A toast cannot spin one, and a still ring reads as a progress bar
+  // stuck at the same place, against a run whose length is not known anyway.
   const toast = notify.open({
     title: actionPath,
     description: elapsed(),
     color: 'primary',
-    icon: icons.loading,
     actions: [{ label: 'Abort', color: 'neutral', onClick: () => controller.abort() }],
   })
 
