@@ -120,6 +120,18 @@ function focusInput() {
   input?.textareaRef?.focus()
 }
 
+// The steppers are dropped because a number here is typed, and the field is sized to its text,
+// which leaves them sitting on the digits rather than beside them.
+const fieldClass = $computed(() =>
+  [
+    'font-mono [appearance:textfield]',
+    '[&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none',
+    form.compact
+      ? 'text-[9px] px-0 py-0 min-w-(--field-columns) [field-sizing:content]'
+      : 'text-xs',
+  ].join(' '),
+)
+
 function onInput(value: string | number) {
   text = String(value)
 
@@ -187,11 +199,7 @@ function onInput(value: string | number) {
         spellcheck="false"
         :style="form.compact ? { '--field-columns': `${compactColumns}ch` } : {}"
         :type="autogrow ? undefined : inputType"
-        :ui="{
-          base: form.compact
-            ? 'font-mono text-[9px] px-0 py-0 min-w-(--field-columns) [field-sizing:content]'
-            : 'font-mono text-xs',
-        }"
+        :ui="{ base: fieldClass }"
         :variant="form.compact ? 'none' : undefined"
         @blur="onBlur"
         @focus="onFocus"

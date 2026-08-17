@@ -122,6 +122,7 @@ let filterBar = $ref<InstanceType<typeof CFilterBar> | null>(null)
 function columnMenuItems(name: string): DropdownMenuItem[][] {
   const filters = definitionsForColumn(recordKind, name).map((definition) => ({
     label: definition.label,
+    icon: icons.filter,
     onSelect: () => filterBar?.appendKind(definition.kind),
   }))
 

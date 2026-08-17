@@ -53,7 +53,17 @@ const schema = $computed<SchemaObject>(() => {
 let root = $ref<HTMLElement | null>(null)
 
 function focusField() {
-  root?.querySelector<HTMLElement>('input, [role="combobox"], button')?.focus()
+  const field = root?.querySelector<HTMLElement>('input, textarea, [role="combobox"], button')
+  field?.focus()
+
+  // A value that is chosen rather than typed opens its menu, the condition having just been added
+  // to pick from it. A typed field is left with the caret in it.
+  if (
+    field != null &&
+    !(field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement)
+  ) {
+    field.click()
+  }
 }
 
 // Taken here rather than left to the attribute, which a browser acts on only while first
