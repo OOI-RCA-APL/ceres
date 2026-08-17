@@ -6,6 +6,8 @@ carries the strip along instead. */
 .scroller {
   overflow-x: auto;
   scrollbar-width: none;
+  /* Enough to part two filled tabs without reading as a space between them. */
+  gap: 2px;
 }
 
 .scroller::-webkit-scrollbar {
