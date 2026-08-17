@@ -403,7 +403,10 @@ grows and the tabs pass beneath it. -->
   <div
     ref="rootElement"
     class="relative flex min-w-0 flex-1 flex-nowrap items-stretch self-stretch overflow-hidden pt-1"
-    :class="fileDrop.active.value && $style.dropTarget"
+    :class="[
+      // Inset rather than a border, so the strip does not shift by a pixel as a file crosses it.
+      fileDrop.active.value && 'rounded shadow-[inset_0_0_0_2px_var(--ui-primary)]',
+    ]"
     data-workspace-drop="tabs"
     v-bind="canCreate ? fileDrop.handlers : {}"
   >
@@ -464,8 +467,13 @@ grows and the tabs pass beneath it. -->
                   @pointerdown.stop
                   @touchstart.stop
                 >
+                  <!-- A workspace with local changes rings its menu dots. An outline takes no
+                  space, so a tab stays exactly as wide edited as it is clean. -->
                   <c-icon
-                    :class="hasWorkingCopy(workspace) && $style.editedRing"
+                    :class="
+                      hasWorkingCopy(workspace) &&
+                      'rounded-full outline-1 outline-offset-0 outline-dotted'
+                    "
                     :name="icons.more"
                     size="13"
                   />
@@ -598,22 +606,3 @@ grows and the tabs pass beneath it. -->
     </c-popover>
   </div>
 </template>
-
-<style module>
-/* An inset outline rather than a border so the strip does not shift by a pixel when a file is
-dragged over it. */
-.dropTarget {
-  box-shadow: inset 0 0 0 2px var(--ui-primary);
-  border-radius: 4px;
-}
-
-/* A workspace with local changes rings its menu dots rather than carrying an icon of its own. The
-ring is drawn on the dots themselves so it sits tight against them and leaves the button's hit
-area alone, and being an outline it takes no space, keeping a tab exactly as wide edited as it is
-clean. */
-.editedRing {
-  border-radius: 50%;
-  outline: 1px dotted currentColor;
-  outline-offset: 0;
-}
-</style>

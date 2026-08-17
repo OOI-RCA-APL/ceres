@@ -241,10 +241,10 @@ const rowClass = 'flex min-h-[26px] items-center gap-2 px-2.5 py-0.5'
           v-if="status.running != null"
           :close-delay="300"
           :content="{ side: 'right', align: 'start', sideOffset: 0 }"
-          :portal="false"
           enable-touch
           mode="hover"
           :open="canControl ? undefined : false"
+          :portal="false"
           :ui="{ content: 'w-auto p-0' }"
         >
           <div :class="[rowClass, canControl && 'hover:bg-elevated cursor-pointer']">

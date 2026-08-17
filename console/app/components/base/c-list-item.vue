@@ -1,6 +1,7 @@
 <script lang="ts" setup>
-import { NuxtLink } from '#components'
 import { useAttrs } from 'vue'
+
+import { NuxtLink } from '#components'
 
 const { to = null, disabled = false } = defineProps<{
   /** Where the row leads, which makes it a link. */

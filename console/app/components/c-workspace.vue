@@ -444,10 +444,17 @@ function promptRevert() {
     <!-- A working copy is normally an ongoing personal state rather than a staging area so the
     bar reads as neutral status. It appears only while one exists, and the same actions stay in the
     tab's menu since this is a shortcut rather than the only route to them. -->
+    <!-- Fixed rather than sticky, since a workspace too short to scroll would drop the bar below
+    the fold exactly when there is least reason to hunt for it. Its horizontal position is set
+    inline, from the widgets it acts on. -->
     <div
       v-if="workspace.edited && !stripDocked"
-      class="flex items-center"
-      :class="$style.actionBar"
+      :class="[
+        'fixed bottom-0 z-4 flex w-fit -translate-x-1/2 items-center gap-1 rounded-t-lg px-2.5',
+        'py-1 opacity-85 shadow-[0_2px_10px_#00000033] backdrop-blur-[6px] transition-opacity',
+        'duration-150 hover:opacity-100 focus-within:opacity-100',
+        'bg-[#ffffffd9] dark:bg-[#000000a6] dark:shadow-[0_2px_10px_#00000080]',
+      ]"
       :style="actionBarStyle"
     >
       <template v-if="isViewingOriginal">
@@ -493,36 +500,3 @@ function promptRevert() {
     </div>
   </c-full-page>
 </template>
-
-<style module>
-/* Rests on the bottom edge of the window, rounded only where it meets the page. Sticky would pin
-it only while the page scrolls, and a short workspace does not, which would drop the bar below
-the fold exactly when there is least reason to hunt for it. Its horizontal position is set
-inline, from the widgets it acts on, and faded until reached for so it sits over the widgets
-without demanding attention. */
-.actionBar {
-  position: fixed;
-  z-index: 4;
-  bottom: 0;
-  transform: translateX(-50%);
-  width: fit-content;
-  gap: 4px;
-  padding: 4px 10px;
-  border-radius: 8px 8px 0 0;
-  backdrop-filter: blur(6px);
-  opacity: 0.85;
-  transition: opacity 0.15s;
-  background-color: #ffffffd9;
-  box-shadow: 0 2px 10px #00000033;
-}
-
-:global(.dark) .actionBar {
-  background-color: #000000a6;
-  box-shadow: 0 2px 10px #00000080;
-}
-
-.actionBar:hover,
-.actionBar:focus-within {
-  opacity: 1;
-}
-</style>

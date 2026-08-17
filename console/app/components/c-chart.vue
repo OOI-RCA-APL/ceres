@@ -172,34 +172,14 @@ const containerStyle = $computed(() => {
 <template>
   <div
     ref="container"
-    :class="[$style.container, loading && $style.loading]"
+    class="relative max-w-full min-w-full overflow-hidden transition-opacity duration-250"
+    :class="loading ? 'opacity-50' : 'opacity-100'"
     :style="containerStyle"
   >
     <div
       ref="element"
-      :class="$style.instance"
+      class="absolute h-full w-full"
       :style="isVisible ? undefined : { visibility: 'hidden' }"
     />
   </div>
 </template>
-
-<style module>
-.container {
-  position: relative;
-  min-width: 100%;
-  max-width: 100%;
-  transition: opacity 0.25s;
-  overflow: hidden;
-  opacity: 1;
-}
-
-.instance {
-  position: absolute;
-  width: 100%;
-  height: 100%;
-}
-
-.loading {
-  opacity: 0.5;
-}
-</style>

@@ -216,18 +216,15 @@ function toggleExpanded() {
       >
         {{ isTopLevel ? component.address : '.' + component.name }}
       </span>
-      <!-- Pinned to the right edge and filled with the sidebar's own surface, so an address longer
-      than the sidebar runs under it rather than carrying it out of line with the rows above. The
-      leading edge is rounded because that is the edge the address disappears under, and the width
-      holds the 44px the header reserves for the same pair. -->
+      <!-- Filled and pinned, so an address longer than the sidebar runs under it rather than
+      carrying it out of line with the rows above. The width holds what the header reserves. -->
       <div
         :class="[
           'bg-default absolute inset-y-0 right-0 flex min-w-16 items-center',
           'justify-end rounded-l-md pr-3 pl-2',
         ]"
       >
-        <!-- The row's own highlight, over the fill rather than under it, so the tint reaches the
-        edge instead of stopping where the fill begins. -->
+        <!-- Over the fill rather than under it, so the row's tint reaches the edge. -->
         <span
           class="group-hover:bg-primary/14 absolute inset-0 rounded-l-md"
           :class="isOpen && 'bg-primary/16'"

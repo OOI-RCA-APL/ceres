@@ -28,18 +28,7 @@ const rendered = $computed(() => {
 </script>
 
 <template>
-  <span :class="$style.root">
+  <span class="bg-accented text-default relative mx-[0.15em] rounded p-[0.2em]">
     {{ rendered }}
   </span>
 </template>
-
-<style module>
-.root {
-  background-color: var(--ui-bg-accented);
-  border-radius: 4px;
-  color: var(--ui-text);
-  margin: 0 0.15em;
-  padding: 0.2em;
-  position: relative;
-}
-</style>

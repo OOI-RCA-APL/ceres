@@ -29,16 +29,9 @@ const backgroundColorClass = $computed(() => {
 
 <template>
   <c-tooltip :disabled="error == null" :text="error ?? undefined">
-    <div :class="[$style.root, backgroundColorClass]" />
+    <div
+      class="mt-[0.6px] h-[calc(100%-1.2px)] w-0.5 rounded-l-[50px]"
+      :class="backgroundColorClass"
+    />
   </c-tooltip>
 </template>
-
-<style module>
-.root {
-  border-bottom-left-radius: 50px;
-  border-top-left-radius: 50px;
-  height: calc(100% - 1.2px);
-  margin-top: 0.6px;
-  width: 2px;
-}
-</style>

@@ -256,7 +256,8 @@ function onPointerDown(type: string, field: string, event: PointerEvent) {
             :class="[
               'group hover:bg-elevated/50 flex min-h-6 cursor-pointer items-center',
               'gap-2 rounded-sm px-1 select-none',
-              selectionMode === 'highlight' && isFieldOn(type.type, field.name) && $style.selected,
+              // Neutral rather than a semantic color, so the highlight never fights the text.
+              selectionMode === 'highlight' && isFieldOn(type.type, field.name) && 'bg-[#80808029]',
             ]"
             @click="onClick(type.type, field, $event as MouseEvent)"
             @contextmenu="onContext(type.type, field.name, $event as MouseEvent)"
@@ -335,10 +336,3 @@ function onPointerDown(type: string, field: string, event: PointerEvent) {
 
   <c-particle-field-details-dialog v-model="detailsField" />
 </template>
-
-<style module>
-/* Neutral so the highlight reads the same over both themes and never fights the text color. */
-.selected {
-  background: #80808029;
-}
-</style>

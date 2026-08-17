@@ -375,9 +375,10 @@ watch(
       <div v-if="!persisted.overviewCollapsed" ref="overviewElement" class="relative">
         <!-- Never less than what puts the strip at the bottom edge, where it rests until the
         page is scrolled. With workspace content hidden the overview takes its full height. -->
+        <!-- The maximum applies only when nothing was dragged onto the panel, the inline height
+        below taking over once one has been. -->
         <div
-          class="overflow-y-auto"
-          :class="$style.overviewContent"
+          class="max-h-[calc(100vh-92px)] overflow-x-hidden overflow-y-auto"
           :style="
             activeWorkspaceId != null && !persisted.workspaceCollapsed
               ? overviewHeightStyle
@@ -459,12 +460,3 @@ watch(
     </template>
   </c-full-page>
 </template>
-
-<style module>
-/* With a workspace below, the panel takes the height dragged onto it, set inline. On its own it
-grows with its content up to what is left of the viewport, then scrolls. */
-.overviewContent {
-  overflow-x: hidden;
-  max-height: calc(100vh - 92px);
-}
-</style>

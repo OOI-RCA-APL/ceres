@@ -598,7 +598,7 @@ useStream(debouncedFilter as never, async (record: Record) => {
                 <span class="group-hover:opacity-50">{{ column.label }}</span>
                 <c-icon
                   class="-mr-1 ml-1 opacity-0 group-hover:opacity-25"
-                  :class="columnIsFiltered(column.name) && $style.filteredIcon"
+                  :class="columnIsFiltered(column.name) && 'text-primary opacity-100!'"
                   :name="icons.filter"
                   size="9.5"
                 />
@@ -689,10 +689,3 @@ useStream(debouncedFilter as never, async (record: Record) => {
     <slot />
   </div>
 </template>
-
-<style module>
-.filteredIcon {
-  opacity: 1 !important;
-  color: var(--ui-primary);
-}
-</style>

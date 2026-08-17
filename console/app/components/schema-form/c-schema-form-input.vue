@@ -1,8 +1,8 @@
 <script lang="ts" setup>
-import { CInput, CTextarea } from '#components'
 import type { DropdownMenuItem } from '@nuxt/ui'
 import { watch } from 'vue'
 
+import { CInput, CTextarea } from '#components'
 import icons from '@/icons'
 import type { Schema, SchemaForm, SchemaPath } from '@/schema-form'
 

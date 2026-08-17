@@ -536,7 +536,9 @@ function tabMenuItems(at: number): DropdownMenuItem[][] {
     </div>
     <!-- A tab is a workspace in miniature, arranged through the same editor the workspace itself
     is drawn by so everything that can be done to a layout can be done to one. -->
-    <div v-else class="min-h-0 flex-1 overflow-auto px-2" :class="$style.body">
+    <!-- The gutter is held whether or not a scrollbar shows, so widgets at the right edge do not
+    jump under the hand arranging them as rows are added. -->
+    <div v-else class="min-h-0 flex-1 overflow-auto px-2 [scrollbar-gutter:stable]">
       <c-workspace-layout
         :key="shown.id"
         :expand="widget.expand"
@@ -548,11 +550,3 @@ function tabMenuItems(at: number): DropdownMenuItem[][] {
     </div>
   </div>
 </template>
-
-<style module>
-/* Room for the scrollbar whether or not one is showing so a tab reflowing as rows are added does
-not leave the widgets at its right edge jumping under the hand arranging them. */
-.body {
-  scrollbar-gutter: stable;
-}
-</style>

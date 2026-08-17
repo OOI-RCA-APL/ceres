@@ -8,6 +8,10 @@
   --font-mono: 'Roboto Mono', ui-monospace, monospace;
 }
 
+/* The mode is a class the console sets, not the operating system's preference, so `dark:` is
+pointed at that class rather than at Tailwind's default media query. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* Static, because the scale is reached only through Nuxt UI's --ui-color-* indirection
    and Tailwind would otherwise tree-shake it as unused. */
 @theme static {

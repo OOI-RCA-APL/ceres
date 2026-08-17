@@ -34,7 +34,7 @@ const {
 </script>
 
 <template>
-  <div class="relative" :class="fill && $style.fillRoot">
+  <div class="relative" :class="fill && 'flex min-h-[calc(100vh-50px)] flex-col'">
     <!-- The header and the rule under it travel together, so the rule does not scroll out from
     beneath the header it belongs to. Pinned rather than fixed, so a page nested in another still
     lays its header out in flow and only pins once it reaches the one above. -->
@@ -53,13 +53,3 @@ const {
     <slot />
   </div>
 </template>
-
-<style module>
-/* Fill what is left of the viewport under the app header, so a page can push trailing content to
-the bottom with `margin-top: auto` instead of letting it float mid-page. */
-.fillRoot {
-  display: flex;
-  min-height: calc(100vh - 50px);
-  flex-direction: column;
-}
-</style>

@@ -1,3 +1,4 @@
+import type { RecordKind } from '@/filters/definitions'
 import {
   withFreshIds,
   withGrouped,
@@ -7,7 +8,6 @@ import {
   withoutItems,
 } from '@/filters/model'
 import type { FilterItem, FilterQuery } from '@/filters/model'
-import type { RecordKind } from '@/filters/definitions'
 import type { SelectMode } from '@/workspace'
 
 /** The copied items, shared across every bar so a group pastes into another widget.

@@ -2,6 +2,7 @@
 import type { DropdownMenuItem } from '@nuxt/ui'
 import { nextTick } from 'vue'
 
+import { useDialogs } from '@/dialogs'
 import {
   defaultTextKind,
   definitionsFor,
@@ -21,7 +22,6 @@ import {
 } from '@/filters/model'
 import type { FilterItem, FilterQuery } from '@/filters/model'
 import { createFilterSelection } from '@/filters/selection'
-import { useDialogs } from '@/dialogs'
 import icons from '@/icons'
 import { moved, usePointerReorder } from '@/reorder'
 import type { SelectMode } from '@/workspace'
@@ -360,8 +360,8 @@ const reorder = usePointerReorder({
     class="flex min-h-6 flex-wrap items-center gap-1 px-1.5 py-0.5"
     tabindex="-1"
     @keydown="onBarKeydown"
-    @pointermove="onBarPointerMove"
     @pointerdown.self="selection.clear()"
+    @pointermove="onBarPointerMove"
   >
     <c-icon class="text-muted shrink-0" :name="icons.search" size="12" />
     <c-context-menu :items="contextMenuItems">
