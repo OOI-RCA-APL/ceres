@@ -14,7 +14,7 @@ import { useModifiers } from '@/modifiers'
 import { useNotify } from '@/notify'
 import { isEmptyObjectSchema, useSchemaForm } from '@/schema-form'
 import { displayDuration, useTime } from '@/time'
-import { deepClone, highlight } from '@/utilities'
+import { afterMenuCloses, deepClone, highlight } from '@/utilities'
 import type { Plain } from '@/utilities'
 import { useWorkspace } from '@/workspace'
 import type { ButtonAction } from '@/workspace'
@@ -257,7 +257,7 @@ A menu hands focus back to its own trigger as it goes, and the popup reads focus
 itself as a click away, so opening any sooner closes it in the same breath.
 */
 function showArgumentsFromMenu() {
-  setTimeout(() => void showArguments(), 150)
+  afterMenuCloses(() => void showArguments())
 }
 
 // While the action runs, "Cancel" cancels the action. At rest it closes the popup, which is all

@@ -49,7 +49,9 @@ function onClear() {
         :search-input="{ placeholder: 'Filter...' }"
         :size="form.embedded ? 'xs' : 'sm'"
         :ui="{
-          base: form.embedded ? 'font-mono text-[9px] px-0 py-0' : 'font-mono text-xs',
+          base: form.embedded
+            ? 'font-mono text-[9px] md:text-[9px] px-0 py-0'
+            : 'font-mono text-xs',
           content: form.embedded ? 'w-auto min-w-fit' : undefined,
         }"
         :variant="form.embedded ? 'none' : undefined"

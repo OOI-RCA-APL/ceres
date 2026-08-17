@@ -57,11 +57,11 @@ const definition = $computed(() => (isBlock(item) ? null : getFilterDefinition(i
     v-if="isBlock(item)"
     :class="[
       'border-default relative flex min-h-4.5 shrink-0 cursor-default items-center gap-1',
-      'rounded-md border border-dashed py-0 pr-0.5 pl-1.5 whitespace-nowrap select-none',
-      selected && 'outline-[1.5px] outline-offset-0 outline-primary',
+      'rounded-md border border-dashed py-px pr-0.5 pl-1.5 whitespace-nowrap select-none',
+      selected && 'outline-[1.5px] outline-offset-[-1.5px] outline-primary',
       // Where a held chip would land to make a group. Dashed to read as the group's own border,
       // which is drawn the same way, rather than as the solid ring a selection carries.
-      groupTarget && 'outline-[1.5px] outline-offset-2 outline-dashed outline-primary',
+      groupTarget && 'outline-[1.5px] outline-offset-[-1.5px] outline-dashed outline-primary',
     ]"
     data-filter-block
     :data-filter-lift="nested ? item.id : undefined"
@@ -93,8 +93,10 @@ const definition = $computed(() => (isBlock(item) ? null : getFilterDefinition(i
       />
     </template>
     <!-- Set apart from the last child's own remove so the two do not read as one control. -->
+    <!-- Laid out rather than left inline, an inline box being as tall as the line it sits on
+    however small the icon in it, which is most of the height of a chip this size. -->
     <button
-      class="text-muted hover:text-default ml-1 cursor-pointer p-0.5"
+      class="text-muted hover:text-default ml-1 flex cursor-pointer items-center p-0.5"
       type="button"
       @click.stop="emit('remove', item.id)"
       @pointerdown.stop
@@ -106,12 +108,12 @@ const definition = $computed(() => (isBlock(item) ? null : getFilterDefinition(i
     v-else
     :class="[
       'bg-elevated hover:bg-accented/60 relative flex min-h-4.5 shrink-0 cursor-default',
-      'items-center gap-1 overflow-hidden rounded-md py-0 pr-0.5 pl-2.5 whitespace-nowrap',
+      'items-center gap-1 overflow-hidden rounded-md py-px pr-0.5 pl-2.5 whitespace-nowrap',
       'select-none',
-      selected && 'outline-[1.5px] outline-offset-0 outline-primary',
+      selected && 'outline-[1.5px] outline-offset-[-1.5px] outline-primary',
       // Where a held chip would land to make a group. Dashed to read as the group's own border,
       // which is drawn the same way, rather than as the solid ring a selection carries.
-      groupTarget && 'outline-[1.5px] outline-offset-2 outline-dashed outline-primary',
+      groupTarget && 'outline-[1.5px] outline-offset-[-1.5px] outline-dashed outline-primary',
     ]"
     :data-filter-lift="nested ? item.id : undefined"
     :style="nested ? lift?.styleFor(item.id) : undefined"
@@ -129,7 +131,7 @@ const definition = $computed(() => (isBlock(item) ? null : getFilterDefinition(i
       @update:model-value="(value) => emit('change', item.id, value)"
     />
     <button
-      class="text-muted hover:text-default cursor-pointer p-0.5"
+      class="text-muted hover:text-default flex cursor-pointer items-center p-0.5"
       type="button"
       @click.stop="emit('remove', item.id)"
       @pointerdown.stop

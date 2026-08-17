@@ -528,7 +528,10 @@ provide(filterLiftKey, {
       </div>
     </c-context-menu>
     <!-- Set off from the last chip so the caret does not sit against it. -->
-    <div class="relative min-w-24 grow pl-1">
+    <!-- Sized from nothing, so it holds only what the conditions leave over and never bids for the
+    room they need. They reach the edge of the bar before any of them scrolls out of sight, and the
+    floor keeps somewhere to type once they have filled it. -->
+    <div class="relative min-w-8 flex-1 pl-1">
       <input
         ref="inputElement"
         v-model="search"

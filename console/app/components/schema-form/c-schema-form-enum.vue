@@ -78,7 +78,9 @@ function onClear() {
         :search-input="{ placeholder: 'Filter...' }"
         :size="form.embedded ? 'xs' : 'sm'"
         :ui="{
-          base: form.embedded ? 'font-mono text-[9px] px-0 py-0' : 'font-mono text-xs',
+          base: form.embedded
+            ? 'font-mono text-[9px] md:text-[9px] px-0 py-0'
+            : 'font-mono text-xs',
           // The popup is sized from its anchor, and an embedded trigger is only as wide as its
           // value, which would cut the options it is offering short.
           content: form.embedded ? 'w-auto min-w-fit' : undefined,

@@ -15,7 +15,7 @@ import { flattenQuery, isBlock } from '@/filters/model'
 import icons from '@/icons'
 import { orderedHiddenColumns, provideRecordViewContext } from '@/record-view'
 import { createRecordFeed } from '@/records/feed'
-import { debouncedComputed } from '@/utilities'
+import { afterMenuCloses, debouncedComputed } from '@/utilities'
 import { useWorkspace } from '@/workspace'
 import type { AlertsWidget, LogsWidget, MessagesWidget, ParticlesWidget } from '@/workspace'
 
@@ -123,7 +123,7 @@ function columnMenuItems(name: string): DropdownMenuItem[][] {
   const filters = definitionsForColumn(recordKind, name).map((definition) => ({
     label: definition.label,
     icon: icons.filter,
-    onSelect: () => filterBar?.appendKind(definition.kind),
+    onSelect: () => afterMenuCloses(() => filterBar?.appendKind(definition.kind)),
   }))
 
   // The last column keeps no hide, a view drawn with no columns leaving nothing to bring one

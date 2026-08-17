@@ -30,6 +30,15 @@ export function deepClone<T>(value: T) {
   return JSON.parse(JSON.stringify(value))
 }
 
+/** Run `action` once the menu that asked for it has finished closing.
+
+A menu hands focus back to its own trigger as it goes, and anything reaching for focus sooner
+loses it again: a popup reads the hand-back as a click away, and a fresh field loses its caret.
+*/
+export function afterMenuCloses(action: () => void) {
+  setTimeout(action, 150)
+}
+
 export function debouncedComputed<T>(factory: () => T, delay: number): ComputedRef<T> {
   const result: Ref<T> = shallowRef(factory())
   watch(

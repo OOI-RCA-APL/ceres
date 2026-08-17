@@ -7,6 +7,7 @@ import { nextTick, watch } from 'vue'
 import icons from '@/icons'
 import { usePersisted } from '@/persistence'
 import { moved, usePointerReorder } from '@/reorder'
+import { afterMenuCloses } from '@/utilities'
 import { useWidgetDrop } from '@/widget-drop'
 import { convertedPagesWidget, layoutsWithin, useWorkspace } from '@/workspace'
 import type { CarouselSlide, CarouselWidget, WidgetRow } from '@/workspace'
@@ -394,7 +395,7 @@ const menuItems = $computed<DropdownMenuItem[][]>(() => [
       icon: icons.rename,
       // Opened once the menu has gone, since the popup carrying the field reads the menu handing
       // focus back to its own trigger as a click away.
-      onSelect: () => setTimeout(startNaming, 150),
+      onSelect: () => afterMenuCloses(startNaming),
     },
     {
       label: 'Move Slide Earlier',
