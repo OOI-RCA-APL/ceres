@@ -10,6 +10,7 @@ import {
   withGrouped,
   withInserted,
   withMoved,
+  withMovedToRoot,
   withUngrouped,
   withoutItems,
 } from '@/filters/model'
@@ -131,5 +132,35 @@ describe('withGrouped and withUngrouped', () => {
     const after = createCondition('suffix', 'c')
 
     expect(ids(withUngrouped([block, after], block.id))).toEqual([a.id, b.id, after.id])
+  })
+})
+
+describe('withMovedToRoot', () => {
+  it('lifts a child out of its block to the given root position', () => {
+    const a = createCondition('contains', 'a')
+    const b = createCondition('prefix', 'b')
+    const c = createCondition('suffix', 'c')
+    const outer = createCondition('contains', 'outer')
+    const block = createBlock('or', [a, b, c])
+
+    const result = withMovedToRoot([block, outer], b.id, 2)
+
+    expect(ids(result)).toEqual([block.id, outer.id, b.id])
+    const remaining = result[0]!
+    expect(isBlock(remaining) && ids(remaining.children)).toEqual([a.id, c.id])
+  })
+
+  it('drops a block the lift empties, and counts the landing without it', () => {
+    const only = createCondition('contains', 'only')
+    const after = createCondition('suffix', 'after')
+    const block = createBlock('and', [only])
+
+    // Released past `after`, which stands at root index 1 while the block is still drawn.
+    expect(ids(withMovedToRoot([block, after], only.id, 2))).toEqual([after.id, only.id])
+  })
+
+  it('returns the query unchanged when the item is not in it', () => {
+    const query = [createBlock('or', [createCondition('contains', 'a')])]
+    expect(withMovedToRoot(query, 'missing', 0)).toBe(query)
   })
 })

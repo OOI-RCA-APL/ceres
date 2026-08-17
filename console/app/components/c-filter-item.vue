@@ -1,7 +1,9 @@
 <script lang="ts" setup>
 import type { DropdownMenuItem } from '@nuxt/ui'
+import { inject } from 'vue'
 
 import { getFilterDefinition } from '@/filters/definitions'
+import { filterLiftKey } from '@/filters/lift'
 import { isBlock } from '@/filters/model'
 import type { FilterItem } from '@/filters/model'
 import icons from '@/icons'
@@ -10,6 +12,7 @@ const {
   item,
   selected = false,
   groupTarget = false,
+  nested = false,
   focusId = null,
   addressOptions = [],
 } = defineProps<{
@@ -18,10 +21,15 @@ const {
   selected?: boolean
   /** Whether releasing the chip being dragged would group it with this one. */
   groupTarget?: boolean
+  /** Whether this sits inside a block, which is what makes it draggable out of one. */
+  nested?: boolean
   /** The item whose value input claims focus, for a condition just accepted from the input. */
   focusId?: string | null
   addressOptions?: readonly string[]
 }>()
+
+// The bar carries a lifted chip, since where it lands is a root position only the bar knows.
+const lift = inject(filterLiftKey, null)
 
 const emit = defineEmits<{
   /** A condition's value changed, `id` naming the condition wherever it nests. */
@@ -48,13 +56,17 @@ const definition = $computed(() => (isBlock(item) ? null : getFilterDefinition(i
   <div
     v-if="isBlock(item)"
     :class="[
-      'border-default flex min-h-4.5 shrink-0 cursor-default items-center gap-1 rounded-md border',
-      'border-dashed py-0 pr-0.5 pl-1.5 whitespace-nowrap select-none',
+      'border-default relative flex min-h-4.5 shrink-0 cursor-default items-center gap-1',
+      'rounded-md border border-dashed py-0 pr-0.5 pl-1.5 whitespace-nowrap select-none',
       selected && 'outline-[1.5px] outline-offset-0 outline-primary',
       // Where a held chip would land to make a group. Dashed to read as the group's own border,
       // which is drawn the same way, rather than as the solid ring a selection carries.
       groupTarget && 'outline-[1.5px] outline-offset-2 outline-dashed outline-primary',
     ]"
+    data-filter-block
+    :data-filter-lift="nested ? item.id : undefined"
+    :style="nested ? lift?.styleFor(item.id) : undefined"
+    v-on="nested ? (lift?.handlers(item.id) ?? {}) : {}"
   >
     <template v-for="(child, index) in item.children" :key="child.id">
       <!-- The joiner is the block's own control, so switching how the group reads is done where
@@ -73,6 +85,7 @@ const definition = $computed(() => (isBlock(item) ? null : getFilterDefinition(i
         :address-options="addressOptions"
         :focus-id="focusId"
         :item="child"
+        nested
         @change="(id, value) => emit('change', id, value)"
         @commit="emit('commit')"
         @operator="(id, op) => emit('operator', id, op)"
@@ -100,6 +113,9 @@ const definition = $computed(() => (isBlock(item) ? null : getFilterDefinition(i
       // which is drawn the same way, rather than as the solid ring a selection carries.
       groupTarget && 'outline-[1.5px] outline-offset-2 outline-dashed outline-primary',
     ]"
+    :data-filter-lift="nested ? item.id : undefined"
+    :style="nested ? lift?.styleFor(item.id) : undefined"
+    v-on="nested ? (lift?.handlers(item.id) ?? {}) : {}"
   >
     <c-text class="text-muted" element="span" variant="mono-xs">
       {{ definition?.label ?? item.kind }}:

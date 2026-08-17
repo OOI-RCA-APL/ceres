@@ -74,6 +74,22 @@ watchEffect(() => {
   }
 })
 
+const clipboardKeys = new Set(['c', 'x', 'v'])
+
+function onKeydown(event: KeyboardEvent) {
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    emit('commit')
+    return
+  }
+
+  // What is typed stays in the value. The clipboard keys carry on to the bar, which acts on whole
+  // conditions when the field has no text of its own in hand.
+  if (!((event.metaKey || event.ctrlKey) && clipboardKeys.has(event.key))) {
+    event.stopPropagation()
+  }
+}
+
 /** Whether focus has left the field entirely, rather than moved within it. */
 function onFocusOut(event: FocusEvent) {
   const next = event.relatedTarget
@@ -86,16 +102,14 @@ function onFocusOut(event: FocusEvent) {
 </script>
 
 <template>
-  <!-- The bar owns the keys that reach it, so what is typed into a value stays in the value.
-  Pointer events are held back for the same reason, a click here not being a click on the chip. -->
+  <!-- Pointer events are held back so a click here is not a click on the chip. -->
   <span
     ref="root"
     class="inline-flex items-center"
     @focusout="onFocusOut"
-    @keydown.enter.prevent="emit('commit')"
-    @keydown.stop
+    @keydown="onKeydown"
     @pointerdown.stop
   >
-    <c-schema-form-value v-model="modelValue" compact :schema />
+    <c-schema-form-value v-model="modelValue" embedded :schema />
   </span>
 </template>

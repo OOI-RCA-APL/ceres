@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import type { DropdownMenuItem } from '@nuxt/ui'
-import { nextTick } from 'vue'
+import { nextTick, provide } from 'vue'
 
 import { useDialogs } from '@/dialogs'
 import {
@@ -10,6 +10,7 @@ import {
   matchDefinitions,
 } from '@/filters/definitions'
 import type { FilterDefinition, RecordKind } from '@/filters/definitions'
+import { filterLiftKey } from '@/filters/lift'
 import {
   createBlock,
   createCondition,
@@ -18,6 +19,7 @@ import {
   withBlockOp,
   withConditionValue,
   withGrouped,
+  withMovedToRoot,
   withoutItems,
 } from '@/filters/model'
 import type { FilterItem, FilterQuery } from '@/filters/model'
@@ -222,20 +224,37 @@ function onChipClick(id: string, event: MouseEvent) {
 }
 
 function onBarKeydown(event: KeyboardEvent) {
-  // Value inputs and the bar's own input handle their own keys.
-  if (event.target instanceof HTMLInputElement) {
+  const field =
+    event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement
+      ? event.target
+      : null
+
+  // Clicking a condition puts the caret in its value, so the clipboard keys have to reach the bar
+  // from inside a field. They act on whole conditions when the field has nothing of its own in
+  // hand, and on the text otherwise.
+  if (event.metaKey || event.ctrlKey) {
+    const hasSelectedText = field != null && field.selectionStart !== field.selectionEnd
+
+    if (event.key === 'c' && !hasSelectedText) {
+      selection.copySelected()
+    } else if (event.key === 'x' && !hasSelectedText) {
+      selection.cutSelected()
+    } else if (event.key === 'v' && (field == null || field.value === '')) {
+      selection.paste()
+      event.preventDefault()
+    }
+
+    return
+  }
+
+  // What is left edits the bar itself, which a field being typed into owns instead.
+  if (field != null) {
     return
   }
 
   if (event.key === 'Delete' || event.key === 'Backspace') {
     selection.removeSelected()
     event.preventDefault()
-  } else if ((event.metaKey || event.ctrlKey) && event.key === 'c') {
-    selection.copySelected()
-  } else if ((event.metaKey || event.ctrlKey) && event.key === 'x') {
-    selection.cutSelected()
-  } else if ((event.metaKey || event.ctrlKey) && event.key === 'v') {
-    selection.paste()
   } else if (event.key === 'Escape') {
     selection.clear()
   }
@@ -363,6 +382,106 @@ const reorder = usePointerReorder({
       query = moved([...query], from, to)
     }
   },
+})
+
+/** The condition being carried out of the block it sits in. */
+let lifted = $ref<{
+  id: string
+  pointerId: number
+  origin: number
+  x: number
+  moved: boolean
+} | null>(null)
+
+/** Which root position a pointer at `x` would drop into. */
+function rootIndexAt(x: number): number {
+  const chips = chipElements()
+  const before = chips.findIndex((chip) => {
+    const box = chip.getBoundingClientRect()
+    return x < box.left + box.width / 2
+  })
+
+  return before === -1 ? chips.length : before
+}
+
+/** Whether a release at `event` landed back inside the block the chip came from, which asks for
+nothing rather than for a move to where that block stands. */
+function isOverOwnBlock(id: string, event: PointerEvent): boolean {
+  const chip = rootElement?.querySelector<HTMLElement>(`[data-filter-lift="${CSS.escape(id)}"]`)
+  const block = chip?.parentElement?.closest<HTMLElement>('[data-filter-block]')
+  if (block == null) {
+    return false
+  }
+
+  const box = block.getBoundingClientRect()
+  return (
+    event.clientX >= box.left &&
+    event.clientX <= box.right &&
+    event.clientY >= box.top &&
+    event.clientY <= box.bottom
+  )
+}
+
+function endLift() {
+  lifted = null
+  document.body.classList.remove('reordering')
+}
+
+provide(filterLiftKey, {
+  handlers: (id: string) => ({
+    pointerdown: (event: PointerEvent) => {
+      // A chip's own controls own their presses, so a condition is not dragged by its remove.
+      if (event.button !== 0 || (event.target as HTMLElement).closest('button') != null) {
+        return
+      }
+
+      event.stopPropagation()
+      lifted = {
+        id,
+        pointerId: event.pointerId,
+        origin: event.clientX,
+        x: event.clientX,
+        moved: false,
+      }
+    },
+    pointermove: (event: PointerEvent) => {
+      if (lifted == null || event.pointerId !== lifted.pointerId) {
+        return
+      }
+
+      lifted.x = event.clientX
+      if (!lifted.moved && Math.abs(lifted.x - lifted.origin) < 4) {
+        return
+      }
+
+      // Captured only once the press has become a drag, so a plain click still reaches the chip.
+      if (!lifted.moved) {
+        ;(event.currentTarget as HTMLElement).setPointerCapture(lifted.pointerId)
+        document.body.classList.add('reordering')
+      }
+
+      lifted.moved = true
+    },
+    pointerup: (event: PointerEvent) => {
+      if (lifted == null || event.pointerId !== lifted.pointerId) {
+        return
+      }
+
+      const dropped = lifted
+      endLift()
+
+      if (!dropped.moved || isOverOwnBlock(dropped.id, event)) {
+        return
+      }
+
+      query = withMovedToRoot(query, dropped.id, rootIndexAt(event.clientX))
+    },
+    pointercancel: endLift,
+  }),
+  styleFor: (id: string) =>
+    lifted?.id === id && lifted.moved
+      ? { transform: `translateX(${lifted.x - lifted.origin}px)`, zIndex: '1' }
+      : undefined,
 })
 </script>
 

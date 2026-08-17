@@ -142,6 +142,23 @@ export function withGrouped(
   return result
 }
 
+/** The item `id` taken out of the block it nests in and put at root `index`, dropping any block
+the removal empties. */
+export function withMovedToRoot(query: FilterQuery, id: string, index: number): FilterQuery {
+  const item = findItem(query, id)
+  if (item == null) {
+    return query
+  }
+
+  const without = withoutItems(query, new Set([id]))
+
+  // The landing was counted against the list as drawn, so a group that emptied on the way out
+  // leaves one slot fewer to count against.
+  const survived = new Set(without.map((root) => root.id))
+  const lost = query.slice(0, index).filter((root) => !survived.has(root.id)).length
+  return withInserted(without, [item], index - lost)
+}
+
 /** The query with condition `id` carrying `value`, wherever it nests. */
 export function withConditionValue(query: FilterQuery, id: string, value: unknown): FilterQuery {
   return query.map((item): FilterItem => {
