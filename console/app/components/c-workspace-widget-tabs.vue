@@ -434,7 +434,7 @@ function tabMenuItems(at: number): DropdownMenuItem[][] {
             role="tab"
             :style="reorder.styleFor(at)"
             tabindex="0"
-            v-bind="reorder.handlers(at)"
+            v-on="reorder.handlers(at)"
             @click="onTabClick(at, $event)"
             @dblclick.stop="startNaming(at)"
             @keydown="onTabKeydown($event, at)"

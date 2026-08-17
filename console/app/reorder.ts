@@ -399,11 +399,12 @@ export function usePointerReorder(options: {
   useEventListener(window, 'blur', abandon)
 
   return {
+    /** The listeners an item binds with `v-on`, keyed by event name as that syntax expects. */
     handlers: (index: number) => ({
-      onPointerdown: (event: PointerEvent) => onPointerDown(index, event),
-      onPointermove: onPointerMove,
-      onPointerup: onPointerUp,
-      onPointercancel: abandon,
+      pointerdown: (event: PointerEvent) => onPointerDown(index, event),
+      pointermove: onPointerMove,
+      pointerup: onPointerUp,
+      pointercancel: abandon,
     }),
     styleFor,
     consumeClick,

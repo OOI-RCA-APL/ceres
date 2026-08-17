@@ -77,7 +77,12 @@ function onClear() {
         :model-value="selected"
         :search-input="{ placeholder: 'Filter...' }"
         :size="form.compact ? 'xs' : 'sm'"
-        :ui="{ base: form.compact ? 'font-mono text-[10px] px-0 py-0' : 'font-mono text-xs' }"
+        :ui="{
+          base: form.compact ? 'font-mono text-[9px] px-0 py-0' : 'font-mono text-xs',
+          // The popup is sized from its anchor, and an embedded trigger is only as wide as its
+          // value, which would cut the options it is offering short.
+          content: form.compact ? 'w-auto min-w-fit' : undefined,
+        }"
         :variant="form.compact ? 'none' : undefined"
         @update:model-value="(item: Item | undefined) => (modelValue = resolve(item?.value))"
       >

@@ -48,7 +48,7 @@ const definition = $computed(() => (isBlock(item) ? null : getFilterDefinition(i
   <div
     v-if="isBlock(item)"
     :class="[
-      'border-default flex min-h-5 shrink-0 cursor-default items-center gap-1 rounded-md border',
+      'border-default flex min-h-4.5 shrink-0 cursor-default items-center gap-1 rounded-md border',
       'border-dashed py-0 pr-0.5 pl-1.5 whitespace-nowrap select-none',
       selected && 'outline-[1.5px] outline-offset-0 outline-primary',
       // Where a held chip would land to make a group. Dashed to read as the group's own border,
@@ -92,8 +92,9 @@ const definition = $computed(() => (isBlock(item) ? null : getFilterDefinition(i
   <div
     v-else
     :class="[
-      'bg-elevated hover:bg-accented/60 flex min-h-5 shrink-0 cursor-default items-center gap-1',
-      'rounded-md py-0 pr-0.5 pl-1.5 whitespace-nowrap select-none',
+      'bg-elevated hover:bg-accented/60 relative flex min-h-4.5 shrink-0 cursor-grab',
+      'items-center gap-1 overflow-hidden rounded-md py-0 pr-0.5 pl-2.5 whitespace-nowrap',
+      'select-none',
       selected && 'outline-[1.5px] outline-offset-0 outline-primary',
       // Where a held chip would land to make a group. Dashed to read as the group's own border,
       // which is drawn the same way, rather than as the solid ring a selection carries.

@@ -189,7 +189,7 @@ function onInput(value: string | number) {
         :type="autogrow ? undefined : inputType"
         :ui="{
           base: form.compact
-            ? 'font-mono text-[10px] px-0 py-0 min-w-(--field-columns) [field-sizing:content]'
+            ? 'font-mono text-[9px] px-0 py-0 min-w-(--field-columns) [field-sizing:content]'
             : 'font-mono text-xs',
         }"
         :variant="form.compact ? 'none' : undefined"

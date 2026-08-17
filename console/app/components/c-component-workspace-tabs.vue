@@ -435,7 +435,7 @@ grows and the tabs pass beneath it. -->
           role="tab"
           :style="reorder.styleFor(index)"
           tabindex="0"
-          v-bind="reorder.handlers(index)"
+          v-on="reorder.handlers(index)"
           @click="onTabClick(workspace, $event)"
           @dblclick.stop="openRename(workspace)"
           @keydown="onTabKeydown($event, index)"

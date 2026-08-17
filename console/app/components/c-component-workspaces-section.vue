@@ -534,7 +534,7 @@ function menuItems(
                 ]"
                 :data-workspace-group="group.key"
                 :style="group.reorder.styleFor(index)"
-                v-bind="group.canReorder ? group.reorder.handlers(index) : {}"
+                v-on="group.canReorder ? group.reorder.handlers(index) : {}"
                 @click="open(workspace, group.reorder)"
               >
                 <!-- The row's leading edge carries the grab cursor, which is all a draggable row
