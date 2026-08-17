@@ -8,6 +8,7 @@ import {
   useQuery as useQueryBase,
 } from '@tanstack/vue-query'
 import { useMounted } from '@vueuse/core'
+import { isEqual } from 'lodash-es'
 import { defineStore } from 'pinia'
 import { v7 } from 'uuid'
 import { watchEffect, onUnmounted, type MaybeRef, type MaybeRefOrGetter, toValue } from 'vue'
@@ -212,7 +213,7 @@ function useStream<TParseModel extends z.ZodType>(options: UseStreamOptions<TPar
         mounted &&
         current != null &&
         current.socket == null &&
-        JSON.stringify(current.stream) === JSON.stringify(stream)
+        isEqual(current.stream, stream)
       ) {
         open(stream)
       }
@@ -252,11 +253,7 @@ function useStream<TParseModel extends z.ZodType>(options: UseStreamOptions<TPar
 
       // Already connected to exactly this, so it is left alone. Reopening an unchanged stream is
       // what leaked, since the socket being replaced was never closed.
-      if (
-        entry != null &&
-        entry.socket != null &&
-        JSON.stringify(entry.stream) === JSON.stringify(stream)
-      ) {
+      if (entry != null && entry.socket != null && isEqual(entry.stream, stream)) {
         continue
       }
 

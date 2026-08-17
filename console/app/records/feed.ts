@@ -1,3 +1,4 @@
+import { isEqual } from 'lodash-es'
 import { shallowReactive } from 'vue'
 
 import type { Record } from '@/api/entity'
@@ -157,8 +158,10 @@ export function createRecordFeed<TRecord extends Record>(options: RecordFeedOpti
         limit: options.pageSize(),
       })
 
-      // The filter moved on while this was in flight, so a newer load owns the list.
-      if (filter !== options.filter()) {
+      // The filter moved on while this was in flight, so a newer load owns the list. Compared by
+      // value, the host reading its filter from a computed that builds a fresh object whenever it
+      // recomputes, which it does without the filter having changed.
+      if (!isEqual(filter, options.filter())) {
         return
       }
 
@@ -201,7 +204,7 @@ export function createRecordFeed<TRecord extends Record>(options: RecordFeedOpti
         limit: options.pageSize(),
       })
 
-      if (filter !== options.filter()) {
+      if (!isEqual(filter, options.filter())) {
         return
       }
 

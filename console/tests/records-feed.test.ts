@@ -48,6 +48,37 @@ describe('loadCurrent', () => {
     expect(feed.isExhausted.value).toBe(true)
   })
 
+  // The host reads its filter from a computed, which builds a fresh object every time it
+  // recomputes, and a workspace still settling recomputes it to the same value. Compared by
+  // identity that reads as a filter change, and the first page is thrown away with nothing left
+  // to ask for it again.
+  it('keeps the page when the filter recomputed to an equal value', async () => {
+    feed = createRecordFeed<TestRecord>({
+      getAll: async (requested) => {
+        requests.push(requested)
+        return responses.shift() ?? []
+      },
+      filter: () => ({ address: '@sensor' }),
+      pageSize: () => 100,
+      now: () => clock,
+    })
+
+    responses.push([record('b', '2026-01-02'), record('a', '2026-01-01')])
+    await feed.loadCurrent()
+
+    expect(feed.rows.map((row) => row.id)).toEqual(['a', 'b'])
+  })
+
+  it('discards the page when the filter genuinely changed while it was in flight', async () => {
+    responses.push([record('b', '2026-01-02'), record('a', '2026-01-01')])
+
+    const loading = feed.loadCurrent()
+    filter = { address: '@other' }
+    await loading
+
+    expect(feed.rows).toEqual([])
+  })
+
   it('folds in records that streamed during the fetch, without duplicates', async () => {
     responses.push([record('a', '2026-01-01'), record('b', '2026-01-02')].reverse())
 
