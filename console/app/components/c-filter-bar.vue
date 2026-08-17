@@ -273,12 +273,13 @@ const contextMenuItems = $computed<DropdownMenuItem[][]>(() => {
   return grouping.length > 0 ? [grouping, clipboard, removal] : [clipboard, removal]
 })
 
-/** Append a condition of `kind` and focus its value input, the header quick filters' path
-into the bar. */
+/** Append a condition of `kind`, selected with its value input focused, the header quick filters'
+path into the bar. */
 function appendKind(kind: string) {
   const condition = createCondition(kind, null)
   append(condition)
   focusId = condition.id
+  selection.select(condition.id, 'replace')
 }
 
 defineExpose({ appendKind })
