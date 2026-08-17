@@ -164,6 +164,10 @@ useResizeObserver($$(overviewElement), ([entry]) => {
   }
 })
 
+// Zero until the box has been measured, and the handle waits for a real size rather than mounting
+// on that and storing the minimum it clamps up to.
+const overviewDragSize = $computed(() => persisted.overviewSize ?? overviewMeasuredHeight)
+
 /** How far the page must be scrolled for the tab strip to have pinned under the header.
 
 Measured from the overview, which sits above the strip and is never itself pinned, so its box is
@@ -774,7 +778,7 @@ const configHighlighted = $computed(() =>
           direction="vertical"
           :max="800"
           :min="120"
-          :model-value="persisted.overviewSize ?? overviewMeasuredHeight"
+          :model-value="overviewDragSize"
           @update:model-value="(value: number) => (persisted.overviewSize = value)"
         />
       </div>

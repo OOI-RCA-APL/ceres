@@ -132,6 +132,10 @@ useResizeObserver($$(overviewElement), ([entry]) => {
   }
 })
 
+// Zero until the box has been measured, and the handle waits for a real size rather than mounting
+// on that and storing the minimum it clamps up to.
+const overviewDragSize = $computed(() => persisted.overviewSize ?? overviewMeasuredHeight)
+
 // Followed reactively so the floating action bar can yield while the strip rests at the
 // bottom edge.
 let stripRef = $ref<InstanceType<typeof CComponentWorkspaceStrip> | null>(null)
@@ -398,12 +402,12 @@ watch(
           />
         </div>
         <c-resize-handle
-          v-if="activeWorkspaceId != null && !persisted.workspaceCollapsed"
+          v-if="activeWorkspaceId != null && !persisted.workspaceCollapsed && overviewDragSize > 0"
           class="absolute bottom-0 left-0"
           direction="vertical"
           :max="800"
           :min="120"
-          :model-value="persisted.overviewSize ?? overviewMeasuredHeight"
+          :model-value="overviewDragSize"
           @update:model-value="(value: number) => (persisted.overviewSize = value)"
         />
       </div>
