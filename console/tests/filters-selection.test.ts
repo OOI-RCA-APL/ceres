@@ -2,11 +2,13 @@ import { beforeEach, describe, expect, it } from 'vitest'
 
 import { createCondition, isBlock } from '@/filters/model'
 import type { FilterQuery } from '@/filters/model'
+import type { RecordKind } from '@/filters/definitions'
 import { createFilterSelection } from '@/filters/selection'
 import type { FilterSelection } from '@/filters/selection'
 
 let query: FilterQuery
 let selection: FilterSelection
+let recordKind: RecordKind
 
 const a = createCondition('contains', 'a')
 const b = createCondition('prefix', 'b')
@@ -14,8 +16,10 @@ const c = createCondition('suffix', 'c')
 
 beforeEach(() => {
   query = [a, b, c]
+  recordKind = 'messages'
   selection = createFilterSelection({
     query: () => query,
+    recordKind: () => recordKind,
     onUpdate: (updated) => {
       query = updated
     },
@@ -78,16 +82,36 @@ describe('remove, copy, and paste', () => {
     expect(selection.selectedIds.value.size).toBe(0)
   })
 
-  it('pastes copies under fresh IDs and selects them', () => {
-    selection.select(a.id)
+  it('pastes copies under fresh IDs at the selection, and selects them', () => {
+    selection.select(b.id)
     selection.copySelected()
     selection.paste()
 
     expect(query).toHaveLength(4)
-    const pasted = query[3]!
-    expect(pasted.id).not.toBe(a.id)
-    expect(pasted).toMatchObject({ kind: 'contains', value: 'a' })
+    const pasted = query[1]!
+    expect(pasted.id).not.toBe(b.id)
+    expect(pasted).toMatchObject({ kind: 'prefix', value: 'b' })
     expect(selection.isSelected(pasted.id)).toBe(true)
+  })
+
+  it('pastes at the end with nothing selected', () => {
+    selection.select(a.id)
+    selection.copySelected()
+    selection.clear()
+    selection.paste()
+
+    expect(query).toHaveLength(4)
+    expect(query[3]).toMatchObject({ kind: 'contains', value: 'a' })
+  })
+
+  it('refuses a paste into a bar over another record kind', () => {
+    selection.select(a.id)
+    selection.copySelected()
+    recordKind = 'particles'
+
+    expect(selection.canPaste()).toBe(false)
+    selection.paste()
+    expect(query).toHaveLength(3)
   })
 
   it('pastes a multi-selection as a unit at an index', () => {

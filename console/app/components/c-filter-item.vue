@@ -9,12 +9,15 @@ import icons from '@/icons'
 const {
   item,
   selected = false,
+  groupTarget = false,
   focusId = null,
   addressOptions = [],
 } = defineProps<{
   item: FilterItem
   /** Whether the root item renders highlighted. Children never highlight on their own. */
   selected?: boolean
+  /** Whether releasing the chip being dragged would group it with this one. */
+  groupTarget?: boolean
   /** The item whose value input claims focus, for a condition just accepted from the input. */
   focusId?: string | null
   addressOptions?: readonly string[]
@@ -48,6 +51,7 @@ const definition = $computed(() => (isBlock(item) ? null : getFilterDefinition(i
       'border-default flex min-h-5 cursor-default items-center gap-1 rounded-md border',
       'border-dashed py-0 pr-0.5 pl-1.5 select-none',
       selected && $style.selected,
+      groupTarget && $style.groupTarget,
     ]"
   >
     <template v-for="(child, index) in item.children" :key="child.id">
@@ -89,6 +93,7 @@ const definition = $computed(() => (isBlock(item) ? null : getFilterDefinition(i
       'bg-elevated hover:bg-accented/60 flex min-h-5 cursor-default items-center gap-1',
       'rounded-md py-0 pr-0.5 pl-1.5 select-none',
       selected && $style.selected,
+      groupTarget && $style.groupTarget,
     ]"
   >
     <c-text class="text-muted" element="span" variant="mono-xs">
@@ -117,5 +122,12 @@ const definition = $computed(() => (isBlock(item) ? null : getFilterDefinition(i
 .selected {
   outline: 1.5px solid var(--ui-primary);
   outline-offset: 0;
+}
+
+/* Where a held chip would land to make a group. Dashed to read as the group's own border, which is
+drawn the same way, rather than as the solid ring a selection carries. */
+.groupTarget {
+  outline: 1.5px dashed var(--ui-primary);
+  outline-offset: 2px;
 }
 </style>

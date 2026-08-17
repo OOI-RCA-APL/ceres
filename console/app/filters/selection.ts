@@ -7,10 +7,15 @@ import {
   withoutItems,
 } from '@/filters/model'
 import type { FilterItem, FilterQuery } from '@/filters/model'
+import type { RecordKind } from '@/filters/definitions'
 import type { SelectMode } from '@/workspace'
 
-/** The copied items, shared across every bar so blocks paste between widgets. */
-let clipboard: FilterItem[] = []
+/** The copied items, shared across every bar so a group pastes into another widget.
+
+The kind travels with them because a condition names a field of one record type, and pasted
+somewhere that has no such field it would filter on nothing.
+*/
+let clipboard: { recordKind: RecordKind; items: FilterItem[] } | null = null
 
 export type FilterSelection = ReturnType<typeof createFilterSelection>
 
@@ -21,6 +26,7 @@ host owns the query, so every edit flows through `onUpdate` with a fresh array.
 */
 export function createFilterSelection(options: {
   query: () => FilterQuery
+  recordKind: () => RecordKind
   onUpdate: (query: FilterQuery) => void
 }) {
   let selectedIds = $ref<ReadonlySet<string>>(new Set())
@@ -97,7 +103,7 @@ export function createFilterSelection(options: {
   function copySelected() {
     const items = selectedItems()
     if (items.length > 0) {
-      clipboard = structuredClone(items)
+      clipboard = { recordKind: options.recordKind(), items: structuredClone(items) }
     }
   }
 
@@ -106,21 +112,28 @@ export function createFilterSelection(options: {
     removeSelected()
   }
 
-  /** Paste the clipboard before root index `index`, at the end when omitted, selecting what
-  was pasted. */
+  /** Where a paste with no index lands, which is before the selection so a right-click puts the
+  copied items where they were aimed, and at the end with nothing selected. */
+  function pasteIndex(): number {
+    const first = query().findIndex((item) => selectedIds.has(item.id))
+    return first === -1 ? query().length : first
+  }
+
+  /** Paste the clipboard before root index `index`, at the selection when omitted, selecting
+  what was pasted. */
   function paste(index?: number) {
-    if (clipboard.length === 0) {
+    if (!canPaste() || clipboard == null) {
       return
     }
 
-    const pasted = withFreshIds(clipboard)
-    options.onUpdate(withInserted(query(), pasted, index ?? query().length))
+    const pasted = withFreshIds(clipboard.items)
+    options.onUpdate(withInserted(query(), pasted, index ?? pasteIndex()))
     selectedIds = new Set(pasted.map((item) => item.id))
     anchor = pasted[0]?.id ?? null
   }
 
   function canPaste(): boolean {
-    return clipboard.length > 0
+    return clipboard != null && clipboard.recordKind === options.recordKind()
   }
 
   /** Move the selection to sit before root index `index`, keeping its order. */

@@ -16,10 +16,12 @@ import {
   withAppendedTo,
   withBlockOp,
   withConditionValue,
+  withGrouped,
   withoutItems,
 } from '@/filters/model'
 import type { FilterItem, FilterQuery } from '@/filters/model'
 import { createFilterSelection } from '@/filters/selection'
+import { useDialogs } from '@/dialogs'
 import icons from '@/icons'
 import { moved, usePointerReorder } from '@/reorder'
 import type { SelectMode } from '@/workspace'
@@ -34,6 +36,7 @@ let query = $(defineModel<FilterQuery>({ required: true }))
 
 const selection = createFilterSelection({
   query: () => query,
+  recordKind: () => recordKind,
   onUpdate: (updated) => {
     query = updated
   },
@@ -269,9 +272,72 @@ function appendKind(kind: string) {
 
 defineExpose({ appendKind })
 
+const dialogs = useDialogs()
+
+/** How much of a chip's width, centred, counts as dropping onto it rather than beside it.
+
+The edges stay a reorder, so the two gestures share a row without either becoming hard to aim:
+past a chip is a move, into it is a group.
+*/
+const groupTargetShare = 0.6
+
+function chipElements(): HTMLElement[] {
+  return [...(rootElement?.querySelectorAll<HTMLElement>('[data-filter-chip]') ?? [])]
+}
+
+/** Which chip a pointer at `x` is over the middle of, ignoring the one being dragged. */
+function groupTargetAt(x: number, dragged: number): number {
+  return chipElements().findIndex((chip, index) => {
+    if (index === dragged) {
+      return false
+    }
+
+    const box = chip.getBoundingClientRect()
+    const inset = (box.width * (1 - groupTargetShare)) / 2
+    return x >= box.left + inset && x <= box.right - inset
+  })
+}
+
+/** The chip a release would group with, drawn as a target while one is held over it. */
+let groupTargetId = $ref<string | null>(null)
+
+function onBarPointerMove(event: PointerEvent) {
+  if (!reorder.isDragging) {
+    groupTargetId = null
+    return
+  }
+
+  const dragged = query.findIndex((_, index) => reorder.isGrabbed(index))
+  const over = groupTargetAt(event.clientX, dragged)
+  groupTargetId = over === -1 ? null : (query[over]?.id ?? null)
+}
+
+function labelOf(item: FilterItem): string {
+  if (isBlock(item)) {
+    return `(${item.op})`
+  }
+
+  return getFilterDefinition(item.kind)?.label ?? item.kind
+}
+
 const reorder = usePointerReorder({
   axis: 'horizontal',
-  elements: () => [...(rootElement?.querySelectorAll<HTMLElement>('[data-filter-chip]') ?? [])],
+  elements: () => chipElements(),
+  onDrop: (index, event) => {
+    groupTargetId = null
+    const over = groupTargetAt(event.clientX, index)
+    const dragged = query[index]
+    const onto = query[over]
+    if (over === -1 || dragged == null || onto == null) {
+      return false
+    }
+
+    dialogs.groupFilters([labelOf(onto), labelOf(dragged)]).onOk((op) => {
+      query = withGrouped(query, new Set([onto.id, dragged.id]), op)
+    })
+
+    return true
+  },
   onReorder: (from, to) => {
     const dragged = query[from]
     if (dragged == null) {
@@ -294,6 +360,7 @@ const reorder = usePointerReorder({
     class="flex min-h-6 flex-wrap items-center gap-1 px-1.5 py-0.5"
     tabindex="-1"
     @keydown="onBarKeydown"
+    @pointermove="onBarPointerMove"
     @pointerdown.self="selection.clear()"
   >
     <c-icon class="text-muted shrink-0" :name="icons.search" size="12" />
@@ -311,6 +378,7 @@ const reorder = usePointerReorder({
           <c-filter-item
             :address-options="addressOptions"
             :focus-id="focusId"
+            :group-target="groupTargetId === item.id"
             :item="item"
             :selected="selection.isSelected(item.id)"
             @change="onChange"
