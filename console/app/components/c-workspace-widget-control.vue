@@ -250,6 +250,15 @@ async function showArguments() {
   }
 }
 
+/** Open the arguments from a menu, once that menu has finished closing.
+
+A menu hands focus back to its own trigger as it goes, and the popup reads focus landing outside
+itself as a click away, so opening any sooner closes it in the same breath.
+*/
+function showArgumentsFromMenu() {
+  setTimeout(() => void showArguments(), 150)
+}
+
 // While the action runs, "Cancel" cancels the action. At rest it closes the popup, which is all
 // there is left to back out of.
 function onCancel() {
@@ -311,7 +320,7 @@ const menuItems = $computed<DropdownMenuItem[][]>(() => [
       label: 'Arguments ...',
       icon: icons.edit,
       disabled: !takesArguments,
-      onSelect: () => void showArguments(),
+      onSelect: showArgumentsFromMenu,
     },
     { label: 'Duplicate', icon: icons.duplicate, onSelect: () => emit('duplicate') },
     { label: 'Add Button Before', icon: icons.add, onSelect: () => emit('addBefore') },
