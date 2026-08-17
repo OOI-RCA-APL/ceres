@@ -217,10 +217,11 @@ function toggleExpanded() {
         {{ isTopLevel ? component.address : '.' + component.name }}
       </span>
       <!-- Filled and pinned, so an address longer than the sidebar runs under it rather than
-      carrying it out of line with the rows above. The width holds what the header reserves. -->
+      carrying it out of line with the rows above. Only as wide as whatever this row carries, so a
+      component with no connections and no alerts hides that much less of its own address. -->
       <div
         :class="[
-          'bg-default absolute inset-y-0 right-0 flex min-w-16 items-center',
+          'bg-default absolute inset-y-0 right-0 flex items-center',
           'justify-end rounded-l-md pr-3 pl-2',
         ]"
       >
