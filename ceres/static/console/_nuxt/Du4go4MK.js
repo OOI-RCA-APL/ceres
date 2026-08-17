@@ -1,0 +1,1 @@
+var e={defaultTitle:`Ceres`};export{e as t};

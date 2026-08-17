@@ -942,3 +942,48 @@ class TestEdgeCases:
     def test_large_padding(self):
         schema = PackedUInt8(padding_before=100, padding_after=100)
         assert schema.size == 1 + 100 + 100
+
+
+class TestBytesFromString:
+    def test_decodes_a_string_and_passes_bytes_through(self) -> None:
+        from typing import Annotated
+
+        from ceres.data import validate
+        from ceres.data.binary import BytesFromString
+
+        Field = Annotated[bytes, BytesFromString("utf-8")]
+
+        assert validate(Field, "hello") == b"hello"
+        assert validate(Field, b"hello") == b"hello"
+
+    def test_base_64_is_decoded_rather_than_read_as_text(self) -> None:
+        from typing import Annotated
+
+        from ceres.data import validate
+        from ceres.data.binary import BytesFromString
+
+        assert validate(Annotated[bytes, BytesFromString("base-64")], "aGVsbG8=") == b"hello"
+
+
+class TestBytesToString:
+    def test_encodes_bytes_on_the_way_out(self) -> None:
+        from typing import Annotated
+
+        from ceres.data import DataModel, to_json
+        from ceres.data.binary import BytesToString
+
+        class Example(DataModel):
+            value: Annotated[bytes, BytesToString("utf-8")]
+
+        assert '"hello"' in to_json(Example(value=b"hello"))
+
+    def test_base_64_is_encoded_rather_than_written_as_text(self) -> None:
+        from typing import Annotated
+
+        from ceres.data import DataModel, to_json
+        from ceres.data.binary import BytesToString
+
+        class Example(DataModel):
+            value: Annotated[bytes, BytesToString("base-64")]
+
+        assert "aGVsbG8=" in to_json(Example(value=b"hello"))

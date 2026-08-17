@@ -1,0 +1,106 @@
+/* The look and drag behavior every tab strip shares, the workspace strip and a tabs widget's own.
+Imported as a module and bound through `:class`, so a strip adds only what is particular to it. */
+
+/* The scroller hides its bar, the way a browser's tab bar does, and a tab held near either end
+carries the strip along instead. */
+.scroller {
+  overflow-x: auto;
+  scrollbar-width: none;
+  /* Enough to part two filled tabs without reading as a space between them. */
+  gap: 2px;
+}
+
+.scroller::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  position: relative;
+  height: 100%;
+  border-radius: 4px 4px 0 0;
+  /* Filled, so an unselected tab still reads as a tab rather than as loose text on the bar. */
+  background-color: var(--ui-bg-elevated);
+  opacity: 0.7;
+  transition:
+    background-color 0.2s,
+    opacity 0.2s,
+    transform 0.16s ease;
+  touch-action: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+/* Held off the selected tab, whose own fill says more than a hover can. */
+.tab:not(.activeTab):hover {
+  background-color: var(--ui-bg-accented);
+  opacity: 1;
+}
+
+.activeTab {
+  opacity: 1;
+  background-color: var(--ui-primary);
+  color: #fff;
+}
+
+/* The leading edge of the tab, which is what says it can be dragged. A strip whose tabs carry a
+leading icon widens it with `--tab-grip-width` so the grip reaches past the icon. */
+.grip {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: var(--tab-grip-width, 14px);
+  cursor: grab;
+}
+
+/* The close button holds its place whether or not it is showing, so a tab is exactly as wide
+hovered as it is at rest and the strip does not shuffle under the pointer. */
+.close {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  opacity: 0;
+  transform: translateY(-50%);
+  transition: opacity 0.15s;
+}
+
+/* The selected tab keeps its close button visible since that is the one most likely to be closed
+next. Held back until the pointer is on the button itself, so it reads as available rather than
+as the thing the tab is for. */
+.tab:hover .close,
+.closeShown {
+  opacity: 0.6;
+}
+
+.close:hover {
+  opacity: 1;
+}
+
+/* While a drag is in progress the strip must not clip the lifted tab, and hover highlighting on
+the tabs sliding aside would read as a second thing happening at once. */
+.arranging:hover {
+  opacity: inherit;
+}
+
+/* The tab that has been picked up, which is drawn over the ones it is passing. */
+.held {
+  z-index: 2;
+  opacity: 1;
+}
+
+/* The held tab tracks the pointer directly so it must not smooth its own movement. It regains
+the transition once released, which animates it into the gap. */
+.grabbed {
+  cursor: grabbing;
+  transition:
+    background-color 0.2s,
+    opacity 0.2s;
+}
+
+/* The tabs sliding aside move at once rather than each animating from wherever it was. */
+.swapping {
+  transition: none;
+}

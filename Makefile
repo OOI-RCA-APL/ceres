@@ -12,8 +12,7 @@ ifeq ($(PROFILE),dev)
 export MATURIN_PEP517_ARGS = --profile dev
 endif
 
-build: install
-	cd console && make build
+build: install console
 	mkdir -p ceres.__internal__.core.data/scripts
 	touch ceres.__internal__.core.data/scripts/.keep
 # Built one at a time, because a plain `uv build` builds the wheel from the unpacked sdist
@@ -52,6 +51,19 @@ reference:
 reference-check:
 	cd rust && cargo test -p ceres-cli reference::
 	uv run ./scripts/update-reference.py --check
+# The dependencies come from `install`, which every path here has already run, so this
+# builds rather than reinstalling them once per target that wants a bundle.
+console:
+	cd console && npm run build
+# The bundle ships in the wheel exactly as committed, so a frontend change that was never
+# rebuilt releases a stale console. Compared rather than fingerprinted, a hash admitting
+# the false pass where it is regenerated without the bundle.
+console-check: console
+	@if [ -n "$$(git status --porcelain -- ceres/static/console)" ]; then \
+		echo "The committed console bundle differs from a fresh build. Run make console."; \
+		git status --porcelain -- ceres/static/console; \
+		exit 1; \
+	fi
 release:
 	uv run ./scripts/release.py
 release-check:
@@ -64,10 +76,12 @@ lint:
 	cd rust && cargo fmt --check && cargo clippy --all-targets -- -D warnings
 	cd rust && cargo clippy -p ceres-core --all-targets -- -D warnings
 fix:
+# Regenerated before the formatters run, the generator's output not being formatted to the
+# rules `make lint` then holds it to.
+	cd rust && cargo stubs
 	uv run sh -c "ruff check --fix . && ruff format ."
 	cd console && make fix
 	cd rust && cargo fmt && cargo clippy --fix --allow-dirty --allow-staged --all-targets
-	cd rust && cargo stubs
 build-docs: install-docs
 	uv run mkdocs build
 install-docs:

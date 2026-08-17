@@ -2,7 +2,7 @@ from typing import Self, TypedDict
 
 from pydantic import ConfigDict
 
-from ceres.data import defaulting, replacing
+from ceres.data import defaulting, replace
 from ceres.data.object import DataModel
 
 
@@ -27,7 +27,7 @@ class BaseFilter(DataModel):
         Returns:
             A new filter with merged field values.
         """
-        return replacing(self, overrides)
+        return replace(self, overrides)
 
     def with_defaults(self, defaults: Self | None) -> Self:
         """Return a copy of this filter, filling unset fields from `defaults`.

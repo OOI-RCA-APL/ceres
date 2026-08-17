@@ -25,6 +25,9 @@ htmlcov/
 # Rust
 rust/target/
 !Cargo.lock
+# Instrumented binaries drop these wherever they are run from, not under the build directory.
+*.profraw
+*.profdata
 
 # Node
 node_modules

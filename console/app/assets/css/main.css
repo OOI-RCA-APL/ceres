@@ -1,0 +1,183 @@
+@import 'tailwindcss';
+@import '@nuxt/ui';
+@import '@fontsource-variable/inter';
+@import '@fontsource/roboto-mono';
+
+@theme {
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Roboto Mono', ui-monospace, monospace;
+}
+
+/* The mode is a class the console sets, not the operating system's preference, so `dark:` is
+pointed at that class rather than at Tailwind's default media query. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Set on the body for as long as something is being dragged. The pointer travels off the item it
+carries, so the cursor is held everywhere rather than on the item alone. */
+.reordering,
+.reordering * {
+  cursor: grabbing !important;
+}
+
+/* Static, because the scale is reached only through Nuxt UI's --ui-color-* indirection
+   and Tailwind would otherwise tree-shake it as unused. */
+@theme static {
+  /* The brand blue, anchored at the 600 step. */
+  --color-brand-50: #f0f9fc;
+  --color-brand-100: #ddf1f8;
+  --color-brand-200: #bce3f1;
+  --color-brand-300: #8bcfe6;
+  --color-brand-400: #4fb3d6;
+  --color-brand-500: #1897c2;
+  --color-brand-600: #007dab;
+  --color-brand-700: #00648a;
+  --color-brand-800: #065371;
+  --color-brand-900: #0b455e;
+  --color-brand-950: #062c3e;
+}
+
+/* Tailwind 4 dropped the default pointer on interactive elements, every clickable
+   thing shows one. Reka UI checkboxes and switches render as buttons, so the button
+   selector covers them. */
+@layer base {
+  button:not(:disabled),
+  [role='button']:not(:disabled),
+  input[type='checkbox']:not(:disabled),
+  input[type='radio']:not(:disabled),
+  input[type='range']:not(:disabled),
+  select:not(:disabled),
+  label:has(> input:not(:disabled)),
+  a[href],
+  summary {
+    cursor: pointer;
+  }
+
+  /* Half-width bars throughout, a scroller costing less of the thing it scrolls. Set through the
+  standard property rather than the webkit pseudo-elements, which take an exact size but turn an
+  overlay bar into a classic one that never hides and holds room on both axes. In this layer so a
+  scroller that hides its bar outright still overrides it. */
+  * {
+    scrollbar-width: thin;
+  }
+}
+
+/* One shade in both modes. Nuxt UI lightens these on dark so they pair with the dark text its
+   solid variants switch to, and the app config pins that text to white instead, which leaves the
+   lighter steps washed out with nothing to gain by them. Neutral is left alone, being the one
+   color that is meant to follow the mode. */
+:root {
+  --ui-primary: var(--ui-color-primary-600);
+  --ui-success: var(--ui-color-success-600);
+  --ui-warning: var(--ui-color-warning-600);
+  --ui-error: var(--ui-color-error-600);
+  --ui-info: var(--ui-color-info-600);
+
+  /* A card lifts off the page it sits on, and which of the two surfaces is the lighter one
+     swaps with the mode, so the pair is named here rather than picked at each card. */
+  --console-page: var(--ui-bg-elevated);
+  --console-card: var(--ui-bg);
+
+  /* Every hairline in the console comes off the text rather than off the neutral scale, so a
+     border separates whatever it is drawn against. Nuxt UI's own lands on the same value as the
+     raised fill and disappears into it. The strength is the knob, and dark needs more of it to
+     read as the same line. */
+  --console-border-strength: 12%;
+  --ui-border: --alpha(var(--ui-text) / var(--console-border-strength));
+
+  /* The colors a chart's series cycle through, led by the brand so a lone series is the app's
+     own and then ordered to put the widest hue gap between neighbours, which is the pair a
+     reader has to tell apart. A thin line needs to carry against the card behind it, so these
+     go darker here and lighter on dark. Hex, and not the semantic tokens, because a color input
+     takes nothing else. */
+  --console-series-1: var(--color-brand-600);
+  --console-series-2: #d97706;
+  --console-series-3: #16a34a;
+  --console-series-4: #dc2626;
+  --console-series-5: #7c3aed;
+  --console-series-6: #0d9488;
+  --console-series-7: #db2777;
+}
+
+.dark {
+  --console-page: var(--ui-bg);
+  --console-card: var(--ui-bg-elevated);
+  --console-border-strength: 28%;
+
+  --console-series-1: var(--color-brand-400);
+  --console-series-2: #fbbf24;
+  --console-series-3: #4ade80;
+  --console-series-4: #f87171;
+  --console-series-5: #c4b5fd;
+  --console-series-6: #5eead4;
+  --console-series-7: #f472b6;
+}
+
+/* Prism token colors, which the highlighter's markup carries no styling of its own for. */
+.token.comment,
+.token.prolog,
+.token.doctype,
+.token.cdata,
+.token.operator,
+.token.entity,
+.token.url {
+  color: #676f7d;
+}
+
+.token.tag,
+.token.boolean,
+.token.number,
+.token.constant,
+.token.symbol,
+.token.deleted {
+  color: #00455f;
+}
+
+.dark .token.tag,
+.dark .token.boolean,
+.dark .token.number,
+.dark .token.constant,
+.dark .token.symbol,
+.dark .token.deleted {
+  color: #4299cf;
+}
+
+.token.selector,
+.token.attr-name,
+.token.string,
+.token.char,
+.token.builtin,
+.token.inserted,
+.token.function {
+  color: #008a7c;
+}
+
+.dark .token.selector,
+.dark .token.attr-name,
+.dark .token.string,
+.dark .token.char,
+.dark .token.builtin,
+.dark .token.inserted,
+.dark .token.function {
+  color: #00bba8;
+}
+
+.token.atrule,
+.token.attr-value,
+.token.keyword {
+  color: #56b6c2;
+}
+
+.token.regex,
+.token.important,
+.token.variable {
+  color: #61afef;
+}
+
+.token.important,
+.token.bold {
+  font-weight: bold;
+}
+
+.token.italic {
+  font-style: italic;
+}

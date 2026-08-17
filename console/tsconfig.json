@@ -1,22 +1,6 @@
 {
-  "extends": "./.quasar/tsconfig.json",
+  "extends": "./.nuxt/tsconfig.json",
   "compilerOptions": {
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["./src/*"],
-      "#q-app": ["./node_modules/@quasar/app-vite/types/index.d.ts"],
-      "#q-app/wrappers": ["./node_modules/@quasar/app-vite/types/app-wrappers.d.ts"]
-    },
-    "esModuleInterop": true,
-    "isolatedModules": true,
-    "moduleDetection": "force",
-    "noImplicitAny": false
-  },
-  "ts-node": {
-    "esm": true,
-    "experimentalSpecifierResolution": "node"
-  },
-  "vueCompilerOptions": {
-    "plugins": ["vue-macros/volar"]
+    "allowArbitraryExtensions": true
   }
 }

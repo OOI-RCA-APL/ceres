@@ -469,7 +469,7 @@ def _python_rows(command: type) -> list[str]:
             spelling = f"`--{written}` `{written.upper()}`"
 
         required = "yes" if field.is_required() else ""
-        rows.append(f"| {spelling} | {required} | {field.description or ''} |")
+        rows.append(f"| {spelling} | {required} | {_one_line(field.description or '')} |")
 
     return rows
 
@@ -487,6 +487,11 @@ def _python_subcommands(command: type) -> list[tuple[str, type]]:
         found.append((name, declared[0] if declared else field.annotation))
 
     return found
+
+
+def _one_line(text: str) -> str:
+    """Collapse a description onto one line, a table row ending at the first newline."""
+    return " ".join(text.split())
 
 
 def _option_table(rows: list[str]) -> list[str]:
@@ -511,7 +516,7 @@ def _native_rows(node: dict[str, Any]) -> list[str]:
                 spelling += f" `{' '.join(values)}`"
 
         required = "yes" if argument["required"] else ""
-        rows.append(f"| {spelling} | {required} | {argument['help']} |")
+        rows.append(f"| {spelling} | {required} | {_one_line(argument['help'])} |")
 
     return rows
 

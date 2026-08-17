@@ -18,6 +18,11 @@ from pydantic_settings import (
     SettingsError,
 )
 
+from ceres.__internal__.cli.development import (
+    assign_addresses,
+    console_dev_server,
+    is_development_build,
+)
 from ceres.__internal__.cli.shared import (
     CLICommand,
     CLICommandExit,
@@ -58,6 +63,20 @@ class RunCommand(CLICommand):
     Automatically restart the application on code changes.
     """
 
+    # Offered only from a source checkout, an installed wheel having no source to point at.
+    if is_development_build():
+        development_source: Path | None = None
+        """
+        Path to a Ceres source tree, whose console is rebuilt as you edit it and served in place
+        of the built-in one.
+        """
+
+        development_console_port: int | None = None
+        """
+        Serve the development console on this port instead of in place of the built-in one, so
+        that both are available.
+        """
+
     @override
     async def __run__(self) -> None:
         """Load the configuration and start the engine, optionally in watch mode."""
@@ -66,6 +85,8 @@ class RunCommand(CLICommand):
             self.addresses,
             config_path=config_path,
             watch=not _watching and self.watch,
+            development_source=getattr(self, "development_source", None),
+            development_console_port=getattr(self, "development_console_port", None),
         )
 
 
@@ -293,13 +314,24 @@ def _main(args: Sequence[str] | None = None, *, watching: bool = False) -> int:
     return asyncio.run(command.execute(), loop_factory=el)
 
 
-async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch: bool) -> None:
+async def _run(
+    addresses: Sequence[AddressSelector],
+    *,
+    config_path: Path,
+    watch: bool,
+    development_source: Path | None = None,
+    development_console_port: int | None = None,
+) -> None:
     """Load and run the engine, optionally restarting on file changes when watch mode is enabled.
 
     Args:
         addresses: Component address selectors to start on launch.
         config_path: Path to the Ceres configuration file.
         watch: Whether to run in watch mode, restarting on source changes.
+        development_source: Root of a Ceres source tree whose console dev server runs alongside the
+            engine.
+        development_console_port: Port to serve the development console on, leaving the built-in
+            one where it is.
 
     Raises:
         CLICommandFailed: If the engine fails to load or start.
@@ -333,6 +365,10 @@ async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch
                     f"Failed to load engine with current configuration. {to_json(error, indent=2)}"
                 )
 
+            # Decided before the engine starts, since moving it aside means rewriting the
+            # server section it is about to bind from.
+            development_addresses = assign_addresses(engine.config, development_console_port)
+
             exiting = AsyncEvent()
 
             async def main() -> None:
@@ -350,7 +386,8 @@ async def _run(addresses: Sequence[AddressSelector], *, config_path: Path, watch
                 exiting.set()
 
             with temporary_signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
-                await main()
+                async with console_dev_server(development_source, development_addresses):
+                    await main()
     except Exception as exception:
         if isinstance(exception, CLICommandFailed):
             raise

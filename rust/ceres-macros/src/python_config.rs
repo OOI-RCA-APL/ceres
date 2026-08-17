@@ -457,6 +457,29 @@ impl ClassDefinition {
                     crate::interop::to_python(py, #serialized)
                 }
 
+                /// Return a copy of this configuration with the given fields replaced.
+                ///
+                /// Called through `copy.replace` and `ceres.data.replace` rather than
+                /// directly. The replacement is built through the constructor, so a change
+                /// that does not validate is refused here rather than later.
+                #[pyo3(signature = (**changes))]
+                #[gen_stub(override_return_type(type_repr = "typing.Self"))]
+                fn __replace__(
+                    &self,
+                    py: ::pyo3::Python<'_>,
+                    changes: ::std::option::Option<&::pyo3::Bound<'_, ::pyo3::types::PyDict>>,
+                ) -> ::pyo3::PyResult<::pyo3::Py<::pyo3::types::PyAny>> {
+                    let current = crate::interop::to_python(py, #serialized)?;
+                    let fields = current.bind(py).cast::<::pyo3::types::PyDict>()?.copy()?;
+                    if let ::std::option::Option::Some(changes) = changes {
+                        fields.update(changes.as_mapping())?;
+                    }
+
+                    ::std::result::Result::Ok(
+                        py.get_type::<#name>().call((), ::std::option::Option::Some(&fields))?.unbind(),
+                    )
+                }
+
                 /// Return the JSON Schema describing this configuration section.
                 ///
                 /// Called through `ceres.data.to_json_schema` rather than directly.

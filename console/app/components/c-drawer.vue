@@ -1,0 +1,320 @@
+<script lang="ts" setup>
+import type { DropdownMenuItem } from '@nuxt/ui'
+import { computed } from 'vue'
+
+import { useEngine } from '@/api/engine'
+import type { User } from '@/api/users'
+import { useDialogs } from '@/dialogs'
+import { isOnPathTo, useDrawer } from '@/drawer'
+import { guard } from '@/errors'
+import icons from '@/icons'
+import { useNavigation } from '@/navigation'
+import { useNotify } from '@/notify'
+import { usePreferences } from '@/preferences'
+import { displayDuration, duration } from '@/time'
+
+const engine = useEngine()
+const drawer = useDrawer()
+const navigation = useNavigation()
+const notify = useNotify()
+const dialogs = useDialogs()
+const preferences = usePreferences()
+const isDevelopment = import.meta.dev
+
+// Narrows the tree to what answers it, keeping the path down to each match. Held here rather than
+// persisted, since a filter is a question being asked now and not a preference.
+let componentFilter = $ref('')
+
+// Which top level component the open one is in, or below. The tree's own rows work this out for
+// their children, and this is the same answer for the header, which the tree hangs from.
+const activeTopLevelIndex = $computed(() => {
+  const active = navigation.component
+  if (active == null) {
+    return -1
+  }
+
+  return engine.components.topLevel.findIndex((component) =>
+    isOnPathTo(active, component.address.toString()),
+  )
+})
+
+// What the header reports. Components that answer the filter rather than rows left showing, since
+// a parent kept only to carry a matching child is a path to an answer and not one itself.
+const matchingComponents = $computed(() => {
+  const text = componentFilter.trim().toLowerCase()
+  if (text === '') {
+    return engine.components.all.length
+  }
+
+  return engine.components.all.filter((component) =>
+    component.address.toString().toLowerCase().includes(text),
+  ).length
+})
+
+const isDeveloperMode = $computed(() => isDevelopment && preferences.isDeveloperModeEnabled)
+
+void engine.auth.loadFeatures()
+
+// Carried as seconds because the select matches an item by value, and two `Duration` objects
+// built from the same length are never the same object.
+const statisticsDurationItems = [60, 5 * 60, 30 * 60, 3600, 12 * 3600, 86400].map((seconds) => ({
+  label: displayDuration(duration(seconds, 'seconds')),
+  value: seconds,
+}))
+
+const statisticsSeconds = computed({
+  get: () => preferences.statisticsDuration.asSeconds(),
+  set: (seconds: number) => (preferences.statisticsDuration = duration(seconds, 'seconds')),
+})
+
+// Everything only an administrator may do, gathered behind the one entry that says so rather
+// than standing along the foot of the drawer beside what anyone can reach.
+const adminItems = $computed<DropdownMenuItem[][]>(() => [
+  [
+    { label: 'Users', icon: icons.user, to: '/users' },
+    { label: 'Groups', icon: icons.group, to: '/groups' },
+  ],
+  [{ label: 'Reload Configuration', icon: icons.configuration, onSelect: promptReload }],
+  // Standing apart from the rest, since becoming someone else changes what every other entry
+  // here would do.
+  ...(canImpersonate
+    ? [
+        [
+          {
+            label: 'Impersonate',
+            icon: icons.impersonate,
+            slot: 'impersonate',
+            onSelect: (event: Event) => {
+              // Held open, since choosing who to become happens after this menu would close.
+              event.preventDefault()
+              isChoosingIdentity = true
+            },
+          },
+        ],
+      ]
+    : []),
+])
+
+const developerItems = $computed<DropdownMenuItem[][]>(() => [
+  [
+    {
+      label: 'Clear Local Storage',
+      icon: icons.clearLocalStorage,
+      onSelect: clearLocalStorage,
+    },
+    {
+      label: 'Schema Form Playground',
+      icon: icons.json,
+      to: '/developer/schema-form-playground',
+    },
+  ],
+  [
+    { label: 'Base Components', icon: icons.baseComponents, to: '/developer/components' },
+    { label: 'Theme', icon: icons.palette, to: '/developer/theme' },
+  ],
+])
+
+function clearLocalStorage() {
+  dialogs
+    .show({
+      title: 'Clear Local Storage',
+      message:
+        'This will clear all saved UI state, form state and settings for this site from your ' +
+        'local browser.',
+      okLabel: 'Clear',
+    })
+    .onOk(() => {
+      window.localStorage.clear()
+      notify.success('Local storage cleared successfully.', { icon: icons.clearLocalStorage })
+    })
+}
+
+function promptReload() {
+  dialogs
+    .show({
+      title: 'Reload Engine Configuration',
+      message:
+        'Apply any new changes in the configuration file (ceres.yaml) to the running engine?',
+      okLabel: 'Yes',
+    })
+    .onOk(async () => {
+      await guard(engine.reload(), () => {
+        notify.error('Configuration reload failed.')
+      })
+
+      notify.success('Configuration reloaded successfully.')
+      await engine.auth.refresh()
+    })
+}
+
+// The engine decides whether impersonation exists at all, and only an administrator may do it.
+const canImpersonate = $computed(() => engine.auth.canImpersonate && engine.auth.isAdmin)
+
+let isChoosingIdentity = $ref(false)
+
+// Everything the console shows is filtered by who the caller is, so the access map, the workspace
+// list and the current page all have to be rebuilt around the new identity.
+async function adoptIdentity(change: Promise<unknown>) {
+  await guard(change, () => notify.error('Failed to change user.'))
+  await engine.access.refresh()
+  await engine.workspaces.refresh()
+  await navigation.enforceAccess(engine.auth.user)
+  navigation.reload()
+}
+
+async function impersonate(userId: string) {
+  isChoosingIdentity = false
+  await adoptIdentity(engine.auth.impersonate(userId))
+}
+
+async function stopImpersonating() {
+  await adoptIdentity(engine.auth.stopImpersonating())
+}
+
+const footerRowClass =
+  'hover:bg-elevated flex w-full cursor-pointer items-center gap-3 px-3 py-2 text-sm'
+</script>
+
+<template>
+  <!-- The drawer does not clip, since the resize handle sits on its right edge. The tree below
+  scrolls on its own. -->
+  <aside class="bg-default border-default flex flex-col border-r">
+    <!-- Drawn by the edge it sits on rather than by the handle, whose own line would stack
+    against that border in a color the theme does not decide. -->
+    <c-resize-handle
+      v-model="drawer.width"
+      class="absolute top-0 z-10"
+      direction="horizontal"
+      :max="600"
+      :min="250"
+      :style="{ left: `${drawer.width}px` }"
+      visibility="hidden"
+    />
+    <div class="grow overflow-y-auto">
+      <nuxt-link :class="[footerRowClass, 'py-3']" to="/">
+        <c-icon class="size-5" :name="icons.home" />
+        <span>Home</span>
+      </nuxt-link>
+      <template v-if="engine.auth.isViewer && engine.components.topLevel.length > 0">
+        <c-drawer-components-header
+          v-model:filter="componentFilter"
+          :count="matchingComponents"
+          :on-path="activeTopLevelIndex >= 0"
+        />
+        <c-drawer-component
+          v-for="(component, index) in engine.components.topLevel"
+          :key="component.address.toString()"
+          :active-after-me="activeTopLevelIndex > index"
+          :address="component.address"
+          :component
+          :filter="componentFilter"
+          :has-following-sibling="index < engine.components.topLevel.length - 1"
+        />
+      </template>
+    </div>
+
+    <c-separator />
+    <div class="flex-none">
+      <c-dropdown-menu
+        v-if="engine.auth.isAdmin"
+        :content="{ side: 'right', align: 'start' }"
+        :items="adminItems"
+      >
+        <div :class="footerRowClass">
+          <c-icon class="size-5" :name="icons.admin" />
+          <span class="grow text-left">Admin</span>
+          <c-icon class="size-5" :name="icons.menuRight" />
+        </div>
+        <template #impersonate>
+          <c-tooltip :content="{ side: 'right' }" text="Intended for development.">
+            <span class="grow text-left">Impersonate</span>
+          </c-tooltip>
+        </template>
+      </c-dropdown-menu>
+
+      <!-- Choosing who to become outlives the menu it is started from, so it stands on its own
+      rather than inside a panel that closes on the way to it. -->
+      <c-modal v-model:open="isChoosingIdentity" title="Impersonate">
+        <template #body>
+          <c-user-chooser
+            empty="No other users to impersonate."
+            :omit="(user: User) => user.id === engine.auth.user?.id"
+            @select="(user: User) => impersonate(user.id)"
+          />
+        </template>
+      </c-modal>
+
+      <c-popover :content="{ side: 'right', align: 'end' }" :ui="{ content: 'w-[350px]' }">
+        <div :class="footerRowClass">
+          <c-icon class="size-5" :name="icons.preferences" />
+          <span class="grow text-left">Preferences</span>
+          <c-icon class="size-5" :name="icons.menuRight" />
+        </div>
+        <template #content>
+          <div class="flex items-center justify-evenly gap-3 p-3">
+            <c-switch v-model="preferences.isDarkModeEnabled" label="Dark Mode" />
+            <c-switch
+              v-if="isDevelopment"
+              v-model="preferences.isDeveloperModeEnabled"
+              label="Developer Mode"
+            />
+          </div>
+          <c-separator />
+          <div class="p-3">
+            <c-form-field
+              description="The time over which statistics, like alert counts, are calculated."
+              label="Statistics Duration"
+            >
+              <c-select
+                v-model="statisticsSeconds"
+                class="w-full"
+                :items="statisticsDurationItems"
+              />
+            </c-form-field>
+          </div>
+        </template>
+      </c-popover>
+
+      <!-- Everything here is a development tool, which the engine warns should only be turned on
+      while developing. So the whole section follows the one switch that says whether these are
+      wanted, rather than a menu that stays put while emptying out. -->
+      <template v-if="isDeveloperMode">
+        <c-separator />
+        <c-dropdown-menu :content="{ side: 'right', align: 'end' }" :items="developerItems">
+          <div :class="footerRowClass">
+            <c-icon class="size-5" :name="icons.developer" />
+            <span class="grow text-left">Developer</span>
+            <c-icon class="size-5" :name="icons.menuRight" />
+          </div>
+        </c-dropdown-menu>
+      </template>
+
+      <!-- Impersonating is a state the whole console is in, so getting back out of it stays at the
+      top level rather than inside the menu that started it. -->
+      <template v-if="engine.auth.isImpersonating">
+        <c-separator />
+        <button :class="footerRowClass" @click="stopImpersonating">
+          <c-icon class="text-warning size-5" :name="icons.viewer" />
+          <span class="grow text-left">
+            Impersonating {{ engine.auth.user?.username }}
+            <c-text variant="description">Return to your own account.</c-text>
+          </span>
+        </button>
+      </template>
+
+      <c-separator />
+      <nuxt-link :class="footerRowClass" :to="engine.auth.user == null ? '/login' : '/account'">
+        <c-icon class="size-5" :name="icons.user" />
+        <span class="grow text-left">
+          {{ engine.auth.user != null ? engine.auth.user.username : 'Login' }}
+        </span>
+        <c-tooltip
+          v-if="engine.auth.user?.admin"
+          text="You are logged in with administrative access."
+        >
+          <c-badge color="primary" :icon="icons.admin" size="sm">Admin</c-badge>
+        </c-tooltip>
+      </nuxt-link>
+    </div>
+  </aside>
+</template>

@@ -1,21 +1,25 @@
-import path from 'path'
+import { fileURLToPath } from 'node:url'
 
-import Vue from '@vitejs/plugin-vue'
+import vue from '@vitejs/plugin-vue'
 import { defineConfig } from 'vitest/config'
 import VueMacros from 'vue-macros/vite'
 
-// Quasar owns the app's own Vite configuration, so the pieces the sources actually depend on are
-// named again here rather than reached for through it. Vue Macros is one of them, since the stores
-// and composables are written with the reactivity transform and do not parse without it.
 export default defineConfig({
-  plugins: [VueMacros({ plugins: { vue: Vue() } }) as never],
+  // The reactivity transform runs in tests too, so modules using $ref and $computed test as
+  // they ship.
+  plugins: [
+    VueMacros({
+      plugins: {
+        vue: vue(),
+      },
+    }),
+  ],
+  test: {
+    environment: 'happy-dom',
+  },
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src'),
+      '@': fileURLToPath(new URL('./app', import.meta.url)),
     },
-  },
-  test: {
-    include: ['src/**/*.test.ts'],
-    environment: 'happy-dom',
   },
 })
