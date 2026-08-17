@@ -92,7 +92,7 @@ const definition = $computed(() => (isBlock(item) ? null : getFilterDefinition(i
   <div
     v-else
     :class="[
-      'bg-elevated hover:bg-accented/60 relative flex min-h-4.5 shrink-0 cursor-grab',
+      'bg-elevated hover:bg-accented/60 relative flex min-h-4.5 shrink-0 cursor-default',
       'items-center gap-1 overflow-hidden rounded-md py-0 pr-0.5 pl-2.5 whitespace-nowrap',
       'select-none',
       selected && 'outline-[1.5px] outline-offset-0 outline-primary',

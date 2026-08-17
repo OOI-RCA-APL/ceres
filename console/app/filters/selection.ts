@@ -8,6 +8,7 @@ import {
   withoutItems,
 } from '@/filters/model'
 import type { FilterItem, FilterQuery } from '@/filters/model'
+import { deepClone } from '@/utilities'
 import type { SelectMode } from '@/workspace'
 
 /** The copied items, shared across every bar so a group pastes into another widget.
@@ -103,7 +104,7 @@ export function createFilterSelection(options: {
   function copySelected() {
     const items = selectedItems()
     if (items.length > 0) {
-      clipboard = { recordKind: options.recordKind(), items: structuredClone(items) }
+      clipboard = { recordKind: options.recordKind(), items: deepClone(items) }
     }
   }
 

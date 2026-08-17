@@ -208,6 +208,17 @@ function onChipClick(id: string, event: MouseEvent) {
   openBlockId = null
 
   selection.select(id, modeOf(event))
+
+  // Clicking a condition is reaching for its value, so the caret lands in it wherever on the chip
+  // the click fell. Extending a selection is not, several conditions having no one value to edit.
+  if (modeOf(event) === 'replace') {
+    const chip = event.currentTarget as HTMLElement | null
+    chip
+      ?.querySelector<HTMLElement>(
+        'input, textarea, select, [role="combobox"], [contenteditable="true"]',
+      )
+      ?.focus()
+  }
 }
 
 function onBarKeydown(event: KeyboardEvent) {
