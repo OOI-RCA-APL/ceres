@@ -208,15 +208,15 @@ const reorder = usePointerReorder({
 // as well so reading a slide's name and changing it are the same place rather than two.
 let namingDot = $ref<number | null>(null)
 
-function onDotClick(at: number) {
+function onDotClick(at: number, event: MouseEvent) {
   // A press that turned into a drag has already done what it was for.
   if (reorder.consumeClick()) {
     return
   }
 
-  // Pressing the dot of the slide already shown opens its name editor because turning to it
-  // would change nothing.
-  if (at === index) {
+  // Shift is how a name is reached, the same as it is on a tab. Without it a dot only ever turns
+  // the carousel.
+  if (event.shiftKey) {
     namingDot = at
     return
   }
@@ -380,6 +380,13 @@ watch(
 const menuItems = $computed<DropdownMenuItem[][]>(() => [
   [
     {
+      label: 'Rename Slide',
+      icon: icons.rename,
+      // Opened once the menu has gone, since the popup carrying the field reads the menu handing
+      // focus back to its own trigger as a click away.
+      onSelect: () => setTimeout(() => (namingDot = index), 150),
+    },
+    {
       label: 'Move Slide Earlier',
       icon: icons.menuLeft,
       disabled: index === 0,
@@ -535,7 +542,7 @@ async function focusSlideName() {
               :style="reorder.styleFor(at)"
               type="button"
               v-on="reorder.handlers(at)"
-              @click="onDotClick(at)"
+              @click="onDotClick(at, $event)"
             >
               <!-- How long is left of this slide, drawn as a ring closing around its dot. Keyed on
               the slide so the sweep starts over each time one is turned to, which is also when the
@@ -561,7 +568,7 @@ async function focusSlideName() {
               </svg>
             </button>
             <template #content>
-              <div data-slide-name>
+              <c-text class="block whitespace-nowrap" data-slide-name variant="th">
                 <c-inline-name-edit
                   :claim="false"
                   editing
@@ -569,7 +576,7 @@ async function focusSlideName() {
                   @rename="(value: string) => (current.name = value)"
                   @update:editing="(editing: boolean) => (namingDot = editing ? at : null)"
                 />
-              </div>
+              </c-text>
             </template>
           </c-popover>
           <c-tooltip text="Next">
