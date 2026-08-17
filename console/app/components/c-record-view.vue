@@ -7,6 +7,7 @@ import { nextTick, onMounted, reactive, watch, watchEffect } from 'vue'
 import { useEngine } from '@/api/engine'
 import type { Record } from '@/api/entity'
 import CFilterBar from '@/components/c-filter-bar.vue'
+import { recordRowHeight } from '@/components/c-record-view-record.vue'
 import { compileQuery, hasValue, seedQueryFromFilter } from '@/filters/compile'
 import { definitionsForColumn } from '@/filters/definitions'
 import type { RecordKind } from '@/filters/definitions'
@@ -134,7 +135,7 @@ const filterIsEmpty = $computed(() => widget.query.length === 0)
 
 const context = provideRecordViewContext()
 
-const recordHeight = 24
+const recordHeight = recordRowHeight
 const recordsVisible = $computed(() => Math.ceil(containerInfo.clientHeight / recordHeight))
 const recordLoadSize = $computed(() => Math.min(recordsVisible + 50, 1000))
 // Screenfuls kept drawn above and below the ones on screen. Nothing here is measured so a

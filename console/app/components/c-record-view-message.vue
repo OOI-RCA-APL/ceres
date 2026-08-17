@@ -24,14 +24,16 @@ const directionColor = $computed(() => {
         {{ message.connection ?? '' }}
       </span>
     </td>
-    <td class="w-0 min-w-17 text-center">
-      <c-badge
-        :color="directionColor"
-        :ui="{ base: 'font-mono text-[8px] px-1.5 py-0 min-w-9.5 justify-center rounded-full' }"
-        variant="solid"
-      >
-        {{ message.direction }}
-      </c-badge>
+    <td class="w-0 min-w-17">
+      <div class="justify-center">
+        <c-badge
+          :color="directionColor"
+          :ui="{ base: 'font-mono text-[8px] px-1.5 py-0 min-w-9.5 justify-center rounded-full' }"
+          variant="solid"
+        >
+          {{ message.direction }}
+        </c-badge>
+      </div>
     </td>
     <td>
       <c-data-content

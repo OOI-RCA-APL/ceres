@@ -29,11 +29,12 @@ function createRecordViewContext() {
   function updateColumnWidths() {
     if (referenceRecord == null) {
       columnWidths = []
-    } else {
-      columnWidths = Array.from(referenceRecord.querySelectorAll('td')).map(
-        (td) => td.getBoundingClientRect().width,
-      )
+      return
     }
+
+    columnWidths = Array.from(referenceRecord.querySelectorAll('td')).map(
+      (td) => td.getBoundingClientRect().width,
+    )
   }
 
   function updateObserver() {

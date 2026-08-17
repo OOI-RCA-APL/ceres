@@ -11,8 +11,10 @@ const renderedData = $computed(() => highlight(JSON.stringify(alert.data), 'json
 
 <template>
   <c-record-view-record :record="alert">
-    <td class="w-0 min-w-14 text-center">
-      <c-record-view-level-chip :level="alert.level" />
+    <td class="w-0 min-w-14">
+      <div class="justify-center">
+        <c-record-view-level-chip :level="alert.level" />
+      </div>
     </td>
     <td class="w-0 min-w-13">
       <div class="font-mono text-[9px] whitespace-nowrap">{{ alert.type }}</div>
