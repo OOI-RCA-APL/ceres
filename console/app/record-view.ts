@@ -4,6 +4,20 @@ import { recordViewContextInjectionKey } from '@/symbols'
 
 export type RecordViewContext = ReturnType<typeof createRecordViewContext>
 
+/** The hidden names in the order `columns` declares them.
+
+A workspace is compared structurally to tell an edited one from its original, and an array
+compares by position, so one set of hidden columns has to store one way however it was arrived at.
+Names no longer naming a column are dropped, nothing having drawn them since they stopped.
+*/
+export function orderedHiddenColumns(
+  columns: readonly { name: string }[],
+  hidden: Iterable<string>,
+): string[] {
+  const names = new Set(hidden)
+  return columns.filter((column) => names.has(column.name)).map((column) => column.name)
+}
+
 /** Column-width sync between a record view's fixed header and its scrolling rows, and which
 columns are drawn at all.
 

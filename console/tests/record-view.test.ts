@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { defineComponent, h, nextTick, onMounted, ref } from 'vue'
 
 import CRecordViewCell from '@/components/c-record-view-cell.vue'
-import { provideRecordViewContext, useRecordViewContext } from '@/record-view'
+import { orderedHiddenColumns, provideRecordViewContext, useRecordViewContext } from '@/record-view'
 import type { RecordViewContext } from '@/record-view'
 
 /** A row registering itself as the header's reference, which is how a record's own row behaves. */
@@ -35,6 +35,24 @@ function mountRow(hidden: ReturnType<typeof ref<string[]>>) {
   const wrapper = mount(host)
   return { wrapper, context: context! }
 }
+
+describe('hidden column ordering', () => {
+  const columns = [{ name: 'timestamp' }, { name: 'address' }, { name: 'level' }, { name: 'data' }]
+
+  it('stores one set of columns one way whatever order they were hidden in', () => {
+    expect(orderedHiddenColumns(columns, ['data', 'level'])).toEqual(['level', 'data'])
+    expect(orderedHiddenColumns(columns, ['level', 'data'])).toEqual(['level', 'data'])
+  })
+
+  it('drops a name that no longer names a column', () => {
+    expect(orderedHiddenColumns(columns, ['direction', 'level'])).toEqual(['level'])
+  })
+
+  it('leaves an already ordered set alone', () => {
+    expect(orderedHiddenColumns(columns, [])).toEqual([])
+    expect(orderedHiddenColumns(columns, ['timestamp', 'data'])).toEqual(['timestamp', 'data'])
+  })
+})
 
 describe('record view columns', () => {
   it('draws every cell while nothing is hidden', () => {

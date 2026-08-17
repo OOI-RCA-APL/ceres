@@ -13,7 +13,7 @@ import { definitionsForColumn } from '@/filters/definitions'
 import type { RecordKind } from '@/filters/definitions'
 import { flattenQuery, isBlock } from '@/filters/model'
 import icons from '@/icons'
-import { provideRecordViewContext } from '@/record-view'
+import { orderedHiddenColumns, provideRecordViewContext } from '@/record-view'
 import { createRecordFeed } from '@/records/feed'
 import { debouncedComputed } from '@/utilities'
 import { useWorkspace } from '@/workspace'
@@ -82,11 +82,13 @@ const hiddenColumns = $computed(() =>
 )
 
 function hideColumn(name: string) {
-  widget.hiddenColumns = [...widget.hiddenColumns, name]
+  widget.hiddenColumns = orderedHiddenColumns(columns, [...widget.hiddenColumns, name])
 }
 
 function showColumn(name: string) {
-  widget.hiddenColumns = widget.hiddenColumns.filter((hidden) => hidden !== name)
+  const hidden = new Set(widget.hiddenColumns)
+  hidden.delete(name)
+  widget.hiddenColumns = orderedHiddenColumns(columns, hidden)
 }
 
 const hiddenColumnItems = $computed<DropdownMenuItem[]>(() =>
