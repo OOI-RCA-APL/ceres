@@ -16,6 +16,8 @@ carries the strip along instead. */
   position: relative;
   height: 100%;
   border-radius: 4px 4px 0 0;
+  /* Filled, so an unselected tab still reads as a tab rather than as loose text on the bar. */
+  background-color: var(--ui-bg-elevated);
   opacity: 0.7;
   transition:
     background-color 0.2s,
@@ -26,7 +28,9 @@ carries the strip along instead. */
   user-select: none;
 }
 
-.tab:hover {
+/* Held off the selected tab, whose own fill says more than a hover can. */
+.tab:not(.activeTab):hover {
+  background-color: var(--ui-bg-accented);
   opacity: 1;
 }
 
