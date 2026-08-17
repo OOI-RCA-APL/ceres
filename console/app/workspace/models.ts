@@ -28,12 +28,19 @@ export const BaseWidgetModel = z.object({
 export type MessageDataDisplay = z.infer<typeof MessageDataDisplayModel>
 export const MessageDataDisplayModel = z.enum(['default', 'hex', 'binary']).catch('default')
 
+/** The columns a record view leaves out, named as the view's own column definitions name them. */
+const HiddenColumnsModel = z
+  .string()
+  .array()
+  .catch(() => [])
+
 export type MessagesWidget = z.infer<typeof MessagesWidgetModel>
 export const MessagesWidgetModel = BaseWidgetModel.extend({
   type: z.literal('messages'),
   name: z.string().catch('Messages'),
   filter: MessageFilterModel.catch(() => ({})),
   query: FilterQueryModel.catch(() => []),
+  hiddenColumns: HiddenColumnsModel,
   dataDisplay: MessageDataDisplayModel,
   commandAddress: AddressModel.nullish(),
   commandConnection: z.string().nullish(),
@@ -51,6 +58,7 @@ export const ParticlesWidgetModel = BaseWidgetModel.extend({
   name: z.string().catch('Particles'),
   filter: ParticleFilterModel.catch(() => ({})),
   query: FilterQueryModel.catch(() => []),
+  hiddenColumns: HiddenColumnsModel,
 })
 
 export type AlertsWidget = z.infer<typeof AlertsWidgetModel>
@@ -59,6 +67,7 @@ export const AlertsWidgetModel = BaseWidgetModel.extend({
   name: z.string().catch('Alerts'),
   filter: AlertFilterModel.catch(() => ({})),
   query: FilterQueryModel.catch(() => []),
+  hiddenColumns: HiddenColumnsModel,
 })
 
 export type LogsWidget = z.infer<typeof LogsWidgetModel>
@@ -67,6 +76,7 @@ export const LogsWidgetModel = BaseWidgetModel.extend({
   name: z.string().catch('Logs'),
   filter: LogEntryFilterModel.catch(() => ({})),
   query: FilterQueryModel.catch(() => []),
+  hiddenColumns: HiddenColumnsModel,
 })
 
 export type ProceduresWidget = z.infer<typeof ProceduresWidgetModel>

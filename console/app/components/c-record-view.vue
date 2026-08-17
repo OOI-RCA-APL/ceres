@@ -71,6 +71,32 @@ const columns = $computed(() => [
   ...appendedColumns,
 ])
 
+// Both read from the definitions rather than from the stored names, so a workspace holding a
+// column this view no longer defines neither counts towards the chip nor fills the menu with
+// an entry that would restore nothing.
+const visibleColumns = $computed(() =>
+  columns.filter((column) => !widget.hiddenColumns.includes(column.name)),
+)
+const hiddenColumns = $computed(() =>
+  columns.filter((column) => widget.hiddenColumns.includes(column.name)),
+)
+
+function hideColumn(name: string) {
+  widget.hiddenColumns = [...widget.hiddenColumns, name]
+}
+
+function showColumn(name: string) {
+  widget.hiddenColumns = widget.hiddenColumns.filter((hidden) => hidden !== name)
+}
+
+const hiddenColumnItems = $computed<DropdownMenuItem[]>(() =>
+  hiddenColumns.map((column) => ({
+    label: column.label,
+    icon: icons.view,
+    onSelect: () => showColumn(column.name),
+  })),
+)
+
 /** The bar's conditions, wherever they nest, for marking filtered columns. */
 const activeKinds = $computed(() => {
   const kinds = new Set<string>()
@@ -91,11 +117,20 @@ function columnIsFiltered(name: string): boolean {
 
 let filterBar = $ref<InstanceType<typeof CFilterBar> | null>(null)
 
-function columnMenuItems(name: string): DropdownMenuItem[] {
-  return definitionsForColumn(recordKind, name).map((definition) => ({
+function columnMenuItems(name: string): DropdownMenuItem[][] {
+  const filters = definitionsForColumn(recordKind, name).map((definition) => ({
     label: definition.label,
     onSelect: () => filterBar?.appendKind(definition.kind),
   }))
+
+  // The last column keeps no hide, a view drawn with no columns leaving nothing to bring one
+  // back from.
+  const hide =
+    visibleColumns.length > 1
+      ? [{ label: 'Hide', icon: icons.hide, onSelect: () => hideColumn(name) }]
+      : []
+
+  return [filters, hide].filter((group) => group.length > 0)
 }
 
 const get = $computed(() => {
@@ -133,7 +168,7 @@ watch(
 )
 const filterIsEmpty = $computed(() => widget.query.length === 0)
 
-const context = provideRecordViewContext()
+const context = provideRecordViewContext(() => widget.hiddenColumns)
 
 const recordHeight = recordRowHeight
 const recordsVisible = $computed(() => Math.ceil(containerInfo.clientHeight / recordHeight))
@@ -534,17 +569,17 @@ useStream(debouncedFilter as never, async (record: Record) => {
       :record-kind="recordKind"
     />
     <c-separator />
-    <div>
+    <div class="flex">
       <div
         :ref="(header) => (tableElement = (header as HTMLElement) ?? null)"
-        class="h-4.75 w-full overflow-hidden"
+        class="h-4.75 min-w-0 grow overflow-hidden"
         style="contain: size"
       >
         <div
           class="flex"
           :style="{ minWidth: `${context.headerWidth}px`, maxWidth: `${context.headerWidth}px` }"
         >
-          <template v-for="(column, i) in columns" :key="column.name">
+          <template v-for="(column, i) in visibleColumns" :key="column.name">
             <c-dropdown-menu :items="columnMenuItems(column.name)" size="sm">
               <button
                 :class="[
@@ -552,10 +587,10 @@ useStream(debouncedFilter as never, async (record: Record) => {
                   'border-r px-2 text-left text-[10px] last:border-r-0',
                   // The last column is given no width, so it takes what the sized ones leave
                   // and the header reaches as far as the rows under it.
-                  i === columns.length - 1 && 'grow',
+                  i === visibleColumns.length - 1 && 'grow',
                 ]"
                 :style="[
-                  i < columns.length - 1 ? { width: `${context.getColumnWidth(i)}px` } : {},
+                  i < visibleColumns.length - 1 ? { width: `${context.getColumnWidth(i)}px` } : {},
                   { minWidth: column.minWidth != null ? `${column.minWidth}px` : undefined },
                 ]"
                 type="button"
@@ -572,6 +607,20 @@ useStream(debouncedFilter as never, async (record: Record) => {
           </template>
         </div>
       </div>
+      <!-- Beside the header rather than over it, so the count stays put while the columns
+      scroll under it and needs no background of its own to stay readable. -->
+      <c-dropdown-menu v-if="hiddenColumns.length > 0" :items="hiddenColumnItems" size="sm">
+        <button
+          :class="[
+            'border-default text-muted hover:text-default flex h-4.75 shrink-0 cursor-pointer',
+            'items-center gap-1 border-l pr-1.5 pl-2 text-[10px] whitespace-nowrap',
+          ]"
+          type="button"
+        >
+          {{ hiddenColumns.length }} Hidden
+          <c-icon :name="icons.chevronDown" size="9.5" />
+        </button>
+      </c-dropdown-menu>
     </div>
     <c-separator />
     <div class="relative grow" style="contain: size">

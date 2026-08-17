@@ -8,13 +8,13 @@ const { entry } = defineProps<{
 
 <template>
   <c-record-view-record :record="entry">
-    <td class="w-0 min-w-14">
+    <c-record-view-cell class="w-0 min-w-14" name="level">
       <div class="justify-center">
         <c-record-view-level-chip :level="entry.level" />
       </div>
-    </td>
-    <td>
+    </c-record-view-cell>
+    <c-record-view-cell name="content">
       <c-data-content class="w-full font-mono text-[9px] whitespace-nowrap" :data="entry.content" />
-    </td>
+    </c-record-view-cell>
   </c-record-view-record>
 </template>

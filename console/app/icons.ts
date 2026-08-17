@@ -50,6 +50,7 @@ const icons = {
   group: 'i-mdi-account-group',
   groupWidgets: 'i-mdi-group',
   help: 'i-mdi-help',
+  hide: 'i-mdi-eye-off',
   home: 'i-mdi-home',
   import: 'i-mdi-upload',
   join: 'i-mdi-star-outline',

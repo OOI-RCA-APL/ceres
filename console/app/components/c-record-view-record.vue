@@ -40,14 +40,14 @@ onBeforeUnmount(() => {
 
 <template>
   <tr ref="element" :class="[$style.root, 'whitespace-nowrap']">
-    <td class="w-0 min-w-22">
+    <c-record-view-cell class="w-0 min-w-22" name="timestamp">
       <span class="font-mono text-[10px] whitespace-nowrap">
         {{ timestamp }}
       </span>
-    </td>
-    <td class="w-0 min-w-16">
+    </c-record-view-cell>
+    <c-record-view-cell class="w-0 min-w-16" name="address">
       <span class="font-mono text-[10px]">{{ record.address }}</span>
-    </td>
+    </c-record-view-cell>
     <slot />
   </tr>
 </template>

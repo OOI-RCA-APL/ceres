@@ -19,12 +19,12 @@ const directionColor = $computed(() => {
 
 <template>
   <c-record-view-record :record="message">
-    <td class="w-0 min-w-20">
+    <c-record-view-cell class="w-0 min-w-20" name="connection">
       <span class="font-mono text-[10px] whitespace-nowrap">
         {{ message.connection ?? '' }}
       </span>
-    </td>
-    <td class="w-0 min-w-17">
+    </c-record-view-cell>
+    <c-record-view-cell class="w-0 min-w-17" name="direction">
       <div class="justify-center">
         <c-badge
           :color="directionColor"
@@ -34,13 +34,13 @@ const directionColor = $computed(() => {
           {{ message.direction }}
         </c-badge>
       </div>
-    </td>
-    <td>
+    </c-record-view-cell>
+    <c-record-view-cell name="data">
       <c-data-content
         class="font-mono text-[9px] whitespace-nowrap"
         :data="message.data"
         :display="dataDisplay"
       />
-    </td>
+    </c-record-view-cell>
   </c-record-view-record>
 </template>

@@ -11,17 +11,17 @@ const renderedData = $computed(() => highlight(JSON.stringify(alert.data), 'json
 
 <template>
   <c-record-view-record :record="alert">
-    <td class="w-0 min-w-14">
+    <c-record-view-cell class="w-0 min-w-14" name="level">
       <div class="justify-center">
         <c-record-view-level-chip :level="alert.level" />
       </div>
-    </td>
-    <td class="w-0 min-w-13">
+    </c-record-view-cell>
+    <c-record-view-cell class="w-0 min-w-13" name="type">
       <div class="font-mono text-[9px] whitespace-nowrap">{{ alert.type }}</div>
-    </td>
-    <td>
+    </c-record-view-cell>
+    <c-record-view-cell name="data">
       <!-- eslint-disable-next-line vue/no-v-html -->
       <div class="font-mono text-[9px] whitespace-nowrap" v-html="renderedData" />
-    </td>
+    </c-record-view-cell>
   </c-record-view-record>
 </template>
