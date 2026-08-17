@@ -208,20 +208,30 @@ const reorder = usePointerReorder({
 // as well so reading a slide's name and changing it are the same place rather than two.
 let namingDot = $ref<number | null>(null)
 
-function onDotClick(at: number, event: MouseEvent) {
+/** Whether the name takes the caret as it opens. A rename asked for from the menu is meant to be
+typed into at once, while a dot press is only showing the name and waits to be clicked into. */
+let isClaimingName = $ref(false)
+
+function onDotClick(at: number) {
   // A press that turned into a drag has already done what it was for.
   if (reorder.consumeClick()) {
     return
   }
 
-  // Shift is how a name is reached, the same as it is on a tab. Without it a dot only ever turns
-  // the carousel.
-  if (event.shiftKey) {
+  // Pressing the dot of the slide already shown reads out its name, since turning to it would
+  // change nothing.
+  if (at === index) {
+    isClaimingName = false
     namingDot = at
     return
   }
 
   step(at - index)
+}
+
+function startNaming() {
+  isClaimingName = true
+  namingDot = index
 }
 
 // Slides are added, named and taken away on the carousel itself since a slide is a layout and a
@@ -384,7 +394,7 @@ const menuItems = $computed<DropdownMenuItem[][]>(() => [
       icon: icons.rename,
       // Opened once the menu has gone, since the popup carrying the field reads the menu handing
       // focus back to its own trigger as a click away.
-      onSelect: () => setTimeout(() => (namingDot = index), 150),
+      onSelect: () => setTimeout(startNaming, 150),
     },
     {
       label: 'Move Slide Earlier',
@@ -437,7 +447,13 @@ const menuItems = $computed<DropdownMenuItem[][]>(() => [
   ],
 ])
 
+// The field is already standing when the popup arrives, so it never sees the change that would
+// otherwise have it take the caret for itself.
 async function focusSlideName() {
+  if (!isClaimingName) {
+    return
+  }
+
   await nextTick()
   document.querySelector<HTMLInputElement>('[data-slide-name] input')?.focus()
 }
@@ -520,9 +536,14 @@ async function focusSlideName() {
           </c-tooltip>
           <!-- The name, and the field for it, are the same thing, opened from the dot of the
           slide already showing since turning to it would change nothing. -->
+          <!-- A popup takes the caret as it opens, which would put a pressed dot straight into
+          renaming the slide it only meant to name. Held off unless the rename was asked for. -->
           <c-popover
             v-for="(current, at) in widget.slides"
             :key="current.id"
+            :content="{
+              onOpenAutoFocus: (event: Event) => !isClaimingName && event.preventDefault(),
+            }"
             :open="namingDot === at && !reorder.isDragging && workspace.drag == null"
             :ui="{ content: 'p-1' }"
             @after:enter="focusSlideName()"
@@ -542,7 +563,7 @@ async function focusSlideName() {
               :style="reorder.styleFor(at)"
               type="button"
               v-on="reorder.handlers(at)"
-              @click="onDotClick(at, $event)"
+              @click="onDotClick(at)"
             >
               <!-- How long is left of this slide, drawn as a ring closing around its dot. Keyed on
               the slide so the sweep starts over each time one is turned to, which is also when the
@@ -570,7 +591,7 @@ async function focusSlideName() {
             <template #content>
               <c-text class="block whitespace-nowrap" data-slide-name variant="th">
                 <c-inline-name-edit
-                  :claim="false"
+                  :claim="isClaimingName"
                   editing
                   :name="current.name !== '' ? current.name : `Slide ${at + 1}`"
                   @rename="(value: string) => (current.name = value)"
