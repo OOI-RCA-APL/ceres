@@ -537,15 +537,12 @@ function menuItems(
                 v-bind="group.canReorder ? group.reorder.handlers(index) : {}"
                 @click="open(workspace, group.reorder)"
               >
-                <!-- A grip appears at the row's leading edge on hover so a draggable row says so
-                without spending a column on a handle that is idle the rest of the time. The whole
-                row is still the drag target, and the grip is the hint. -->
-                <span v-if="group.canReorder" :class="$style.grip">
-                  <c-icon :name="icons.dragVertical" size="17" />
-                </span>
+                <!-- The row's leading edge carries the grab cursor, which is all a draggable row
+                needs to say so. The whole row is the drag target, so this is a hint, not a
+                handle. -->
+                <span v-if="group.canReorder" :class="$style.grip" />
                 <c-icon
-                  class="shrink-0 transition-opacity"
-                  :class="group.canReorder && $style.rowIcon"
+                  class="shrink-0"
                   :name="workspace.owner_id != null ? icons.privateWorkspace : icons.workspace"
                   size="18"
                 />
@@ -604,7 +601,7 @@ function menuItems(
 
     <div v-if="collapsible" class="rounded-md border border-default">
       <button
-        class="flex w-full items-center gap-1 px-3 py-1.5 text-left"
+        class="flex w-full items-center gap-1 px-3 py-1 text-left"
         type="button"
         @click="expanded = !expanded"
       >
@@ -637,30 +634,17 @@ function menuItems(
   touch-action: none;
 }
 
-/* The grip takes the workspace icon's own place, trading a column that would stand empty whenever
-nothing is being dragged for one the row already spends. Zero opacity still receives the pointer,
-carrying the cursor before the grip fades in. */
+/* Laid over the workspace icon's own column, which the row already spends, so the cursor changes
+where a hand would reach for the row without a handle taking any space. */
 .grip {
   position: absolute;
   top: 50%;
   left: 8px;
   z-index: 1;
-  display: flex;
-  align-items: center;
   width: 24px;
+  height: 100%;
   cursor: grab;
-  opacity: 0;
   transform: translateY(-50%);
-  transition: opacity 0.15s;
-}
-
-.row:hover .grip {
-  opacity: 0.7;
-}
-
-/* Out of the way of the grip that replaces it, rather than sitting beside it. */
-.row:hover .rowIcon {
-  opacity: 0;
 }
 
 /* While a drag is in progress the list must not clip the lifted row, and hover highlighting on

@@ -15,9 +15,11 @@ export type TextVariant =
   | 'mono-xs'
 
 export const variantClasses: Record<TextVariant, string> = {
-  title1: 'text-[22px] font-light leading-normal',
-  title2: 'text-base font-light leading-normal',
-  title3: 'text-sm font-light leading-normal',
+  // A two point step between them, close enough that a heading reads as one rank above the body
+  // text under it rather than as a banner over it.
+  title1: 'text-[19px] font-light leading-normal',
+  title2: 'text-[15px] font-light leading-normal',
+  title3: 'text-[13px] font-light leading-normal',
   body1: 'text-base font-normal leading-6 tracking-[0.03125em]',
   body2: 'text-sm font-normal leading-6 tracking-[0.03125em]',
   body3: 'text-xs font-normal leading-5 tracking-[0.03125em]',

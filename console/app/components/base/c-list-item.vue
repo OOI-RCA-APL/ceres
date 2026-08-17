@@ -30,7 +30,7 @@ const isButton = $computed(() => element === 'button')
 <template>
   <component
     :is="element"
-    class="flex items-center gap-2 px-3 py-1.5"
+    class="flex items-center gap-2 px-3 py-1"
     :class="
       element !== 'div' && 'hover:bg-elevated w-full cursor-pointer text-left disabled:opacity-50'
     "

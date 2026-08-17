@@ -13,7 +13,7 @@ caller can stack several inside one frame. -->
 <template>
   <div class="flex min-h-0 flex-col">
     <button
-      class="hover:bg-elevated flex w-full flex-none items-center gap-1 px-3 py-1.5 text-left"
+      class="hover:bg-elevated flex w-full flex-none items-center gap-1 px-3 py-1 text-left"
       type="button"
       @click="expanded = !expanded"
     >
