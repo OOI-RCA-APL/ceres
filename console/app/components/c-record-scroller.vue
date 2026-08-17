@@ -23,12 +23,13 @@ const {
   overscan?: number
 }>()
 
-let table = $ref<HTMLTableElement | null>(null)
+let viewportElement = $ref<HTMLElement | null>(null)
+let laneElement = $ref<HTMLElement | null>(null)
 let start = $ref(0)
 let viewport = $ref(0)
 
-/** The scrolling element, the table itself. */
-const scroller = $computed<HTMLElement | null>(() => table)
+/** The element the rows scroll in, which is the vertical axis alone. */
+const scroller = $computed<HTMLElement | null>(() => viewportElement)
 
 function onScroll() {
   const box = scroller
@@ -138,44 +139,59 @@ function scrollTo(index: number) {
 /** Nothing is measured so there is nothing to measure again. Kept for the callers that ask. */
 function refresh() {}
 
-defineExpose({ scrollTo, moveTo, refresh, element: $$(scroller) })
+defineExpose({ scrollTo, moveTo, refresh, element: $$(scroller), lane: $$(laneElement) })
 </script>
 
 <template>
-  <table ref="table" :class="$style.root" @scroll.passive="onScroll">
-    <tbody>
-      <tr>
-        <td :colspan="columns" :style="{ height: `${above}px`, padding: 0 }" />
-      </tr>
-    </tbody>
-    <tbody ref="content">
-      <template v-for="(item, offset) in shown" :key="keyFor(item, from + offset)">
-        <slot :index="from + offset" :item="item" />
-      </template>
-    </tbody>
-    <tbody>
-      <tr>
-        <td :colspan="columns" :style="{ height: `${below}px`, padding: 0 }" />
-      </tr>
-    </tbody>
-  </table>
+  <div ref="viewportElement" :class="$style.root" @scroll.passive="onScroll">
+    <!-- The columns scroll inside here and the rows scroll outside it, so the box carrying the
+    vertical bar never overflows sideways and never gives up its corner to a horizontal one. -->
+    <div ref="laneElement" :class="$style.lane">
+      <table :class="$style.table">
+        <tbody>
+          <tr>
+            <td :colspan="columns" :style="{ height: `${above}px`, padding: 0 }" />
+          </tr>
+        </tbody>
+        <tbody ref="content">
+          <template v-for="(item, offset) in shown" :key="keyFor(item, from + offset)">
+            <slot :index="from + offset" :item="item" />
+          </template>
+        </tbody>
+        <tbody>
+          <tr>
+            <td :colspan="columns" :style="{ height: `${below}px`, padding: 0 }" />
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
 </template>
 
 <style module>
 .root {
-  display: block;
-  overflow: auto;
-  border-collapse: separate;
-  border-spacing: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
-/* Each band lays itself out, since the anonymous table a scrolling block would otherwise wrap them
-in shrinks to its content and leaves the last column short of the edge. Wide rows still overflow
-and scroll, `max-content` winning over the floor. */
-.root > tbody {
-  display: table;
+/* The bar is hidden here rather than on the box above, which would take the vertical one with it.
+Nothing is lost, this box carrying no vertical bar of its own. */
+.lane {
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.lane::-webkit-scrollbar {
+  display: none;
+}
+
+/* At least as wide as the room it has, so the last column reaches the edge, and wider than that
+whenever the columns ask for it. */
+.table {
   width: max-content;
   min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
 }
 
 /* The browser must not anchor the scroll against anything in here. Chrome holds the content

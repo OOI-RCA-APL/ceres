@@ -234,6 +234,7 @@ let scroll = $shallowRef<{
   refresh: () => void
 } | null>(null)
 let scrollElement = $shallowRef<HTMLElement | null>(null)
+let laneElement = $shallowRef<HTMLElement | null>(null)
 
 let tableElement = $ref<HTMLElement | null>(null)
 watchEffect(() => {
@@ -301,14 +302,19 @@ const containerInfo = reactive({
   clientWidth: 0,
 })
 
+// The rows scroll in one box and the columns in another, so each axis is read from the box that
+// owns it.
 function updateContainerInfo() {
   if (scrollElement != null) {
     containerInfo.scrollHeight = scrollElement.scrollHeight
-    containerInfo.scrollWidth = scrollElement.scrollWidth
     containerInfo.scrollTop = scrollElement.scrollTop
-    containerInfo.scrollLeft = scrollElement.scrollLeft
     containerInfo.clientHeight = scrollElement.clientHeight
-    containerInfo.clientWidth = scrollElement.clientWidth
+  }
+
+  if (laneElement != null) {
+    containerInfo.scrollWidth = laneElement.scrollWidth
+    containerInfo.scrollLeft = laneElement.scrollLeft
+    containerInfo.clientWidth = laneElement.clientWidth
   }
 }
 
@@ -420,12 +426,19 @@ function placePreviousOnceStill() {
   }, stillnessBeforeLoading)
 }
 
+// Both boxes are listened to, the rows scrolling in one and the columns in the other, and the
+// header follows the second of them.
 watchEffect((onCleanup) => {
-  const element = scrollElement
-  element?.addEventListener('scroll', onScroll, { passive: true })
+  const boxes = [scrollElement, laneElement]
+  for (const box of boxes) {
+    box?.addEventListener('scroll', onScroll, { passive: true })
+  }
+
   void onScroll()
   onCleanup(() => {
-    element?.removeEventListener('scroll', onScroll)
+    for (const box of boxes) {
+      box?.removeEventListener('scroll', onScroll)
+    }
   })
 })
 
@@ -645,7 +658,13 @@ useStream(debouncedFilter as never, async (record: Record) => {
           :style="{ minWidth: `${context.headerWidth}px`, maxWidth: `${context.headerWidth}px` }"
         >
           <template v-for="(column, i) in visibleColumns" :key="column.name">
-            <c-dropdown-menu :items="columnMenuItems(column.name)" size="sm">
+            <!-- Hung off the column's leading edge rather than centred on it, a wide column
+            otherwise putting its menu far from the header that opened it. -->
+            <c-dropdown-menu
+              :content="{ align: 'start', alignOffset: 6, side: 'bottom', sideOffset: 6 }"
+              :items="columnMenuItems(column.name)"
+              size="sm"
+            >
               <button
                 :class="[
                   'group border-default flex h-4.75 cursor-pointer items-center',
@@ -708,6 +727,7 @@ useStream(debouncedFilter as never, async (record: Record) => {
           (instance: any) => {
             scroll = instance
             scrollElement = instance?.element ?? null
+            laneElement = instance?.lane ?? null
           }
         "
         class="h-full w-full transition-opacity duration-250"
