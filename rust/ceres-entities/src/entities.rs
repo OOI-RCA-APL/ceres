@@ -83,17 +83,23 @@ pub struct User {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Filterable)]
 pub struct Variable {
     pub address: Address,
+    /// Name of the variable, unique per owning address.
     pub name: String,
+    /// Arbitrary JSON-serializable value stored for this variable.
     pub value: Value,
 }
 
 /// A named value owned by a user.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Filterable)]
 pub struct Setting {
+    /// Identifier of the user that owns this setting.
     pub user_id: Uuid,
+    /// Name of the setting, unique per user.
     pub name: String,
-    /// A setting's value is stored like a variable's but is not filterable, the Python
-    /// filter exposing only the owner and the name.
+    /// Arbitrary JSON-serializable value stored for this setting.
+    ///
+    /// It is stored like a variable's value but is not filterable, the Python filter
+    /// exposing only the owner and the name.
     #[filterable(skip)]
     pub value: Value,
 }

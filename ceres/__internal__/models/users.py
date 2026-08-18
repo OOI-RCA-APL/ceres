@@ -20,7 +20,7 @@ from ceres.data import (
 )
 
 if TYPE_CHECKING:
-    # The filter names it only as a forward reference.
+    # The filters name them only as forward references.
     from ceres.user import User  # noqa: F401
 
 __all__ = [

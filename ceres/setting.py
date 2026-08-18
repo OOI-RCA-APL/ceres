@@ -1,10 +1,6 @@
-from typing import TYPE_CHECKING, ClassVar, Literal, TypedDict, Unpack, override
-from uuid import UUID
+from typing import TYPE_CHECKING, ClassVar, Unpack, override
 
 from ceres.__internal__.entity import (
-    BaseEntityCreate,
-    BaseEntityFilter,
-    BaseEntityFilterArgs,
     BaseEntityManager,
     BaseEntityQuery,
     ConcreteEntity,
@@ -12,9 +8,18 @@ from ceres.__internal__.entity import (
     EntityQuery,
 )
 from ceres.__internal__.manager import BaseNodeManager
-from ceres.data import FromYAML, JSONSerializable, MaybeSequence
+from ceres.__internal__.models.settings import (
+    SettingCreate,
+    SettingField,
+    SettingFilter,
+    SettingFilterArgs,
+    SettingOrder,
+    SettingUpdate,
+)
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from ceres.__internal__.protocols import DatabaseSource, NodeSource
 
 __all__ = [
@@ -28,74 +33,6 @@ __all__ = [
     "SettingManager",
     "BoundSettingManager",
 ]
-
-
-type SettingField = Literal[
-    "user_id",
-    "user_id:asc",
-    "user_id:desc",
-    "name",
-    "value",
-]
-"""Field names selectable in `Setting` queries."""
-
-type SettingOrder = Literal[
-    "user_id",
-    "user_id:asc",
-    "user_id:desc",
-    "name",
-    "name:asc",
-    "name:desc",
-    "value",
-    "value:asc",
-    "value:desc",
-]
-"""Ordering keys accepted by `Setting` queries."""
-
-
-class SettingFilterArgs(BaseEntityFilterArgs[SettingField, SettingOrder], total=False):
-    """Keyword-argument form of `SettingFilter` for ergonomic call sites."""
-
-    user_id: MaybeSequence[UUID] | None
-    name: MaybeSequence[str] | None
-    name_contains: MaybeSequence[str] | None
-    name_prefix: MaybeSequence[str] | None
-    name_suffix: MaybeSequence[str] | None
-
-
-class SettingFilter(BaseEntityFilter["Setting", SettingField, SettingOrder]):
-    """Filter for selecting `Setting` records by owning user or name."""
-
-    __table__: ClassVar[str] = "settings"
-
-    user_id: MaybeSequence[UUID] | None = None
-    """Filter by `user_id` being equal to one or more given UUIDs."""
-    name: MaybeSequence[str] | None = None
-    """Filter by `name` being equal to one or more given names."""
-    name_contains: MaybeSequence[str] | None = None
-    """Filter by `name` containing one or more given substrings."""
-    name_prefix: MaybeSequence[str] | None = None
-    """Filter by `name` starting with one or more given prefixes."""
-    name_suffix: MaybeSequence[str] | None = None
-    """Filter by `name` ending with one or more given suffixes."""
-
-
-class SettingCreate(BaseEntityCreate, slots=True):
-    """Payload for creating a new `Setting` record."""
-
-    user_id: UUID
-    """Identifier of the user that owns this setting."""
-    name: str
-    """Name of the setting, unique per user."""
-    value: FromYAML[JSONSerializable]
-    """Arbitrary JSON-serializable value stored for this setting."""
-
-
-class SettingUpdate(TypedDict, total=False):
-    """Partial update for an existing `Setting` record."""
-
-    name: str
-    value: FromYAML[JSONSerializable]
 
 
 class _BaseSettingQuery(
