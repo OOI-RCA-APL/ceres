@@ -123,15 +123,6 @@ jobs:
         with:
           workspaces: rust
           key: ${{ matrix.target }}
-      - name: Install Node
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: console/.nvmrc
-      # The bundle is a build artifact rather than a committed file, so every wheel builds
-      # its own before maturin packs `ceres/static/console` into it.
-      - name: Build the Console
-        shell: bash
-        run: cd console && npm ci && npm run build
       - name: Create Wheel Data Directory
         shell: bash
         run: mkdir -p ceres.__internal__.core.data/scripts
