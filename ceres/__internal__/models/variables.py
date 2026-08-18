@@ -107,3 +107,8 @@ class VariableUpdate(TypedDict, total=False):
 
     name: str
     value: FromYAML[JSONSerializable]
+
+
+# Present the models as part of the public module that re-exports them.
+for _model in (VariableCreate, VariableFilter, VariableFilterArgs, VariableUpdate):
+    _model.__module__ = "ceres.variable"

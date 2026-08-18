@@ -379,11 +379,31 @@ def header(module: Module, body: str) -> list[str]:
     return lines
 
 
+def footer(module: Module) -> list[str]:
+    """Reassign the models to the public module, which re-exports them.
+
+    Reprs, pickling, and rendered documentation then name the public path rather than
+    this package. The `type` aliases stay put, `TypeAliasType.__module__` is read-only.
+    """
+    models = ", ".join(
+        f"{entity.name}{suffix}"
+        for entity in module.entities
+        for suffix in ("Create", "Filter", "FilterArgs", "Update")
+    )
+    return [
+        "",
+        "",
+        "# Present the models as part of the public module that re-exports them.",
+        f"for _model in ({models}):",
+        f'    _model.__module__ = "{module.source}"',
+    ]
+
+
 def render_module(module: Module, tables: dict[str, dict[str, Any]]) -> str:
     bodies = [render_entity(tables[entity.table], entity) for entity in module.entities]
     body = "\n\n\n".join("\n".join(lines).rstrip() for lines in bodies)
     text = "\n".join(header(module, body)) + "\n" + body
-    return text.rstrip() + "\n"
+    return text.rstrip() + "\n" + "\n".join(footer(module)) + "\n"
 
 
 def main() -> int:

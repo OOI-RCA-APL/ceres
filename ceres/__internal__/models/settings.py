@@ -94,3 +94,8 @@ class SettingUpdate(TypedDict, total=False):
 
     name: str
     value: FromYAML[JSONSerializable]
+
+
+# Present the models as part of the public module that re-exports them.
+for _model in (SettingCreate, SettingFilter, SettingFilterArgs, SettingUpdate):
+    _model.__module__ = "ceres.setting"

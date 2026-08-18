@@ -129,3 +129,8 @@ class UserUpdate(TypedDict, total=False):
     password: Password | PasswordHash
     admin: bool
     disabled: bool
+
+
+# Present the models as part of the public module that re-exports them.
+for _model in (UserCreate, UserFilter, UserFilterArgs, UserUpdate):
+    _model.__module__ = "ceres.user"
