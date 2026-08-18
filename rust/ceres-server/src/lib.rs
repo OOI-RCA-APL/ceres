@@ -138,6 +138,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_unbuilt_console_names_its_own_fix() {
+        // An empty directory, as a source checkout has before anything builds the bundle.
+        let directory = tempfile::tempdir().unwrap();
+        let app = build_router(AppConfig {
+            console: Some(ConsolePaths {
+                directory: directory.path().to_path_buf(),
+                favicon_ico: directory.path().join("favicon.ico"),
+                favicon_png: directory.path().join("favicon.png"),
+                favicon_svg: directory.path().join("favicon.svg"),
+            }),
+            cli_token: None,
+            auth: None,
+            host: std::sync::Arc::new(NoHost),
+            version: "0.0.0".to_string(),
+        });
+
+        let response = assert_response!(request!(app.clone(), get "/"), SERVICE_UNAVAILABLE);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        assert!(body.as_ref().windows(12).any(|w| w == b"make console"));
+
+        // The API stays available, an unbuilt console being a front-end absence alone.
+        assert_response!(request!(app, get "/api/alive"), OK, b"");
+    }
+
+    #[tokio::test]
     async fn favicons_serve_with_their_media_types() {
         let directory = tempfile::tempdir().unwrap();
         let app = web_app(directory.path());

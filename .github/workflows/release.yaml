@@ -47,13 +47,36 @@ jobs:
     needs: version
     uses: ./.github/workflows/ci.yaml
 
+  # The console bundle is untracked, so every artifact below takes it from here rather
+  # than from the checkout. Built once and shared, because the bundler splits chunks
+  # differently per platform and one bundle per release keeps every wheel identical.
+  console:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.TAG }}
+      - name: Install Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: console/.nvmrc
+      - name: Build the Console
+        run: cd console && npm ci && npm run build
+      - name: Upload the Console
+        uses: actions/upload-artifact@v4
+        with:
+          name: console
+          path: ceres/static/console
+
   # One job per platform, each emitting wheels for every interpreter. The native CLI
   # binary builds as an artifact dependency of the extension, compiled for the same
   # target inside the same cargo invocation, and `ceres-core`'s build script stages it
   # into the wheel data directory. The directory is created up front because maturin
   # only honors it when it exists before the build starts.
   build:
-    needs: check
+    needs: [check, console]
     strategy:
       fail-fast: false
       matrix:
@@ -76,6 +99,12 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ env.TAG }}
+      # The wheel serves these, and the checkout carries none, the bundle being untracked.
+      - name: Download the Console
+        uses: actions/download-artifact@v4
+        with:
+          name: console
+          path: ceres/static/console
       # Installed one at a time so each reports where it landed. Windows has no
       # `python3.14t` on the path, only `python.exe`, so a version selector there resolves
       # to whichever install came last and both wheels build against the same interpreter.
@@ -94,6 +123,15 @@ jobs:
         with:
           workspaces: rust
           key: ${{ matrix.target }}
+      - name: Install Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: console/.nvmrc
+      # The bundle is a build artifact rather than a committed file, so every wheel builds
+      # its own before maturin packs `ceres/static/console` into it.
+      - name: Build the Console
+        shell: bash
+        run: cd console && npm ci && npm run build
       - name: Create Wheel Data Directory
         shell: bash
         run: mkdir -p ceres.__internal__.core.data/scripts
@@ -148,13 +186,20 @@ jobs:
   # Building from it compiles the extension but stages no CLI binary, so those installs
   # use `python -m ceres`.
   sdist:
-    needs: check
+    needs: [check, console]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
           ref: ${{ env.TAG }}
+      # The sdist carries the bundle prebuilt, so a source install needs no Node at all,
+      # and taking the same one the wheels take keeps every artifact's console identical.
+      - name: Download the Console
+        uses: actions/download-artifact@v4
+        with:
+          name: console
+          path: ceres/static/console
       # The marker rides in the sdist so extracting it creates the wheel data directory,
       # which maturin requires to exist before a build starts. The extension's build
       # script replaces it with the CLI binary.

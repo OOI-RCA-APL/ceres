@@ -52,10 +52,18 @@ pub struct ConsolePaths {
     pub favicon_svg: PathBuf,
 }
 
+/// The page served in place of a console whose assets are absent.
+///
+/// The bundle is a build artifact rather than a committed file, so a source checkout has
+/// none until something builds one, and a blank 404 there reads as a broken server.
+const UNBUILT_PAGE: &str = include_str!("unbuilt.html");
+
 /// The console, its file service and favicons prepared once.
 struct Console {
     /// The static file service, the index answering for the single-page app's routes.
     files: ServeDir<ServeFile>,
+    /// Whether the index existed at startup, deciding between files and [`UNBUILT_PAGE`].
+    built: bool,
     /// Favicon bytes by suffix, `None` when a file was unreadable at startup.
     ico: Option<Bytes>,
     png: Option<Bytes>,
@@ -69,6 +77,7 @@ impl Console {
             ico: read(&paths.favicon_ico),
             png: read(&paths.favicon_png),
             svg: read(&paths.favicon_svg),
+            built: paths.directory.join("index.html").is_file(),
             files: ServeDir::new(&paths.directory)
                 .fallback(ServeFile::new(paths.directory.join("index.html"))),
         }
@@ -354,6 +363,17 @@ async fn serve_console(State(state): State<Arc<AppState>>, request: Request) -> 
         .console
         .as_ref()
         .expect("the console fallback only routes when console paths exist");
+
+    // Unavailable rather than a blank 404, so a missing bundle names its own fix and
+    // nothing caches the page as the console.
+    if !console.built {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+            UNBUILT_PAGE,
+        )
+            .into_response();
+    }
 
     match console.files.clone().oneshot(request).await {
         Ok(response) if response.status().is_success() || response.status().is_redirection() => {

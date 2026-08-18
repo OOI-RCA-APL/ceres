@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ceres</title>
+    <style>
+      body {
+        display: grid;
+        place-items: center;
+        min-height: 100vh;
+        margin: 0;
+        font-family: system-ui, sans-serif;
+        background: #fafafa;
+        color: #1a1a1a;
+      }
+      main {
+        max-width: 26rem;
+        padding: 2rem;
+        text-align: center;
+      }
+      h1 {
+        font-size: 1.25rem;
+      }
+      p {
+        line-height: 1.5;
+        color: #555555;
+      }
+      code {
+        padding: 0.15rem 0.4rem;
+        border-radius: 0.25rem;
+        background: #ebebeb;
+        color: #1a1a1a;
+      }
+      @media (prefers-color-scheme: dark) {
+        body {
+          background: #111111;
+          color: #ededed;
+        }
+        p {
+          color: #a3a3a3;
+        }
+        code {
+          background: #262626;
+          color: #ededed;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>The web console is not built</h1>
+      <p>
+        The engine is running and its API is available, but no console bundle was found. In
+        a Ceres source checkout, run <code>make console</code> and reload this page.
+      </p>
+    </main>
+  </body>
+</html>

@@ -40,3 +40,7 @@ yarn-error.log*
 
 # Examples
 /examples/**/local/
+
+# The console bundle is a build artifact. It is built on Linux in the release workflow
+# and injected into the wheel, rather than committed from whichever machine built it last.
+ceres/static/console/

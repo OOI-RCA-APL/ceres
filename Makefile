@@ -19,11 +19,16 @@ build: install console
 # in a temporary directory, sharing no compiled artifacts with the install above.
 	uv build --sdist
 	uv build --wheel
-install:
+install: | ceres/static/console
 	uv sync
 	cd console && make install
 	cd rust && cargo build $(CARGO_PROFILE) -p ceres-cli
 	ln -sf ../../rust/target/$(CARGO_OUTPUT)/ceres .venv/bin/ceres
+# The bundle is a build artifact rather than a committed file, so a fresh clone has none
+# until something builds one. An order-only prerequisite, so a bundle already there is left
+# alone and only its absence costs a build.
+ceres/static/console:
+	cd console && npm install && npm run build
 update:
 	uv update
 	cd console && make update
@@ -55,15 +60,6 @@ reference-check:
 # builds rather than reinstalling them once per target that wants a bundle.
 console:
 	cd console && npm run build
-# The bundle ships in the wheel exactly as committed, so a frontend change that was never
-# rebuilt releases a stale console. Compared rather than fingerprinted, a hash admitting
-# the false pass where it is regenerated without the bundle.
-console-check: console
-	@if [ -n "$$(git status --porcelain -- ceres/static/console)" ]; then \
-		echo "The committed console bundle differs from a fresh build. Run make console."; \
-		git status --porcelain -- ceres/static/console; \
-		exit 1; \
-	fi
 release:
 	uv run ./scripts/release.py
 release-check:

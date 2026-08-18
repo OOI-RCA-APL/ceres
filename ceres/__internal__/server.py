@@ -117,6 +117,14 @@ class Server(Tasklet):
 
         if self._config.port is not None:
             console = CONSOLE
+            # The bundle is a build artifact, so a source checkout has none until something
+            # builds one. The server stands a placeholder page in for it either way.
+            if not (console / "index.html").is_file():
+                self._engine.log.warning(
+                    "The web console is not built. A placeholder web page will be shown instead. "
+                    "Run `make console` in the Ceres checkout to build it."
+                )
+
             self._native_web = NativeServer.web(
                 host,
                 self._config,

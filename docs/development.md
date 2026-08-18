@@ -55,6 +55,7 @@ This guide covers setting up a development environment for working on Ceres itse
 | `make fix`           | Auto-fix lint issues and reformat code.                          |
 | `make coverage`      | Regenerate the coverage tables and badges.                       |
 | `make coverage-check` | Verify the recorded coverage still matches the sources.         |
+| `make console`       | Rebuild the web console bundle the engine serves.                |
 | `make build`         | Build the Python package and console.                            |
 | `make release`       | Cut a release from the changelog.                                |
 | `make build-docs`    | Build documentation with mkdocs.                                 |
@@ -96,7 +97,7 @@ ceres/
     ceres-config/           # Project configuration parsing.
     ceres-macros/           # Procedural macros for the native crates.
     ceres-stubs/            # Stub generator for core.pyi.
-  console/                  # Vue 3 + Quasar web console (TypeScript).
+  console/                  # Nuxt web console (Vue 3, TypeScript).
   docs/                     # mkdocs documentation (this site).
   examples/                 # Example projects.
   tests/                    # Test suite.
@@ -130,7 +131,30 @@ environment through the interpreter beside it, `VIRTUAL_ENV`, or `CERES_PYTHON`.
 
 ### Console
 
-The web console is a separate Vue 3 / TypeScript / Quasar application in the `console/` directory. It has its own `Makefile` and build process. `make install` and `make build` at the project root handle both Python and console dependencies.
+The web console is a [Nuxt](https://nuxt.com) application (Vue 3, TypeScript, Nuxt UI,
+Pinia, Tailwind) in the `console/` directory, with its own `Makefile` for installing,
+linting, and testing.
+
+The engine serves the console from `ceres/static/console`, which is a build artifact
+rather than a committed file: the bundler splits chunks differently per platform, so the
+release workflow builds the bundle on each wheel's own platform instead of shipping
+whichever machine built it last. `make install` builds one only when the directory is
+missing, so a fresh clone works and an existing bundle is never rebuilt behind you.
+Rebuild deliberately after console changes with:
+
+```sh
+make console
+```
+
+For interactive console work, skip the bundle entirely and run a project with the dev
+server, which rebuilds as you edit and serves in place of the built-in console:
+
+```sh
+ceres run all --development-source /path/to/ceres
+```
+
+The flag exists only in source checkouts. `--development-console-port` serves the dev
+console on its own port instead, leaving the built-in one where it is.
 
 ## Testing
 

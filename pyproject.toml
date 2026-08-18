@@ -85,6 +85,9 @@ features = ["extension-module"]
 # Data files the package reads at runtime, which are not Python and so are not picked up
 # by following the module tree. Migrations are the one that fails only once installed.
 #
+# The console bundle is untracked, being a build artifact, so it rides on this entry alone
+# and carries into the sdist too, keeping a source install's console prebuilt.
+#
 # The sdist entries make source installs equivalent to our own builds. The toolchain and
 # cargo config files pin the nightly and enable the unstable features the build relies on
 # (`bindeps`, `build-dir`) along with the SQLite math functions and the macOS linker
@@ -93,7 +96,7 @@ features = ["extension-module"]
 # script removes it while staging the CLI binary in its place.
 include = [
     { path = "ceres/py.typed", format = "wheel" },
-    { path = "ceres/static/**/*", format = "wheel" },
+    { path = "ceres/static/**/*", format = ["sdist", "wheel"] },
     { path = "ceres/database/migrations/*.sql", format = "wheel" },
     { path = "rust-toolchain.toml", format = "sdist" },
     { path = ".cargo/config.toml", format = "sdist" },
