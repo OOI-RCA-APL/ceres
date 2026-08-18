@@ -102,7 +102,7 @@ def assign_addresses(config: Config, console_port: int | None) -> DevelopmentAdd
 
 @contextlib.asynccontextmanager
 async def console_dev_server(
-    source: Path | None, addresses: DevelopmentAddresses
+    source: Path | None, addresses: DevelopmentAddresses | None
 ) -> AsyncIterator[None]:
     """Run the console's dev server alongside the engine for as long as the engine runs.
 
@@ -111,7 +111,7 @@ async def console_dev_server(
 
     Args:
         source: Root of the Ceres source tree, or None to run nothing.
-        addresses: Where the engine and the dev console each listen.
+        addresses: Where the engine and the dev console each listen, present when `source` is.
 
     Yields:
         None, once the dev server has been spawned.
@@ -123,6 +123,8 @@ async def console_dev_server(
     if source is None:
         yield
         return
+
+    assert addresses is not None
 
     # Imported here rather than at module scope, nothing outside this development-only path
     # needing it, and the CLI pays for every import on every invocation.

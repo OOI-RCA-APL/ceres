@@ -366,8 +366,11 @@ async def _run(
                 )
 
             # Decided before the engine starts, since moving it aside means rewriting the
-            # server section it is about to bind from.
-            development_addresses = assign_addresses(engine.config, development_console_port)
+            # server section it is about to bind from. Only a development console may move
+            # the engine, an ordinary run binds the configured port untouched.
+            development_addresses = None
+            if development_source is not None:
+                development_addresses = assign_addresses(engine.config, development_console_port)
 
             exiting = AsyncEvent()
 
