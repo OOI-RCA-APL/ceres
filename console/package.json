@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "nuxi dev",
     "build": "nuxi generate",
-    "postbuild": "node scripts/normalize-build.mjs && rm -rf ../ceres/static/console && cp -R .output/public ../ceres/static/console",
+    "postbuild": "node scripts/normalize-build.mjs && mkdir -p ../ceres/static && rm -rf ../ceres/static/console && cp -R .output/public ../ceres/static/console",
     "serve": "nuxi preview",
     "postinstall": "nuxi prepare",
     "lint": "nuxi typecheck && eslint . && prettier --check .",
