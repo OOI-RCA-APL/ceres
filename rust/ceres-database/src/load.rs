@@ -442,27 +442,43 @@ impl EntityTable {
         })
     }
 
-    /// The value an absent entity field takes, `None` for one its create model
+    /// The declared default of an absent entity field, `None` for one its create model
     /// requires.
     ///
     /// A variable's value is required and may still be null so an absent one cannot
     /// read as a null the way a record's optional column does.
-    pub(crate) fn default_value(self, key: &str) -> Option<Value> {
+    pub(crate) fn column_default(self, key: &str) -> Option<ColumnDefault> {
         match (self, key) {
-            (Self::Workspaces, "id") => Some(uuid::Uuid::now_v7().to_string().into()),
-            (Self::Workspaces, "scope") => Some("~".into()),
-            (Self::Workspaces, "owner_id") => Some(Value::Null),
-            (Self::Workspaces, "show_when_logged_out") => Some(false.into()),
-            (Self::Workspaces, "data") => Some(Value::Object(Map::new())),
-            (Self::Users, "id") => Some(uuid::Uuid::now_v7().to_string().into()),
-            (Self::Users, "admin" | "disabled") => Some(false.into()),
-            (Self::Groups, "id") => Some(uuid::Uuid::now_v7().to_string().into()),
-            (Self::Groups, "description") => Some("".into()),
+            (Self::Workspaces | Self::Users | Self::Groups, "id") => {
+                Some(ColumnDefault::GeneratedUuid)
+            }
+            (Self::Workspaces, "scope") => Some(ColumnDefault::Literal("~".into())),
+            (Self::Workspaces, "owner_id") => Some(ColumnDefault::Literal(Value::Null)),
+            (Self::Workspaces, "show_when_logged_out") => {
+                Some(ColumnDefault::Literal(false.into()))
+            }
+            (Self::Workspaces, "data") => Some(ColumnDefault::Literal(Value::Object(Map::new()))),
+            (Self::Users, "admin" | "disabled") => Some(ColumnDefault::Literal(false.into())),
+            (Self::Groups, "description") => Some(ColumnDefault::Literal("".into())),
             // A permission and a membership name every one of their columns, and an
             // edit carries the draft it exists to hold so none of them default.
             _ => None,
         }
     }
+
+    /// The value an absent entity field takes at build time.
+    pub(crate) fn default_value(self, key: &str) -> Option<Value> {
+        Some(match self.column_default(key)? {
+            ColumnDefault::GeneratedUuid => uuid::Uuid::now_v7().to_string().into(),
+            ColumnDefault::Literal(value) => value,
+        })
+    }
+}
+
+/// How an absent create column fills, a fresh value or a fixed one.
+pub(crate) enum ColumnDefault {
+    GeneratedUuid,
+    Literal(Value),
 }
 
 /// Deserialize rows into their model, the failure naming the field and reason.

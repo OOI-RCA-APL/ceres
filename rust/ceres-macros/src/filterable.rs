@@ -68,11 +68,18 @@ pub fn expand_filterable(input: DeriveInput) -> syn::Result<TokenStream> {
                 marked(field, "insensitive"),
             )
         };
+        let doc = doc_text(field);
+        let python = match python_override(field)? {
+            Some(spelling) => quote! { Some(#spelling) },
+            None => quote! { None },
+        };
         let column = quote! {
             ceres_entities::FilterField {
                 key: #key,
                 family: #entry,
                 operations: &[#(#operations),*],
+                doc: #doc,
+                python: #python,
             }
         };
         columns.push(column.clone());
@@ -82,11 +89,13 @@ pub fn expand_filterable(input: DeriveInput) -> syn::Result<TokenStream> {
         }
     }
 
+    let struct_doc = struct_doc_text(&input);
     Ok(quote! {
         impl ceres_entities::Filterable for #name {
             const FIELDS: &'static [ceres_entities::FilterField] = &[#(#entries),*];
             const COLUMNS: &'static [ceres_entities::FilterField] = &[#(#columns),*];
             const WIRE_KEYS: &'static [&'static str] = &[#(#wire_keys),*];
+            const DOC: &'static str = #struct_doc;
         }
     })
 }
@@ -257,6 +266,12 @@ fn marked(field: &syn::Field, name: &str) -> bool {
                 found = true;
             }
 
+            // A name-value entry like `python = "..."` consumes its value so the scan
+            // reaches the markers after it.
+            if meta.input.peek(syn::Token![=]) {
+                let _: syn::Expr = meta.value()?.parse()?;
+            }
+
             Ok(())
         });
         if found {
@@ -265,6 +280,70 @@ fn marked(field: &syn::Field, name: &str) -> bool {
     }
 
     false
+}
+
+/// The struct's doc comment, joined and trimmed, empty when there is none.
+fn struct_doc_text(input: &DeriveInput) -> String {
+    let mut lines = Vec::new();
+    for attribute in &input.attrs {
+        if !attribute.path().is_ident("doc") {
+            continue;
+        }
+
+        if let syn::Meta::NameValue(pair) = &attribute.meta
+            && let syn::Expr::Lit(literal) = &pair.value
+            && let syn::Lit::Str(text) = &literal.lit
+        {
+            lines.push(text.value().trim().to_string());
+        }
+    }
+
+    lines.join("\n")
+}
+
+/// The field's doc comment, joined and trimmed, empty when there is none.
+fn doc_text(field: &syn::Field) -> String {
+    let mut lines = Vec::new();
+    for attribute in &field.attrs {
+        if !attribute.path().is_ident("doc") {
+            continue;
+        }
+
+        if let syn::Meta::NameValue(pair) = &attribute.meta
+            && let syn::Expr::Lit(literal) = &pair.value
+            && let syn::Lit::Str(text) = &literal.lit
+        {
+            lines.push(text.value().trim().to_string());
+        }
+    }
+
+    lines.join("\n")
+}
+
+/// The `#[filterable(python = "...")]` spelling on a field, when present.
+fn python_override(field: &syn::Field) -> syn::Result<Option<String>> {
+    for attribute in &field.attrs {
+        if !attribute.path().is_ident("filterable") {
+            continue;
+        }
+
+        let mut spelling = None;
+        attribute.parse_nested_meta(|meta| {
+            if meta.path.is_ident("python") {
+                let value: LitStr = meta.value()?.parse()?;
+                spelling = Some(value.value());
+            } else if meta.input.peek(syn::Token![=]) {
+                let _: syn::Expr = meta.value()?.parse()?;
+            }
+
+            Ok(())
+        })?;
+        if spelling.is_some() {
+            return Ok(spelling);
+        }
+    }
+
+    Ok(None)
 }
 
 /// The `#[serde(rename = "...")]` value on a field, when present.

@@ -9,6 +9,7 @@
 
 mod backend;
 mod credentials;
+pub mod describe;
 mod dynamic;
 mod entities;
 mod filter;

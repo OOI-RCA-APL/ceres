@@ -29,6 +29,11 @@ pub struct FilterField {
     /// names them bare (`contains` on a log's content and a message's data), which the
     /// entity marks with `#[filterable(bare_operations)]`.
     pub operations: &'static [FieldOperation],
+    /// The field's doc comment, which generated Python models carry as docstrings.
+    pub doc: &'static str,
+    /// The Python type spelling when the family's default mapping is too coarse,
+    /// declared as `#[filterable(python = "...")]` on the field.
+    pub python: Option<&'static str>,
 }
 
 /// One operation filter on a field, its wire key and what it matches.
@@ -127,6 +132,9 @@ pub trait Filterable {
     /// what the filter families cannot type. A particle's `span` is the one field the
     /// entities carry that way.
     const WIRE_KEYS: &'static [&'static str];
+    /// The struct's own doc comment, which generated Python models carry as the class
+    /// docstring.
+    const DOC: &'static str;
 }
 
 /// A type with a closed set of admissible wire values.

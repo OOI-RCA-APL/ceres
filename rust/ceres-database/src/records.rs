@@ -94,6 +94,12 @@ impl RecordTable {
             fixed: &["id"],
             order: &["timestamp"],
             computed: &[],
+            doc: match self {
+                Self::Messages => Message::DOC,
+                Self::Particles => Particle::DOC,
+                Self::Alerts => Alert::DOC,
+                Self::Logs => LogEntry::DOC,
+            },
         }
     }
 
@@ -155,6 +161,9 @@ pub struct Schema {
     pub order: &'static [&'static str],
     /// Filter keys that match a shape of a column rather than its value.
     pub computed: &'static [Computed],
+    /// The entity struct's doc comment, which generated Python models carry as the
+    /// class docstring.
+    pub doc: &'static str,
 }
 
 /// One filter key with no column of its own, matching a shape of one instead.

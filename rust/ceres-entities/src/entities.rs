@@ -69,7 +69,7 @@ pub struct User {
     /// The CLI prints it since an operator running these commands already holds the
     /// database credentials and the value is a hash rather than a recoverable secret.
     /// It is not filterable, and the Python filter does not expose it either.
-    #[filterable(skip)]
+    #[filterable(skip, python = "Password | PasswordHash")]
     pub password: String,
     pub admin: bool,
     pub disabled: bool,
@@ -287,6 +287,24 @@ mod tests {
             keys::<Workspace>(),
             vec!["id", "name", "scope", "owner_id", "show_when_logged_out"]
         );
+    }
+
+    #[test]
+    fn columns_carry_their_docs_and_python_overrides() {
+        // The generated Python models take their docstrings and refined types from
+        // here, so an empty doc or a dropped override breaks model generation quietly.
+        let password = User::COLUMNS
+            .iter()
+            .find(|field| field.key == "password")
+            .expect("the password column exists");
+        assert_eq!(password.python, Some("Password | PasswordHash"));
+        assert!(password.doc.starts_with("The Argon2 hash"));
+
+        let admin = User::COLUMNS
+            .iter()
+            .find(|field| field.key == "admin")
+            .expect("the admin column exists");
+        assert_eq!(admin.python, None);
     }
 
     #[test]
