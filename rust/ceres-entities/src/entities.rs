@@ -54,24 +54,28 @@ pub enum GrantLevel {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Filterable)]
 pub struct User {
     pub id: Uuid,
+    /// Unique name identifying the user in the system.
+    #[filterable(python = "Username")]
     pub username: String,
-    /// The account's email address, whose operations fold case the way the Python
-    /// filter's do.
+    /// Email address associated with the user.
     ///
-    /// Equality normalizes first because the Python model types the field as a
-    /// validated address and so compares a normalized value against a normalized column.
-    /// An address outside the subset the normalizer understands delegates rather than
-    /// comparing unnormalized.
+    /// Its operations fold case the way the Python filter's do. Equality normalizes
+    /// first because the Python model types the field as a validated address and so
+    /// compares a normalized value against a normalized column. An address outside the
+    /// subset the normalizer understands delegates rather than comparing unnormalized.
     #[filterable(email, insensitive)]
     pub email: String,
-    /// The Argon2 hash of the account's password.
+    /// Plaintext password or pre-computed hash, plaintext values are hashed on create.
     ///
-    /// The CLI prints it since an operator running these commands already holds the
-    /// database credentials and the value is a hash rather than a recoverable secret.
-    /// It is not filterable, and the Python filter does not expose it either.
+    /// The stored value is always the Argon2 hash. The CLI prints it since an operator
+    /// running these commands already holds the database credentials and the value is a
+    /// hash rather than a recoverable secret. It is not filterable, and the Python
+    /// filter does not expose it either.
     #[filterable(skip, python = "Password | PasswordHash")]
     pub password: String,
+    /// Whether the user has administrative access to all components and workspaces.
     pub admin: bool,
+    /// Whether the user account is disabled and unable to authenticate.
     pub disabled: bool,
 }
 
@@ -298,13 +302,14 @@ mod tests {
             .find(|field| field.key == "password")
             .expect("the password column exists");
         assert_eq!(password.python, Some("Password | PasswordHash"));
-        assert!(password.doc.starts_with("The Argon2 hash"));
+        assert!(password.doc.starts_with("Plaintext password or pre-computed hash"));
 
         let admin = User::COLUMNS
             .iter()
             .find(|field| field.key == "admin")
             .expect("the admin column exists");
         assert_eq!(admin.python, None);
+        assert!(admin.doc.starts_with("Whether the user has administrative access"));
     }
 
     #[test]

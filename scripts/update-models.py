@@ -10,9 +10,12 @@ fails when a rendered module no longer matches what the code says.
 """
 
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
+
+# ruff: disable[T201] # Allow print statements.
 
 MODELS = Path("ceres/__internal__/models")
 """Where the generated modules live."""
@@ -55,9 +58,9 @@ REFINEMENT_IMPORTS = {
 """Where each refinement name imports from, for the module header."""
 
 # Rendered per-table configuration the dump does not carry: the Python entity name and
-# the base family its key selects.
+# the module declaring the entity class the filter's forward reference names.
 NAMES = {
-    "users": "User",
+    "users": ("User", "ceres.user"),
 }
 
 
@@ -93,6 +96,18 @@ def filter_annotation(field: dict[str, Any]) -> str:
     return FILTER_TYPES[field["family"]["name"]]
 
 
+def filter_doc(field: dict[str, Any]) -> str:
+    """The docstring of a filter equality field, phrased per family."""
+    key = field["key"]
+    family = field["family"]["name"]
+    if family == "boolean":
+        return f"Filter by `{key}` being either `True` or `False`."
+
+    nouns = {"email": "email addresses", "uuid": "IDs"}
+    noun = nouns.get(family, f"{key}s")
+    return f"Filter by `{key}` being equal to one or more given {noun}."
+
+
 def create_annotation(field: dict[str, Any]) -> str:
     if field["python"]:
         return field["python"]
@@ -100,49 +115,79 @@ def create_annotation(field: dict[str, Any]) -> str:
     return CREATE_TYPES[field["family"]["name"]]
 
 
+ENTITY_BASES = [
+    f"Base{family}Entity{suffix}"
+    for family in ("UUID", "Address", "")
+    for suffix in ("Create", "Field", "Filter", "FilterArgs", "Order")
+]
+"""Base names importable from `ceres.__internal__.entity`, matched against the body."""
+
+
+def header(name: str, table_name: str, module: str, body: str) -> list[str]:
+    """The module docstring and imports, derived from what the body references."""
+
+    def used(symbol: str) -> bool:
+        return re.search(rf"\b{symbol}\b", body) is not None
+
+    typing = [symbol for symbol in ("Any", "ClassVar", "Literal", "TypedDict") if used(symbol)]
+    entity = sorted(base for base in ENTITY_BASES if used(base))
+    data = sorted(
+        symbol
+        for symbol, source in REFINEMENT_IMPORTS.items()
+        if source == "ceres.data" and used(symbol)
+    )
+
+    lines = [
+        BANNER,
+        "",
+        f'"""Generated models for the `{table_name}` table."""',
+        "",
+        f"from typing import TYPE_CHECKING, {', '.join(typing)}",
+    ]
+    if used("UUID"):
+        lines.append("from uuid import UUID")
+    lines.append("")
+    lines.append("from ceres.__internal__.entity import (")
+    lines.extend(f"    {symbol}," for symbol in entity)
+    lines.append(")")
+    if data:
+        lines.append("from ceres.data import (")
+        lines.extend(f"    {symbol}," for symbol in data)
+        lines.append(")")
+    if used("Address"):
+        lines.append("from ceres.address import Address")
+    lines.extend(
+        [
+            "",
+            "if TYPE_CHECKING:",
+            "    # The filter names it only as a forward reference.",
+            f"    from {module} import {name}  # noqa: F401",
+            "",
+            "__all__ = [",
+            f'    "{name}Create",',
+            f'    "{name}Field",',
+            f'    "{name}Filter",',
+            f'    "{name}FilterArgs",',
+            f'    "{name}Order",',
+            f'    "{name}Update",',
+            "]",
+            "",
+            "",
+        ]
+    )
+    return lines
+
+
 def render_users(table: dict[str, Any]) -> str:
     """Render the users module, the proving ground for the generator."""
-    name = NAMES[table["name"]]
+    name, module = NAMES[table["name"]]
     base_keys = {"id"}
     fields = [field for field in table["fields"] if field["key"] not in base_keys]
     columns = [column for column in table["columns"] if column["key"] not in base_keys]
     fixed = set(table["fixed"])
     defaults = table["defaults"]
 
-    lines: list[str] = [
-        BANNER,
-        "",
-        f'"""Generated models for the `{table["name"]}` table."""',
-        "",
-        "from typing import Any, Literal, TypedDict",
-        "from uuid import UUID",
-        "",
-        "from ceres.__internal__.entity import (",
-        "    BaseUUIDEntityCreate,",
-        "    BaseUUIDEntityField,",
-        "    BaseUUIDEntityFilter,",
-        "    BaseUUIDEntityFilterArgs,",
-        "    BaseUUIDEntityOrder,",
-        ")",
-        "from ceres.data import (",
-        "    EmailAddress,",
-        "    MaybeSequence,",
-        "    Password,",
-        "    PasswordHash,",
-        "    Username,",
-        ")",
-        "",
-        "__all__ = [",
-        f'    "{name}Create",',
-        f'    "{name}Field",',
-        f'    "{name}Filter",',
-        f'    "{name}FilterArgs",',
-        f'    "{name}Order",',
-        f'    "{name}Update",',
-        "]",
-        "",
-        "",
-    ]
+    lines: list[str] = []
 
     # Field and order literals.
     lines.append(f"type {name}Field = (")
@@ -195,9 +240,7 @@ def render_users(table: dict[str, Any]) -> str:
     for field in fields:
         key = field["key"]
         lines.append(f"    {key}: {filter_annotation(field)} = None")
-        lines.extend(
-            docstring(field_doc(field, f"Filter by `{key}`."), "    "),
-        )
+        lines.extend(docstring(filter_doc(field), "    "))
         for operation in field["operations"]:
             lines.append(f"    {operation['key']}: MaybeSequence[str] | None = None")
             lines.extend(
@@ -232,13 +275,8 @@ def render_users(table: dict[str, Any]) -> str:
         lines.append(f"    {column['key']}: {create_annotation(column)}")
     lines.append("")
 
-    text = "\n".join(lines)
-    if "ClassVar" in text:
-        text = text.replace(
-            "from typing import Any, Literal, TypedDict",
-            "from typing import Any, ClassVar, Literal, TypedDict",
-        )
-
+    body = "\n".join(lines)
+    text = "\n".join(header(name, table["name"], module, body)) + "\n" + body
     return text.rstrip() + "\n"
 
 

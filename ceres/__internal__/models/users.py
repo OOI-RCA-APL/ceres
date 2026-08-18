@@ -2,8 +2,7 @@
 
 """Generated models for the `users` table."""
 
-from typing import Any, ClassVar, Literal, TypedDict
-from uuid import UUID
+from typing import TYPE_CHECKING, ClassVar, Literal, TypedDict
 
 from ceres.__internal__.entity import (
     BaseUUIDEntityCreate,
@@ -19,6 +18,10 @@ from ceres.data import (
     PasswordHash,
     Username,
 )
+
+if TYPE_CHECKING:
+    # The filter names it only as a forward reference.
+    from ceres.user import User  # noqa: F401
 
 __all__ = [
     "UserCreate",
@@ -82,7 +85,7 @@ class UserFilter(BaseUUIDEntityFilter["User", UserField, UserOrder]):
     __table__: ClassVar[str] = "users"
 
     username: MaybeSequence[str] | None = None
-    """Filter by `username`."""
+    """Filter by `username` being equal to one or more given usernames."""
     username_contains: MaybeSequence[str] | None = None
     """Filter by `username` containing one or more given substrings."""
     username_prefix: MaybeSequence[str] | None = None
@@ -90,7 +93,7 @@ class UserFilter(BaseUUIDEntityFilter["User", UserField, UserOrder]):
     username_suffix: MaybeSequence[str] | None = None
     """Filter by `username` ending with one or more given suffixes."""
     email: MaybeSequence[EmailAddress] | None = None
-    """The account's email address, whose operations fold case the way the Python filter's do."""
+    """Filter by `email` being equal to one or more given email addresses."""
     email_contains: MaybeSequence[str] | None = None
     """Filter by `email` containing one or more given substrings."""
     email_prefix: MaybeSequence[str] | None = None
@@ -98,30 +101,30 @@ class UserFilter(BaseUUIDEntityFilter["User", UserField, UserOrder]):
     email_suffix: MaybeSequence[str] | None = None
     """Filter by `email` ending with one or more given suffixes."""
     admin: bool | None = None
-    """Filter by `admin`."""
+    """Filter by `admin` being either `True` or `False`."""
     disabled: bool | None = None
-    """Filter by `disabled`."""
+    """Filter by `disabled` being either `True` or `False`."""
 
 
 class UserCreate(BaseUUIDEntityCreate, slots=True):
     """Payload for creating a new `User` record."""
 
-    username: str
-    """The username of the user."""
+    username: Username
+    """Unique name identifying the user in the system."""
     email: EmailAddress
-    """The account's email address, whose operations fold case the way the Python filter's do."""
+    """Email address associated with the user."""
     password: Password | PasswordHash
-    """The Argon2 hash of the account's password."""
+    """Plaintext password or pre-computed hash, plaintext values are hashed on create."""
     admin: bool = False
-    """The admin of the user."""
+    """Whether the user has administrative access to all components and workspaces."""
     disabled: bool = False
-    """The disabled of the user."""
+    """Whether the user account is disabled and unable to authenticate."""
 
 
 class UserUpdate(TypedDict, total=False):
     """Partial update for an existing `User` record."""
 
-    username: str
+    username: Username
     email: EmailAddress
     password: Password | PasswordHash
     admin: bool
