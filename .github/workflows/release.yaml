@@ -223,9 +223,12 @@ jobs:
         with:
           ref: ${{ env.TAG }}
       - uses: astral-sh/setup-uv@v5
+      # Named rather than taking everything, the console bundle riding alongside the
+      # distributions as an artifact of its own and belonging in neither destination.
       - name: Download Artifacts
         uses: actions/download-artifact@v4
         with:
+          pattern: "{wheels-*,sdist}"
           path: dist
           merge-multiple: true
       - name: Build the Alias Wheel
@@ -243,9 +246,12 @@ jobs:
       # Trusted publishing exchanges this token with PyPI, so no long-lived secret exists.
       id-token: write
     steps:
+      # Named rather than taking everything, the console bundle riding alongside the
+      # distributions as an artifact of its own and belonging in neither destination.
       - name: Download Artifacts
         uses: actions/download-artifact@v4
         with:
+          pattern: "{wheels-*,sdist}"
           path: dist
           merge-multiple: true
       - name: Publish to PyPI
