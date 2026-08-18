@@ -58,6 +58,7 @@ This guide covers setting up a development environment for working on Ceres itse
 | `make console`       | Rebuild the web console bundle the engine serves.                |
 | `make build`         | Build the Python package and console.                            |
 | `make release`       | Cut a release from the changelog.                                |
+| `make release-check` | Preview everything a release would do, without releasing.        |
 | `make build-docs`    | Build documentation with mkdocs.                                 |
 
 ## Code Style
@@ -136,11 +137,12 @@ Pinia, Tailwind) in the `console/` directory, with its own `Makefile` for instal
 linting, and testing.
 
 The engine serves the console from `ceres/static/console`, which is a build artifact
-rather than a committed file: the bundler splits chunks differently per platform, so the
-release workflow builds the bundle on each wheel's own platform instead of shipping
-whichever machine built it last. `make install` builds one only when the directory is
-missing, so a fresh clone works and an existing bundle is never rebuilt behind you.
-Rebuild deliberately after console changes with:
+rather than a committed file. The release workflow builds the bundle once and injects
+that one copy into every wheel and the sdist, so every artifact serves an identical
+console. `make install` builds one only when the directory is missing, so a fresh clone
+works and an existing bundle is never rebuilt behind you. A checkout without a bundle
+still runs, serving a placeholder page that names the fix. Rebuild deliberately after
+console changes with:
 
 ```sh
 make console
