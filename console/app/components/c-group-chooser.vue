@@ -1,4 +1,6 @@
 <script lang="ts">
+// The blocks concatenate for linting, so this import cannot sort against the setup block's.
+// eslint-disable-next-line imports/order
 import type { Group } from '@/api/groups'
 
 /** Whether `group` answers `search`, matched against its name and its description.

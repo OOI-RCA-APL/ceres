@@ -38,6 +38,13 @@ export default withNuxt([
       // A component with a plain script block for named exports and a setup block for the rest
       // reads as exports-before-imports once the blocks are concatenated.
       'import/first': 'off',
+      // Prettier keeps attribute values on one line, so a long class list cannot be wrapped
+      // and only the Vue-aware rule knows to exempt it.
+      'max-len': 'off',
+      'vue/max-len': [
+        'warn',
+        { code: 100, tabWidth: 2, ignoreStrings: true, ignoreHTMLAttributeValues: true },
+      ],
     },
   },
 ])

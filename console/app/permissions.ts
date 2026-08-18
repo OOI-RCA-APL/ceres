@@ -80,9 +80,9 @@ export function resolveEffectiveAccess(
           groupId: (entry?.origin === 'group' ? entry.group_id : null) ?? null,
         }
       })
-      // Compared directly rather than with localeCompare, which orders case-insensitively and folds
-      // punctuation away. Addresses are machine tokens, and the engine orders them by code point, so
-      // anything else here would show them in a different order than they were returned in.
+      // Compared directly rather than with localeCompare, which orders case-insensitively and
+      // folds punctuation away. Addresses are machine tokens ordered by code point in the
+      // engine, so anything else here would disagree with the order they were returned in.
       .sort((first, second) =>
         first.address < second.address ? -1 : first.address > second.address ? 1 : 0,
       )

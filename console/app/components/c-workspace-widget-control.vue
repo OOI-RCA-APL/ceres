@@ -474,7 +474,7 @@ const tooltip = $computed(() => {
       <pre
         v-if="confirmingArguments != null"
         class="m-0 mt-2 max-h-60 overflow-auto text-[12px] leading-normal"
-      ><!-- eslint-disable-next-line vue/no-v-html --><code v-html="confirmingArguments" /></pre>
+      ><!-- eslint-disable-line vue/no-v-html --><code v-html="confirmingArguments" /></pre>
     </template>
     <template #footer>
       <div class="grid w-full grid-cols-2 gap-2">

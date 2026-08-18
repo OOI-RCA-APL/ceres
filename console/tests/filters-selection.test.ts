@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 
+import type { RecordKind } from '@/filters/definitions'
 import { createCondition, isBlock } from '@/filters/model'
 import type { FilterQuery } from '@/filters/model'
-import type { RecordKind } from '@/filters/definitions'
 import { createFilterSelection } from '@/filters/selection'
 import type { FilterSelection } from '@/filters/selection'
 

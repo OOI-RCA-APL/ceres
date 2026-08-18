@@ -45,7 +45,7 @@ export type WorkspaceDialogProps =
     }
 
 const {
-  workspaceId = null,
+  workspaceId,
   data = null,
   action,
   scope = null,
@@ -66,7 +66,7 @@ const validate = useValidate()
 const key = Math.random()
 const query = reactive(
   useQuery({
-    queryKey: computed(() => ['workspace-dialog', workspaceId, auth.user?.id, key]),
+    queryKey: computed(() => ['workspace-dialog', workspaceId ?? null, auth.user?.id, key]),
     queryFn: async () => {
       await auth.refresh()
       return { workspace: workspaceId != null ? await engine.workspaces.get(workspaceId) : null }
