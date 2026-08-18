@@ -24,33 +24,33 @@ use crate::records::Schema;
 use crate::store::Parameter;
 
 /// One `SET` clause, a column and the value to store in it.
-pub(crate) struct Assignment {
+pub(crate) struct SetClause {
     pub(crate) column: &'static str,
     pub(crate) value: SimpleExpr,
 }
 
 impl Schema {
-    /// Encode an assignment object into per-column values.
+    /// Encode a set object into per-column values.
     ///
     /// The columns encode against the table's whole column list rather than its filter
-    /// surface because a column a filter cannot name is still one an update may assign.
+    /// surface because a column a filter cannot name is still one an update may set.
     /// The schema's fixed columns are the ones that identify a row rather than describe
     /// it.
     ///
     /// A refusal carries a user-facing message naming the key and the form it expected.
-    pub(crate) fn assignments(
+    pub(crate) fn set_clauses(
         self,
         values: &serde_json::Map<String, Value>,
         dialect: SqlDialect,
-    ) -> Result<Vec<Assignment>, String> {
+    ) -> Result<Vec<SetClause>, String> {
         if values.is_empty() {
-            return Err("--assign was given nothing to assign.".to_string());
+            return Err("--set was given nothing to set.".to_string());
         }
 
         for key in values.keys() {
             if self.fixed.contains(&key.as_str()) {
                 return Err(format!(
-                    "`{key}` is part of what identifies a row, so it cannot be assigned. \
+                    "`{key}` is part of what identifies a row, so it cannot be set. \
                      Create the row you want and delete this one instead."
                 ));
             }
@@ -68,7 +68,7 @@ impl Schema {
         self,
         values: &serde_json::Map<String, Value>,
         dialect: SqlDialect,
-    ) -> Result<Vec<Assignment>, String> {
+    ) -> Result<Vec<SetClause>, String> {
         if values.is_empty() {
             return Err("An insert was given no columns to write.".to_string());
         }
@@ -81,29 +81,29 @@ impl Schema {
         self,
         values: &serde_json::Map<String, Value>,
         dialect: SqlDialect,
-    ) -> Result<Vec<Assignment>, String> {
-        let mut assignments = Vec::with_capacity(values.len());
+    ) -> Result<Vec<SetClause>, String> {
+        let mut set_clauses = Vec::with_capacity(values.len());
         for (key, value) in values {
             let Some(field) = self.columns.iter().find(|field| field.key == key) else {
                 return Err(format!(
-                    "There is no `{key}` to assign. This table holds {}.",
-                    listed(&self.assignable())
+                    "There is no `{key}` to set. This table holds {}.",
+                    listed(&self.settable())
                 ));
             };
 
             let value = encode(&field.family, value, dialect)
                 .map_err(|wanted| format!("`{key}` {wanted}, and was given {}.", shown(value)))?;
-            assignments.push(Assignment {
+            set_clauses.push(SetClause {
                 column: field.key,
                 value,
             });
         }
 
-        Ok(assignments)
+        Ok(set_clauses)
     }
 
-    /// The columns an update may assign, which is every column that is not identity.
-    fn assignable(self) -> Vec<&'static str> {
+    /// The columns an update may set, which is every column that is not identity.
+    fn settable(self) -> Vec<&'static str> {
         self.columns
             .iter()
             .map(|field| field.key)
@@ -125,20 +125,20 @@ pub fn insert_compiled(
     dialect: SqlDialect,
 ) -> Result<(String, Vec<sea_query::Value>), String> {
     let schema = table.schema();
-    let assignments = schema.insert_values(values, dialect)?;
+    let set_clauses = schema.insert_values(values, dialect)?;
 
     let mut statement = sea_query::Query::insert();
     statement.into_table(sea_query::Alias::new(schema.name));
     statement.columns(
-        assignments
+        set_clauses
             .iter()
-            .map(|assignment| sea_query::Alias::new(assignment.column)),
+            .map(|clause| sea_query::Alias::new(clause.column)),
     );
     statement
         .values(
-            assignments
+            set_clauses
                 .iter()
-                .map(|assignment| assignment.value.clone())
+                .map(|clause| clause.value.clone())
                 .collect::<Vec<_>>(),
         )
         .map_err(|error| format!("The insert could not be built. {error}"))?;
@@ -148,9 +148,9 @@ pub fn insert_compiled(
             schema.key.iter().map(|&key| sea_query::Alias::new(key)),
         );
         clause.update_columns(
-            assignments
+            set_clauses
                 .iter()
-                .map(|assignment| assignment.column)
+                .map(|clause| clause.column)
                 .filter(|column| !schema.key.contains(column))
                 .map(sea_query::Alias::new),
         );
@@ -181,7 +181,7 @@ pub(crate) fn json_text(text: &str, dialect: SqlDialect) -> SimpleExpr {
 /// Join names into a readable list.
 fn listed(names: &[&str]) -> String {
     match names {
-        [] => "no assignable columns".to_string(),
+        [] => "no settable columns".to_string(),
         [only] => format!("`{only}`"),
         [rest @ .., last] => format!(
             "{} and `{last}`",
@@ -301,24 +301,24 @@ mod tests {
     }
 
     #[test]
-    fn unknown_and_unassignable_keys_refuse() {
+    fn unknown_and_unsettable_keys_refuse() {
         assert!(
             RecordTable::Messages
                 .schema()
-                .assignments(&object("{}"), SqlDialect::SqliteText)
+                .set_clauses(&object("{}"), SqlDialect::SqliteText)
                 .is_err()
         );
         assert!(
             RecordTable::Messages
                 .schema()
-                .assignments(&object("{\"nope\": 1}"), SqlDialect::SqliteText)
+                .set_clauses(&object("{\"nope\": 1}"), SqlDialect::SqliteText)
                 .is_err()
         );
-        // The ID is not assignable, matching the entity update models.
+        // The ID is not settable, matching the entity update models.
         assert!(
             RecordTable::Messages
                 .schema()
-                .assignments(
+                .set_clauses(
                     &object("{\"id\": \"0198c0de-0000-7000-8000-000000000001\"}"),
                     SqlDialect::SqliteText
                 )
@@ -331,7 +331,7 @@ mod tests {
         assert!(
             RecordTable::Messages
                 .schema()
-                .assignments(
+                .set_clauses(
                     &object("{\"direction\": \"sideways\"}"),
                     SqlDialect::SqliteText
                 )
@@ -340,13 +340,13 @@ mod tests {
         assert!(
             RecordTable::Messages
                 .schema()
-                .assignments(&object("{\"direction\": \"send\"}"), SqlDialect::SqliteText)
+                .set_clauses(&object("{\"direction\": \"send\"}"), SqlDialect::SqliteText)
                 .is_ok()
         );
         assert!(
             RecordTable::Alerts
                 .schema()
-                .assignments(&object("{\"level\": \"nope\"}"), SqlDialect::SqliteText)
+                .set_clauses(&object("{\"level\": \"nope\"}"), SqlDialect::SqliteText)
                 .is_err()
         );
     }
@@ -356,7 +356,7 @@ mod tests {
         assert!(
             RecordTable::Messages
                 .schema()
-                .assignments(
+                .set_clauses(
                     &object("{\"timestamp\": \"not a time\"}"),
                     SqlDialect::SqliteText
                 )
@@ -365,7 +365,7 @@ mod tests {
         assert!(
             RecordTable::Messages
                 .schema()
-                .assignments(
+                .set_clauses(
                     &object("{\"address\": \"not an address\"}"),
                     SqlDialect::SqliteText
                 )
@@ -375,30 +375,30 @@ mod tests {
         assert!(
             RecordTable::Particles
                 .schema()
-                .assignments(&object("{\"data\": 3}"), SqlDialect::SqliteText)
+                .set_clauses(&object("{\"data\": 3}"), SqlDialect::SqliteText)
                 .is_err()
         );
     }
 
     #[test]
-    fn an_entity_assigns_the_columns_its_update_model_declares() {
-        let assign = |table: EntityTable, json: &str| {
+    fn an_entity_sets_the_columns_its_update_model_declares() {
+        let set = |table: EntityTable, json: &str| {
             table
                 .schema()
-                .assignments(&object(json), SqlDialect::SqliteText)
+                .set_clauses(&object(json), SqlDialect::SqliteText)
         };
 
-        // A setting's value is outside the filter surface and still assignable, which
+        // A setting's value is outside the filter surface and still settable, which
         // is why the encoder reads the column list rather than the filter fields.
-        assert!(assign(EntityTable::Settings, "{\"value\": 5}").is_ok());
-        assert!(assign(EntityTable::Workspaces, "{\"data\": {\"k\": 1}}").is_ok());
+        assert!(set(EntityTable::Settings, "{\"value\": 5}").is_ok());
+        assert!(set(EntityTable::Workspaces, "{\"data\": {\"k\": 1}}").is_ok());
 
-        // A variable's name is half its key and assignable, its address is not.
-        assert!(assign(EntityTable::Variables, "{\"name\": \"x\"}").is_ok());
-        assert!(assign(EntityTable::Variables, "{\"address\": \"@a\"}").is_err());
-        assert!(assign(EntityTable::Settings, "{\"name\": \"x\"}").is_ok());
+        // A variable's name is half its key and settable, its address is not.
+        assert!(set(EntityTable::Variables, "{\"name\": \"x\"}").is_ok());
+        assert!(set(EntityTable::Variables, "{\"address\": \"@a\"}").is_err());
+        assert!(set(EntityTable::Settings, "{\"name\": \"x\"}").is_ok());
         assert!(
-            assign(
+            set(
                 EntityTable::Settings,
                 "{\"user_id\": \"0198c0de-0000-7000-8000-000000000001\"}"
             )
@@ -407,12 +407,12 @@ mod tests {
 
         // A workspace's scope is an address outside the selector grammar, and its
         // owner clears to null.
-        assert!(assign(EntityTable::Workspaces, "{\"scope\": \"@a.b\"}").is_ok());
-        assert!(assign(EntityTable::Workspaces, "{\"scope\": \"not one\"}").is_err());
-        assert!(assign(EntityTable::Workspaces, "{\"owner_id\": null}").is_ok());
-        assert!(assign(EntityTable::Workspaces, "{\"show_when_logged_out\": true}").is_ok());
+        assert!(set(EntityTable::Workspaces, "{\"scope\": \"@a.b\"}").is_ok());
+        assert!(set(EntityTable::Workspaces, "{\"scope\": \"not one\"}").is_err());
+        assert!(set(EntityTable::Workspaces, "{\"owner_id\": null}").is_ok());
+        assert!(set(EntityTable::Workspaces, "{\"show_when_logged_out\": true}").is_ok());
         assert!(
-            assign(
+            set(
                 EntityTable::Workspaces,
                 "{\"show_when_logged_out\": \"yes\"}"
             )
@@ -421,10 +421,10 @@ mod tests {
     }
 
     #[test]
-    fn every_assignable_column_encodes() {
-        let assigned = RecordTable::Messages
+    fn every_settable_column_encodes() {
+        let settable = RecordTable::Messages
             .schema()
-            .assignments(
+            .set_clauses(
                 &object(
                     "{\"address\": \"@sensor.temp\", \
                   \"timestamp\": \"2026-07-29T12:30:45.123456Z\", \
@@ -436,7 +436,7 @@ mod tests {
             )
             .unwrap();
         // The `SET` clause order carries no meaning so compare the columns as a set.
-        let mut columns: Vec<&str> = assigned.iter().map(|one| one.column).collect();
+        let mut columns: Vec<&str> = settable.iter().map(|one| one.column).collect();
         columns.sort_unstable();
         assert_eq!(
             columns,

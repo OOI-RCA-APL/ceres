@@ -420,12 +420,12 @@ class NativeFilter:
         find them.
         """
     def update_compiled(
-        self, dialect: str, assign: str, returning: bool = False, now: datetime | None = None
+        self, dialect: str, set: str, returning: bool = False, now: datetime | None = None
     ) -> tuple[str, list[Any]]:
         r"""
         Compile an update to SQL and its parameters for a dialect.
 
-        `assign` is the serialized JSON object of new values. Each one encodes into the
+        `set` is the serialized JSON object of new values. Each one encodes into the
         form its column stores, and a refusal names the offending key and the form it
         expected.
         """

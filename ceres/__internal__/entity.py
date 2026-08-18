@@ -348,7 +348,7 @@ def _parsed_filter(table: str, dump: str) -> Any:
     return NativeFilter.from_json(table, dump)
 
 
-def _native_assign(assign: Mapping[str, Any]) -> str:
+def _native_set(set: Mapping[str, Any]) -> str:
     """Serialize an update's new values for the native encoder, in its wire JSON form.
 
     A bytes column crosses as latin-1 text, which is the convention the encoder reads back.
@@ -360,7 +360,7 @@ def _native_assign(assign: Mapping[str, Any]) -> str:
     return to_json(
         {
             key: value.decode("latin-1") if isinstance(value, bytes) else value
-            for key, value in assign.items()
+            for key, value in set.items()
         }
     )
 
@@ -623,18 +623,18 @@ class UpdateExecutor[
     ``RETURNING`` clause.
     """
 
-    __slots__ = ("_assign",)
+    __slots__ = ("_set",)
 
     def __init__(
         self,
         *,
         query: EntityQuery[EntityT, FilterT, UpdateT],
-        assign: UpdateT,
-        assign_transform: Callable[[UpdateT], Awaitable[UpdateT]] | None = None,
+        set: UpdateT,
+        set_transform: Callable[[UpdateT], Awaitable[UpdateT]] | None = None,
     ) -> None:
         super().__init__(query=cast("Any", query))
         self._query: Final = query  # type: ignore
-        self._assign: Final = assign
+        self._set: Final = set
 
     @override
     def __eq__(self, value: object, /) -> bool:
@@ -642,7 +642,7 @@ class UpdateExecutor[
             return False
 
         assert isinstance(value, UpdateExecutor)
-        return self._assign == value._assign
+        return self._set == value._set
 
     @override
     async def _await(self) -> int:
@@ -652,14 +652,14 @@ class UpdateExecutor[
 
     @override
     async def _compile_native(self, *, returning: bool) -> tuple[str, list[Any]]:
-        assign = await self._query._assign_transform(self._assign)
+        set = await self._query._set_transform(self._set)
         native = self._query._get_resolved_filter()._native_filter()
-        # The compile refuses an assignment the column cannot hold, and that refusal is the
+        # The compile refuses a set value the column cannot hold, and that refusal is the
         # caller's own to read rather than something to run past the constraint wordings a
         # driver failure is matched on so it stays outside the error wrapper.
         return native.update_compiled(
             self._query._get_database().type.value,
-            _native_assign(assign),
+            _native_set(set),
             returning,
             utc(),
         )
@@ -675,7 +675,7 @@ class UpdateExecutor[
     ) -> UpdateExecutor[EntityT, FilterT, UpdateT]:
         return cast(
             "UpdateExecutor[EntityT, FilterT, UpdateT]",
-            UpdateExecutor(query=query, assign=self._assign),
+            UpdateExecutor(query=query, set=self._set),
         )
 
 
@@ -758,9 +758,9 @@ class BaseEntityQuery[
         """Create a ``SelectExecutor`` for this query."""
         return SelectExecutor(query=self.where())
 
-    def update(self, assign: UpdateT) -> UpdateExecutor[EntityT, FilterT, UpdateT]:
-        """Create an ``UpdateExecutor`` that assigns the given values to matching entities."""
-        return UpdateExecutor(query=self.where(), assign=assign)
+    def update(self, set: UpdateT) -> UpdateExecutor[EntityT, FilterT, UpdateT]:
+        """Create an ``UpdateExecutor`` that sets the given values on matching entities."""
+        return UpdateExecutor(query=self.where(), set=set)
 
     def delete(self) -> DeleteExecutor[EntityT, FilterT]:
         """Create a ``DeleteExecutor`` for this query."""
@@ -860,8 +860,8 @@ class BaseEntityQuery[
 
         return resolved
 
-    async def _assign_transform(self, assign: UpdateT) -> UpdateT:
-        return assign
+    async def _set_transform(self, set: UpdateT) -> UpdateT:
+        return set
 
 
 class EntityQuery[
@@ -1100,7 +1100,7 @@ class BaseEntityManager[
         sql, parameters = insert_compiled(
             self._get_entity_class().__entity_naming__.table,
             database.type.value,
-            _native_assign(values),
+            _native_set(values),
             upsert,
         )
         with wrap_database_errors():

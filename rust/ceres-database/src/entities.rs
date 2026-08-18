@@ -90,7 +90,7 @@ impl EntityTable {
                 columns: Variable::COLUMNS,
                 delegated: &[],
                 key: &["address", "name"],
-                // A variable's name is assignable though it is half the key, its
+                // A variable's name is settable though it is half the key, its
                 // address is not, which `VariableUpdate` declares.
                 fixed: &["address"],
                 order: &["address", "name"],

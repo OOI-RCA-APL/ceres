@@ -146,10 +146,10 @@ pub struct Schema {
     pub delegated: &'static [&'static str],
     /// The primary key columns, which a paged write narrows on.
     pub key: &'static [&'static str],
-    /// The columns an update cannot assign, which its Python model leaves out.
+    /// The columns an update cannot set, which its Python model leaves out.
     ///
     /// This is the entity's identity rather than its whole key. A variable's name is
-    /// half its key and still assignable, its address is not.
+    /// half its key and still settable, its address is not.
     pub fixed: &'static [&'static str],
     /// The columns a filter naming no order sorts by, ascending.
     pub order: &'static [&'static str],

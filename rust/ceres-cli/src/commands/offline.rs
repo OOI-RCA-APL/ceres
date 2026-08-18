@@ -50,9 +50,9 @@ pub fn set_enabled(
     let meta = project.load_meta()?;
     let (runtime, store) = open(&meta.database, project.directory(), true)?;
 
-    let assign = format!("{{\"value\": {enabled}}}");
+    let set = format!("{{\"value\": {enabled}}}");
     let written = runtime
-        .block_on(store.update_entity_filter_returning(&filter, &assign, None))
+        .block_on(store.update_entity_filter_returning(&filter, &set, None))
         .map_err(|error| Exit::failed(error.to_string()))?;
     let Entities::Variables(variables) = written else {
         unreachable!("a variables filter returns variables");

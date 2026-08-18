@@ -115,7 +115,7 @@ pub trait Filterable {
     const FIELDS: &'static [FilterField];
     /// Every column the entity stores, the skipped ones included.
     ///
-    /// A column a filter cannot name is still one an update may assign and a create may
+    /// A column a filter cannot name is still one an update may set and a create may
     /// carry, a setting's value among them, so the write path reads this rather than the
     /// filter surface.
     const COLUMNS: &'static [FilterField];

@@ -72,19 +72,19 @@ impl Dumpable for RecordTable {
     async fn update(
         store: &RecordStore,
         filter: &Filter<Self>,
-        assign: &str,
+        set: &str,
         _credentials: Option<Credentials>,
     ) -> StoreResult<u64> {
-        store.update_filter(filter, assign).await
+        store.update_filter(filter, set).await
     }
 
     async fn update_returning(
         store: &RecordStore,
         filter: &Filter<Self>,
-        assign: &str,
+        set: &str,
         _credentials: Option<Credentials>,
     ) -> StoreResult<Records> {
-        store.update_filter_returning(filter, assign).await
+        store.update_filter_returning(filter, set).await
     }
 
     async fn load(
@@ -216,7 +216,7 @@ mod tests {
         // alternative is a filter matching more than its author meant and the rows going
         // away with nobody watching.
         assert!(read(RecordTable::Messages, &["delete"]).confirm);
-        assert!(read(RecordTable::Messages, &["update", "--assign", "{}"]).confirm);
+        assert!(read(RecordTable::Messages, &["update", "--set", "{}"]).confirm);
         assert!(!read(RecordTable::Messages, &["delete", "--no-confirm"]).confirm);
         // The short spelling is the one that gets typed at a terminal.
         assert!(!read(RecordTable::Messages, &["delete", "-y"]).confirm);

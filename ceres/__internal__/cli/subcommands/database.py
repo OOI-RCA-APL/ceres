@@ -192,6 +192,11 @@ class MigrateCommand(CLICommand):
     Apply pending database migrations.
     """
 
+    yes: bool = False
+    """
+    Apply without prompting for confirmation.
+    """
+
     @override
     async def __run__(self) -> None:
         """List pending migrations, prompt for confirmation, and apply them in order."""
@@ -222,7 +227,7 @@ class MigrateCommand(CLICommand):
 
                 question = "Apply the above migrations now?"
 
-            if not get_confirmation(question):
+            if not self.yes and not get_confirmation(question):
                 self.write("Database has not been modified.")
                 return
 

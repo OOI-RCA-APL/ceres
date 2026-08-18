@@ -162,23 +162,23 @@ impl NativeFilter {
 
     /// Compile an update to SQL and its parameters for a dialect.
     ///
-    /// `assign` is the serialized JSON object of new values. Each one encodes into the
+    /// `set` is the serialized JSON object of new values. Each one encodes into the
     /// form its column stores, and a refusal names the offending key and the form it
     /// expected.
-    #[pyo3(signature = (dialect, assign, returning = false, now = None))]
+    #[pyo3(signature = (dialect, set, returning = false, now = None))]
     fn update_compiled<'py>(
         &self,
         py: Python<'py>,
         dialect: &str,
-        assign: &str,
+        set: &str,
         returning: bool,
         now: Option<chrono::DateTime<chrono::Utc>>,
     ) -> PyResult<(String, Vec<Bound<'py, PyAny>>)> {
         let dialect = dialect_of(dialect)?;
         let now = now.map(|now| now.naive_utc());
-        let assign: serde_json::Map<String, serde_json::Value> = serde_json::from_str(assign)
-            .map_err(|error| PyValueError::new_err(format!("unreadable assignment: {error}")))?;
-        let (sql, values) = delegate!(self, update_compiled(dialect, &assign, returning, now))
+        let set: serde_json::Map<String, serde_json::Value> = serde_json::from_str(set)
+            .map_err(|error| PyValueError::new_err(format!("unreadable set object: {error}")))?;
+        let (sql, values) = delegate!(self, update_compiled(dialect, &set, returning, now))
             .map_err(refusal_error)?;
         bound(py, sql, values)
     }

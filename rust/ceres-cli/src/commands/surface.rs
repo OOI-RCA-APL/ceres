@@ -153,8 +153,8 @@ impl Table {
         }
     }
 
-    /// An assignment worth showing, naming a column the table's update model allows.
-    fn example_assign(self) -> &'static str {
+    /// An set value worth showing, naming a column the table's update model allows.
+    fn example_set(self) -> &'static str {
         match self {
             Self::Record(RecordTable::Alerts) => "{\"content\": \"acknowledged\"}",
             Self::Record(RecordTable::Logs) => "{\"content\": \"redacted\"}",
@@ -167,7 +167,7 @@ impl Table {
             Self::Entity(EntityTable::WorkspaceEdits) => "{\"data\": {}}",
             Self::Entity(EntityTable::Groups) => "{\"description\": \"on call\"}",
             // A membership is created or deleted rather than edited so the example shows
-            // the one shape an update can take, which is no assignment at all.
+            // the one shape an update can take, which is no set value at all.
             Self::Entity(EntityTable::GroupMemberships) => "{}",
             Self::Entity(EntityTable::UserPermissions) => "{\"level\": \"manage\"}",
             Self::Entity(EntityTable::GroupPermissions) => "{\"level\": \"view\"}",
@@ -251,11 +251,11 @@ impl Table {
             "update" => command
                 .about(format!("Update {plural}, reporting how many changed"))
                 .arg(
-                    Arg::new("assign")
-                        .long("assign")
+                    Arg::new("set")
+                        .long("set")
                         .required(true)
                         .value_name("OBJECT")
-                        .help("Values to assign, as a JSON or YAML object."),
+                        .help("Values to set, as a JSON or YAML object."),
                 )
                 .args(write_arguments("updated"))
                 .args(row_arguments())
@@ -297,7 +297,7 @@ impl Table {
         let plural = self.plural();
         self.keys()
             .into_iter()
-            .flat_map(|key| argument(key, filter_help(key, plural), FILTERING))
+            .flat_map(|key| argument(key, filter_help(key, plural), FILTERING, BooleanShape::Bare))
             .collect()
     }
 
@@ -316,7 +316,7 @@ impl Table {
                     }
                     Arity::Value => format!("The {singular}'s {field}."),
                 };
-                let mut arguments = argument(key, help, VALUES);
+                let mut arguments = argument(key, help, VALUES, BooleanShape::Valued);
 
                 // A required column is required of clap too, so a missing one is the
                 // parser's own error naming the flag. The password stays optional
@@ -378,12 +378,12 @@ impl Table {
             "create" => vec![format!("ceres {plural} create {}", self.example_create())],
             "update" => vec![
                 format!(
-                    "ceres {plural} update {filter} --assign '{}'",
-                    self.example_assign()
+                    "ceres {plural} update {filter} --set '{}'",
+                    self.example_set()
                 ),
                 format!(
-                    "ceres {plural} update {filter} --assign '{}' --no-confirm",
-                    self.example_assign()
+                    "ceres {plural} update {filter} --set '{}' --no-confirm",
+                    self.example_set()
                 ),
             ],
             "delete" => vec![
@@ -417,8 +417,12 @@ pub(crate) fn long(key: &str) -> String {
 ///
 /// Argument order is preserved because a filter reads as a sequence and a reader who
 /// wrote their flags in an order expects to see it kept. A boolean arrives as the value
-/// its spelling names rather than as a value of its own.
-pub(crate) fn pairs(keys: &[FilterKey], matches: &clap::ArgMatches) -> Vec<(String, String)> {
+/// its spelling names, or as the value it was given on the create surface.
+pub(crate) fn pairs(
+    keys: &[FilterKey],
+    matches: &clap::ArgMatches,
+    shape: BooleanShape,
+) -> Vec<(String, String)> {
     let mut placed: Vec<(usize, String, String)> = Vec::new();
     for key in keys {
         match key.arity {
@@ -435,15 +439,28 @@ pub(crate) fn pairs(keys: &[FilterKey], matches: &clap::ArgMatches) -> Vec<(Stri
             }
             Arity::Flag => {
                 let negated = format!("no-{}", long(key.key));
-                // Only one of the pair survives, each overriding the other, so whichever
-                // is set is the one the reader wrote last.
-                for (id, held) in [(key.key.to_string(), "true"), (negated, "false")] {
-                    if !matches.get_flag(&id) {
-                        continue;
+                match shape {
+                    // The positive spelling carries a value, its bare form filled in
+                    // by the parser.
+                    BooleanShape::Valued => {
+                        if let Some(value) = matches.get_one::<String>(key.key) {
+                            let index = matches.index_of(key.key).unwrap_or_default();
+                            placed.push((index, key.key.to_string(), value.clone()));
+                        }
                     }
+                    // Only one of the pair survives, each overriding the other, so
+                    // whichever is set is the one the reader wrote last.
+                    BooleanShape::Bare => {
+                        if matches.get_flag(key.key) {
+                            let index = matches.index_of(key.key).unwrap_or_default();
+                            placed.push((index, key.key.to_string(), "true".to_string()));
+                        }
+                    }
+                }
 
-                    let index = matches.index_of(&id).unwrap_or_default();
-                    placed.push((index, key.key.to_string(), held.to_string()));
+                if matches.get_flag(&negated) {
+                    let index = matches.index_of(&negated).unwrap_or_default();
+                    placed.push((index, key.key.to_string(), "false".to_string()));
                 }
             }
         }
@@ -456,12 +473,24 @@ pub(crate) fn pairs(keys: &[FilterKey], matches: &clap::ArgMatches) -> Vec<(Stri
         .collect()
 }
 
+/// How a boolean key is spelled on a surface.
+///
+/// A create's boolean is a column value, so its flag takes an optional `true` or
+/// `false`. A filter's boolean cannot, because the verbs that filter also take
+/// positional fields and a trailing value would swallow one, so it stays a bare
+/// `--key` and `--no-key` pair.
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum BooleanShape {
+    Valued,
+    Bare,
+}
+
 /// Declare one key as the arguments that carry it.
 ///
 /// A value key is repeatable because a field folding several values into a set is how
-/// an `IN` comparison is written. A boolean is a `--key` and `--no-key` pair carrying no
-/// value of its own, each overriding the other, so the last one wins.
-fn argument(key: FilterKey, help: String, heading: &'static str) -> Vec<Arg> {
+/// an `IN` comparison is written. A boolean is a `--key` and `--no-key` pair, each
+/// overriding the other, so the last one wins.
+fn argument(key: FilterKey, help: String, heading: &'static str, shape: BooleanShape) -> Vec<Arg> {
     let name = long(key.key);
     match key.arity {
         Arity::Value => vec![
@@ -478,10 +507,19 @@ fn argument(key: FilterKey, help: String, heading: &'static str) -> Vec<Arg> {
             // entries for nothing so it hides and the visible half names it. A reader
             // who cannot see `--no-internal` will not guess it exists.
             let help = format!("{help} Pass `--{negated}` for the opposite.");
-            vec![
-                Arg::new(key.key.to_string())
+            let positive = match shape {
+                BooleanShape::Valued => Arg::new(key.key.to_string())
                     .long(name)
-                    .action(ArgAction::SetTrue)
+                    .num_args(0..=1)
+                    .default_missing_value("true")
+                    .value_parser(["true", "false"])
+                    .value_name("BOOL"),
+                BooleanShape::Bare => Arg::new(key.key.to_string())
+                    .long(name)
+                    .action(ArgAction::SetTrue),
+            };
+            vec![
+                positive
                     .overrides_with(negated.clone())
                     .help_heading(heading)
                     .help(help),
@@ -772,7 +810,7 @@ mod tests {
         assert!(!select.get_flag("internal"));
         assert!(select.get_flag("no-internal"));
 
-        // An update without assignments is an argument error rather than a delegation.
+        // An update without set values is an argument error rather than a delegation.
         assert!(
             variables
                 .clone()

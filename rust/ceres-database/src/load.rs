@@ -259,9 +259,10 @@ pub fn build_entity(
 impl Schema {
     /// Read a create's raw argument text into one wire object.
     ///
-    /// A payload or value column reads as YAML, the form its create model takes it in,
-    /// and every other column is the text itself. A column named twice keeps its last
-    /// value, the way a repeated flag does.
+    /// Each column converts by its family into the form its model deserializes, so the
+    /// match is exhaustive with no fallback: a new family fails to compile here until
+    /// it declares its wire form. A column named twice keeps its last value, the way a
+    /// repeated flag does.
     fn wire_object(self, values: &[(String, String)]) -> Result<Map<String, Value>, String> {
         let mut object = Map::new();
         for (key, text) in values {
@@ -276,7 +277,25 @@ impl Schema {
                         format!("The `{key}` value does not parse as YAML. {error}")
                     })?
                 }
-                _ => text.clone().into(),
+                FieldFamily::Boolean => match text.as_str() {
+                    "true" => true.into(),
+                    "false" => false.into(),
+                    _ => {
+                        return Err(format!(
+                            "The `{key}` value must be `true` or `false`, got `{text}`."
+                        ));
+                    }
+                },
+                // Every remaining family's model deserializes from the text itself.
+                FieldFamily::Uuid
+                | FieldFamily::Address
+                | FieldFamily::PlainAddress
+                | FieldFamily::Timestamp
+                | FieldFamily::Text
+                | FieldFamily::Email
+                | FieldFamily::Values(_)
+                | FieldFamily::Level
+                | FieldFamily::Bytes => text.clone().into(),
             };
             object.insert(key.clone(), value);
         }

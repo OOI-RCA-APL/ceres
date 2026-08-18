@@ -161,13 +161,13 @@ class _BaseUserQuery(
         return UserQuery
 
     @override
-    async def _assign_transform(self, assign: UserUpdate) -> UserUpdate:
-        assign = await super()._assign_transform(assign)
-        if "password" in assign:
-            assign = {**assign}
-            assign["password"] = await self._maybe_hash_password(assign["password"])
+    async def _set_transform(self, set: UserUpdate) -> UserUpdate:
+        set = await super()._set_transform(set)
+        if "password" in set:
+            set = {**set}
+            set["password"] = await self._maybe_hash_password(set["password"])
 
-        return assign
+        return set
 
 
 class UserQuery(

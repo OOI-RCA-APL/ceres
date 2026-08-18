@@ -16,10 +16,10 @@ use sea_query::{Alias, InsertStatement, OnConflict, Query, SimpleExpr};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 
-use crate::assign::json_text;
 use crate::backend::{DatabaseBackend, PostgresBackend, SqliteBackend, Writing};
 use crate::filter::SqlDialect;
 use crate::records::RecordTable;
+use crate::set::json_text;
 use crate::store::{Error, Parameter};
 use crate::turso::TursoBackend;
 
