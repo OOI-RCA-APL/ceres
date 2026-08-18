@@ -57,7 +57,7 @@ jobs:
         with:
           node-version-file: console/.nvmrc
       - name: Install UV
-        uses: astral-sh/setup-uv@v10
+        uses: astral-sh/setup-uv@v10.0.1
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: false

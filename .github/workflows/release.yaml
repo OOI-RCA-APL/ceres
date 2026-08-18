@@ -222,7 +222,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: ${{ env.TAG }}
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.0.1
       # Named rather than taking everything, the console bundle riding alongside the
       # distributions as an artifact of its own and belonging in neither destination.
       - name: Download Artifacts
