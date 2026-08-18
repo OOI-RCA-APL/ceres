@@ -13,6 +13,11 @@ written, and the release workflow refuses a version that has no entry here.
 - Fix `ceres run` serving the web console and API on a random port instead of the
   configured one.
 
+**Development**
+
+- Serve a page explaining how to build the web console when a source checkout has no
+  bundle, in place of an empty page.
+
 ## [0.44.0] - 2026-08-17
 
 **Web Console**
