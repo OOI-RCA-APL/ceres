@@ -2,9 +2,8 @@
 //!
 //! This lives in the binary because half the tree is assembled at startup from the entity
 //! definitions, and only a build of this crate can see the result. The dump is JSON rather
-//! than the finished page, because two commands hand their arguments to the Python
-//! runtime and only `scripts/update-reference.py` can describe those. It renders the page
-//! from both halves and owns the comparison that fails when either drifts.
+//! than the finished page, `scripts/update-reference.py` renders the page and owns the
+//! comparison that fails when it drifts.
 
 use std::path::PathBuf;
 

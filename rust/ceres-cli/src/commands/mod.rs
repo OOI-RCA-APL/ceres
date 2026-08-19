@@ -9,5 +9,6 @@ pub mod follow;
 pub mod generate;
 pub mod offline;
 pub mod records;
+pub mod run;
 pub mod service;
 pub mod surface;

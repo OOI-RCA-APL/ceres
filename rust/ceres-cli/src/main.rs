@@ -241,11 +241,18 @@ fn run(cli: Cli, arguments: Vec<OsString>, output: &Output) -> Result<()> {
     };
 
     match command {
-        // Commands that load the engine run in the Python runtime. Run keeps the
-        // development-source flag for its console dev server, check has no Python-side
-        // parameter for it.
-        Command::Run(_) => match runtime::delegate(development::normalize_run(arguments))? {},
-        Command::Check(_) => match runtime::delegate(development::strip(&arguments))? {},
+        // Both spawn the host module, the engine and component imports living in Python.
+        // Run reads the development source off the raw arguments for its console dev
+        // server, the same way the pre-parse delegation found it.
+        Command::Run(args) => {
+            let project = Project::discover(config)?;
+            let source = development::resolve(&arguments);
+            commands::run::run(args, &project, source, output)
+        }
+        Command::Check => {
+            let project = Project::discover(config)?;
+            match commands::run::check(&project)? {}
+        }
 
         Command::Database(args) => {
             let project = Project::discover(config)?;

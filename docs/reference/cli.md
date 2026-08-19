@@ -27,9 +27,7 @@ Start the engine as a foreground process.
 | Option | Required | Description |
 | --- | --- | --- |
 | `<ADDRESSES>` |  | Addresses of components to run on startup. |
-| `--watch` |  | Automatically restart the application on code changes. |
-| `--development-source` `DEVELOPMENT-SOURCE` |  | Path to a Ceres source tree, whose console is rebuilt as you edit it and served in place of the built-in one. |
-| `--development-console-port` `DEVELOPMENT-CONSOLE-PORT` |  | Serve the development console on this port instead of in place of the built-in one, so that both are available. |
+| `--watch` |  | Automatically restart the engine on code changes. |
 
 ### `ceres check`
 

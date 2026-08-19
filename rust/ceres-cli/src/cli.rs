@@ -81,19 +81,22 @@ pub struct Cli {
     pub command: Option<Command>,
 }
 
-/// Arguments captured for a command that runs in the Python runtime.
-///
-/// The capture only exists so the command parses and appears in help. Delegation replays the
-/// original process arguments untouched.
-#[derive(Debug, Clone, Args)]
-pub struct DelegatedArgs {
-    #[arg(
-        trailing_var_arg = true,
-        allow_hyphen_values = true,
-        hide = true,
-        value_name = "ARGUMENTS"
-    )]
-    pub arguments: Vec<OsString>,
+/// Arguments the `run` command takes.
+#[derive(Debug, Args)]
+pub struct RunArgs {
+    /// Addresses of components to run on startup.
+    #[arg(value_name = "ADDRESSES")]
+    pub addresses: Vec<String>,
+
+    /// Automatically restart the engine on code changes.
+    #[arg(long)]
+    pub watch: bool,
+
+    /// Serve the development console on this port instead of in place of the built-in
+    /// one, so that both are available. Development tooling, so hidden from help and
+    /// documented on the Development page instead.
+    #[arg(long, value_name = "PORT", hide = true)]
+    pub development_console_port: Option<u16>,
 }
 
 /// Define [`Args`] structs holding positional component address selectors.
@@ -142,12 +145,10 @@ pub struct ServiceGenerateArgs {
 #[derive(Debug, Subcommand)]
 pub enum Command {
     /// Start the engine as a foreground process.
-    #[command(disable_help_flag = true)]
-    Run(DelegatedArgs),
+    Run(RunArgs),
 
     /// Validate project configuration (ceres.yaml) for errors.
-    #[command(disable_help_flag = true)]
-    Check(DelegatedArgs),
+    Check,
 
     /// Apply configuration changes.
     Reload,
