@@ -761,6 +761,17 @@ mod tests {
 
         assert_eq!(alerts[0].data["k"], 1);
 
+        // An absent payload takes the declared empty default, the same one the Python
+        // create model carries.
+        let Ok(Records::Alerts(alerts)) = build(
+            RecordTable::Alerts,
+            &pairs(&[("address", "@a"), ("level", "warning"), ("type", "t")]),
+        ) else {
+            panic!("expected one alert");
+        };
+
+        assert!(alerts[0].data.is_empty());
+
         // A field the entity does not carry, a value outside a closed set, and a payload
         // that is not an object all refuse.
         assert!(build(RecordTable::Logs, &pairs(&[("nope", "1")])).is_err());
