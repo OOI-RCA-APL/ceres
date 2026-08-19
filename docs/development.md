@@ -162,18 +162,16 @@ the next section describes.
 ### Running From Source in Another Project
 
 `--development-source` runs the whole stack from a source checkout. It works from any
-installed Ceres, applies to every command, and announces each step on stderr. The
-invoking binary builds the checkout's CLI, points the invoking environment at an editable
-install of the checkout, and delegates the command to the checkout's binary:
+installed Ceres, applies to every command, and announces itself with one warning line on
+stderr. The invoking binary builds the checkout's CLI, points the invoking environment at
+an editable install of the checkout, and delegates the command to the checkout's binary:
 
 ```sh
 ceres --development-source /path/to/ceres --version
 ```
 
 ```
-Building the Ceres CLI in /path/to/ceres/rust.
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.18s
-Delegating to /path/to/ceres/rust/target/debug/ceres.
+Using development source at "/path/to/ceres".
 0.44.1
 ```
 

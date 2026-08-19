@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::error::{Result, fail, failure};
+use crate::output::Output;
 use crate::runtime;
 
 /// The flag spelling, shared by the scanner and the stripper.
@@ -107,9 +108,9 @@ pub fn normalize_run(arguments: Vec<OsString>) -> Vec<OsString> {
 
 /// Build the checkout's CLI, wire the environment to it, and replace this process.
 ///
-/// Only returns on failure. Each step announces itself on stderr so a delegated run says
-/// what it is doing.
-pub fn delegate(source: &Path, arguments: Vec<OsString>) -> Result<Infallible> {
+/// Only returns on failure. A single warning line on stderr says the source is in use,
+/// and the build and install underneath speak only when they have something to report.
+pub fn delegate(source: &Path, arguments: Vec<OsString>, output: &Output) -> Result<Infallible> {
     let source = source.canonicalize().map_err(|error| {
         failure!(
             "Cannot resolve the development source {}. {error}",
@@ -124,9 +125,13 @@ pub fn delegate(source: &Path, arguments: Vec<OsString>) -> Result<Infallible> {
         );
     }
 
-    eprintln!("Building the Ceres CLI in {}.", rust.display());
+    output.warn(format!(
+        "Using development source at \"{}\".",
+        source.display()
+    ));
+
     let status = Command::new("cargo")
-        .args(["build", "-p", "ceres-cli"])
+        .args(["build", "-q", "-p", "ceres-cli"])
         .current_dir(&rust)
         .status()
         .map_err(|error| {
@@ -143,7 +148,6 @@ pub fn delegate(source: &Path, arguments: Vec<OsString>) -> Result<Infallible> {
         fail!("The built CLI is missing at {}.", binary.display());
     }
 
-    eprintln!("Delegating to {}.", binary.display());
     let mut command = Command::new(&binary);
     command.args(&arguments).env(DELEGATED, "1");
     runtime::replace(command)
@@ -173,10 +177,6 @@ fn sync_environment(source: &Path) -> Result<()> {
         return Ok(());
     }
 
-    eprintln!(
-        "Installing {} into the environment as an editable package.",
-        source.display()
-    );
     let mut command = if let Some(uv) = runtime::which("uv") {
         let mut command = Command::new(uv);
         command

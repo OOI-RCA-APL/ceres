@@ -41,12 +41,21 @@ fn main() -> ExitCode {
     project::load_env(cli::flag_value(&arguments, "--config").as_deref());
 
     // A development source takes over before any parsing, since the delegated commands'
-    // trailing capture hides the flag from clap.
+    // trailing capture hides the flag from clap. The color flags are read off the raw
+    // arguments the same way, with the same precedence as `color_override`.
     if let Some(source) = development::resolve(&arguments)
         && !development::delegated()
     {
-        let output = Output::new(None);
-        let outcome = development::delegate(&source, arguments).map(|never| match never {});
+        let color = if arguments.iter().any(|argument| argument == "--color") {
+            Some(true)
+        } else if arguments.iter().any(|argument| argument == "--no-color") {
+            Some(false)
+        } else {
+            None
+        };
+        let output = Output::new(color);
+        let outcome =
+            development::delegate(&source, arguments, &output).map(|never| match never {});
         return report(outcome, &output);
     }
 
