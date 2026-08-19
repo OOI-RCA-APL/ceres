@@ -800,6 +800,19 @@ mod tests {
     }
 
     #[test]
+    fn a_boolean_outside_its_words_refuses() {
+        // The CLI's own value parser gates this first, so the refusal here is what a
+        // caller reaching the builder directly sees.
+        let error = build_entity(
+            EntityTable::Users,
+            &[("admin".to_string(), "maybe".to_string())],
+            None,
+        )
+        .unwrap_err();
+        assert!(error.contains("must be `true` or `false`"), "{error}");
+    }
+
+    #[test]
     fn a_loaded_json_text_column_reads_as_yaml() {
         // A CSV cell is text, so a JSON column's cell parses the way the CLI's create
         // text does.

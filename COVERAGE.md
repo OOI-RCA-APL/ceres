@@ -1,6 +1,6 @@
 # Coverage
 
-<!-- coverage:fingerprint:ede854a56b11e30c -->
+<!-- coverage:fingerprint:c71a6f259ef6ede1 -->
 
 ## Python
 
@@ -158,7 +158,7 @@
 | `rust/ceres-database/src/dynamic.rs` | 36% |
 | `rust/ceres-database/src/entities.rs` | 79% |
 | `rust/ceres-database/src/filter.rs` | 78% |
-| `rust/ceres-database/src/load.rs` | 93% |
+| `rust/ceres-database/src/load.rs` | 94% |
 | `rust/ceres-database/src/records.rs` | 59% |
 | `rust/ceres-database/src/selector.rs` | 87% |
 | `rust/ceres-database/src/set.rs` | 76% |

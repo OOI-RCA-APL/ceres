@@ -382,6 +382,23 @@ mod tests {
     }
 
     #[test]
+    fn a_workspace_create_boolean_takes_a_value() {
+        // The one table where the same key is a bare boolean filter on select and a
+        // valued boolean column on create, so the two shapes must not cross.
+        let invocation = read(
+            EntityTable::Workspaces,
+            &["create", "--name", "w", "--show-when-logged-out", "false"],
+        );
+        let built = EntityTable::Workspaces
+            .build(&invocation.pairs, rules())
+            .expect("the workspace builds");
+        let Entities::Workspaces(workspaces) = built else {
+            panic!("a workspaces create builds workspaces");
+        };
+        assert!(!workspaces[0].show_when_logged_out);
+    }
+
+    #[test]
     fn a_create_takes_the_password_column_the_filter_does_not_expose() {
         // A user's password is stored hashed and is not filterable, but a create has to
         // be able to set one so the two surfaces are built from different lists.
