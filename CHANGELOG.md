@@ -21,6 +21,10 @@ written, and the release workflow refuses a version that has no entry here.
   works beside `--admin` and `--no-admin`.
 - Add `--yes` to apply changes without a confirmation prompt, and fail cleanly when input
   ends at one.
+- Watch mode with a development source also watches the checkout's Rust crates, rebuilding
+  the extension before the restart.
+- Suggest the `--option=--value` spelling when a flag-shaped token lands where an option
+  expects a value.
 
 **Web Console**
 

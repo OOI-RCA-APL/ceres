@@ -341,7 +341,9 @@ async def _run(
     try:
         if watch:
             _set_current_process_name("ceres-watch")
-            await _run_watch(address, config_path=config_path)
+            await _run_watch(
+                address, config_path=config_path, development_source=development_source
+            )
         else:
             _set_current_process_name("ceres")
 
@@ -407,12 +409,15 @@ async def _run_watch(
     address: AddressSelector | None = None,
     *,
     config_path: Path,
+    development_source: Path | None = None,
 ) -> None:
     """Watch for Python and config file changes, restarting the engine process on each change.
 
     Args:
         address: Optional address selector constraining which components to start.
         config_path: Path to the Ceres configuration file.
+        development_source: Root of a Ceres source tree whose Rust crates are watched too,
+            rebuilding the extension before the restart.
     """
 
     async def main() -> None:
@@ -423,6 +428,28 @@ async def _run_watch(
 
         ceres = importlib.util.find_spec("ceres")
         assert ceres is not None and ceres.origin is not None
+
+        class WatchFilter(PythonFilter):
+            """Also skip build output, whose churn during a rebuild is not an edit."""
+
+            ignore_dirs = (*PythonFilter.ignore_dirs, "target")
+
+        # Resolved because the watcher reports absolute paths and the source is often
+        # given relative.
+        rust = (development_source / "rust").resolve() if development_source is not None else None
+        paths = [
+            # Watch for changes in the project directory.
+            config_path.parent,
+            # Watch for changes in "ceres" itself.
+            Path(ceres.origin).parent,
+        ]
+        extra_extensions = [
+            # Watch for changes in the configuration file.
+            str(config_path)
+        ]
+        if rust is not None:
+            paths.append(rust)
+            extra_extensions += [".rs", ".toml"]
 
         async def start() -> CombinedProcess:
             return await spawn(
@@ -438,21 +465,26 @@ async def _run_watch(
 
         try:
             async for changes in awatch(
-                # Watch for changes in the project directory.
-                config_path.parent,
-                # Watch for changes in "ceres" itself.
-                Path(ceres.origin).parent,
-                watch_filter=PythonFilter(
+                *paths,
+                watch_filter=WatchFilter(
                     # Ignore changes to this module in particular.
                     ignore_paths=[__file__],
-                    # Watch for changes in the configuration file.
-                    extra_extensions=[str(config_path)],
+                    extra_extensions=extra_extensions,
                 ),
             ):
                 info = sorted(
                     [(path, change._name_) for (change, path) in changes],
                     key=lambda current: current[0],
                 )
+
+                # A Rust edit only matters once the extension is rebuilt, and a failed
+                # build keeps the running engine instead of restarting onto stale code.
+                if rust is not None and any(path.startswith(str(rust)) for (_, path) in changes):
+                    write(f"Rebuilding the development source, watch mode detected: {info}")
+                    assert development_source is not None
+                    if not await _rebuild_development_source(development_source):
+                        write("Rebuild failed, keeping the running engine.")
+                        continue
 
                 # Indicate a restart and show changed files.
                 write(f"Restarting, watch mode detected: {info}")
@@ -483,6 +515,48 @@ async def _run_watch(
             pass
         finally:
             await cancel(task)
+
+
+async def _rebuild_development_source(source: Path) -> bool:
+    """Rebuild the source's extension into the environment, returning whether it succeeded.
+
+    Args:
+        source: Root of the Ceres source tree.
+    """
+    import shutil
+
+    uv = shutil.which("uv")
+    if uv is not None:
+        command = [
+            uv,
+            "pip",
+            "install",
+            "--python",
+            sys.executable,
+            "--reinstall-package",
+            "ceres-engine",
+            "-e",
+            str(source),
+        ]
+    else:
+        command = [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--force-reinstall",
+            "--no-deps",
+            "-e",
+            str(source),
+        ]
+
+    # The PEP 517 backend builds optimized by default, which is the wrong trade for a
+    # development loop, so an unset override defaults to the dev profile.
+    environment = {**os.environ}
+    environment.setdefault("MATURIN_PEP517_ARGS", "--profile dev")
+
+    process = await asyncio.create_subprocess_exec(*command, env=environment)
+    return await process.wait() == 0
 
 
 def _set_current_process_name(name: str) -> None:

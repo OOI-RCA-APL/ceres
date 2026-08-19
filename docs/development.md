@@ -189,6 +189,9 @@ project opts in with one line:
 echo 'CERES_DEVELOPMENT_SOURCE=/path/to/ceres' >> .env
 ```
 
+With `run --watch`, the watcher also covers the checkout, restarting on its Python edits
+and rebuilding the extension first when its Rust crates change.
+
 `--no-development-source` turns a standing source off for one command, and the
 `CERES_NO_DEVELOPMENT_SOURCE` environment variable turns it off for a whole session,
 either flag beating both variables.
