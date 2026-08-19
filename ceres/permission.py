@@ -1,20 +1,31 @@
-from typing import TYPE_CHECKING, ClassVar, Literal, TypedDict, Unpack, override
-from uuid import UUID
+from typing import TYPE_CHECKING, ClassVar, Unpack, override
 
 from ceres.__internal__.entity import (
-    BaseEntityCreate,
-    BaseEntityFilter,
-    BaseEntityFilterArgs,
     BaseEntityManager,
     BaseEntityQuery,
     ConcreteEntity,
     EntityNaming,
     EntityQuery,
 )
-from ceres.config import ComponentAccessLevel
-from ceres.data import MaybeSequence, StrEnum
+from ceres.__internal__.models.permissions import (
+    GroupPermissionCreate,
+    GroupPermissionField,
+    GroupPermissionFilter,
+    GroupPermissionFilterArgs,
+    GroupPermissionOrder,
+    GroupPermissionUpdate,
+    PermissionTargetType,
+    UserPermissionCreate,
+    UserPermissionField,
+    UserPermissionFilter,
+    UserPermissionFilterArgs,
+    UserPermissionOrder,
+    UserPermissionUpdate,
+)
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from ceres.__internal__.protocols import DatabaseSource
 
 __all__ = [
@@ -22,97 +33,6 @@ __all__ = [
     "PermissionTargetType",
     "UserPermission",
 ]
-
-
-class PermissionTargetType(StrEnum):
-    """Discriminator for the kind of target a permission grant applies to."""
-
-    COMPONENT = "component"
-    """Grant applies to a specific component by address."""
-    TAG = "tag"
-    """Grant applies to all components carrying a given tag."""
-    ALL = "all"
-    """Grant applies to every component. The target string is empty."""
-
-
-type UserPermissionField = Literal[
-    "user_id",
-    "target_type",
-    "target",
-    "level",
-]
-"""Field names selectable in `UserPermission` queries."""
-
-type UserPermissionOrder = Literal[
-    "user_id",
-    "user_id:asc",
-    "user_id:desc",
-    "target_type",
-    "target_type:asc",
-    "target_type:desc",
-    "target",
-    "target:asc",
-    "target:desc",
-    "level",
-    "level:asc",
-    "level:desc",
-]
-"""Ordering keys accepted by `UserPermission` queries."""
-
-
-class UserPermissionFilterArgs(
-    BaseEntityFilterArgs[
-        UserPermissionField,
-        UserPermissionOrder,
-    ],
-    total=False,
-):
-    """Keyword-argument form of `UserPermissionFilter` for ergonomic call sites."""
-
-    user_id: MaybeSequence[UUID] | None
-    target_type: MaybeSequence[PermissionTargetType] | None
-    target: MaybeSequence[str] | None
-    level: MaybeSequence[ComponentAccessLevel] | None
-
-
-class UserPermissionFilter(
-    BaseEntityFilter[
-        "UserPermission",
-        UserPermissionField,
-        UserPermissionOrder,
-    ]
-):
-    """Filter for selecting `UserPermission` records."""
-
-    __table__: ClassVar[str] = "user_permissions"
-
-    user_id: MaybeSequence[UUID] | None = None
-    """Filter by `user_id` being equal to one or more given user IDs."""
-    target_type: MaybeSequence[PermissionTargetType] | None = None
-    """Filter by `target_type` being equal to one or more given types."""
-    target: MaybeSequence[str] | None = None
-    """Filter by `target` being equal to one or more given target strings."""
-    level: MaybeSequence[ComponentAccessLevel] | None = None
-    """Filter by `level` being equal to one or more given access levels."""
-
-
-class UserPermissionCreate(BaseEntityCreate, slots=True):
-    """Payload for creating a new `UserPermission` record."""
-
-    user_id: UUID
-    """ID of the user receiving the permission grant."""
-    target_type: PermissionTargetType
-    """Whether this grant targets a component address or a tag."""
-    target: str
-    """Component address string or tag name, depending on `target_type`."""
-    level: ComponentAccessLevel
-    """Access level granted to the user for the target."""
-
-
-class UserPermissionUpdate(TypedDict, total=False):
-    """Partial update for an existing `UserPermission` record."""
-
-    level: ComponentAccessLevel
 
 
 class _BaseUserPermissionQuery(
@@ -204,86 +124,6 @@ class UserPermission(
     Order = UserPermissionOrder
 
     __entity_naming__: ClassVar[EntityNaming] = EntityNaming("user permission")
-
-
-type GroupPermissionField = Literal[
-    "group_id",
-    "target_type",
-    "target",
-    "level",
-]
-"""Field names selectable in `GroupPermission` queries."""
-
-type GroupPermissionOrder = Literal[
-    "group_id",
-    "group_id:asc",
-    "group_id:desc",
-    "target_type",
-    "target_type:asc",
-    "target_type:desc",
-    "target",
-    "target:asc",
-    "target:desc",
-    "level",
-    "level:asc",
-    "level:desc",
-]
-"""Ordering keys accepted by `GroupPermission` queries."""
-
-
-class GroupPermissionFilterArgs(
-    BaseEntityFilterArgs[
-        GroupPermissionField,
-        GroupPermissionOrder,
-    ],
-    total=False,
-):
-    """Keyword-argument form of `GroupPermissionFilter` for ergonomic call sites."""
-
-    group_id: MaybeSequence[UUID] | None
-    target_type: MaybeSequence[PermissionTargetType] | None
-    target: MaybeSequence[str] | None
-    level: MaybeSequence[ComponentAccessLevel] | None
-
-
-class GroupPermissionFilter(
-    BaseEntityFilter[
-        "GroupPermission",
-        GroupPermissionField,
-        GroupPermissionOrder,
-    ]
-):
-    """Filter for selecting `GroupPermission` records."""
-
-    __table__: ClassVar[str] = "group_permissions"
-
-    group_id: MaybeSequence[UUID] | None = None
-    """Filter by `group_id` being equal to one or more given group IDs."""
-    target_type: MaybeSequence[PermissionTargetType] | None = None
-    """Filter by `target_type` being equal to one or more given types."""
-    target: MaybeSequence[str] | None = None
-    """Filter by `target` being equal to one or more given target strings."""
-    level: MaybeSequence[ComponentAccessLevel] | None = None
-    """Filter by `level` being equal to one or more given access levels."""
-
-
-class GroupPermissionCreate(BaseEntityCreate, slots=True):
-    """Payload for creating a new `GroupPermission` record."""
-
-    group_id: UUID
-    """ID of the group receiving the permission grant."""
-    target_type: PermissionTargetType
-    """Whether this grant targets a component address or a tag."""
-    target: str
-    """Component address string or tag name, depending on `target_type`."""
-    level: ComponentAccessLevel
-    """Access level granted to the group for the target."""
-
-
-class GroupPermissionUpdate(TypedDict, total=False):
-    """Partial update for an existing `GroupPermission` record."""
-
-    level: ComponentAccessLevel
 
 
 class _BaseGroupPermissionQuery(

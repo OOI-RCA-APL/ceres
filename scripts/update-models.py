@@ -62,12 +62,17 @@ DATA_IMPORTS = (
     "JSONSerializable",
     "JSONSerializableDict",
     "MaybeSequence",
+    "Name",
     "NonEmptyStr",
     "Password",
     "PasswordHash",
+    "StrEnum",
     "Username",
 )
 """Names importable from `ceres.data`, matched against the rendered body."""
+
+CONFIG_IMPORTS = ("ComponentAccessLevel",)
+"""Names importable from `ceres.config`, matched against the rendered body."""
 
 ENTITY_BASES = tuple(
     f"Base{family}Entity{suffix}"
@@ -76,7 +81,12 @@ ENTITY_BASES = tuple(
 )
 """Base names importable from `ceres.__internal__.entity`, matched against the body."""
 
-FILTER_NOUNS = {"email": "email addresses", "uuid": "UUIDs", "plain_address": "addresses"}
+FILTER_NOUNS = {
+    "email": "email addresses",
+    "uuid": "UUIDs",
+    "plain_address": "addresses",
+    "values": "values",
+}
 """What a filter equality docstring calls the given values, when not the key itself."""
 
 VALUE_FILTER_DOC = (
@@ -92,6 +102,18 @@ INTERNAL_DOC = (
     "those that start with and end with two underscores, for example `__enabled__`. If "
     "`None`, both internal and non-internal variables will be matched."
 )
+
+
+@dataclass(frozen=True)
+class Enum:
+    """One generated `StrEnum`, whose values come from a table's `values` family field."""
+
+    name: str
+    table: str
+    key: str
+    doc: str
+    member_docs: MappingProxyType[str, str]
+    """Docstrings by member value, every value of the field's family covered."""
 
 
 @dataclass(frozen=True)
@@ -114,6 +136,7 @@ class Module:
     source: str
     """The module declaring the entity classes the filters forward-reference."""
     entities: tuple[Entity, ...]
+    enums: tuple[Enum, ...] = ()
 
 
 MODULES = [
@@ -145,6 +168,37 @@ MODULES = [
                             "rather than a component."
                         ),
                         "owned": "Filter by whether the workspace is private to an owner at all.",
+                    }
+                ),
+            ),
+        ),
+    ),
+    Module(
+        "groups.py",
+        "ceres.group",
+        (
+            Entity("groups", "Group"),
+            Entity("group_memberships", "GroupMembership"),
+        ),
+    ),
+    Module(
+        "permissions.py",
+        "ceres.permission",
+        (
+            Entity("user_permissions", "UserPermission"),
+            Entity("group_permissions", "GroupPermission"),
+        ),
+        enums=(
+            Enum(
+                "PermissionTargetType",
+                "user_permissions",
+                "target_type",
+                "Discriminator for the kind of target a permission grant applies to.",
+                MappingProxyType(
+                    {
+                        "component": "Grant applies to a specific component by address.",
+                        "tag": "Grant applies to all components carrying a given tag.",
+                        "all": "Grant applies to every component. The target string is empty.",
                     }
                 ),
             ),
@@ -215,9 +269,21 @@ def filter_doc(field: dict[str, Any]) -> str:
     return f"Filter by `{key}` being equal to one or more given {noun}."
 
 
+def filter_annotation(field: dict[str, Any], types: dict[str, str]) -> str:
+    """The filter or args annotation, parameterized by the Python enum for `values`."""
+    family = field["family"]["name"]
+    if family == "values":
+        return f"MaybeSequence[{field['python']}] | None"
+
+    return types[family]
+
+
 def create_annotation(field: dict[str, Any], described: dict[str, Any] | None) -> str:
     """The create and update annotation, nullable when the column defaults to null."""
-    annotation = field["python"] or CREATE_TYPES[field["family"]["name"]]
+    if field["family"]["name"] == "values":
+        annotation = field["python"]
+    else:
+        annotation = field["python"] or CREATE_TYPES[field["family"]["name"]]
     if described is not None and described.get("value", ...) is None:
         annotation += " | None"
 
@@ -310,13 +376,13 @@ def render_entity(table: dict[str, Any], entity: Entity) -> list[str]:
     lines.append(f'    """Keyword-argument form of `{name}Filter` for ergonomic call sites."""')
     lines.append("")
     for field in regular:
-        lines.append(f"    {field['key']}: {ARGS_TYPES[field['family']['name']]}")
+        lines.append(f"    {field['key']}: {filter_annotation(field, ARGS_TYPES)}")
         for operation in field["operations"]:
             lines.append(f"    {operation['key']}: MaybeSequence[str] | None")
     for computed in table["computed"]:
         lines.append(f"    {computed['key']}: bool | None")
     for field in nullable:
-        lines.append(f"    {field['key']}: {ARGS_TYPES[field['family']['name']]}")
+        lines.append(f"    {field['key']}: {filter_annotation(field, ARGS_TYPES)}")
     lines.append("")
     lines.append("")
 
@@ -330,7 +396,7 @@ def render_entity(table: dict[str, Any], entity: Entity) -> list[str]:
     lines.append("")
     for field in regular:
         key = field["key"]
-        lines.append(f"    {key}: {FILTER_TYPES[field['family']['name']]} = None")
+        lines.append(f"    {key}: {filter_annotation(field, FILTER_TYPES)} = None")
         lines.extend(docstring(filter_doc(field), "    "))
         for operation in field["operations"]:
             lines.append(f"    {operation['key']}: MaybeSequence[str] | None = None")
@@ -345,7 +411,7 @@ def render_entity(table: dict[str, Any], entity: Entity) -> list[str]:
         lines.append(f"    __nullable_filters__: ClassVar[frozenset[str]] = frozenset({{{keys}}})")
         lines.append("")
         for field in nullable:
-            lines.append(f"    {field['key']}: {FILTER_TYPES[field['family']['name']]} = None")
+            lines.append(f"    {field['key']}: {filter_annotation(field, FILTER_TYPES)} = None")
             lines.extend(docstring(filter_doc(field), "    "))
     lines.append("")
     lines.append("")
@@ -366,27 +432,67 @@ def render_entity(table: dict[str, Any], entity: Entity) -> list[str]:
     lines.append("")
 
     # Update.
+    settable = [column for column in columns if column["key"] not in fixed]
+    update_doc = f"Partial update for an existing `{name}` record."
+    if not settable:
+        update_doc += (
+            "\n\nThe record is only created or deleted, so this update payload has no "
+            "mutable fields."
+        )
     lines.append(f"class {name}Update(TypedDict, total=False):")
-    lines.append(f'    """Partial update for an existing `{name}` record."""')
-    lines.append("")
-    for column in columns:
-        if column["key"] in fixed:
-            continue
+    lines.extend(docstring(update_doc, "    "))
+    if settable:
+        lines.append("")
+    for column in settable:
         lines.append(
             f"    {column['key']}: {create_annotation(column, defaults.get(column['key']))}"
         )
     return lines
 
 
+def render_enum(table: dict[str, Any], enum: Enum) -> list[str]:
+    """Render one generated `StrEnum` from a `values` family field."""
+    field = next(field for field in table["columns"] if field["key"] == enum.key)
+    values = field["family"]["values"]
+    lines = [f"class {enum.name}(StrEnum):"]
+    lines.extend(docstring(enum.doc, "    "))
+    lines.append("")
+    for value in values:
+        lines.append(f'    {value.upper()} = "{value}"')
+        lines.extend(docstring(enum.member_docs[value], "    "))
+    return lines
+
+
+def code_only(body: str) -> str:
+    """The body with docstring lines removed, so prose never matches an import scan."""
+    kept: list[str] = []
+    inside = False
+    for line in body.splitlines():
+        stripped = line.strip()
+        if not inside and stripped.startswith('"""'):
+            inside = not (len(stripped) > 3 and stripped.endswith('"""'))
+            continue
+
+        if inside:
+            inside = not stripped.endswith('"""')
+            continue
+
+        kept.append(line)
+
+    return "\n".join(kept)
+
+
 def header(module: Module, body: str) -> list[str]:
     """The module docstring and imports, derived from what the body references."""
+    code = code_only(body)
 
     def used(symbol: str) -> bool:
-        return re.search(rf"\b{symbol}\b", body) is not None
+        return re.search(rf"\b{symbol}\b", code) is not None
 
     typing = [symbol for symbol in ("Any", "ClassVar", "Literal", "TypedDict") if used(symbol)]
     entity = sorted(base for base in ENTITY_BASES if used(base))
     data = sorted(symbol for symbol in DATA_IMPORTS if used(symbol))
+    config = sorted(symbol for symbol in CONFIG_IMPORTS if used(symbol))
     tables = ", ".join(f"`{entity.table}`" for entity in module.entities)
     names = ", ".join(sorted(entity.name for entity in module.entities))
 
@@ -408,6 +514,8 @@ def header(module: Module, body: str) -> list[str]:
     lines.append(")")
     if used("Address"):
         lines.append("from ceres.address import Address")
+    if config:
+        lines.append(f"from ceres.config import {', '.join(config)}")
     if data:
         lines.append("from ceres.data import (")
         lines.extend(f"    {symbol}," for symbol in data)
@@ -423,9 +531,12 @@ def header(module: Module, body: str) -> list[str]:
         ]
     )
     exported = sorted(
-        f"{entity.name}{suffix}"
-        for entity in module.entities
-        for suffix in ("Create", "Field", "Filter", "FilterArgs", "Order", "Update")
+        [
+            f"{entity.name}{suffix}"
+            for entity in module.entities
+            for suffix in ("Create", "Field", "Filter", "FilterArgs", "Order", "Update")
+        ]
+        + [enum.name for enum in module.enums]
     )
     lines.extend(f'    "{name}",' for name in exported)
     lines.extend(["]", "", ""])
@@ -439,9 +550,12 @@ def footer(module: Module) -> list[str]:
     this package. The `type` aliases stay put, `TypeAliasType.__module__` is read-only.
     """
     models = ", ".join(
-        f"{entity.name}{suffix}"
-        for entity in module.entities
-        for suffix in ("Create", "Filter", "FilterArgs", "Update")
+        [enum.name for enum in module.enums]
+        + [
+            f"{entity.name}{suffix}"
+            for entity in module.entities
+            for suffix in ("Create", "Filter", "FilterArgs", "Update")
+        ]
     )
     return [
         "",
@@ -465,7 +579,8 @@ def formatted(name: str, text: str) -> str:
 
 
 def render_module(module: Module, tables: dict[str, dict[str, Any]]) -> str:
-    bodies = [render_entity(tables[entity.table], entity) for entity in module.entities]
+    bodies = [render_enum(tables[enum.table], enum) for enum in module.enums]
+    bodies.extend(render_entity(tables[entity.table], entity) for entity in module.entities)
     body = "\n\n\n".join("\n".join(lines).rstrip() for lines in bodies)
     text = "\n".join(header(module, body)) + "\n" + body
     text = text.rstrip() + "\n" + "\n".join(footer(module)) + "\n"

@@ -143,8 +143,12 @@ pub struct WorkspaceEdit {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Filterable)]
 pub struct Group {
     pub id: Uuid,
+    /// Unique name identifying the group in the system.
+    #[filterable(python = "Name")]
     pub name: String,
-    /// Free text describing the group, which the Python filter does not expose.
+    /// Human-readable description of the group's purpose.
+    ///
+    /// It is free text the Python filter does not expose.
     #[filterable(skip)]
     pub description: String,
 }
@@ -152,31 +156,49 @@ pub struct Group {
 /// One user's membership of one group.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Filterable)]
 pub struct GroupMembership {
+    /// ID of the user being added to the group.
     pub user_id: Uuid,
+    /// ID of the group the user is joining.
     pub group_id: Uuid,
 }
 
 /// A grant made directly to a user.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Filterable)]
 pub struct UserPermission {
+    /// ID of the user receiving the permission grant.
     pub user_id: Uuid,
+    /// Whether this grant targets a component address or a tag.
+    #[filterable(python = "PermissionTargetType")]
     pub target_type: PermissionTargetType,
-    /// What the grant covers, an address or a tag, and empty when it covers everything.
+    /// Component address string or tag name, depending on `target_type`.
     ///
-    /// It filters by equality alone. A substring of an address or a tag names nothing
-    /// so the Python filter gives the field no operation keys and neither does this.
+    /// It is empty when the grant covers everything, and filters by equality alone. A
+    /// substring of an address or a tag names nothing so the Python filter gives the
+    /// field no operation keys and neither does this.
     #[filterable(no_operations)]
     pub target: String,
+    /// Access level granted to the user for the target.
+    #[filterable(python = "ComponentAccessLevel")]
     pub level: GrantLevel,
 }
 
 /// A grant made to a group, which reaches every user in it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Filterable)]
 pub struct GroupPermission {
+    /// ID of the group receiving the permission grant.
     pub group_id: Uuid,
+    /// Whether this grant targets a component address or a tag.
+    #[filterable(python = "PermissionTargetType")]
     pub target_type: PermissionTargetType,
+    /// Component address string or tag name, depending on `target_type`.
+    ///
+    /// It is empty when the grant covers everything, and filters by equality alone. A
+    /// substring of an address or a tag names nothing so the Python filter gives the
+    /// field no operation keys and neither does this.
     #[filterable(no_operations)]
     pub target: String,
+    /// Access level granted to the group for the target.
+    #[filterable(python = "ComponentAccessLevel")]
     pub level: GrantLevel,
 }
 
