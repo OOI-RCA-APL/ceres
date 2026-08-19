@@ -1,7 +1,5 @@
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, Unpack, override
-
-from pydantic import Field
+from typing import TYPE_CHECKING, Any, ClassVar, Unpack, override
 
 from ceres.__internal__.entity import (
     BaseEntityManager,
@@ -12,16 +10,15 @@ from ceres.__internal__.entity import (
     EntityQuery,
 )
 from ceres.__internal__.manager import BaseNodeManager
-from ceres.__internal__.record import (
-    BaseRecord,
-    BaseRecordCreate,
-    BaseRecordField,
-    BaseRecordFilter,
-    BaseRecordFilterArgs,
-    BaseRecordOrder,
-    BaseRecordUpdate,
+from ceres.__internal__.models.alerts import (
+    AlertCreate,
+    AlertField,
+    AlertFilter,
+    AlertFilterArgs,
+    AlertOrder,
+    AlertUpdate,
 )
-from ceres.data import FromYAML, JSONSerializableDict, MaybeSequence
+from ceres.__internal__.record import BaseRecord
 from ceres.level import Level
 
 if TYPE_CHECKING:
@@ -32,91 +29,6 @@ if TYPE_CHECKING:
 __all__ = [
     "Alert",
 ]
-
-
-type AlertField = (
-    BaseRecordField
-    | Literal[
-        "level",
-        "type",
-        "data",
-    ]
-)
-"""Field names selectable in `Alert` queries."""
-
-type AlertOrder = (
-    BaseRecordOrder
-    | Literal[
-        "level",
-        "level:asc",
-        "level:desc",
-        "type",
-        "type:asc",
-        "type:desc",
-    ]
-)
-"""Ordering keys accepted by `Alert` queries."""
-
-
-class AlertFilterArgs(BaseRecordFilterArgs[AlertField, AlertOrder], total=False):
-    """Keyword-argument form of `AlertFilter` for ergonomic call sites."""
-
-    level: MaybeSequence[Level] | None
-    min_level: Level | None
-    max_level: Level | None
-    type: MaybeSequence[str] | None
-    type_contains: MaybeSequence[str] | None
-    type_prefix: MaybeSequence[str] | None
-    type_suffix: MaybeSequence[str] | None
-    data_contains: MaybeSequence[str] | None
-    data_prefix: MaybeSequence[str] | None
-    data_suffix: MaybeSequence[str] | None
-
-
-class AlertFilter(BaseRecordFilter["Alert", AlertField, AlertOrder]):
-    """Filter for selecting `Alert` records by level, type, or data contents."""
-
-    __table__: ClassVar[str] = "alerts"
-
-    level: MaybeSequence[Level] | None = None
-    """Filter by `level` being equal to one or more given levels."""
-    min_level: Level | None = None
-    """Filter by `level` being greater than or equal to the given level value."""
-    max_level: Level | None = None
-    """Filter by `level` being less than or equal to the given level value."""
-    type: MaybeSequence[str] | None = None
-    """Filter by `type` being equal to one or more given types."""
-    type_contains: MaybeSequence[str] | None = None
-    """Filter by `type` containing one or more given substrings."""
-    type_prefix: MaybeSequence[str] | None = None
-    """Filter by `type` starting with one or more given prefixes."""
-    type_suffix: MaybeSequence[str] | None = None
-    """Filter by `type` ending with one or more given suffixes."""
-    data_contains: MaybeSequence[str] | None = None
-    """Filter by whether or not the JSON text of `data` contains one or more given substrings."""
-    data_prefix: MaybeSequence[str] | None = None
-    """Filter by whether or not the JSON text of `data` starts with one or more given prefixes."""
-    data_suffix: MaybeSequence[str] | None = None
-    """Filter by whether or not the JSON text of `data` ends with one or more given suffixes."""
-
-
-class AlertCreate(BaseRecordCreate, slots=True):
-    """Payload for creating a new `Alert` record."""
-
-    level: Level
-    """Severity level of the alert."""
-    type: str
-    """Discriminator string identifying the kind of alert."""
-    data: FromYAML[JSONSerializableDict] = Field(default_factory=dict)
-    """Optional structured payload providing additional context for the alert."""
-
-
-class AlertUpdate(BaseRecordUpdate, total=False):
-    """Partial update for an existing `Alert` record."""
-
-    level: Level
-    type: str
-    data: FromYAML[JSONSerializableDict]
 
 
 class _BaseAlertQuery(

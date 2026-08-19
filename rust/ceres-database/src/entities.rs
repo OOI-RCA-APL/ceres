@@ -76,8 +76,11 @@ impl EntityTable {
         match self {
             Self::Users => Schema {
                 name: self.name(),
+                entity: User::NAME,
+                python_module: "ceres.user",
                 fields: User::FIELDS,
                 columns: User::COLUMNS,
+                doc: User::DOC,
                 delegated: &[],
                 key: &["id"],
                 fixed: &["id"],
@@ -86,11 +89,14 @@ impl EntityTable {
             },
             Self::Variables => Schema {
                 name: self.name(),
+                entity: Variable::NAME,
+                python_module: "ceres.variable",
                 fields: Variable::FIELDS,
                 columns: Variable::COLUMNS,
+                doc: Variable::DOC,
                 delegated: &[],
                 key: &["address", "name"],
-                // A variable's name is assignable though it is half the key, its
+                // A variable's name is settable though it is half the key, its
                 // address is not, which `VariableUpdate` declares.
                 fixed: &["address"],
                 order: &["address", "name"],
@@ -98,12 +104,19 @@ impl EntityTable {
                     key: "internal",
                     column: "name",
                     shape: Shape::Internal,
+                    doc: "Filter variables based on whether they are internal or not. \
+                          Internal variables are those that start with and end with two \
+                          underscores, for example `__enabled__`. If `None`, both \
+                          internal and non-internal variables will be matched.",
                 }],
             },
             Self::Settings => Schema {
                 name: self.name(),
+                entity: Setting::NAME,
+                python_module: "ceres.setting",
                 fields: Setting::FIELDS,
                 columns: Setting::COLUMNS,
+                doc: Setting::DOC,
                 delegated: &[],
                 key: &["user_id", "name"],
                 fixed: &["user_id"],
@@ -112,8 +125,11 @@ impl EntityTable {
             },
             Self::Workspaces => Schema {
                 name: self.name(),
+                entity: Workspace::NAME,
+                python_module: "ceres.workspace",
                 fields: Workspace::FIELDS,
                 columns: Workspace::COLUMNS,
+                doc: Workspace::DOC,
                 delegated: &[],
                 key: &["id"],
                 fixed: &["id"],
@@ -123,18 +139,25 @@ impl EntityTable {
                         key: "placed_on_engine",
                         column: "scope",
                         shape: Shape::Literal("~"),
+                        doc: "Filter by whether the workspace is placed on the engine \
+                              root rather than a component.",
                     },
                     Computed {
                         key: "owned",
                         column: "owner_id",
                         shape: Shape::Present,
+                        doc: "Filter by whether the workspace is private to an owner \
+                              at all.",
                     },
                 ],
             },
             Self::WorkspaceEdits => Schema {
                 name: self.name(),
+                entity: WorkspaceEdit::NAME,
+                python_module: "ceres.workspace",
                 fields: WorkspaceEdit::FIELDS,
                 columns: WorkspaceEdit::COLUMNS,
+                doc: WorkspaceEdit::DOC,
                 delegated: &[],
                 key: &["workspace_id", "user_id"],
                 // The draft data is the only thing an edit can change, which
@@ -145,8 +168,11 @@ impl EntityTable {
             },
             Self::Groups => Schema {
                 name: self.name(),
+                entity: Group::NAME,
+                python_module: "ceres.group",
                 fields: Group::FIELDS,
                 columns: Group::COLUMNS,
+                doc: Group::DOC,
                 delegated: &[],
                 key: &["id"],
                 fixed: &["id"],
@@ -155,8 +181,11 @@ impl EntityTable {
             },
             Self::GroupMemberships => Schema {
                 name: self.name(),
+                entity: GroupMembership::NAME,
+                python_module: "ceres.group",
                 fields: GroupMembership::FIELDS,
                 columns: GroupMembership::COLUMNS,
+                doc: GroupMembership::DOC,
                 delegated: &[],
                 key: &["user_id", "group_id"],
                 // A membership is created or deleted and never edited so both of its
@@ -167,8 +196,11 @@ impl EntityTable {
             },
             Self::UserPermissions => Schema {
                 name: self.name(),
+                entity: UserPermission::NAME,
+                python_module: "ceres.permission",
                 fields: UserPermission::FIELDS,
                 columns: UserPermission::COLUMNS,
+                doc: UserPermission::DOC,
                 delegated: &[],
                 key: &["user_id", "target_type", "target"],
                 // The level is what a grant can be raised or lowered to. Changing who or
@@ -179,8 +211,11 @@ impl EntityTable {
             },
             Self::GroupPermissions => Schema {
                 name: self.name(),
+                entity: GroupPermission::NAME,
+                python_module: "ceres.permission",
                 fields: GroupPermission::FIELDS,
                 columns: GroupPermission::COLUMNS,
+                doc: GroupPermission::DOC,
                 delegated: &[],
                 key: &["group_id", "target_type", "target"],
                 fixed: &["group_id", "target_type", "target"],

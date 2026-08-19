@@ -1,26 +1,23 @@
-from typing import TYPE_CHECKING, ClassVar, Literal, TypedDict, Unpack, override
+from typing import TYPE_CHECKING, ClassVar, Unpack, override
 
 from ceres.__internal__.entity import (
     BaseEntityManager,
     BaseEntityQuery,
     BaseUUIDEntity,
-    BaseUUIDEntityCreate,
-    BaseUUIDEntityField,
-    BaseUUIDEntityFilter,
-    BaseUUIDEntityFilterArgs,
-    BaseUUIDEntityOrder,
     ConcreteEntity,
     EntityNaming,
     EntityQuery,
 )
 from ceres.__internal__.manager import BaseNodeManager
-from ceres.data import (
-    EmailAddress,
-    MaybeSequence,
-    Password,
-    PasswordHash,
-    Username,
+from ceres.__internal__.models.users import (
+    UserCreate,
+    UserField,
+    UserFilter,
+    UserFilterArgs,
+    UserOrder,
+    UserUpdate,
 )
+from ceres.data import PasswordHash
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -30,104 +27,6 @@ if TYPE_CHECKING:
 __all__ = [
     "User",
 ]
-
-
-type UserField = (
-    BaseUUIDEntityField
-    | Literal[
-        "username",
-        "email",
-        "admin",
-        "disabled",
-    ]
-)
-"""Field names selectable in `User` queries."""
-
-type UserOrder = (
-    BaseUUIDEntityOrder
-    | Literal[
-        "username",
-        "username:asc",
-        "username:desc",
-        "email",
-        "email:asc",
-        "email:desc",
-        "admin",
-        "admin:asc",
-        "admin:desc",
-        "disabled",
-        "disabled:asc",
-        "disabled:desc",
-    ]
-)
-"""Ordering keys accepted by `User` queries."""
-
-
-class UserFilterArgs(BaseUUIDEntityFilterArgs[UserField, UserOrder], total=False):
-    """Keyword-argument form of `UserFilter` for ergonomic call sites."""
-
-    username: MaybeSequence[str] | None
-    username_contains: MaybeSequence[str] | None
-    username_prefix: MaybeSequence[str] | None
-    username_suffix: MaybeSequence[str] | None
-    email: MaybeSequence[EmailAddress] | None
-    email_contains: MaybeSequence[str] | None
-    email_prefix: MaybeSequence[str] | None
-    email_suffix: MaybeSequence[str] | None
-    admin: bool | None
-    disabled: bool | None
-
-
-class UserFilter(BaseUUIDEntityFilter["User", UserField, UserOrder]):
-    """Filter for selecting `User` records by identity or admin status."""
-
-    __table__: ClassVar[str] = "users"
-
-    username: MaybeSequence[str] | None = None
-    """Filter by `username` being equal to one or more given usernames."""
-    username_contains: MaybeSequence[str] | None = None
-    """Filter by `username` containing one or more given substrings."""
-    username_prefix: MaybeSequence[str] | None = None
-    """Filter by `username` starting with one or more given prefixes."""
-    username_suffix: MaybeSequence[str] | None = None
-    """Filter by `username` ending with one or more given suffixes."""
-    email: MaybeSequence[EmailAddress] | None = None
-    """Filter by `email` being equal to one or more given email addresses."""
-    email_contains: MaybeSequence[str] | None = None
-    """Filter by `email` containing one or more given substrings."""
-    email_prefix: MaybeSequence[str] | None = None
-    """Filter by `email` starting with one or more given prefixes."""
-    email_suffix: MaybeSequence[str] | None = None
-    """Filter by `email` ending with one or more given suffixes."""
-    admin: bool | None = None
-    """Filter by `admin` being either `True` or `False`."""
-    disabled: bool | None = None
-    """Filter by `disabled` being either `True` or `False`."""
-
-
-class UserCreate(BaseUUIDEntityCreate, slots=True):
-    """Payload for creating a new `User` record."""
-
-    username: Username
-    """Unique name identifying the user in the system."""
-    email: EmailAddress
-    """Email address associated with the user."""
-    password: Password | PasswordHash
-    """Plaintext password or pre-computed hash, plaintext values are hashed on create."""
-    admin: bool = False
-    """Whether the user has administrative access to all components and workspaces."""
-    disabled: bool = False
-    """Whether the user account is disabled and unable to authenticate."""
-
-
-class UserUpdate(TypedDict, total=False):
-    """Partial update for an existing `User` record."""
-
-    username: Username
-    email: EmailAddress
-    password: Password | PasswordHash
-    admin: bool
-    disabled: bool
 
 
 class _BaseUserQuery(
@@ -161,13 +60,13 @@ class _BaseUserQuery(
         return UserQuery
 
     @override
-    async def _assign_transform(self, assign: UserUpdate) -> UserUpdate:
-        assign = await super()._assign_transform(assign)
-        if "password" in assign:
-            assign = {**assign}
-            assign["password"] = await self._maybe_hash_password(assign["password"])
+    async def _set_transform(self, set: UserUpdate) -> UserUpdate:
+        set = await super()._set_transform(set)
+        if "password" in set:
+            set = {**set}
+            set["password"] = await self._maybe_hash_password(set["password"])
 
-        return assign
+        return set
 
 
 class UserQuery(

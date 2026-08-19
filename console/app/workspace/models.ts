@@ -91,6 +91,10 @@ export const ProceduresWidgetModel = BaseWidgetModel.extend({
 export type ChartWidgetDisplay = z.infer<typeof ChartWidgetDisplayModel>
 export const ChartWidgetDisplayModel = z.enum(['line', 'scatter', 'bar'])
 
+export type ChartWidgetFit = z.infer<typeof ChartWidgetFitModel>
+/** How the Y axis bounds follow the data, anchored at zero or hugging the data's extent. */
+export const ChartWidgetFitModel = z.enum(['from-zero', 'data'])
+
 export type ChartWidgetSeries = z.infer<typeof ChartWidgetSeriesModel>
 export const ChartWidgetSeriesModel = z.object({
   id: z.string().catch(() => v7()),
@@ -112,6 +116,9 @@ export const ChartWidgetModel = BaseWidgetModel.extend({
   type: z.literal('chart'),
   name: z.string().catch('Chart'),
   display: ChartWidgetDisplayModel.catch('line'),
+  fit: ChartWidgetFitModel.catch('from-zero'),
+  /** Draw the Y axis positive-down, the convention for depth-like series. */
+  flipY: z.boolean().catch(false),
   unit: z.string().nullish(),
   after: DateTimeModel.nullish(),
   timespan: z

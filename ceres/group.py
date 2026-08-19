@@ -1,94 +1,37 @@
-from typing import TYPE_CHECKING, ClassVar, Literal, TypedDict, Unpack, override
-from uuid import UUID
+from typing import TYPE_CHECKING, ClassVar, Unpack, override
 
 from ceres.__internal__.entity import (
-    BaseEntityCreate,
-    BaseEntityFilter,
-    BaseEntityFilterArgs,
     BaseEntityManager,
     BaseEntityQuery,
     BaseUUIDEntity,
-    BaseUUIDEntityCreate,
-    BaseUUIDEntityField,
-    BaseUUIDEntityFilter,
-    BaseUUIDEntityFilterArgs,
-    BaseUUIDEntityOrder,
     ConcreteEntity,
     EntityNaming,
     EntityQuery,
 )
-from ceres.data import MaybeSequence, Name
+from ceres.__internal__.models.groups import (
+    GroupCreate,
+    GroupField,
+    GroupFilter,
+    GroupFilterArgs,
+    GroupMembershipCreate,
+    GroupMembershipField,
+    GroupMembershipFilter,
+    GroupMembershipFilterArgs,
+    GroupMembershipOrder,
+    GroupMembershipUpdate,
+    GroupOrder,
+    GroupUpdate,
+)
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from ceres.__internal__.protocols import DatabaseSource
 
 __all__ = [
     "Group",
     "GroupMembership",
 ]
-
-
-type GroupField = (
-    BaseUUIDEntityField
-    | Literal[
-        "name",
-        "description",
-    ]
-)
-"""Field names selectable in `Group` queries."""
-
-type GroupOrder = (
-    BaseUUIDEntityOrder
-    | Literal[
-        "name",
-        "name:asc",
-        "name:desc",
-        "description",
-        "description:asc",
-        "description:desc",
-    ]
-)
-"""Ordering keys accepted by `Group` queries."""
-
-
-class GroupFilterArgs(BaseUUIDEntityFilterArgs[GroupField, GroupOrder], total=False):
-    """Keyword-argument form of `GroupFilter` for ergonomic call sites."""
-
-    name: MaybeSequence[str] | None
-    name_contains: MaybeSequence[str] | None
-    name_prefix: MaybeSequence[str] | None
-    name_suffix: MaybeSequence[str] | None
-
-
-class GroupFilter(BaseUUIDEntityFilter["Group", GroupField, GroupOrder]):
-    """Filter for selecting `Group` records by name."""
-
-    __table__: ClassVar[str] = "groups"
-
-    name: MaybeSequence[str] | None = None
-    """Filter by `name` being equal to one or more given names."""
-    name_contains: MaybeSequence[str] | None = None
-    """Filter by `name` containing one or more given substrings."""
-    name_prefix: MaybeSequence[str] | None = None
-    """Filter by `name` starting with one or more given prefixes."""
-    name_suffix: MaybeSequence[str] | None = None
-    """Filter by `name` ending with one or more given suffixes."""
-
-
-class GroupCreate(BaseUUIDEntityCreate, slots=True):
-    """Payload for creating a new `Group` record."""
-
-    name: Name
-    """Unique name identifying the group in the system."""
-    description: str = ""
-    """Human-readable description of the group's purpose."""
-
-
-class GroupUpdate(TypedDict, total=False):
-    """Partial update for an existing `Group` record."""
-
-    name: Name
-    description: str
 
 
 class _BaseGroupQuery(
@@ -178,69 +121,6 @@ class Group(
     Order = GroupOrder
 
     __entity_naming__: ClassVar[EntityNaming] = EntityNaming("group")
-
-
-type GroupMembershipField = Literal[
-    "user_id",
-    "group_id",
-]
-"""Field names selectable in `GroupMembership` queries."""
-
-type GroupMembershipOrder = Literal[
-    "user_id",
-    "user_id:asc",
-    "user_id:desc",
-    "group_id",
-    "group_id:asc",
-    "group_id:desc",
-]
-"""Ordering keys accepted by `GroupMembership` queries."""
-
-
-class GroupMembershipFilterArgs(
-    BaseEntityFilterArgs[
-        GroupMembershipField,
-        GroupMembershipOrder,
-    ],
-    total=False,
-):
-    """Keyword-argument form of `GroupMembershipFilter` for ergonomic call sites."""
-
-    user_id: MaybeSequence[UUID] | None
-    group_id: MaybeSequence[UUID] | None
-
-
-class GroupMembershipFilter(
-    BaseEntityFilter[
-        "GroupMembership",
-        GroupMembershipField,
-        GroupMembershipOrder,
-    ]
-):
-    """Filter for selecting `GroupMembership` records by user or group."""
-
-    __table__: ClassVar[str] = "group_memberships"
-
-    user_id: MaybeSequence[UUID] | None = None
-    """Filter by `user_id` being equal to one or more given user IDs."""
-    group_id: MaybeSequence[UUID] | None = None
-    """Filter by `group_id` being equal to one or more given group IDs."""
-
-
-class GroupMembershipCreate(BaseEntityCreate, slots=True):
-    """Payload for creating a new `GroupMembership` record."""
-
-    user_id: UUID
-    """ID of the user being added to the group."""
-    group_id: UUID
-    """ID of the group the user is joining."""
-
-
-class GroupMembershipUpdate(TypedDict, total=False):
-    """Partial update for an existing `GroupMembership` record.
-
-    Memberships are only created or deleted, so this update payload has no mutable fields.
-    """
 
 
 class _BaseGroupMembershipQuery(

@@ -56,7 +56,6 @@ from ceres.__internal__.utilities.undefined import Undefined
 from ceres.data import (
     DataObject,
     DateTime,
-    FromYAML,
     JSONSerializableDict,
     MaybeSequence,
     construct,
@@ -302,14 +301,14 @@ class ParticleCreate(BaseRecordCreate, slots=True):
     """Payload accepted by `ParticleManager.create()` to insert a new particle."""
 
     type: str
-    data: FromYAML[JSONSerializableDict]
+    data: JSONSerializableDict
 
 
 class ParticleUpdate(BaseRecordUpdate, total=False):
     """Partial payload accepted by `ParticleManager.update()` to modify an existing particle."""
 
     type: str
-    data: FromYAML[JSONSerializableDict]
+    data: JSONSerializableDict
 
 
 class _BaseParticleQuery(

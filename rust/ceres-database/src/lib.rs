@@ -7,20 +7,20 @@
 //! Every backend sits behind one trait in [`backend`], so the store and the writer are
 //! written once against a database rather than three times against three of them.
 
-mod assign;
 mod backend;
 mod credentials;
+pub mod describe;
 mod dynamic;
 mod entities;
 mod filter;
 mod load;
 mod records;
 mod selector;
+mod set;
 mod store;
 mod turso;
 mod writer;
 
-pub use assign::insert_compiled;
 pub use backend::Writing;
 pub use ceres_entities::OperationKind;
 pub use credentials::{
@@ -35,5 +35,6 @@ pub use filter::{
 pub use load::{Conflict, LoadFormat, batches, build, build_entity, entity_batches, read};
 pub use records::RecordTable;
 pub use sea_query::Value as BindValue;
+pub use set::insert_compiled;
 pub use store::{Error, GateUser, Parameter, RecordStore};
 pub use writer::RecordWriter;

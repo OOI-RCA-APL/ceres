@@ -136,8 +136,8 @@ pub(crate) struct Invocation {
     pub(crate) confirm: bool,
     /// Whether `--collect` asked for the affected rows instead of a count.
     pub(crate) collect: bool,
-    /// The `--assign` object an update carries, as its raw YAML or JSON text.
-    pub(crate) assign: Option<String>,
+    /// The `--set` object an update carries, as its raw YAML or JSON text.
+    pub(crate) set: Option<String>,
     /// The `--on-conflict` mode a load resolves collisions with.
     pub(crate) on_conflict: Option<String>,
     /// The file a load reads.
@@ -155,15 +155,15 @@ impl Invocation {
         // A filtered verb reads the table's filter keys and a create reads its columns,
         // which are different surfaces over the same table. A load names a file rather
         // than either.
-        let keys = match verb {
-            Verb::Create => table.columns(),
-            Verb::Load => Vec::new(),
-            _ => table.keys(),
+        let (keys, shape) = match verb {
+            Verb::Create => (table.columns(), surface::BooleanShape::Valued),
+            Verb::Load => (Vec::new(), surface::BooleanShape::Bare),
+            _ => (table.keys(), surface::BooleanShape::Bare),
         };
 
         Self {
             verb,
-            pairs: surface::pairs(&keys, matches),
+            pairs: surface::pairs(&keys, matches, shape),
             output: text("output").map(PathBuf::from),
             format: text("format"),
             // A header is written unless it was turned off, which makes a CSV
@@ -174,7 +174,7 @@ impl Invocation {
             // stopped by the prompt has to keep being stopped by it.
             confirm: !flag("no-confirm").unwrap_or(false),
             collect: flag("collect").unwrap_or(false),
-            assign: text("assign"),
+            set: text("set"),
             on_conflict: text("on_conflict"),
             path: text("path").map(PathBuf::from),
             projection: projection(matches),
@@ -913,7 +913,7 @@ where
     async fn update(
         store: &RecordStore,
         filter: &Filter<Self>,
-        assign: &str,
+        set: &str,
         credentials: Option<Credentials>,
     ) -> StoreResult<u64>;
 
@@ -921,7 +921,7 @@ where
     async fn update_returning(
         store: &RecordStore,
         filter: &Filter<Self>,
-        assign: &str,
+        set: &str,
         credentials: Option<Credentials>,
     ) -> StoreResult<Self::Batch>;
 
@@ -1014,9 +1014,9 @@ fn prompt_password() -> Result<String> {
         rpassword::prompt_password(prompt)
             .map_err(|error| crate::error::Exit::failed(format!("Failed to read it. {error}")))
     };
-    let password = read("Password: ")?;
-    if password != read("Repeat password: ")? {
-        return Err(crate::error::Exit::failed("The passwords do not match."));
+    let password = read("User Password: ")?;
+    if password != read("User Password (Confirm): ")? {
+        return Err(crate::error::Exit::failed("Passwords did not match."));
     }
 
     Ok(password)
@@ -1153,17 +1153,16 @@ where
                 .await
                 .map(|affected| Rendered::Text(format!("{affected}\n"))),
             Verb::Update => {
-                let assign = invocation
-                    .assign
+                let set = invocation
+                    .set
                     .as_deref()
-                    .expect("an update carries its assignments");
+                    .expect("an update carries its set object");
                 if invocation.collect {
-                    let touched =
-                        T::update_returning(&store, filter(), assign, credentials).await?;
+                    let touched = T::update_returning(&store, filter(), set, credentials).await?;
                     render(&touched, format, &projection, header, colored)
                         .map(|bytes| Rendered::Bytes(bytes).drawn(format, colored))
                 } else {
-                    T::update(&store, filter(), assign, credentials)
+                    T::update(&store, filter(), set, credentials)
                         .await
                         .map(|affected| Rendered::Text(format!("{affected}\n")))
                 }

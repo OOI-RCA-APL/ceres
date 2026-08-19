@@ -1,15 +1,10 @@
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, TypedDict, Unpack, overload, override
+from typing import TYPE_CHECKING, Any, ClassVar, Unpack, overload, override
 
 from pydantic import ValidationError
 
 from ceres.__internal__.entity import (
     BaseAddressEntity,
-    BaseAddressEntityCreate,
-    BaseAddressEntityField,
-    BaseAddressEntityFilter,
-    BaseAddressEntityFilterArgs,
-    BaseAddressEntityOrder,
     BaseEntityManager,
     BaseEntityQuery,
     ConcreteEntity,
@@ -18,7 +13,15 @@ from ceres.__internal__.entity import (
     EntityQuery,
 )
 from ceres.__internal__.manager import BaseNodeManager
-from ceres.data import FromYAML, JSONSerializable, MaybeSequence, StrEnum, validate
+from ceres.__internal__.models.variables import (
+    VariableCreate,
+    VariableField,
+    VariableFilter,
+    VariableFilterArgs,
+    VariableOrder,
+    VariableUpdate,
+)
+from ceres.data import StrEnum, validate
 
 if TYPE_CHECKING:
     from ceres.__internal__.protocols import DatabaseSource, NodeSource
@@ -27,86 +30,6 @@ if TYPE_CHECKING:
 __all__ = [
     "Variable",
 ]
-
-
-type VariableField = (
-    BaseAddressEntityField
-    | Literal[
-        "name",
-        "value",
-    ]
-)
-"""Field names selectable in `Variable` queries."""
-
-type VariableOrder = (
-    BaseAddressEntityOrder
-    | Literal[
-        "name",
-        "name:asc",
-        "name:desc",
-        "value",
-        "value:asc",
-        "value:desc",
-    ]
-)
-"""Ordering keys accepted by `Variable` queries."""
-
-
-class VariableFilterArgs(BaseAddressEntityFilterArgs[VariableField, VariableOrder], total=False):
-    """Keyword-argument form of `VariableFilter` for ergonomic call sites."""
-
-    name: MaybeSequence[str] | None
-    name_contains: MaybeSequence[str] | None
-    name_prefix: MaybeSequence[str] | None
-    name_suffix: MaybeSequence[str] | None
-    internal: bool | None
-    value: JSONSerializable | None
-
-
-class VariableFilter(BaseAddressEntityFilter["Variable", VariableField, VariableOrder]):
-    """Filter for selecting `Variable` records by name, internal status, or value."""
-
-    __table__: ClassVar[str] = "variables"
-
-    name: MaybeSequence[str] | None = None
-    """Filter by `name` being equal to one or more given names."""
-    name_contains: MaybeSequence[str] | None = None
-    """Filter by `name` containing one or more given substrings."""
-    name_prefix: MaybeSequence[str] | None = None
-    """Filter by `name` starting with one or more given prefixes."""
-    name_suffix: MaybeSequence[str] | None = None
-    """Filter by `name` ending with one or more given suffixes."""
-    internal: bool | None = None
-    """
-    Filter variables based on whether they are internal or not. Internal variables are those that
-    start with an end with two underscores. For example, `__enabled__`. If `None`, both internal and
-    non-internal variables will be matched.
-    """
-    __nullable_filters__: ClassVar[frozenset[str]] = frozenset({"value"})
-
-    value: FromYAML[JSONSerializable] | None = None
-    """Filter by `value` being exactly equal to the given JSON-serializable value.
-
-    The value reads as YAML, matching how the create and update models take it, so a
-    command line comparing against a number or a boolean compares against that rather
-    than against its text.
-    """
-
-
-class VariableCreate(BaseAddressEntityCreate, slots=True):
-    """Payload for creating a new `Variable` record."""
-
-    name: str
-    """Name of the variable, unique per owning address."""
-    value: FromYAML[JSONSerializable]
-    """Arbitrary JSON-serializable value stored for this variable."""
-
-
-class VariableUpdate(TypedDict, total=False):
-    """Partial update for an existing `Variable` record."""
-
-    name: str
-    value: FromYAML[JSONSerializable]
 
 
 class _BaseVariableQuery(

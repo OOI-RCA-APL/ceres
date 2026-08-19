@@ -36,6 +36,16 @@ async def test_variable_internal_filtering():
     await execute_filter_test(Variable, group)
 
 
+def test_variable_values_store_as_passed():
+    """A string argument stays a string, the models never read arguments as YAML."""
+    from ceres.address import Address
+    from ceres.variable import VariableFilter
+
+    variable = Variable(address=Address("@a"), name="x", value="true")
+    assert variable.value == "true"
+    assert VariableFilter(value="[1, 2]").value == "[1, 2]"
+
+
 async def test_variable_value_filtering():
     group: FilterTestGroup[VariableFilterArgs] = {
         "order": "name",
@@ -50,6 +60,7 @@ async def test_variable_value_filtering():
             "none": {"name": "none", "value": None},
             "one": {"name": "one", "value": 1},
             "one-also": {"name": "one-also", "value": 1},
+            "text": {"name": "text", "value": "true"},
             "true": {"name": "true", "value": True},
             "zero": {"name": "zero", "value": 0},
         },
@@ -57,6 +68,7 @@ async def test_variable_value_filtering():
             {"filter": {}, "keys": None},
             {"filter": {"value": None}, "keys": ["none"]},
             {"filter": {"value": True}, "keys": ["true"]},
+            {"filter": {"value": "true"}, "keys": ["text"]},
             {"filter": {"value": False}, "keys": ["false"]},
             {"filter": {"value": 0}, "keys": ["zero"]},
             {"filter": {"value": 1}, "keys": ["one", "one-also"]},

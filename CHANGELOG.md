@@ -8,6 +8,50 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+**CLI**
+
+- Read a `.env` file from the project directory into the environment for every command.
+- Run the whole stack from a source checkout with `--development-source`, which now builds
+  the checkout's CLI, points the environment at an editable install of it, and delegates
+  the command to its binary. The `CERES_DEVELOPMENT_SOURCE` environment variable provides
+  a standing default the flag overrides, and `--no-development-source` or
+  `CERES_NO_DEVELOPMENT_SOURCE` turns delegation off.
+- Rename the update commands' `--assign` option to `--set`.
+- Boolean options on create and update commands take an optional value, so `--admin false`
+  works beside `--admin` and `--no-admin`.
+- Add `--yes` to apply changes without a confirmation prompt, and fail cleanly when input
+  ends at one.
+- Watch mode with a development source also watches the checkout's Rust crates, rebuilding
+  the extension before the restart.
+- Suggest the `--option=--value` spelling when a flag-shaped token lands where an option
+  expects a value.
+
+**Web Console**
+
+- Add Y axis fit modes to chart widgets, anchored at zero or hugging the data, and a
+  toggle drawing the axis positive-down.
+
+**Python API**
+
+- Entity and record models report their public `ceres.*` module paths, so pickling and
+  introspection see the documented names.
+- Model fields store values as passed, parsing YAML text only at the CLI, load, and HTTP
+  query edges.
+
+**Fixes**
+
+- Store a quoted YAML scalar from the CLI as its string, parsing create and set text
+  exactly once.
+- Parse repeated YAML query parameters element by element, so a folded list filter
+  matches.
+- Create alerts without a payload with their declared empty default on the native path.
+
+**Development**
+
+- Generate the Python entity models from the Rust schemas in a `ceres-models` build
+  script, checked in CI.
+- Mark generated files with an `@generated` banner.
+
 ## [0.44.1] - 2026-08-17
 
 **Fixes**

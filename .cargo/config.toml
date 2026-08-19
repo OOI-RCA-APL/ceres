@@ -19,6 +19,9 @@ rustflags = ["-Zthreads=4"]
 # and `make build` run this too, and CI fails when committed stubs drift.
 [alias]
 stubs = "build -p ceres-stubs"
+# Regenerate the Python entity model modules from the native table schemas. Any
+# workspace build runs the generation too, and CI fails when a committed module drifts.
+models = "build -p ceres-models"
 
 # Artifact dependencies, which `ceres-core` uses to build the native CLI binary alongside
 # the extension module and stage it into the wheel. Unstable, which the pinned nightly in

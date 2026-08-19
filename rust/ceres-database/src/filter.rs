@@ -336,7 +336,7 @@ impl FilterCore {
         build(statement, dialect)
     }
 
-    /// Compile an update to SQL and its bound parameters, for one assignment object.
+    /// Compile an update to SQL and its bound parameters, for one set clause object.
     ///
     /// The object is the same JSON an `update` command carries. Each value encodes
     /// into the form its column stores, and a refusal names the offending key and the
@@ -344,15 +344,15 @@ impl FilterCore {
     pub fn update_compiled(
         &self,
         dialect: SqlDialect,
-        assign: &serde_json::Map<String, serde_json::Value>,
+        set: &serde_json::Map<String, serde_json::Value>,
         returning: bool,
         now: Option<NaiveDateTime>,
     ) -> Result<(String, Vec<Value>), Refusal> {
-        let assignments = self
+        let set_clauses = self
             .schema
-            .assignments(assign, dialect)
+            .set_clauses(set, dialect)
             .map_err(Refusal::Invalid)?;
-        let mut statement = self.update_statement(dialect, &assignments, now);
+        let mut statement = self.update_statement(dialect, &set_clauses, now);
         if returning {
             statement.returning_all();
         }
@@ -576,18 +576,18 @@ impl FilterCore {
         statement
     }
 
-    /// Build the update statement for a set of encoded assignments.
+    /// Build the update statement for the encoded set clauses.
     fn update_statement(
         &self,
         dialect: SqlDialect,
-        assignments: &[crate::assign::Assignment],
+        set_clauses: &[crate::set::SetClause],
         now: Option<NaiveDateTime>,
     ) -> UpdateStatement {
         let now = resolve_now(now);
         let mut statement = Query::update();
         statement.table(Alias::new(self.schema.name));
-        for assignment in assignments {
-            statement.value(Alias::new(assignment.column), assignment.value.clone());
+        for clause in set_clauses {
+            statement.value(Alias::new(clause.column), clause.value.clone());
         }
 
         match self.paged_keys(dialect, now) {
@@ -832,16 +832,16 @@ impl<T: Tabled> Filter<T> {
         self.filter.delete_compiled(dialect, returning, now)
     }
 
-    /// Compile an update to SQL and its bound parameters, for one assignment
+    /// Compile an update to SQL and its bound parameters, for one set clause
     /// object.
     pub fn update_compiled(
         &self,
         dialect: SqlDialect,
-        assign: &serde_json::Map<String, serde_json::Value>,
+        set: &serde_json::Map<String, serde_json::Value>,
         returning: bool,
         now: Option<NaiveDateTime>,
     ) -> Result<(String, Vec<Value>), Refusal> {
-        self.filter.update_compiled(dialect, assign, returning, now)
+        self.filter.update_compiled(dialect, set, returning, now)
     }
 
     /// The combined `WHERE` conditions rendered as inline SQL, `None` when the
@@ -862,14 +862,14 @@ impl<T: Tabled> Filter<T> {
         self.filter.matches(record_json, now)
     }
 
-    /// Build the update statement for a set of encoded assignments.
+    /// Build the update statement for the encoded set clauses.
     pub(crate) fn update_statement(
         &self,
         dialect: SqlDialect,
-        assignments: &[crate::assign::Assignment],
+        set_clauses: &[crate::set::SetClause],
         now: Option<NaiveDateTime>,
     ) -> UpdateStatement {
-        self.filter.update_statement(dialect, assignments, now)
+        self.filter.update_statement(dialect, set_clauses, now)
     }
 }
 

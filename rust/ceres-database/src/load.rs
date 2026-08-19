@@ -183,7 +183,8 @@ pub fn entity_batches<R: BufRead>(
     Some(Batches {
         rows: Rows::open(source, format)?,
         convert: Box::new(move |objects| {
-            table.entities(&table.credentialed(objects, credentials)?)
+            let parsed = table.yaml_columns(objects)?;
+            table.entities(&table.credentialed(&parsed, credentials)?)
         }),
         spent: false,
         read: 0,
@@ -259,9 +260,10 @@ pub fn build_entity(
 impl Schema {
     /// Read a create's raw argument text into one wire object.
     ///
-    /// A payload or value column reads as YAML, the form its create model takes it in,
-    /// and every other column is the text itself. A column named twice keeps its last
-    /// value, the way a repeated flag does.
+    /// Each column converts by its family into the form its model deserializes, so the
+    /// match is exhaustive with no fallback: a new family fails to compile here until
+    /// it declares its wire form. A column named twice keeps its last value, the way a
+    /// repeated flag does.
     fn wire_object(self, values: &[(String, String)]) -> Result<Map<String, Value>, String> {
         let mut object = Map::new();
         for (key, text) in values {
@@ -276,7 +278,25 @@ impl Schema {
                         format!("The `{key}` value does not parse as YAML. {error}")
                     })?
                 }
-                _ => text.clone().into(),
+                FieldFamily::Boolean => match text.as_str() {
+                    "true" => true.into(),
+                    "false" => false.into(),
+                    _ => {
+                        return Err(format!(
+                            "The `{key}` value must be `true` or `false`, got `{text}`."
+                        ));
+                    }
+                },
+                // Every remaining family's model deserializes from the text itself.
+                FieldFamily::Uuid
+                | FieldFamily::Address
+                | FieldFamily::PlainAddress
+                | FieldFamily::Timestamp
+                | FieldFamily::Text
+                | FieldFamily::Email
+                | FieldFamily::Values(_)
+                | FieldFamily::Level
+                | FieldFamily::Bytes => text.clone().into(),
             };
             object.insert(key.clone(), value);
         }
@@ -323,7 +343,7 @@ impl RecordTable {
     fn records(self, objects: &[Map<String, Value>]) -> Result<Records, String> {
         let rows = objects
             .iter()
-            .map(|object| complete(self.accepted(), object, record_default))
+            .map(|object| complete(self.accepted(), object, |key| record_default(self, key)))
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(match self {
@@ -352,6 +372,34 @@ impl RecordTable {
 }
 
 impl EntityTable {
+    /// Parse a loaded row's JSON-column text as YAML, the way the Python models'
+    /// `FromYAML` reads it, so a CSV cell holding `1` becomes a number.
+    ///
+    /// This covers loads alone. A create's `wire_object` already parsed its text, and a
+    /// second pass would reinterpret a value that parsed to a string.
+    fn yaml_columns(
+        self,
+        objects: &[Map<String, Value>],
+    ) -> Result<Vec<Map<String, Value>>, String> {
+        let mut parsed = objects.to_vec();
+        for object in &mut parsed {
+            for field in self.schema().columns {
+                if !matches!(field.family, FieldFamily::Json | FieldFamily::JsonValue) {
+                    continue;
+                }
+
+                if let Some(Value::String(text)) = object.get(field.key) {
+                    let value = yaml_serde::from_str(text).map_err(|error| {
+                        format!("The `{}` value does not parse as YAML. {error}", field.key)
+                    })?;
+                    object.insert(field.key.to_string(), value);
+                }
+            }
+        }
+
+        Ok(parsed)
+    }
+
     /// Apply the credential rules to a batch of wire objects, the failure naming the
     /// refused column.
     fn credentialed(
@@ -387,27 +435,7 @@ impl EntityTable {
             .collect();
         let rows = objects
             .iter()
-            .map(|object| {
-                let mut row = complete(&accepted, object, |key| self.default_value(key))?;
-                // A JSON column on an entity is declared `FromYAML` so a value arriving
-                // as text parses as YAML rather than staying a string. That is how a CSV
-                // cell holding `1` becomes a number, and it applies to a JSON input
-                // naming a string too because the model's validator sees no difference.
-                for field in self.schema().columns {
-                    if !matches!(field.family, FieldFamily::Json | FieldFamily::JsonValue) {
-                        continue;
-                    }
-
-                    if let Some(Value::String(text)) = row.get(field.key) {
-                        let parsed = yaml_serde::from_str(text).map_err(|error| {
-                            format!("The `{}` value does not parse as YAML. {error}", field.key)
-                        })?;
-                        row.insert(field.key.to_string(), parsed);
-                    }
-                }
-
-                Ok(row)
-            })
+            .map(|object| complete(&accepted, object, |key| self.default_value(key)))
             .collect::<Result<Vec<_>, String>>()?;
 
         Ok(match self {
@@ -423,27 +451,43 @@ impl EntityTable {
         })
     }
 
-    /// The value an absent entity field takes, `None` for one its create model
+    /// The declared default of an absent entity field, `None` for one its create model
     /// requires.
     ///
     /// A variable's value is required and may still be null so an absent one cannot
     /// read as a null the way a record's optional column does.
-    pub(crate) fn default_value(self, key: &str) -> Option<Value> {
+    pub(crate) fn column_default(self, key: &str) -> Option<ColumnDefault> {
         match (self, key) {
-            (Self::Workspaces, "id") => Some(uuid::Uuid::now_v7().to_string().into()),
-            (Self::Workspaces, "scope") => Some("~".into()),
-            (Self::Workspaces, "owner_id") => Some(Value::Null),
-            (Self::Workspaces, "show_when_logged_out") => Some(false.into()),
-            (Self::Workspaces, "data") => Some(Value::Object(Map::new())),
-            (Self::Users, "id") => Some(uuid::Uuid::now_v7().to_string().into()),
-            (Self::Users, "admin" | "disabled") => Some(false.into()),
-            (Self::Groups, "id") => Some(uuid::Uuid::now_v7().to_string().into()),
-            (Self::Groups, "description") => Some("".into()),
+            (Self::Workspaces | Self::Users | Self::Groups, "id") => {
+                Some(ColumnDefault::GeneratedUuid)
+            }
+            (Self::Workspaces, "scope") => Some(ColumnDefault::Literal("~".into())),
+            (Self::Workspaces, "owner_id") => Some(ColumnDefault::Literal(Value::Null)),
+            (Self::Workspaces, "show_when_logged_out") => {
+                Some(ColumnDefault::Literal(false.into()))
+            }
+            (Self::Workspaces, "data") => Some(ColumnDefault::Literal(Value::Object(Map::new()))),
+            (Self::Users, "admin" | "disabled") => Some(ColumnDefault::Literal(false.into())),
+            (Self::Groups, "description") => Some(ColumnDefault::Literal("".into())),
             // A permission and a membership name every one of their columns, and an
             // edit carries the draft it exists to hold so none of them default.
             _ => None,
         }
     }
+
+    /// The value an absent entity field takes at build time.
+    pub(crate) fn default_value(self, key: &str) -> Option<Value> {
+        Some(match self.column_default(key)? {
+            ColumnDefault::GeneratedUuid => uuid::Uuid::now_v7().to_string().into(),
+            ColumnDefault::Literal(value) => value,
+        })
+    }
+}
+
+/// How an absent create column fills, a fresh value or a fixed one.
+pub(crate) enum ColumnDefault {
+    GeneratedUuid,
+    Literal(Value),
 }
 
 /// Deserialize rows into their model, the failure naming the field and reason.
@@ -504,7 +548,14 @@ fn complete(
 }
 
 /// The value an absent record field takes, matching the record models' own defaults.
-fn record_default(key: &str) -> Option<Value> {
+fn record_default(table: RecordTable, key: &str) -> Option<Value> {
+    if let Some(default) = table.column_default(key) {
+        return Some(match default {
+            ColumnDefault::GeneratedUuid => uuid::Uuid::now_v7().to_string().into(),
+            ColumnDefault::Literal(value) => value,
+        });
+    }
+
     Some(match key {
         "id" => uuid::Uuid::now_v7().to_string().into(),
         "timestamp" => Timestamp(chrono::Utc::now()).to_wire().into(),
@@ -512,6 +563,18 @@ fn record_default(key: &str) -> Option<Value> {
         // or required, which refuses one.
         _ => Value::Null,
     })
+}
+
+impl RecordTable {
+    /// The declared default of an absent record column, beyond the generated ID and
+    /// timestamp every record takes.
+    pub(crate) fn column_default(self, key: &str) -> Option<ColumnDefault> {
+        match (self, key) {
+            (Self::Alerts, "data") => Some(ColumnDefault::Literal(Value::Object(Map::new()))),
+            (Self::Messages, "connection") => Some(ColumnDefault::Literal(Value::Null)),
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -698,6 +761,17 @@ mod tests {
 
         assert_eq!(alerts[0].data["k"], 1);
 
+        // An absent payload takes the declared empty default, the same one the Python
+        // create model carries.
+        let Ok(Records::Alerts(alerts)) = build(
+            RecordTable::Alerts,
+            &pairs(&[("address", "@a"), ("level", "warning"), ("type", "t")]),
+        ) else {
+            panic!("expected one alert");
+        };
+
+        assert!(alerts[0].data.is_empty());
+
         // A field the entity does not carry, a value outside a closed set, and a payload
         // that is not an object all refuse.
         assert!(build(RecordTable::Logs, &pairs(&[("nope", "1")])).is_err());
@@ -720,6 +794,89 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn a_loaded_alert_without_a_payload_takes_the_empty_default() {
+        // The load path shares the create path's declared defaults, so a row whose
+        // input never names the column fills the same way a create does.
+        let batches = read(
+            RecordTable::Alerts,
+            "{\"address\": \"@a\", \"level\": \"warning\", \"type\": \"t\"}\n",
+            LoadFormat::Json,
+        )
+        .unwrap();
+        let Records::Alerts(alerts) = &batches[0] else {
+            panic!("expected alerts");
+        };
+
+        assert!(alerts[0].data.is_empty());
+    }
+
+    #[test]
+    fn a_created_json_value_parses_exactly_once() {
+        let pairs = |values: &[(&str, &str)]| {
+            values
+                .iter()
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect::<Vec<_>>()
+        };
+        let create = |value: &str| {
+            build_entity(
+                EntityTable::Settings,
+                &pairs(&[
+                    ("user_id", "0198c0de-0000-7000-8000-000000000001"),
+                    ("name", "x"),
+                    ("value", value),
+                ]),
+                None,
+            )
+        };
+
+        // A quoted string keeps its parsed string form. A second parse would read the
+        // contents as YAML again and turn it into the boolean.
+        let Ok(Entities::Settings(settings)) = create("\"true\"") else {
+            panic!("expected one setting");
+        };
+        assert_eq!(settings[0].value, Value::String("true".into()));
+
+        let Ok(Entities::Settings(settings)) = create("true") else {
+            panic!("expected one setting");
+        };
+        assert_eq!(settings[0].value, Value::Bool(true));
+    }
+
+    #[test]
+    fn a_boolean_outside_its_words_refuses() {
+        // The CLI's own value parser gates this first, so the refusal here is what a
+        // caller reaching the builder directly sees.
+        let error = build_entity(
+            EntityTable::Users,
+            &[("admin".to_string(), "maybe".to_string())],
+            None,
+        )
+        .unwrap_err();
+        assert!(error.contains("must be `true` or `false`"), "{error}");
+    }
+
+    #[test]
+    fn a_loaded_json_text_column_reads_as_yaml() {
+        // A CSV cell is text, so a JSON column's cell parses the way the CLI's create
+        // text does.
+        let source = "user_id,name,value\n0198c0de-0000-7000-8000-000000000001,x,5\n";
+        let batches: Vec<_> = entity_batches(
+            EntityTable::Settings,
+            source.as_bytes(),
+            LoadFormat::Csv,
+            None,
+        )
+        .expect("a CSV source opens")
+        .collect();
+
+        let Ok(Entities::Settings(settings)) = &batches[0] else {
+            panic!("expected settings");
+        };
+        assert_eq!(settings[0].value, Value::from(5));
     }
 
     #[test]

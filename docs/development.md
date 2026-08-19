@@ -155,8 +155,46 @@ server, which rebuilds as you edit and serves in place of the built-in console:
 ceres run all --development-source /path/to/ceres
 ```
 
-The flag exists only in source checkouts. `--development-console-port` serves the dev
-console on its own port instead, leaving the built-in one where it is.
+`--development-console-port` serves the dev console on its own port instead, leaving the
+built-in one where it is. The same flag also runs the whole engine from the checkout, as
+the next section describes.
+
+### Running From Source in Another Project
+
+`--development-source` runs the whole stack from a source checkout. It works from any
+installed Ceres, applies to every command, and announces itself with one warning line on
+stderr. The invoking binary builds the checkout's CLI, points the invoking environment at
+an editable install of the checkout, and delegates the command to the checkout's binary:
+
+```sh
+ceres --development-source /path/to/ceres --version
+```
+
+```
+Using development source at '/path/to/ceres'.
+0.44.1
+```
+
+The first delegated command also installs the checkout into the environment as an
+editable package, and later ones skip the install while the wiring already points at the
+checkout. Delegation rebuilds only the CLI binary, so a change to the extension crates
+still needs `make install` in the checkout, and a plain Python change needs nothing at
+all.
+
+The `CERES_DEVELOPMENT_SOURCE` environment variable provides a standing default the flag
+overrides, and the CLI reads a `.env` file from the project directory, so a consumer
+project opts in with one line:
+
+```sh
+echo 'CERES_DEVELOPMENT_SOURCE=/path/to/ceres' >> .env
+```
+
+With `run --watch`, the watcher also covers the checkout, restarting on its Python edits
+and rebuilding the extension first when its Rust crates change.
+
+`--no-development-source` turns a standing source off for one command, and the
+`CERES_NO_DEVELOPMENT_SOURCE` environment variable turns it off for a whole session,
+either flag beating both variables.
 
 ## Testing
 

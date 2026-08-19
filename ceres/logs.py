@@ -4,8 +4,6 @@ from typing import (
     TYPE_CHECKING,
     ClassVar,
     Final,
-    Literal,
-    TypeAlias,
     Unpack,
     override,
 )
@@ -19,16 +17,16 @@ from ceres.__internal__.entity import (
     EntityQuery,
 )
 from ceres.__internal__.manager import BaseNodeManager
-from ceres.__internal__.record import (
-    BaseRecord,
-    BaseRecordCreate,
-    BaseRecordField,
-    BaseRecordFilter,
-    BaseRecordFilterArgs,
-    BaseRecordOrder,
-    BaseRecordUpdate,
+from ceres.__internal__.models.logs import (
+    LogEntryCreate,
+    LogEntryField,
+    LogEntryFilter,
+    LogEntryFilterArgs,
+    LogEntryOrder,
+    LogEntryUpdate,
 )
-from ceres.data import MaybeSequence, to_json
+from ceres.__internal__.record import BaseRecord
+from ceres.data import to_json
 from ceres.level import Level
 
 if TYPE_CHECKING:
@@ -48,78 +46,6 @@ __all__ = [
     "LogManager",
     "BoundLogManager",
 ]
-
-
-LogEntryField: TypeAlias = (
-    BaseRecordField
-    | Literal[
-        "level",
-        "content",
-    ]
-)
-"""Field names selectable in `LogEntry` queries."""
-
-LogEntryOrder: TypeAlias = (
-    BaseRecordOrder
-    | Literal[
-        "level",
-        "level:asc",
-        "level:desc",
-        "content",
-        "content:asc",
-        "content:desc",
-    ]
-)
-"""Ordering keys accepted by `LogEntry` queries."""
-
-
-class LogEntryFilterArgs(BaseRecordFilterArgs[LogEntryField, LogEntryOrder], total=False):
-    """Keyword-argument form of `LogEntryFilter` for ergonomic call sites."""
-
-    level: MaybeSequence[Level] | None
-    min_level: Level | None
-    max_level: Level | None
-    content: MaybeSequence[str] | None
-    contains: MaybeSequence[str] | None
-    prefix: MaybeSequence[str] | None
-    suffix: MaybeSequence[str] | None
-
-
-class LogEntryFilter(BaseRecordFilter["LogEntry", LogEntryField, LogEntryOrder]):
-    """Filter for selecting `LogEntry` records by level or content."""
-
-    __table__: ClassVar[str] = "logs"
-
-    level: MaybeSequence[Level] | None = None
-    """Filter by `level` being equal to one or more given levels."""
-    min_level: Level | None = None
-    """Filter by `level` being greater than or equal to the given level value."""
-    max_level: Level | None = None
-    """Filter by `level` being less than or equal to the given level value."""
-    content: MaybeSequence[str] | None = None
-    """Filter by `content` being equal to one or more given strings."""
-    contains: MaybeSequence[str] | None = None
-    """Filter by `content` containing one or more given substrings."""
-    prefix: MaybeSequence[str] | None = None
-    """Filter by `content` starting with one or more given prefixes."""
-    suffix: MaybeSequence[str] | None = None
-    """Filter by `content` ending with one or more given suffixes."""
-
-
-class LogEntryCreate(BaseRecordCreate, slots=True):
-    """Payload for creating a new `LogEntry` record."""
-
-    level: Level
-    """Severity level of the log entry."""
-    content: str
-    """Rendered textual content of the log entry."""
-
-
-class LogEntryUpdate(BaseRecordUpdate, total=False):
-    """Partial update for an existing `LogEntry` record."""
-
-    level: Level
-    content: str
 
 
 def __create_default_formatter() -> logging.Formatter:

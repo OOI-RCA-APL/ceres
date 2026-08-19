@@ -86,22 +86,20 @@ impl Dumpable for EntityTable {
     async fn update(
         store: &RecordStore,
         filter: &Filter<Self>,
-        assign: &str,
+        set: &str,
         credentials: Option<Credentials>,
     ) -> StoreResult<u64> {
-        store
-            .update_entity_filter(filter, assign, credentials)
-            .await
+        store.update_entity_filter(filter, set, credentials).await
     }
 
     async fn update_returning(
         store: &RecordStore,
         filter: &Filter<Self>,
-        assign: &str,
+        set: &str,
         credentials: Option<Credentials>,
     ) -> StoreResult<Entities> {
         store
-            .update_entity_filter_returning(filter, assign, credentials)
+            .update_entity_filter_returning(filter, set, credentials)
             .await
     }
 
@@ -156,7 +154,7 @@ mod tests {
         for arguments in [
             &["create", "--username", "ada", "--email", "ada@example.com"][..],
             &["load", "users.jsonl"][..],
-            &["update", "--assign", "{}"][..],
+            &["update", "--set", "{}"][..],
             &["select"][..],
             &["count"][..],
         ] {
@@ -173,7 +171,7 @@ mod tests {
         for arguments in [
             &["create", "--username", "ada", "--email", "ada@example.com"][..],
             &["load", "users.jsonl"][..],
-            &["update", "--assign", "{}"][..],
+            &["update", "--set", "{}"][..],
         ] {
             let invocation = read(EntityTable::Users, arguments);
             assert!(
@@ -280,6 +278,124 @@ mod tests {
             assert!(group.find_subcommand("follow").is_none());
             assert!(group.find_subcommand("select").is_some());
         }
+    }
+
+    #[test]
+    fn a_create_boolean_takes_every_spelling() {
+        // Bare `--admin` marks true, a value spells it out, and the hidden negation
+        // still works. Omitted entirely, the column defaults at build time.
+        for (arguments, expected) in [
+            (
+                &["create", "--username", "ada", "--email", "a@b.c", "--admin"][..],
+                Some("true"),
+            ),
+            (
+                &[
+                    "create",
+                    "--username",
+                    "ada",
+                    "--email",
+                    "a@b.c",
+                    "--admin",
+                    "true",
+                ][..],
+                Some("true"),
+            ),
+            (
+                &[
+                    "create",
+                    "--username",
+                    "ada",
+                    "--email",
+                    "a@b.c",
+                    "--admin",
+                    "false",
+                ][..],
+                Some("false"),
+            ),
+            (
+                &[
+                    "create",
+                    "--username",
+                    "ada",
+                    "--email",
+                    "a@b.c",
+                    "--no-admin",
+                ][..],
+                Some("false"),
+            ),
+            (
+                &["create", "--username", "ada", "--email", "a@b.c"][..],
+                None,
+            ),
+        ] {
+            let invocation = read(EntityTable::Users, arguments);
+            let admin = invocation
+                .pairs
+                .iter()
+                .find(|(key, _)| key == "admin")
+                .map(|(_, value)| value.as_str());
+            assert_eq!(admin, expected, "{arguments:?}");
+        }
+    }
+
+    #[test]
+    fn a_create_boolean_refuses_a_value_outside_its_set() {
+        let table = Table::Entity(EntityTable::Users);
+        let result = table.command().try_get_matches_from([
+            "users",
+            "create",
+            "--username",
+            "ada",
+            "--email",
+            "a@b.c",
+            "--admin",
+            "maybe",
+        ]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn a_created_user_carries_its_booleans_typed() {
+        // The whole path, argument text through the wire object into the model, so a
+        // conversion missed anywhere surfaces here rather than at a deployment.
+        for (arguments, admin) in [
+            (&["--admin"][..], true),
+            (&["--admin", "true"][..], true),
+            (&["--admin", "false"][..], false),
+            (&[][..], false),
+        ] {
+            let base = ["create", "--username", "ada", "--email", "ada@example.com"];
+            let full: Vec<&str> = base.iter().chain(arguments).copied().collect();
+            let invocation = read(EntityTable::Users, &full);
+            let mut pairs = invocation.pairs.clone();
+            pairs.push(("password".to_string(), "secret".to_string()));
+            let built = EntityTable::Users
+                .build(&pairs, rules())
+                .expect("the user builds");
+            let Entities::Users(users) = built else {
+                panic!("a users create builds users");
+            };
+            assert_eq!(users[0].admin, admin, "{arguments:?}");
+            assert!(!users[0].disabled);
+        }
+    }
+
+    #[test]
+    fn a_workspace_create_boolean_takes_a_value() {
+        // The one table where the same key is a bare boolean filter on select and a
+        // valued boolean column on create, so the two shapes must not cross.
+        let invocation = read(
+            EntityTable::Workspaces,
+            &["create", "--name", "w", "--show-when-logged-out", "false"],
+        );
+        let built = EntityTable::Workspaces
+            .build(&invocation.pairs, rules())
+            .expect("the workspace builds");
+        let Entities::Workspaces(workspaces) = built else {
+            panic!("a workspaces create builds workspaces");
+        };
+        assert!(!workspaces[0].show_when_logged_out);
     }
 
     #[test]

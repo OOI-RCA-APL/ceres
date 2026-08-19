@@ -676,6 +676,7 @@ dependencies = [
  "ceres-entities",
  "chrono",
  "clap",
+ "dotenvy",
  "libc",
  "mimalloc",
  "plist",
@@ -780,6 +781,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "ceres-models"
+version = "0.0.0"
+dependencies = [
+ "ceres-database",
+ "ceres-entities",
+ "serde_json",
 ]
 
 [[package]]

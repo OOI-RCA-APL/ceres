@@ -37,6 +37,17 @@ impl Output {
         let _ = writeln!(stderr, "{}", message.as_ref());
     }
 
+    /// Write a warning-colored line to stderr.
+    pub fn warn(&self, message: impl AsRef<str>) {
+        let message = message.as_ref();
+        let mut stderr = std::io::stderr().lock();
+        if self.color {
+            let _ = writeln!(stderr, "\x1b[33m{message}{}", crate::highlight::RESET);
+        } else {
+            let _ = writeln!(stderr, "{message}");
+        }
+    }
+
     /// Write a structured result line to stdout, colored the way a dump's rows are.
     ///
     /// What comes through here is an engine's own JSON answer, which is the same shape as

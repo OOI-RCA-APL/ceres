@@ -14,6 +14,28 @@ use crate::error::{Result, failure};
 /// Configuration file names searched in the working directory, in priority order.
 pub const CONFIG_NAMES: [&str; 3] = ["ceres.yaml", "ceres.yml", "ceres.json"];
 
+/// Load `.env` from the project directory into the process environment.
+///
+/// The directory is the explicit configuration file's, or the working directory. Variables
+/// already set stay as they are, so the real environment always wins over the file, and
+/// every child process inherits the result.
+pub fn load_env(config: Option<&Path>) {
+    let directory = match config.and_then(Path::parent) {
+        Some(parent) if parent.as_os_str().is_empty() => PathBuf::from("."),
+        Some(parent) => parent.to_path_buf(),
+        None => PathBuf::from("."),
+    };
+
+    let path = directory.join(".env");
+    if !path.is_file() {
+        return;
+    }
+
+    if let Err(error) = dotenvy::from_path(&path) {
+        eprintln!("Warning: failed to load {}. {error}", path.display());
+    }
+}
+
 /// Connection details written by a running engine for its CLI server.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ServerInfo {

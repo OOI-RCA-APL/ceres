@@ -91,6 +91,10 @@ jobs:
       # pages moving with it fails here.
       - name: Check Generated Reference
         run: make reference-check
+      # The entity model modules are rendered from the native table schemas, so an entity
+      # that moved without its Python models moving with it fails here.
+      - name: Check Generated Models
+        run: make models-check
       # The service test drives the runner's own systemd user manager. Linger is what
       # starts that manager, and doing it here stands in for the polkit approval the test
       # user cannot grant itself.

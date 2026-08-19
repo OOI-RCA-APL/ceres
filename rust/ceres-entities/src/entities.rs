@@ -19,15 +19,15 @@ use uuid::Uuid;
 use crate::address::Address;
 use crate::records::RenderRows;
 
-/// What kind of thing a permission grant applies to.
+/// Discriminator for the kind of target a permission grant applies to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, FilterValues)]
 #[serde(rename_all = "lowercase")]
 pub enum PermissionTargetType {
-    /// One component, named by address.
+    /// Grant applies to a specific component by address.
     Component,
-    /// Every component carrying a tag.
+    /// Grant applies to all components carrying a given tag.
     Tag,
-    /// Every component, with an empty target string.
+    /// Grant applies to every component. The target string is empty.
     All,
 }
 
@@ -54,24 +54,28 @@ pub enum GrantLevel {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Filterable)]
 pub struct User {
     pub id: Uuid,
+    /// Unique name identifying the user in the system.
+    #[filterable(python = "Username")]
     pub username: String,
-    /// The account's email address, whose operations fold case the way the Python
-    /// filter's do.
+    /// Email address associated with the user.
     ///
-    /// Equality normalizes first because the Python model types the field as a
-    /// validated address and so compares a normalized value against a normalized column.
-    /// An address outside the subset the normalizer understands delegates rather than
-    /// comparing unnormalized.
+    /// Its operations fold case the way the Python filter's do. Equality normalizes
+    /// first because the Python model types the field as a validated address and so
+    /// compares a normalized value against a normalized column. An address outside the
+    /// subset the normalizer understands delegates rather than comparing unnormalized.
     #[filterable(email, insensitive)]
     pub email: String,
-    /// The Argon2 hash of the account's password.
+    /// Plaintext password or pre-computed hash, plaintext values are hashed on create.
     ///
-    /// The CLI prints it since an operator running these commands already holds the
-    /// database credentials and the value is a hash rather than a recoverable secret.
-    /// It is not filterable, and the Python filter does not expose it either.
-    #[filterable(skip)]
+    /// The stored value is always the Argon2 hash. The CLI prints it since an operator
+    /// running these commands already holds the database credentials and the value is a
+    /// hash rather than a recoverable secret. It is not filterable, and the Python
+    /// filter does not expose it either.
+    #[filterable(skip, hidden, python = "Password | PasswordHash")]
     pub password: String,
+    /// Whether the user has administrative access to all components and workspaces.
     pub admin: bool,
+    /// Whether the user account is disabled and unable to authenticate.
     pub disabled: bool,
 }
 
@@ -79,17 +83,23 @@ pub struct User {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Filterable)]
 pub struct Variable {
     pub address: Address,
+    /// Name of the variable, unique per owning address.
     pub name: String,
+    /// Arbitrary JSON-serializable value stored for this variable.
     pub value: Value,
 }
 
 /// A named value owned by a user.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Filterable)]
 pub struct Setting {
+    /// Identifier of the user that owns this setting.
     pub user_id: Uuid,
+    /// Name of the setting, unique per user.
     pub name: String,
-    /// A setting's value is stored like a variable's but is not filterable, the Python
-    /// filter exposing only the owner and the name.
+    /// Arbitrary JSON-serializable value stored for this setting.
+    ///
+    /// It is stored like a variable's value but is not filterable, the Python filter
+    /// exposing only the owner and the name.
     #[filterable(skip)]
     pub value: Value,
 }
@@ -98,12 +108,18 @@ pub struct Setting {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Filterable)]
 pub struct Workspace {
     pub id: Uuid,
+    /// Human-readable name of the workspace.
+    #[filterable(python = "NonEmptyStr")]
     pub name: String,
-    /// The subtree the workspace covers, `~` for one placed on the engine itself.
+    /// Address this workspace is placed on. `~` is the engine root, anything else a
+    /// component.
     #[filterable(plain)]
     pub scope: Address,
+    /// Owning user when this workspace is private, `None` when it is shared.
     pub owner_id: Option<Uuid>,
+    /// Whether this workspace is part of the set an unauthenticated visitor sees.
     pub show_when_logged_out: bool,
+    /// Free-form structured payload attached to the workspace.
     #[filterable(skip)]
     pub data: Map<String, Value>,
 }
@@ -111,10 +127,14 @@ pub struct Workspace {
 /// A console layout a user has edited but not yet published.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Filterable)]
 pub struct WorkspaceEdit {
+    /// ID of the user whose draft edit this is.
     pub user_id: Uuid,
+    /// ID of the workspace being edited.
     pub workspace_id: Uuid,
-    /// The draft layout, stored like a workspace's own and filterable the same way,
-    /// which is to say not at all.
+    /// In-progress edit payload, serialized as JSON.
+    ///
+    /// It is stored like a workspace's own layout and filterable the same way, which is
+    /// to say not at all.
     #[filterable(skip)]
     pub data: Map<String, Value>,
 }
@@ -123,8 +143,12 @@ pub struct WorkspaceEdit {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Filterable)]
 pub struct Group {
     pub id: Uuid,
+    /// Unique name identifying the group in the system.
+    #[filterable(python = "Name")]
     pub name: String,
-    /// Free text describing the group, which the Python filter does not expose.
+    /// Human-readable description of the group's purpose.
+    ///
+    /// It is free text the Python filter does not expose.
     #[filterable(skip)]
     pub description: String,
 }
@@ -132,31 +156,49 @@ pub struct Group {
 /// One user's membership of one group.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Filterable)]
 pub struct GroupMembership {
+    /// ID of the user being added to the group.
     pub user_id: Uuid,
+    /// ID of the group the user is joining.
     pub group_id: Uuid,
 }
 
 /// A grant made directly to a user.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Filterable)]
 pub struct UserPermission {
+    /// ID of the user receiving the permission grant.
     pub user_id: Uuid,
+    /// Whether this grant targets a component address or a tag.
+    #[filterable(python = "PermissionTargetType")]
     pub target_type: PermissionTargetType,
-    /// What the grant covers, an address or a tag, and empty when it covers everything.
+    /// Component address string or tag name, depending on `target_type`.
     ///
-    /// It filters by equality alone. A substring of an address or a tag names nothing
-    /// so the Python filter gives the field no operation keys and neither does this.
+    /// It is empty when the grant covers everything, and filters by equality alone. A
+    /// substring of an address or a tag names nothing so the Python filter gives the
+    /// field no operation keys and neither does this.
     #[filterable(no_operations)]
     pub target: String,
+    /// Access level granted to the user for the target.
+    #[filterable(python = "ComponentAccessLevel")]
     pub level: GrantLevel,
 }
 
 /// A grant made to a group, which reaches every user in it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Filterable)]
 pub struct GroupPermission {
+    /// ID of the group receiving the permission grant.
     pub group_id: Uuid,
+    /// Whether this grant targets a component address or a tag.
+    #[filterable(python = "PermissionTargetType")]
     pub target_type: PermissionTargetType,
+    /// Component address string or tag name, depending on `target_type`.
+    ///
+    /// It is empty when the grant covers everything, and filters by equality alone. A
+    /// substring of an address or a tag names nothing so the Python filter gives the
+    /// field no operation keys and neither does this.
     #[filterable(no_operations)]
     pub target: String,
+    /// Access level granted to the group for the target.
+    #[filterable(python = "ComponentAccessLevel")]
     pub level: GrantLevel,
 }
 
@@ -286,6 +328,33 @@ mod tests {
         assert_eq!(
             keys::<Workspace>(),
             vec!["id", "name", "scope", "owner_id", "show_when_logged_out"]
+        );
+    }
+
+    #[test]
+    fn columns_carry_their_docs_and_python_overrides() {
+        // The generated Python models take their docstrings and refined types from
+        // here, so an empty doc or a dropped override breaks model generation quietly.
+        let password = User::COLUMNS
+            .iter()
+            .find(|field| field.key == "password")
+            .expect("the password column exists");
+        assert_eq!(password.python, Some("Password | PasswordHash"));
+        assert!(
+            password
+                .doc
+                .starts_with("Plaintext password or pre-computed hash")
+        );
+
+        let admin = User::COLUMNS
+            .iter()
+            .find(|field| field.key == "admin")
+            .expect("the admin column exists");
+        assert_eq!(admin.python, None);
+        assert!(
+            admin
+                .doc
+                .starts_with("Whether the user has administrative access")
         );
     }
 

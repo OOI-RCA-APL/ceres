@@ -309,7 +309,7 @@ async fn a_write_goes_through_only_when_it_was_told_not_to_ask() {
 }
 
 #[tokio::test]
-async fn an_update_assigns_the_values_it_was_given() {
+async fn an_update_sets_the_values_it_was_given() {
     let project = Project::seed().await;
 
     let updated = succeeded(&project.run(&[
@@ -317,7 +317,7 @@ async fn an_update_assigns_the_values_it_was_given() {
         "update",
         "--name",
         "speed",
-        "--assign",
+        "--set",
         "{\"value\": 9}",
         "--no-confirm",
     ]));
@@ -499,7 +499,7 @@ async fn a_collected_write_hands_back_the_rows_it_touched() {
         "update",
         "--address",
         "@motor",
-        "--assign",
+        "--set",
         "{\"value\": 9}",
         "--no-confirm",
         "--collect",
@@ -526,7 +526,7 @@ async fn a_collected_write_hands_back_the_rows_it_touched() {
 }
 
 #[tokio::test]
-async fn an_assignment_the_writer_will_not_take_says_why() {
+async fn a_set_value_the_writer_will_not_take_says_why() {
     let project = Project::seed().await;
 
     // A column that is not there names the ones that are.
@@ -535,7 +535,7 @@ async fn an_assignment_the_writer_will_not_take_says_why() {
         "update",
         "--name",
         "speed",
-        "--assign",
+        "--set",
         "{\"nope\": 1}",
         "--no-confirm",
     ]);
@@ -550,7 +550,7 @@ async fn an_assignment_the_writer_will_not_take_says_why() {
         "update",
         "--name",
         "speed",
-        "--assign",
+        "--set",
         "{\"address\": \"@elsewhere\"}",
         "--no-confirm",
     ]);
@@ -693,7 +693,7 @@ async fn the_groups_and_grants_tables_serve_the_whole_verb_set() {
         "update",
         "--name",
         "viewers",
-        "--assign",
+        "--set",
         "{\"description\": \"read only\"}",
         "--no-confirm",
     ]));
@@ -740,7 +740,7 @@ async fn a_grant_filters_and_collects_on_its_enum_columns() {
         "update",
         "--target-type",
         "tag",
-        "--assign",
+        "--set",
         "{\"level\": \"manage\"}",
         "--no-confirm",
         "--collect",
@@ -823,7 +823,7 @@ async fn a_user_grant_reads_and_writes_like_a_group_grant() {
 }
 
 #[tokio::test]
-async fn a_membership_refuses_an_assignment_to_a_key_column() {
+async fn a_membership_refuses_setting_a_key_column() {
     let project = Project::access().await;
 
     // Both of a membership's columns identify it, which is why its update model carries
@@ -831,7 +831,7 @@ async fn a_membership_refuses_an_assignment_to_a_key_column() {
     let output = project.run(&[
         "group-memberships",
         "update",
-        "--assign",
+        "--set",
         "{\"group_id\": \"019fbae5954c7321b29edfa121e5cdea\"}",
         "--no-confirm",
     ]);

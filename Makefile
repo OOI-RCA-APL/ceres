@@ -56,6 +56,11 @@ reference:
 reference-check:
 	cd rust && cargo test -p ceres-cli reference::
 	uv run ./scripts/update-reference.py --check
+models:
+	cd rust && cargo models
+models-check:
+	cd rust && cargo models
+	git diff --exit-code -- ceres/__internal__/models
 # The dependencies come from `install`, which every path here has already run, so this
 # builds rather than reinstalling them once per target that wants a bundle.
 console:

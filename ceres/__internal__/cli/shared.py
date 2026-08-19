@@ -73,7 +73,14 @@ def get_confirmation(
         else:
             default_indicator = "y/N"
 
-        text = input(f"{prompt} ({default_indicator}): ").lower()
+        # A closed stdin cannot consent, so it declines cleanly instead of crashing.
+        try:
+            text = input(f"{prompt} ({default_indicator}): ").lower()
+        except EOFError:
+            sys.stdout.write("\n")
+            confirmed = False
+            break
+
         if default is not None and text == "":
             confirmed = default
             break

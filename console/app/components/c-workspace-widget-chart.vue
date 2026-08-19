@@ -148,6 +148,12 @@ const axisOption: Option = $computed(() => {
     yAxis: {
       name: unit,
       type: 'value',
+      // Both fits let the maximum hug the data. From-zero extends only the minimum to
+      // zero, so all-negative data still spans its own extent.
+      scale: true,
+      min: (value: { min: number }) =>
+        widget.fit === 'from-zero' ? Math.min(0, value.min) : value.min,
+      inverse: widget.flipY,
     },
   }
 })

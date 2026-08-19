@@ -469,17 +469,17 @@ impl RecordStore {
     /// changed.
     ///
     /// Like a delete, this runs in its own transaction and commits only on success.
-    pub async fn update_filter(&self, filter: &RecordFilter, assign: &str) -> Result<u64, Error> {
-        self.update_matches(filter, assign, None).await
+    pub async fn update_filter(&self, filter: &RecordFilter, set: &str) -> Result<u64, Error> {
+        self.update_matches(filter, set, None).await
     }
 
     /// Assign values and return the records that changed, for `--collect`.
     pub async fn update_filter_returning(
         &self,
         filter: &RecordFilter,
-        assign: &str,
+        set: &str,
     ) -> Result<Records, Error> {
-        self.update_matches_returning(filter, assign, None).await
+        self.update_matches_returning(filter, set, None).await
     }
 
     /// Delete the records a parsed native filter matches and return the deleted rows,
@@ -552,15 +552,15 @@ impl RecordStore {
     async fn update_matches<T: Stored>(
         &self,
         filter: &Filter<T>,
-        assign: &str,
+        set: &str,
         credentials: Option<Credentials>,
     ) -> Result<u64, Error> {
-        let assignments = self.assignments(filter, assign, credentials)?;
+        let set_clauses = self.set_clauses(filter, set, credentials)?;
         if filter.limit() == Some(0) {
             return Ok(0);
         }
 
-        self.write(filter.update_statement(self.dialect(), &assignments, None))
+        self.write(filter.update_statement(self.dialect(), &set_clauses, None))
             .await
     }
 
@@ -569,44 +569,44 @@ impl RecordStore {
     async fn update_matches_returning<T: Stored>(
         &self,
         filter: &Filter<T>,
-        assign: &str,
+        set: &str,
         credentials: Option<Credentials>,
     ) -> Result<T::Batch, Error> {
-        let assignments = self.assignments(filter, assign, credentials)?;
+        let set_clauses = self.set_clauses(filter, set, credentials)?;
         if filter.limit() == Some(0) {
             return Ok(filter.table().empty());
         }
 
-        let mut statement = filter.update_statement(self.dialect(), &assignments, None);
+        let mut statement = filter.update_statement(self.dialect(), &set_clauses, None);
         statement.returning_all();
         T::write_returning(self.backend.as_ref(), filter.table(), statement.into()).await
     }
 
-    /// Encode an update's assignments for this backend, with the rules the table
+    /// Encode an update's set clauses for this backend, with the rules the table
     /// imposes on a write applied first.
     ///
     /// A refusal carries a user-facing message because the reader is fixing a
     /// command line.
-    fn assignments<T: Stored>(
+    fn set_clauses<T: Stored>(
         &self,
         filter: &Filter<T>,
-        assign: &str,
+        set: &str,
         credentials: Option<Credentials>,
-    ) -> Result<Vec<crate::assign::Assignment>, Error> {
-        // The assignments are one YAML or JSON object, and anything else is not an
-        // assignment at all.
-        let mut values = match yaml_serde::from_str(assign) {
+    ) -> Result<Vec<crate::set::SetClause>, Error> {
+        // The values are one YAML or JSON object, and anything else is not a set
+        // object at all.
+        let mut values = match yaml_serde::from_str(set) {
             Ok(serde_json::Value::Object(values)) => values,
             Ok(_) => {
                 return Err(Error::Refused(
-                    "--assign takes an object of column names and values, like \
+                    "--set takes an object of column names and values, like \
                      `{\"name\": \"rate\"}`."
                         .to_string(),
                 ));
             }
             Err(error) => {
                 return Err(Error::Refused(format!(
-                    "--assign is not readable as JSON or YAML. {error}"
+                    "--set is not readable as JSON or YAML. {error}"
                 )));
             }
         };
@@ -615,7 +615,7 @@ impl RecordStore {
         filter
             .table()
             .schema()
-            .assignments(&values, self.dialect())
+            .set_clauses(&values, self.dialect())
             .map_err(Error::Refused)
     }
 
@@ -655,20 +655,20 @@ impl RecordStore {
     pub async fn update_entity_filter(
         &self,
         filter: &EntityFilter,
-        assign: &str,
+        set: &str,
         credentials: Option<Credentials>,
     ) -> Result<u64, Error> {
-        self.update_matches(filter, assign, credentials).await
+        self.update_matches(filter, set, credentials).await
     }
 
     /// Assign values and return the entities that changed, for `--collect`.
     pub async fn update_entity_filter_returning(
         &self,
         filter: &EntityFilter,
-        assign: &str,
+        set: &str,
         credentials: Option<Credentials>,
     ) -> Result<Entities, Error> {
-        self.update_matches_returning(filter, assign, credentials)
+        self.update_matches_returning(filter, set, credentials)
             .await
     }
 
