@@ -18,7 +18,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use clap::{CommandFactory, FromArgMatches};
+use clap::FromArgMatches;
 
 use crate::cli::{Cli, Command, ConsoleCommand, ServiceCommand};
 use crate::client::Client;
@@ -54,7 +54,7 @@ fn main() -> ExitCode {
 
     // clap resolves color on its own, so the flags reach it here or its errors and help
     // ignore them.
-    let command = commands::surface::augment(Cli::command());
+    let command = commands::surface::tree();
     let command = match raw_color_override(&arguments) {
         Some(true) => command.color(clap::ColorChoice::Always),
         Some(false) => command.color(clap::ColorChoice::Never),
@@ -146,7 +146,7 @@ fn value_taking_option_before(arguments: &[OsString], token: &str) -> Option<Str
         return None;
     }
 
-    let mut node = commands::surface::augment(Cli::command());
+    let mut node = commands::surface::tree();
     for argument in &arguments[..index - 1] {
         let Some(name) = argument.to_str() else {
             continue;
@@ -236,18 +236,42 @@ fn run(cli: Cli, arguments: Vec<OsString>, output: &Output) -> Result<()> {
     let config = config.as_deref();
 
     let Some(command) = cli.command else {
-        let _ = Cli::command().print_help();
+        let _ = commands::surface::tree().print_help();
         return Err(error::Exit::status(2));
     };
 
     match command {
-        // Commands that load the engine or operate on the database run in the Python runtime.
-        // Run keeps the development-source flag for its console dev server, the others have
-        // no Python-side parameter for it.
-        Command::Run(_) => match runtime::delegate(development::normalize_run(arguments))? {},
-        Command::Check(_) | Command::Database(_) | Command::Generate(_) => {
-            match runtime::delegate(development::strip(&arguments))? {}
+        // Both spawn the host module, the engine and component imports living in Python.
+        // Run reads the development source off the raw arguments for its console dev
+        // server, the same way the pre-parse delegation found it.
+        Command::Run(args) => {
+            let project = Project::discover(config)?;
+            let source = development::resolve(&arguments);
+            commands::run::run(args, &project, source, output)
         }
+        Command::Check => {
+            let project = Project::discover(config)?;
+            match commands::run::check(&project)? {}
+        }
+
+        Command::Database(args) => {
+            let project = Project::discover(config)?;
+            match args.command {
+                cli::DatabaseCommand::Ddl => commands::database::ddl(&project),
+                cli::DatabaseCommand::Shell => commands::database::shell(&project),
+                cli::DatabaseCommand::Clear => commands::database::clear(&project, output),
+                cli::DatabaseCommand::Migrate(migrate) => {
+                    commands::database::migrate(&project, output, migrate.yes)
+                }
+                cli::DatabaseCommand::Migrations => {
+                    commands::database::list_migrations(&project, output)
+                }
+            }
+        }
+
+        Command::Generate(args) => match args.command {
+            cli::GenerateCommand::Openapi(openapi) => commands::generate::openapi(&openapi),
+        },
 
         Command::Reload => {
             let project = Project::discover(config)?;

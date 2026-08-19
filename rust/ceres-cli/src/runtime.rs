@@ -1,12 +1,11 @@
 //! The Python runtime hosting the engine.
 //!
-//! Components are authored in Python, so every command that loads the engine or operates on
-//! the database runs inside the Python runtime. The CLI hands those commands off by executing
-//! `python -m ceres.__internal__.cli` with the original arguments, replacing the current
-//! process so signals and exit codes flow through untouched. That module path goes straight
-//! to the Python CLI, while `python -m ceres` execs this binary, so the handoff cannot loop.
+//! Components are written in Python, so the commands that load the engine run inside the
+//! Python runtime. The CLI hands them off by executing `python -m ceres.__internal__.host`
+//! with a single JSON payload argument, either replacing the current process so signals
+//! and exit codes flow through untouched, or spawning it as a child a resident parent
+//! watches over.
 
-use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -14,19 +13,17 @@ use std::process::Command;
 use crate::error::Exit;
 use crate::error::{Result, failure};
 
-/// Replace the current process with the runtime running the given CLI arguments.
-///
-/// Only returns on failure.
-pub fn delegate(arguments: Vec<OsString>) -> Result<std::convert::Infallible> {
+/// The command running the host module with the given JSON payload.
+pub fn host(payload: &str) -> Result<Command> {
     let python = find_python()?;
 
     let mut command = Command::new(&python);
     command
         .arg("-m")
-        .arg("ceres.__internal__.cli")
-        .args(&arguments);
+        .arg("ceres.__internal__.host")
+        .arg(payload);
 
-    replace(command)
+    Ok(command)
 }
 
 /// Replace the current process with the given command.

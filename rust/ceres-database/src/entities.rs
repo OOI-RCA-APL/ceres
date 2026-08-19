@@ -30,6 +30,22 @@ pub enum EntityTable {
 }
 
 impl EntityTable {
+    /// Every entity table, each listed before anything that references it.
+    ///
+    /// The order is a deletion contract. Emptying the tables in reverse clears a table
+    /// only once nothing points at it, so foreign keys never block the sweep.
+    pub const ALL: [Self; 9] = [
+        Self::Users,
+        Self::Variables,
+        Self::Settings,
+        Self::Workspaces,
+        Self::WorkspaceEdits,
+        Self::Groups,
+        Self::GroupMemberships,
+        Self::UserPermissions,
+        Self::GroupPermissions,
+    ];
+
     /// Select an entity table by name.
     pub fn parse(table: &str) -> Result<Self, Error> {
         match table {

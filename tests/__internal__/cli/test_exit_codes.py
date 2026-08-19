@@ -1,9 +1,8 @@
 """Exit codes the module entry point reports to the shell.
 
-`python -m ceres` execs the native binary, which hands the commands that execute project
-code back to this environment's interpreter through `ceres.__internal__.cli`, so these
-run the whole round trip and an exit code lost anywhere along it is a failure reported
-as success.
+`python -m ceres` execs the native binary, which hosts the engine back in this
+environment's interpreter through `ceres.__internal__.host`, so these run the whole
+round trip and an exit code lost anywhere along it is a failure reported as success.
 """
 
 import subprocess

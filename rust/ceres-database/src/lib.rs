@@ -4,8 +4,9 @@
 //! reads bypass Python entirely. Rows deserialize straight into the `ceres-entities`
 //! structs, so a query result is held natively from the driver onward.
 //!
-//! Every backend sits behind one trait in [`backend`], so the store and the writer are
-//! written once against a database rather than three times against three of them.
+//! Every backend sits behind one trait in the private `backend` module, so the store and
+//! the writer are written once against a database rather than three times against three
+//! of them.
 
 mod backend;
 mod credentials;
@@ -14,6 +15,7 @@ mod dynamic;
 mod entities;
 mod filter;
 mod load;
+pub mod migrations;
 mod records;
 mod selector;
 mod set;

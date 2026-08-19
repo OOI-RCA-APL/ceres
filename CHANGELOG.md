@@ -10,6 +10,12 @@ written, and the release workflow refuses a version that has no entry here.
 
 **CLI**
 
+- Serve every command natively, `run` and `check` spawning the engine host in the
+  project's interpreter and everything else running in the binary alone.
+- Move the migration runner and its SQL scripts into the native engine.
+- Keep the console dev server and its ports running across watch-mode restarts.
+- End every help line with terminal punctuation, style the banner as `Ceres: <version>`,
+  and list the table command groups when `ceres` runs bare.
 - Read a `.env` file from the project directory into the environment for every command.
 - Run the whole stack from a source checkout with `--development-source`, which now builds
   the checkout's CLI, points the environment at an editable install of it, and delegates
@@ -33,6 +39,7 @@ written, and the release workflow refuses a version that has no entry here.
 
 **Python API**
 
+- Remove `ceres.main`, the CLI being native. `python -m ceres` still execs the binary.
 - Entity and record models report their public `ceres.*` module paths, so pickling and
   introspection see the documented names.
 - Model fields store values as passed, parsing YAML text only at the CLI, load, and HTTP

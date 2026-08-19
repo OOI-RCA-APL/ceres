@@ -16,6 +16,9 @@ path = "src/main.rs"
 ceres-config = { path = "../ceres-config" }
 ceres-database = { path = "../ceres-database" }
 ceres-entities = { path = "../ceres-entities" }
+# Only for the OpenAPI document, so `generate openapi` renders the same schema the
+# running server serves.
+ceres-server = { path = "../ceres-server" }
 # A dump colors the two kinds of string worth telling apart at a glance by handing them to
 # the parsers that own those formats, rather than by matching their shape.
 chrono = { version = "0.4", default-features = false, features = ["std"] }
@@ -26,7 +29,17 @@ rpassword = "7"
 clap = { version = "4.5", features = ["derive", "string", "suggestions", "wrap_help"] }
 dotenvy = "0.15"
 mimalloc = "0.1"
-tokio = { version = "1", default-features = false, features = ["rt"] }
+# The resident `run` parent owns child processes, exit signals, and restart timing, so
+# the runtime carries those drivers beside the executor.
+tokio = { version = "1", default-features = false, features = [
+    "macros",
+    "process",
+    "rt",
+    "signal",
+    "time",
+] }
+# Watch mode restarts the engine on source edits.
+notify = "8"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 yaml_serde = "0.10"

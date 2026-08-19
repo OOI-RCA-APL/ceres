@@ -168,22 +168,19 @@ def _unavailable(name: str) -> str | None:
 
 @pytest.fixture(autouse=True)
 def working_directory() -> Iterator[None]:
-    """Put back what a command that resolves its config path moves.
+    """Put back the working directory and `os.chdir` after each test.
 
-    Resolving one changes the working directory to the project's and then replaces
-    `os.chdir` with a no-op, which a CLI process wants and a session running
-    on afterwards does not. Left alone, every later test and pytest's own reports land
-    wherever the last CLI test happened to be.
+    The engine host moves into its project directory and then disables `os.chdir`, which
+    a host process wants and a test session running on afterwards does not. Left alone,
+    every later test and pytest's own reports land wherever the last such test moved.
     """
     original = Path.cwd()
     moved = os.chdir
     try:
         yield
     finally:
-        from ceres.__internal__.cli import shared
-
-        shared.chdir(original)
         os.chdir = moved
+        os.chdir(original)
 
 
 # Use `uvloop` and eager tasks for all tests, if possible.

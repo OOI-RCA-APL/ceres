@@ -23,6 +23,9 @@ pub enum RecordTable {
 }
 
 impl RecordTable {
+    /// Every record table, in the order the stored schema lists them.
+    pub const ALL: [Self; 4] = [Self::Messages, Self::Particles, Self::Alerts, Self::Logs];
+
     /// Select a record table by name.
     pub fn parse(table: &str) -> Result<Self, Error> {
         match table {

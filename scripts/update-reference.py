@@ -66,7 +66,7 @@ _SECTIONS: list[tuple[str, tuple[str, ...]]] = [
     ("Database", ("ceres.database",)),
     ("Configuration", ("ceres.config",)),
     ("Concurrency", ("ceres.concurrency",)),
-    ("Utilities", ("ceres.timing", "ceres.version", "ceres.__internal__.cli.main")),
+    ("Utilities", ("ceres.timing", "ceres.version")),
 ]
 """Which page section each exporting module's names are documented under.
 
@@ -423,72 +423,6 @@ COMMANDS = Path("rust/target/reference/commands.json")
 """Where the native command tree is dumped, by `reference` in `rust/ceres-cli/src/`."""
 
 
-def _delegated() -> dict[str, type]:
-    """Map each command that runs in the Python runtime to the class declaring it.
-
-    The native tree carries these commands' names and descriptions but not their
-    arguments, which are captured and replayed rather than parsed.
-    """
-    from ceres.__internal__.cli.main import CheckCommand, RunCommand
-    from ceres.__internal__.cli.subcommands.database import DatabaseCommand
-    from ceres.__internal__.cli.subcommands.generate import GenerateCommand
-
-    return {
-        "run": RunCommand,
-        "check": CheckCommand,
-        "database": DatabaseCommand,
-        "generate": GenerateCommand,
-    }
-
-
-def _inherited() -> set[str]:
-    """Name the options every command inherits, which the global table already covers."""
-    from ceres.__internal__.cli.shared import CLICommand
-
-    return set(CLICommand.__pydantic_fields__)
-
-
-def _marked(field: Any, mark: str) -> bool:
-    """Whether a field carries one of the CLI marker annotations."""
-    return any(getattr(entry, "__name__", "") == mark for entry in field.metadata)
-
-
-def _python_rows(command: type) -> list[str]:
-    """Render a Python command's own options, without the inherited ones."""
-    rows: list[str] = []
-    for name, field in command.__pydantic_fields__.items():
-        if name in _inherited() or _marked(field, "_CliSubCommand"):
-            continue
-
-        written = (field.alias or name).replace("_", "-")
-        if _marked(field, "_CliPositionalArg"):
-            spelling = f"`<{written.upper()}>`"
-        elif field.annotation is bool:
-            spelling = f"`--{written}`"
-        else:
-            spelling = f"`--{written}` `{written.upper()}`"
-
-        required = "yes" if field.is_required() else ""
-        rows.append(f"| {spelling} | {required} | {_one_line(field.description or '')} |")
-
-    return rows
-
-
-def _python_subcommands(command: type) -> list[tuple[str, type]]:
-    """Return the subcommands a Python command group declares."""
-    found: list[tuple[str, type]] = []
-    for name, field in command.__pydantic_fields__.items():
-        if not _marked(field, "_CliSubCommand"):
-            continue
-
-        declared = [
-            argument for argument in get_args(field.annotation) if argument is not type(None)
-        ]
-        found.append((name, declared[0] if declared else field.annotation))
-
-    return found
-
-
 def _one_line(text: str) -> str:
     """Collapse a description onto one line, a table row ending at the first newline."""
     return " ".join(text.split())
@@ -521,38 +455,16 @@ def _native_rows(node: dict[str, Any]) -> list[str]:
     return rows
 
 
-def _render_python(command: type, invocation: str, depth: int) -> list[str]:
-    """Render a Python command group's subcommands, deepest last."""
-    lines: list[str] = []
-    for name, subcommand in _python_subcommands(command):
-        about = " ".join((subcommand.__doc__ or "").split())
-        lines += ["", f"{'#' * depth} `{invocation} {name}`"]
-        if about:
-            lines += ["", about]
-
-        lines += _option_table(_python_rows(subcommand))
-        lines += _render_python(subcommand, f"{invocation} {name}", depth + 1)
-
-    return lines
-
-
-def _render_command(
-    node: dict[str, Any], path: str, depth: int, delegated: dict[str, type]
-) -> list[str]:
+def _render_command(node: dict[str, Any], path: str, depth: int) -> list[str]:
     """Render one command and everything under it, headed by the words that invoke it."""
     invocation = f"{path} {node['name']}".strip()
     lines = ["", f"{'#' * depth} `{invocation}`"]
     if node["about"]:
         lines += ["", node["about"]]
 
-    handed = delegated.get(node["name"]) if path == "ceres" else None
-    if handed is not None:
-        lines += _option_table(_python_rows(handed))
-        return lines + _render_python(handed, invocation, depth + 1)
-
     lines += _option_table(_native_rows(node))
     for subcommand in node["subcommands"]:
-        lines += _render_command(subcommand, invocation, depth + 1, delegated)
+        lines += _render_command(subcommand, invocation, depth + 1)
 
     return lines
 
@@ -563,7 +475,6 @@ def render_cli() -> str:
         raise RuntimeError(f"{COMMANDS} is missing, run 'make reference'")
 
     root = json.loads(COMMANDS.read_text())
-    delegated = _delegated()
     lines = [
         BANNER,
         "",
@@ -582,7 +493,7 @@ def render_cli() -> str:
         "## Commands",
     ]
     for subcommand in root["subcommands"]:
-        lines += _render_command(subcommand, "ceres", 3, delegated)
+        lines += _render_command(subcommand, "ceres", 3)
 
     return "\n".join(lines).rstrip() + "\n"
 

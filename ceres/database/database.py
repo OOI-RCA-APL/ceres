@@ -5,7 +5,15 @@ from pathlib import Path
 from tempfile import gettempdir
 from typing import TYPE_CHECKING, Any, Protocol, Self, final, override
 
-from ceres.__internal__.core import Connection, RecordWriter, Store
+from ceres.__internal__.core import (
+    Connection,
+    Migration,
+    RecordWriter,
+    Store,
+    destructive_migration_warning,
+    migration_ddl,
+    migrations,
+)
 from ceres.__internal__.database.errors import wrap_database_errors
 from ceres.__internal__.lazy import __lazy_imports__
 from ceres.concurrency import spawn
@@ -19,20 +27,14 @@ from ceres.data import PasswordHash, uuid4
 from ceres.error import DatabaseMigrationError, DatabaseVersionError
 from ceres.logs import get_logger
 
-DESTRUCTIVE_MIGRATIONS: dict[str, str] = {}
-"""Migrations that discard data, keyed by name, with the warning logged before they run.
-
-A migration belongs here only while operators still have it ahead of them. Once every deployment
-has run it the warning is noise on each load, and a warning nobody can act on teaches people to
-ignore the ones that matter.
-"""
+MIGRATIONS: list[Migration] = migrations()
+"""Every known migration, in application order, from the native registry."""
 
 if TYPE_CHECKING:
     from uuid import UUID
 
     from ceres.__internal__.entity import BaseEntityManager
     from ceres.database import DatabaseType
-    from ceres.database.migrations import Migration
     from ceres.entity import Entity
 
 
@@ -60,23 +62,6 @@ __all__ = [
 ]
 
 
-_MIGRATIONS_TABLE_DDL_SQLITE = """
-CREATE TABLE IF NOT EXISTS migrations (
-    id INTEGER PRIMARY KEY,
-    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
-)
-""".strip()
-
-_MIGRATIONS_TABLE_DDL_POSTGRES = """
-CREATE TABLE IF NOT EXISTS migrations (
-    id INTEGER PRIMARY KEY,
-    applied_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
-)
-""".strip()
-# The migrations table is intentionally not an entity row, it is bookkeeping owned by the
-# database layer.
-
-
 class MigrationReporter(Protocol):
     """Told which migration is running, for a caller showing progress as they apply.
 
@@ -92,6 +77,30 @@ class MigrationReporter(Protocol):
     def finished(self, migration: Migration) -> None:
         """The migration that was running has landed and been recorded."""
         ...
+
+
+class _MigrationRun:
+    """Forward the native runner's progress and log destructive-migration warnings."""
+
+    def __init__(self, reporter: MigrationReporter | None) -> None:
+        self._reporter = reporter
+
+    def starting(self, migration: Migration, index: int, total: int) -> None:
+        if self._reporter is not None:
+            self._reporter.starting(migration, index, total)
+
+        warning = destructive_migration_warning(migration.name)
+        if warning is not None:
+            get_logger("ceres.database").warning(
+                "Migration %s (%s) is destructive. %s",
+                migration.id,
+                migration.name,
+                warning,
+            )
+
+    def finished(self, migration: Migration) -> None:
+        if self._reporter is not None:
+            self._reporter.finished(migration)
 
 
 def default_database_config() -> DatabaseConfig:
@@ -248,15 +257,9 @@ class Database:
     def ddl(self) -> list[str]:
         """Every script that creates this backend's schema, in the order they run.
 
-        The migrations are the schema so what initializes a database is the chain a fresh
-        one runs rather than a separate description of the result. The bookkeeping table
-        comes first since it is what records the rest as they are applied, and a migration
-        with no script for this backend is a recorded no-op that contributes nothing.
+        See `migration_ddl` for the ordering and how dialect-specific scripts render.
         """
-        from ceres.database.migrations import MIGRATIONS
-
-        scripts = (migration.render(self.type.value) for migration in MIGRATIONS)
-        return [self._migrations_table_ddl(), *(script for script in scripts if script)]
+        return migration_ddl(self.type.value, MIGRATIONS)
 
     @cached_property
     def messages(self) -> MessageManager:
@@ -396,40 +399,23 @@ class Database:
             self._native_record_writer = None
             self._bootstrapped = False
 
-    def _migrations_table_ddl(self) -> str:
-        """The bookkeeping table's own DDL, in this backend's spelling."""
-        return (
-            _MIGRATIONS_TABLE_DDL_POSTGRES
-            if self.type.value == "postgres"
-            else _MIGRATIONS_TABLE_DDL_SQLITE
-        )
-
     async def _get_applied_migration_ids(self) -> list[int]:
         """Return the IDs of every migration recorded as applied, in ascending order."""
         with wrap_database_errors():
-            store = self._store()
-            await store.execute_script(self._migrations_table_ddl())
-            rows = await store.fetch("SELECT id FROM migrations ORDER BY id", [])
-            return [row["id"] for row in rows]
+            return await self._store().applied_migration_ids()
 
     async def get_applied_migrations(self) -> list[Migration]:
         """Return known migrations recorded as applied, in application order."""
-        from ceres.database.migrations import MIGRATIONS
-
         applied = set(await self._get_applied_migration_ids())
         return [migration for migration in MIGRATIONS if migration.id in applied]
 
     async def get_pending_migrations(self) -> list[Migration]:
         """Return known migrations that have not been applied, in application order."""
-        from ceres.database.migrations import MIGRATIONS
-
         applied = set(await self._get_applied_migration_ids())
         return [migration for migration in MIGRATIONS if migration.id not in applied]
 
     async def get_unknown_migrations(self) -> list[int]:
         """Return applied migration IDs this version of ceres does not know about."""
-        from ceres.database.migrations import MIGRATIONS
-
         known = {migration.id for migration in MIGRATIONS}
         return [id for id in await self._get_applied_migration_ids() if id not in known]
 
@@ -452,60 +438,10 @@ class Database:
             DatabaseMigrationError: If a migration fails.
         """
         async with self._migrate_lock:
-            return await self._apply_pending_migrations(reporter)
-
-    async def _apply_pending_migrations(
-        self,
-        reporter: MigrationReporter | None = None,
-    ) -> list[int]:
-        """Apply each pending migration in its own transaction.
-
-        Returns:
-            The IDs of the migrations that were applied.
-
-        Raises:
-            DatabaseMigrationError: If a migration fails.
-        """
-        applied: list[int] = []
-        pending = await self.get_pending_migrations()
-
-        for index, migration in enumerate(pending):
-            if reporter is not None:
-                reporter.starting(migration, index, len(pending))
-
-            warning = DESTRUCTIVE_MIGRATIONS.get(migration.name)
-            if warning is not None:
-                get_logger("ceres.database").warning(
-                    "Migration %s (%s) is destructive. %s",
-                    migration.id,
-                    migration.name,
-                    warning,
-                )
-
-            sql = migration.render(self.type.value)
-            store = self._store()
-
-            with wrap_database_errors():
-                try:
-                    # The script and the record that it ran go over as one so a migration
-                    # cannot land without being recorded and then run twice. The driver
-                    # separates the statements, which lets a script turn foreign
-                    # keys off before rebuilding a table, a pragma that does nothing inside
-                    # a transaction someone else opened.
-                    recorded = f"INSERT INTO migrations (id) VALUES ({migration.id});"
-                    await store.execute_script(
-                        recorded if sql is None else f"{sql.rstrip().rstrip(';')};\n{recorded}"
-                    )
-                except Exception as error:
-                    raise DatabaseMigrationError(
-                        message=(f"Migration {migration.id} ({migration.name}) failed. {error}")
-                    ) from error
-
-            applied.append(migration.id)
-            if reporter is not None:
-                reporter.finished(migration)
-
-        return applied
+            try:
+                return await self._store().migrate(MIGRATIONS, _MigrationRun(reporter))
+            except ValueError as error:
+                raise DatabaseMigrationError(message=str(error)) from error
 
     async def assert_schema_current(self) -> None:
         """Verify the database schema matches this version of ceres.
@@ -559,43 +495,7 @@ class Database:
             `True` if any table this schema owns is present, `False` otherwise.
         """
         with wrap_database_errors():
-            rows = await self._store().fetch(*self._table_names_query())
-
-        present = {str(row["name"]) for row in rows}
-        return bool(present & self._owned_table_names())
-
-    @staticmethod
-    def _owned_table_names() -> set[str]:
-        """Every table name this schema is the author of.
-
-        The entity tables come from the native layer, which is the single authority on
-        what the schema holds, and `migrations` is added because it is bookkeeping owned
-        here rather than an entity row.
-        """
-        from ceres.__internal__.core import stored_columns
-
-        return {table for table, _ in stored_columns()} | {"migrations"}
-
-    def _table_names_query(self) -> tuple[str, list[Any]]:
-        """A statement listing the tables in scope for this connection, each as `name`.
-
-        The wording follows what each backend counts as a table of the caller's. Neither
-        backend's internal tables are the caller's, and on PostgreSQL neither is a table in
-        a schema this connection does not resolve names against. Scoping to the search path
-        rather than to every schema on the server makes the answer this database's
-        rather than the server's, which matters wherever one server holds more than one.
-        """
-        if self.type.value == "postgres":
-            return (
-                "SELECT tablename AS name FROM pg_catalog.pg_tables "
-                "WHERE schemaname = ANY(current_schemas(false))",
-                [],
-            )
-
-        return (
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
-            [],
-        )
+            return await self._store().initialized()
 
     async def hash_password(self, password: str) -> PasswordHash:
         """Hash a plaintext password using the configured hashing parameters.

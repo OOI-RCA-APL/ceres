@@ -2,16 +2,14 @@
 //!
 //! This lives in the binary because half the tree is assembled at startup from the entity
 //! definitions, and only a build of this crate can see the result. The dump is JSON rather
-//! than the finished page, because four commands hand their arguments to the Python
-//! runtime and only `scripts/update-reference.py` can describe those. It renders the page
-//! from both halves and owns the comparison that fails when either drifts.
+//! than the finished page, `scripts/update-reference.py` renders the page and owns the
+//! comparison that fails when it drifts.
 
 use std::path::PathBuf;
 
-use clap::{Arg, ArgAction, Command, CommandFactory};
+use clap::{Arg, ArgAction, Command};
 use serde_json::{Value, json};
 
-use crate::cli::Cli;
 use crate::commands::surface;
 
 /// Where the dump lands, for `scripts/update-reference.py` to read.
@@ -71,7 +69,7 @@ mod tests {
         let path = destination();
         std::fs::create_dir_all(path.parent().expect("a parent directory"))
             .expect("creating the dump directory");
-        let tree = describe(&surface::augment(Cli::command()));
+        let tree = describe(&surface::tree());
         let written = serde_json::to_string_pretty(&tree).expect("serializing the command tree");
         std::fs::write(&path, written + "\n").expect("writing the command tree");
     }

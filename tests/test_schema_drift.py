@@ -1,6 +1,6 @@
 """Assert that the migrations create the schema the native layer reads and writes.
 
-Tables are created by the SQL in `ceres/database/migrations`, and every query, decode, and
+Tables are created by the SQL in `rust/ceres-database/migrations`, and every query, decode, and
 write is built from the entity structs in `ceres-entities`. They are two independent
 descriptions of one schema, and nothing else checks that they agree, so a column can be
 renamed by a migration while the decoders go on naming the old one. That is not

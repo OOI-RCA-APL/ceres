@@ -17,6 +17,7 @@ chrono = "0.4"
 csv = "1"
 email_address = { version = "0.2", default-features = false }
 idna = "1"
+include_dir = "0.7"
 futures-util = { version = "0.3.33", default-features = false, features = ["std"] }
 serde_path_to_error = "0.1"
 sea-query = { version = "0.32", features = [

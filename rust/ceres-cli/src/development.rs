@@ -62,50 +62,6 @@ pub fn delegated() -> bool {
     std::env::var_os(DELEGATED).is_some()
 }
 
-/// Remove every development-source flag, value, and disabler from the arguments.
-pub fn strip(arguments: &[OsString]) -> Vec<OsString> {
-    let mut result = Vec::with_capacity(arguments.len());
-    let mut iterator = arguments.iter();
-    while let Some(argument) = iterator.next() {
-        if argument == FLAG {
-            iterator.next();
-            continue;
-        }
-
-        if argument == NO_FLAG {
-            continue;
-        }
-
-        if let Some(text) = argument.to_str()
-            && text.starts_with(FLAG)
-            && text[FLAG.len()..].starts_with('=')
-        {
-            continue;
-        }
-
-        result.push(argument.clone());
-    }
-
-    result
-}
-
-/// Rewrite the run arguments to carry the resolved development source at the end.
-///
-/// The Python `run` command consumes the flag for its console dev server but only parses
-/// it after the subcommand, so a flag given before `run`, or one implied by the
-/// environment variable, is placed there. A disabled or absent source strips the flags
-/// and adds nothing.
-pub fn normalize_run(arguments: Vec<OsString>) -> Vec<OsString> {
-    let source = resolve(&arguments);
-    let mut result = strip(&arguments);
-    if let Some(source) = source {
-        result.push(FLAG.into());
-        result.push(source.into());
-    }
-
-    result
-}
-
 /// Build the checkout's CLI, wire the environment to it, and replace this process.
 ///
 /// Only returns on failure. A single warning line on stderr says the source is in use,
@@ -125,10 +81,7 @@ pub fn delegate(source: &Path, arguments: Vec<OsString>, output: &Output) -> Res
         );
     }
 
-    output.warn(format!(
-        "Using development source at '{}'.",
-        source.display()
-    ));
+    output.warn(format!("Ceres Source (Development): {}", source.display()));
 
     let status = Command::new("cargo")
         .args(["build", "-q", "-p", "ceres-cli"])
@@ -177,17 +130,39 @@ fn sync_environment(source: &Path) -> Result<()> {
         return Ok(());
     }
 
+    let status = installer(source, false)?
+        .status()
+        .map_err(|error| failure!("Failed to run the package installer. {error}"))?;
+    if !status.success() {
+        fail!("Installing the development source failed, see the installer output above.");
+    }
+
+    Ok(())
+}
+
+/// The installer command wiring the environment's `ceres-engine` to the source.
+///
+/// A reinstall forces the extension to rebuild even when the wiring already points at
+/// the source, which is what a watch-mode Rust edit needs.
+pub(crate) fn installer(source: &Path, reinstall: bool) -> Result<Command> {
+    let python = runtime::find_python()?;
     let mut command = if let Some(uv) = runtime::which("uv") {
         let mut command = Command::new(uv);
-        command
-            .args(["pip", "install", "--python"])
-            .arg(&python)
-            .arg("-e")
-            .arg(source);
+        command.args(["pip", "install", "--python"]).arg(&python);
+        if reinstall {
+            command.args(["--reinstall-package", "ceres-engine"]);
+        }
+
+        command.arg("-e").arg(source);
         command
     } else {
         let mut command = Command::new(&python);
-        command.args(["-m", "pip", "install", "-e"]).arg(source);
+        command.args(["-m", "pip", "install"]);
+        if reinstall {
+            command.args(["--force-reinstall", "--no-deps"]);
+        }
+
+        command.arg("-e").arg(source);
         command
     };
 
@@ -197,14 +172,7 @@ fn sync_environment(source: &Path) -> Result<()> {
         command.env("MATURIN_PEP517_ARGS", "--profile dev");
     }
 
-    let status = command
-        .status()
-        .map_err(|error| failure!("Failed to run the package installer. {error}"))?;
-    if !status.success() {
-        fail!("Installing the development source failed, see the installer output above.");
-    }
-
-    Ok(())
+    Ok(command)
 }
 
 /// Whether the environment's `ceres-engine` is an editable install of the source.
@@ -258,27 +226,6 @@ mod tests {
     }
 
     #[test]
-    fn a_strip_removes_every_flag_form() {
-        let split = arguments(&["database", "migrate", "--development-source", "../ceres"]);
-        assert_eq!(strip(&split), arguments(&["database", "migrate"]));
-
-        let joined = arguments(&["--development-source=../ceres", "check"]);
-        assert_eq!(strip(&joined), arguments(&["check"]));
-
-        let disabled = arguments(&["run", "--no-development-source", "all"]);
-        assert_eq!(strip(&disabled), arguments(&["run", "all"]));
-    }
-
-    #[test]
-    fn a_run_normalization_moves_the_flag_to_the_end() {
-        let leading = arguments(&["--development-source", "../ceres", "run", "all"]);
-        assert_eq!(
-            normalize_run(leading),
-            arguments(&["run", "all", "--development-source", "../ceres"])
-        );
-    }
-
-    #[test]
     fn a_disabling_flag_beats_a_source_flag() {
         let both = arguments(&[
             "--development-source",
@@ -286,23 +233,21 @@ mod tests {
             "--no-development-source",
         ]);
         assert_eq!(resolve(&both), None);
-        assert_eq!(normalize_run(both), arguments(&[]));
     }
 
     // The environment-sensitive cases share one test, running sequentially, so the
     // variables never leak into a concurrent assertion.
     #[test]
     fn a_source_resolves_flags_over_the_environment() {
-        let absent = arguments(&["run", "all"]);
-        assert_eq!(normalize_run(absent.clone()), absent);
+        assert_eq!(resolve(&arguments(&["run", "all"])), None);
 
         // SAFETY: no other test reads or writes the variables.
         unsafe { std::env::set_var(VARIABLE, "/environment") };
         let flagged = arguments(&["--development-source", "../flag", "run"]);
         assert_eq!(resolve(&flagged), Some(PathBuf::from("../flag")));
         assert_eq!(
-            normalize_run(arguments(&["run", "all"])),
-            arguments(&["run", "all", "--development-source", "/environment"])
+            resolve(&arguments(&["run", "all"])),
+            Some(PathBuf::from("/environment"))
         );
 
         // The disabling variable turns the standing source off, and a flag still wins.

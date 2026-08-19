@@ -90,7 +90,7 @@ ceres check
 
 ## Database Migrations
 
-The `ceres/database/migrations/` directory is the source of truth for the database schema. Every schema change ships as a migration file named `<id>-<name>.sql`, or `<id>-<name>.sqlite.sql` / `<id>-<name>.postgres.sql` when the SQL differs by backend, rather than as a standalone schema definition.
+The `rust/ceres-database/migrations/` directory is the source of truth for the database schema. Every schema change ships as a migration file named `<id>-<name>.sql`, or `<id>-<name>.sqlite.sql` / `<id>-<name>.postgres.sql` when the SQL differs by backend, rather than as a standalone schema definition.
 
 Whether the engine migrates on its own depends on whether the database is empty, not on which backend it is. An empty database has every migration applied at startup, on SQLite and PostgreSQL alike. A database with data in it is only checked, never migrated, so an upgrade that ships a migration is a deliberate step.
 

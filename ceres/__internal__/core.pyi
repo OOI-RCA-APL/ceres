@@ -17,6 +17,7 @@ __all__ = [
     "DatabaseConfigHooks",
     "EntityTable",
     "LoggingConfig",
+    "Migration",
     "NativeFilter",
     "NativeServer",
     "PackingProgram",
@@ -34,10 +35,13 @@ __all__ = [
     "ServiceConfig",
     "Store",
     "TursoDatabaseConfig",
+    "destructive_migration_warning",
     "entity_filter_keys",
     "hash_argon2",
     "hash_bcrypt",
     "insert_compiled",
+    "migration_ddl",
+    "migrations",
     "normalize_email",
     "openapi_schema",
     "record_filter_keys",
@@ -371,6 +375,36 @@ class LoggingConfig:
         Called through `ceres.data.to_json_schema` rather than directly.
         """
     def __eq__(self, other: Any) -> bool: ...
+    def __repr__(self) -> str: ...
+
+@final
+class Migration:
+    r"""
+    A single ordered schema migration backed by one or more SQL scripts.
+
+    Scripts are keyed by dialect (`sqlite`/`postgresql`), `None` for one shared across
+    dialects. The known migrations come embedded from `migrations()`, and constructing one
+    directly serves tests that migrate a database through scripts of their own.
+    """
+    @property
+    def id(self) -> int:
+        r"""
+        Unique sequential identifier parsed from the script filename prefix.
+        """
+    @property
+    def name(self) -> str:
+        r"""
+        Kebab-case name parsed from the script filename (e.g. `init`).
+        """
+    def __new__(cls, id: int, name: str, scripts: dict[str | None, str]) -> Self: ...
+    def render(self, dialect: str) -> str | None:
+        r"""
+        Return the SQL text for `dialect`, or `None` when this migration has no script
+        for it (a recorded no-op).
+
+        `dialect` accepts either spelling of a backend's name, and `turso` renders the
+        SQLite script since the two take the same schema.
+        """
     def __repr__(self) -> str: ...
 
 @final
@@ -1129,6 +1163,30 @@ class Store:
     r"""
     A natively-connected database the query layer reads and writes through.
     """
+    def initialized(self) -> Any:
+        r"""
+        Check whether the schema has been created in the database, as an awaitable.
+
+        The question is whether any table the schema owns is there, not whether the
+        database holds a table at all, so a table a configuration's `init` hook created
+        never makes an empty database look bootstrapped.
+        """
+    def applied_migration_ids(self) -> Any:
+        r"""
+        The IDs of every migration recorded as applied, ascending, as an awaitable.
+
+        Creates the bookkeeping table first so an empty database answers with an empty
+        list rather than an error.
+        """
+    def migrate(self, migrations: Sequence[Migration], reporter: Any | None = None) -> Any:
+        r"""
+        Apply every pending migration in order, as an awaitable list of applied IDs.
+
+        Each migration's script and the record that it ran go over as one batch so a
+        migration cannot land without being recorded and then run twice. `reporter` is
+        told which migration is starting and when it finished, for a caller showing
+        progress.
+        """
     def __new__(cls, connection: Connection, writable: bool = True) -> Self:
         r"""
         Open the store a connection describes.
@@ -1271,6 +1329,11 @@ class RecordTable(Enum):
     ALERTS = ...
     LOGS = ...
 
+def destructive_migration_warning(name: str) -> str | None:
+    r"""
+    Return the warning to log before a migration that discards data runs, by name.
+    """
+
 def entity_filter_keys(table: EntityTable) -> tuple[list[str], list[str]]:
     r"""
     The native filter subset's key classification for one non-record entity table.
@@ -1322,6 +1385,19 @@ def insert_compiled(
     `upsert` decides what a collision on the primary key does. Left off, the collision
     reaches the caller, which turns a duplicate into the error naming the column it
     collided on. Turned on, every column outside the key takes the new row's value.
+    """
+
+def migration_ddl(dialect: str, migrations: Sequence[Migration]) -> list[str]:
+    r"""
+    Every script that creates the schema for `dialect`, in the order they run.
+
+    The bookkeeping table's DDL comes first since it is what records the rest as they are
+    applied, and a migration with no script for the dialect contributes nothing.
+    """
+
+def migrations() -> list[Migration]:
+    r"""
+    Return every known migration, in application order.
     """
 
 def normalize_email(value: str) -> str | None:
