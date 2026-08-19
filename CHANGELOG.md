@@ -8,6 +8,8 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+## [0.45.0] - 2026-08-19
+
 **CLI**
 
 - Serve every command natively, `run` and `check` spawning the engine host in the
