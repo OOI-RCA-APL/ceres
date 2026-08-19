@@ -14,7 +14,8 @@ written, and the release workflow refuses a version that has no entry here.
 - Run the whole stack from a source checkout with `--development-source`, which now builds
   the checkout's CLI, points the environment at an editable install of it, and delegates
   the command to its binary. The `CERES_DEVELOPMENT_SOURCE` environment variable provides
-  a standing default the flag overrides.
+  a standing default the flag overrides, and `--no-development-source` or
+  `CERES_NO_DEVELOPMENT_SOURCE` turns delegation off.
 - Rename the update commands' `--assign` option to `--set`.
 - Boolean options on create and update commands take an optional value, so `--admin false`
   works beside `--admin` and `--no-admin`.

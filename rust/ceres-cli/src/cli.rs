@@ -56,6 +56,11 @@ pub struct Cli {
     #[arg(long, global = true, value_name = "PATH")]
     pub development_source: Option<PathBuf>,
 
+    /// Ignore any configured development source and run this installed Ceres. The
+    /// CERES_NO_DEVELOPMENT_SOURCE environment variable does the same for a whole session.
+    #[arg(long, global = true, overrides_with = "development_source")]
+    pub no_development_source: bool,
+
     /// Enable colorized output.
     #[arg(long, global = true, overrides_with = "no_color")]
     pub color: bool,

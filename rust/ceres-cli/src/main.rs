@@ -3,7 +3,7 @@
 mod cli;
 mod client;
 mod commands;
-mod develop;
+mod development;
 mod error;
 mod highlight;
 mod output;
@@ -42,11 +42,11 @@ fn main() -> ExitCode {
 
     // A development source takes over before any parsing, since the delegated commands'
     // trailing capture hides the flag from clap.
-    if let Some(source) = develop::resolve(&arguments)
-        && !develop::delegated()
+    if let Some(source) = development::resolve(&arguments)
+        && !development::delegated()
     {
         let output = Output::new(None);
-        let outcome = develop::delegate(&source, arguments).map(|never| match never {});
+        let outcome = development::delegate(&source, arguments).map(|never| match never {});
         return report(outcome, &output);
     }
 
@@ -136,9 +136,9 @@ fn run(cli: Cli, arguments: Vec<OsString>, output: &Output) -> Result<()> {
         // Commands that load the engine or operate on the database run in the Python runtime.
         // Run keeps the development-source flag for its console dev server, the others have
         // no Python-side parameter for it.
-        Command::Run(_) => match runtime::delegate(develop::normalize_run(arguments))? {},
+        Command::Run(_) => match runtime::delegate(development::normalize_run(arguments))? {},
         Command::Check(_) | Command::Database(_) | Command::Generate(_) => {
-            match runtime::delegate(develop::strip(&arguments))? {}
+            match runtime::delegate(development::strip(&arguments))? {}
         }
 
         Command::Reload => {

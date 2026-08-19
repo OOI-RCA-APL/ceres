@@ -16,19 +16,39 @@ use crate::runtime;
 /// The flag spelling, shared by the scanner and the stripper.
 const FLAG: &str = "--development-source";
 
+/// The disabling flag, winning over the flag and the environment variable.
+const NO_FLAG: &str = "--no-development-source";
+
 /// The environment variable providing a standing development source.
 const VARIABLE: &str = "CERES_DEVELOPMENT_SOURCE";
+
+/// The environment variable disabling the standing development source.
+const NO_VARIABLE: &str = "CERES_NO_DEVELOPMENT_SOURCE";
 
 /// Marks a process the delegation already replaced, stopping a second hop.
 const DELEGATED: &str = "CERES_DEVELOPMENT_SOURCE_DELEGATED";
 
-/// The development source in effect, the flag overriding the environment variable.
+/// The development source in effect.
+///
+/// Either flag beats both environment variables, and the disabling side wins within each
+/// pair, so `--no-development-source` turns a standing source off for one command and
+/// `CERES_NO_DEVELOPMENT_SOURCE` turns it off for a whole session.
 pub fn resolve(arguments: &[OsString]) -> Option<PathBuf> {
-    source_from(arguments).or_else(|| {
-        std::env::var_os(VARIABLE)
-            .filter(|value| !value.is_empty())
-            .map(PathBuf::from)
-    })
+    if arguments.iter().any(|argument| argument == NO_FLAG) {
+        return None;
+    }
+
+    if let Some(source) = source_from(arguments) {
+        return Some(source);
+    }
+
+    if std::env::var_os(NO_VARIABLE).is_some_and(|value| !value.is_empty()) {
+        return None;
+    }
+
+    std::env::var_os(VARIABLE)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
 }
 
 /// The `--development-source` value, read from the raw arguments.
@@ -41,13 +61,17 @@ pub fn delegated() -> bool {
     std::env::var_os(DELEGATED).is_some()
 }
 
-/// Remove every `--development-source` flag and value from the arguments.
+/// Remove every development-source flag, value, and disabler from the arguments.
 pub fn strip(arguments: &[OsString]) -> Vec<OsString> {
     let mut result = Vec::with_capacity(arguments.len());
     let mut iterator = arguments.iter();
     while let Some(argument) = iterator.next() {
         if argument == FLAG {
             iterator.next();
+            continue;
+        }
+
+        if argument == NO_FLAG {
             continue;
         }
 
@@ -68,15 +92,16 @@ pub fn strip(arguments: &[OsString]) -> Vec<OsString> {
 ///
 /// The Python `run` command consumes the flag for its console dev server but only parses
 /// it after the subcommand, so a flag given before `run`, or one implied by the
-/// environment variable, is placed there.
+/// environment variable, is placed there. A disabled or absent source strips the flags
+/// and adds nothing.
 pub fn normalize_run(arguments: Vec<OsString>) -> Vec<OsString> {
-    let Some(source) = resolve(&arguments) else {
-        return arguments;
-    };
-
+    let source = resolve(&arguments);
     let mut result = strip(&arguments);
-    result.push(FLAG.into());
-    result.push(source.into());
+    if let Some(source) = source {
+        result.push(FLAG.into());
+        result.push(source.into());
+    }
+
     result
 }
 
@@ -233,12 +258,15 @@ mod tests {
     }
 
     #[test]
-    fn a_strip_removes_both_flag_forms() {
+    fn a_strip_removes_every_flag_form() {
         let split = arguments(&["database", "migrate", "--development-source", "../ceres"]);
         assert_eq!(strip(&split), arguments(&["database", "migrate"]));
 
         let joined = arguments(&["--development-source=../ceres", "check"]);
         assert_eq!(strip(&joined), arguments(&["check"]));
+
+        let disabled = arguments(&["run", "--no-development-source", "all"]);
+        assert_eq!(strip(&disabled), arguments(&["run", "all"]));
     }
 
     #[test]
@@ -250,14 +278,25 @@ mod tests {
         );
     }
 
-    // The environment-sensitive cases share one test, running sequentially, so the
-    // variable never leaks into a concurrent assertion.
     #[test]
-    fn a_source_resolves_the_flag_over_the_environment() {
+    fn a_disabling_flag_beats_a_source_flag() {
+        let both = arguments(&[
+            "--development-source",
+            "../ceres",
+            "--no-development-source",
+        ]);
+        assert_eq!(resolve(&both), None);
+        assert_eq!(normalize_run(both), arguments(&[]));
+    }
+
+    // The environment-sensitive cases share one test, running sequentially, so the
+    // variables never leak into a concurrent assertion.
+    #[test]
+    fn a_source_resolves_flags_over_the_environment() {
         let absent = arguments(&["run", "all"]);
         assert_eq!(normalize_run(absent.clone()), absent);
 
-        // SAFETY: no other test reads or writes the variable.
+        // SAFETY: no other test reads or writes the variables.
         unsafe { std::env::set_var(VARIABLE, "/environment") };
         let flagged = arguments(&["--development-source", "../flag", "run"]);
         assert_eq!(resolve(&flagged), Some(PathBuf::from("../flag")));
@@ -265,6 +304,13 @@ mod tests {
             normalize_run(arguments(&["run", "all"])),
             arguments(&["run", "all", "--development-source", "/environment"])
         );
+
+        // The disabling variable turns the standing source off, and a flag still wins.
+        unsafe { std::env::set_var(NO_VARIABLE, "1") };
+        assert_eq!(resolve(&arguments(&["run", "all"])), None);
+        assert_eq!(resolve(&flagged), Some(PathBuf::from("../flag")));
+
+        unsafe { std::env::remove_var(NO_VARIABLE) };
         unsafe { std::env::remove_var(VARIABLE) };
     }
 }
