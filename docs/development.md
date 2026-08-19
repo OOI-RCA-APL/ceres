@@ -171,7 +171,7 @@ ceres --development-source /path/to/ceres --version
 ```
 
 ```
-Using development source at "/path/to/ceres".
+Using development source at '/path/to/ceres'.
 0.44.1
 ```
 

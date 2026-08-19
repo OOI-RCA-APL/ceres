@@ -126,7 +126,7 @@ pub fn delegate(source: &Path, arguments: Vec<OsString>, output: &Output) -> Res
     }
 
     output.warn(format!(
-        "Using development source at \"{}\".",
+        "Using development source at '{}'.",
         source.display()
     ));
 
