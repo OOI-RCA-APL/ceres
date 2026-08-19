@@ -1,9 +1,9 @@
 """Run the Ceres CLI.
 
 `python -m ceres` hands straight off to the native `ceres` binary installed beside the
-interpreter, so both invocations serve the same command surface. The binary delegates the
-engine-hosting commands back to this environment's interpreter through
-`ceres.__internal__.cli`, a separate module path, so the handoff cannot loop.
+interpreter, so both invocations serve the same command surface. The binary hosts the
+engine back in this environment's interpreter through `ceres.__internal__.host`, a
+separate module path, so the handoff cannot loop.
 """
 
 __all__ = []
@@ -30,11 +30,7 @@ if __name__ == "__main__":
 
     binary = _find_binary()
     if binary is None:
-        # No binary means an environment without the compiled CLI, so the Python CLI
-        # serves what it can directly.
-        from ceres.__internal__.cli.main import main
-
-        sys.exit(main())
+        sys.exit("The ceres binary was not found beside this interpreter or on PATH.")
 
     # This interpreter is the one Ceres is importable from, so the binary delegates the
     # engine-hosting commands back to exactly it rather than rediscovering one.

@@ -1,6 +1,6 @@
 # Coverage
 
-<!-- coverage:fingerprint:dfa155b00405d82b -->
+<!-- coverage:fingerprint:64a38875ff41b770 -->
 
 ## Python
 
@@ -50,7 +50,7 @@
 | `ceres/__internal__/utilities/undefined.py` | 88% |
 | `ceres/__internal__/utilities/validation.py` | 100% |
 | `ceres/__internal__/workspace_redaction.py` | 92% |
-| `ceres/__main__.py` | 13% |
+| `ceres/__main__.py` | 14% |
 | `ceres/access.py` | 99% |
 | `ceres/address.py` | 98% |
 | `ceres/alert.py` | 85% |
@@ -136,7 +136,7 @@
 | `rust/ceres-cli/src/output.rs` | 94% |
 | `rust/ceres-cli/src/project.rs` | 83% |
 | `rust/ceres-cli/src/reference.rs` | 100% |
-| `rust/ceres-cli/src/runtime.rs` | 9% |
+| `rust/ceres-cli/src/runtime.rs` | 10% |
 | `rust/ceres-cli/src/selector.rs` | 100% |
 | `rust/ceres-cli/src/service.rs` | 39% |
 | `rust/ceres-config/src/database.rs` | 89% |

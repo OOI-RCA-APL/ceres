@@ -1,6 +1,4 @@
 __all__ = [
-    # .cli
-    "main",
     # .address
     "Address",
     "AddressSelector",
@@ -146,7 +144,6 @@ __all__ = [
 from ceres.__internal__.lazy import __lazy_imports__
 
 with __lazy_imports__(__name__, export=True):
-    from ceres.__internal__.cli.main import main
     from ceres.address import Address, AddressSelector, DynamicAddress
     from ceres.alert import Alert
     from ceres.channel import Channel, ChannelReader, OutputChannel

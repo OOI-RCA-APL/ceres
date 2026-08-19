@@ -66,7 +66,7 @@ _SECTIONS: list[tuple[str, tuple[str, ...]]] = [
     ("Database", ("ceres.database",)),
     ("Configuration", ("ceres.config",)),
     ("Concurrency", ("ceres.concurrency",)),
-    ("Utilities", ("ceres.timing", "ceres.version", "ceres.__internal__.cli.main")),
+    ("Utilities", ("ceres.timing", "ceres.version")),
 ]
 """Which page section each exporting module's names are documented under.
 

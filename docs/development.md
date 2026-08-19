@@ -86,7 +86,7 @@ ceres/
     particle.py             # Data parsing (particles).
     __internal__/
       app/                  # Operations the native server dispatches into.
-      cli/                  # The engine-hosting commands the binary delegates back.
+      host.py               # The engine host process the binary spawns.
       database/             # Entity definitions and the write path.
       core.pyi              # Generated stubs for the native extension.
   rust/                     # The native workspace, built as one extension module.
@@ -114,7 +114,7 @@ ceres/
 - `event.py`: `Event` base class and all standard event types.
 - `error.py`: `Error` base class (a Pydantic dataclass that inherits from `Exception`) and all error types.
 - `__internal__/app/`: the operations the native server dispatches into for anything it cannot serve from the database itself.
-- `__internal__/cli/`: the engine-hosting commands, which the native binary delegates back to this interpreter.
+- `__internal__/host.py`: the engine host process, which the native binary spawns in this interpreter for `run` and `check`.
 
 ### The Native Workspace
 

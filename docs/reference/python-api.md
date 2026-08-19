@@ -417,10 +417,6 @@ from the package, `from ceres import Component`.
     options:
       heading_level: 3
 
-::: ceres.__internal__.cli.main.main
-    options:
-      heading_level: 3
-
 
 ## Type Aliases
 

@@ -35,7 +35,6 @@ dependencies = [
     "typing-extensions>=4.15.0",
     "uuid-utils>=0.14.1",
     "uvloop>=0.22.1; platform_system == 'Linux' or platform_system == 'Darwin'",
-    "watchfiles>=1.1.1,<2",
     "starlette>=1,<2",
 ]
 
@@ -133,8 +132,6 @@ runtime-evaluated-base-classes = [
     "ceres.particle.ParticleData",
     "ceres.error.Error",
     "ceres.server.Server",
-    "ceres.__internal__.cli.shared.CLICommand",
-    "ceres.__internal__.cli.shared.CLICommandGroup",
     "ceres.__internal__.entity.BaseAddressEntity",
     "ceres.__internal__.entity.BaseAddressEntityCreate",
     "ceres.__internal__.entity.BaseAddressEntityFilter",
@@ -185,7 +182,6 @@ addopts = ["-vvv", "-s"]
 source = ["ceres"]
 omit = [
     "ceres/__internal__/app/*",
-    "ceres/__internal__/cli/*",
     "ceres/static/*",
 ]
 
