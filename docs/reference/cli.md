@@ -15,8 +15,6 @@ component address, or a selector matching several.
 | --- | --- | --- |
 | `--version` |  | Show the current Ceres version number and exit |
 | `--config` `PATH` |  | Use a specific Ceres configuration file, possibly outside the current working directory |
-| `--development-source` `PATH` |  | Run against a Ceres source checkout, building its CLI, pointing this environment at an editable install of it, and delegating the command to its binary. Defaults to the CERES_DEVELOPMENT_SOURCE environment variable |
-| `--no-development-source` |  | Ignore any configured development source and run this installed Ceres. The CERES_NO_DEVELOPMENT_SOURCE environment variable does the same for a whole session |
 | `--color` |  | Enable colorized output |
 | `--no-color` |  | Disable colorized output |
 

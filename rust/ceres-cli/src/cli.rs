@@ -52,13 +52,14 @@ pub struct Cli {
 
     /// Run against a Ceres source checkout, building its CLI, pointing this environment at
     /// an editable install of it, and delegating the command to its binary. Defaults to the
-    /// CERES_DEVELOPMENT_SOURCE environment variable.
-    #[arg(long, global = true, value_name = "PATH")]
+    /// CERES_DEVELOPMENT_SOURCE environment variable. Development tooling, so hidden from
+    /// help and documented on the Development page instead.
+    #[arg(long, global = true, value_name = "PATH", hide = true)]
     pub development_source: Option<PathBuf>,
 
     /// Ignore any configured development source and run this installed Ceres. The
     /// CERES_NO_DEVELOPMENT_SOURCE environment variable does the same for a whole session.
-    #[arg(long, global = true, overrides_with = "development_source")]
+    #[arg(long, global = true, overrides_with = "development_source", hide = true)]
     pub no_development_source: bool,
 
     /// Enable colorized output.
