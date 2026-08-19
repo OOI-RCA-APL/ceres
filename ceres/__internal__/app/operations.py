@@ -26,7 +26,7 @@ from ceres.__internal__.core import RecordBatch
 from ceres.address import Address
 from ceres.alert import Alert
 from ceres.component import BaseOutput, ComponentFilter
-from ceres.data import Name, to_json, validate
+from ceres.data import Name, to_json, validate, validate_yaml
 from ceres.error import (
     HTTPError,
     NotAuthenticatedError,
@@ -74,10 +74,18 @@ def _pairs(arguments: dict[str, Any]) -> dict[str, Any]:
 
 def _filter[T](model: type[T], arguments: dict[str, Any], limit: int | None = None) -> T:
     """Validate a filter from the request's query pairs."""
-    if limit is not None:
-        return validate(Annotated[model, Limit(limit)], _pairs(arguments))
+    data = _pairs(arguments)
 
-    return validate(model, _pairs(arguments))
+    # A YAML-valued key arrives as text here and the model takes values as passed, so
+    # the parse happens at this edge for the query to compare typed values.
+    for name in getattr(model, "__yaml_filters__", frozenset()) & data.keys():
+        if isinstance(data[name], str):
+            data[name] = validate_yaml(Any, data[name])
+
+    if limit is not None:
+        return validate(Annotated[model, Limit(limit)], data)
+
+    return validate(model, data)
 
 
 def _path(arguments: dict[str, Any], name: str) -> str:

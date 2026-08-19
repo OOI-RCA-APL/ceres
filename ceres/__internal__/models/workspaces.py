@@ -19,7 +19,6 @@ from ceres.__internal__.entity import (
 )
 from ceres.address import Address
 from ceres.data import (
-    FromYAML,
     JSONSerializableDict,
     MaybeSequence,
     NonEmptyStr,
@@ -92,14 +91,14 @@ class WorkspaceEditCreate(BaseEntityCreate, slots=True):
     """ID of the user whose draft edit this is."""
     workspace_id: UUID
     """ID of the workspace being edited."""
-    data: FromYAML[JSONSerializableDict]
+    data: JSONSerializableDict
     """In-progress edit payload, serialized as JSON."""
 
 
 class WorkspaceEditUpdate(TypedDict, total=False):
     """Partial update for an existing `WorkspaceEdit` record."""
 
-    data: FromYAML[JSONSerializableDict]
+    data: JSONSerializableDict
 
 
 type WorkspaceField = (
@@ -184,7 +183,7 @@ class WorkspaceCreate(BaseUUIDEntityCreate, slots=True):
     """Owning user when this workspace is private, `None` when it is shared."""
     show_when_logged_out: bool = False
     """Whether this workspace is part of the set an unauthenticated visitor sees."""
-    data: FromYAML[JSONSerializableDict] = Field(default_factory=dict)
+    data: JSONSerializableDict = Field(default_factory=dict)
     """Free-form structured payload attached to the workspace."""
 
 
@@ -195,7 +194,7 @@ class WorkspaceUpdate(TypedDict, total=False):
     scope: Address
     owner_id: UUID | None
     show_when_logged_out: bool
-    data: FromYAML[JSONSerializableDict]
+    data: JSONSerializableDict
 
 
 # Present the models as part of the public module that re-exports them.

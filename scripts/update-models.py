@@ -37,26 +37,27 @@ FILTER_TYPES = {
     "text": "MaybeSequence[str] | None",
     "email": "MaybeSequence[EmailAddress] | None",
     "boolean": "bool | None",
-    "json_value": "FromYAML[JSONSerializable] | None",
+    "json_value": "JSONSerializable | None",
     "plain_address": "MaybeSequence[Address] | None",
     "level": "MaybeSequence[Level] | None",
 }
 """Filter field annotations by family, for the families the tables use."""
 
-ARGS_TYPES = {**FILTER_TYPES, "json_value": "JSONSerializable | None"}
-"""FilterArgs annotations, which skip YAML coercion since TypedDicts never validate."""
+ARGS_TYPES = FILTER_TYPES
+"""FilterArgs annotations, matching the filter's."""
 
 CREATE_TYPES = {
     "uuid": "UUID",
     "text": "str",
     "email": "EmailAddress",
     "boolean": "bool",
-    "json": "FromYAML[JSONSerializableDict]",
-    "json_value": "FromYAML[JSONSerializable]",
+    "json": "JSONSerializableDict",
+    "json_value": "JSONSerializable",
     "plain_address": "Address",
     "level": "Level",
 }
-"""Create and update annotations by family."""
+"""Create and update annotations by family. JSON columns take their values as passed,
+the CLI and HTTP edges parse text before it reaches a model."""
 
 DATA_IMPORTS = (
     "BytesFromString",
@@ -103,12 +104,7 @@ FILTER_NOUNS = {
 FILTER_KEY_NOUNS = {"content": "strings"}
 """Per-key overrides for keys whose plain plural reads poorly."""
 
-VALUE_FILTER_DOC = (
-    "Filter by `{key}` being exactly equal to the given JSON-serializable value.\n\n"
-    "The value reads as YAML, matching how the create and update models take it, so a "
-    "command line comparing against a number or a boolean compares against that rather "
-    "than against its text."
-)
+VALUE_FILTER_DOC = "Filter by `{key}` being exactly equal to the given JSON-serializable value."
 """The docstring of a `json_value` filter field."""
 
 INTERNAL_DOC = (
@@ -534,6 +530,7 @@ def render_entity(table: dict[str, Any], entity: Entity, enums: tuple[Enum, ...]
     if nullable:
         keys = ", ".join(f'"{field["key"]}"' for field in nullable)
         lines.append(f"    __nullable_filters__: ClassVar[frozenset[str]] = frozenset({{{keys}}})")
+        lines.append(f"    __yaml_filters__: ClassVar[frozenset[str]] = frozenset({{{keys}}})")
         lines.append("")
         for field in nullable:
             lines.append(f"    {field['key']}: {filter_annotation(field, FILTER_TYPES)} = None")

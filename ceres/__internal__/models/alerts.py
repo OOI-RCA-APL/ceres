@@ -15,7 +15,6 @@ from ceres.__internal__.record import (
     BaseRecordUpdate,
 )
 from ceres.data import (
-    FromYAML,
     JSONSerializableDict,
     MaybeSequence,
 )
@@ -108,7 +107,7 @@ class AlertCreate(BaseRecordCreate, slots=True):
     """Severity level of the alert."""
     type: str
     """Discriminator string identifying the kind of alert."""
-    data: FromYAML[JSONSerializableDict] = Field(default_factory=dict)
+    data: JSONSerializableDict = Field(default_factory=dict)
     """Optional structured payload providing additional context for the alert."""
 
 
@@ -117,7 +116,7 @@ class AlertUpdate(BaseRecordUpdate, total=False):
 
     level: Level
     type: str
-    data: FromYAML[JSONSerializableDict]
+    data: JSONSerializableDict
 
 
 # Present the models as part of the public module that re-exports them.

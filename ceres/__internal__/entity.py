@@ -218,6 +218,13 @@ class BaseEntityFilter[
     `None` meant the null and the dump has to carry it.
     """
 
+    __yaml_filters__: ClassVar[frozenset[str]] = frozenset()
+    """Fields whose text form reads as YAML at the request edge.
+
+    The models take these values as passed, so a query parameter comparing against a
+    number or a boolean has to parse before validation rather than inside the model.
+    """
+
     def _native_dump(self) -> str:
         """Serialize this filter for the native compiler, in its wire JSON form."""
         dumped = self.model_dump(mode="json", by_alias=True, exclude_none=True)

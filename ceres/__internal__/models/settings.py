@@ -11,7 +11,6 @@ from ceres.__internal__.entity import (
     BaseEntityFilterArgs,
 )
 from ceres.data import (
-    FromYAML,
     JSONSerializable,
     MaybeSequence,
 )
@@ -82,7 +81,7 @@ class SettingCreate(BaseEntityCreate, slots=True):
     """Identifier of the user that owns this setting."""
     name: str
     """Name of the setting, unique per user."""
-    value: FromYAML[JSONSerializable]
+    value: JSONSerializable
     """Arbitrary JSON-serializable value stored for this setting."""
 
 
@@ -90,7 +89,7 @@ class SettingUpdate(TypedDict, total=False):
     """Partial update for an existing `Setting` record."""
 
     name: str
-    value: FromYAML[JSONSerializable]
+    value: JSONSerializable
 
 
 # Present the models as part of the public module that re-exports them.

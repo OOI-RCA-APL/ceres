@@ -183,7 +183,8 @@ pub fn entity_batches<R: BufRead>(
     Some(Batches {
         rows: Rows::open(source, format)?,
         convert: Box::new(move |objects| {
-            table.entities(&table.credentialed(objects, credentials)?)
+            let parsed = table.yaml_columns(objects)?;
+            table.entities(&table.credentialed(&parsed, credentials)?)
         }),
         spent: false,
         read: 0,
@@ -371,6 +372,34 @@ impl RecordTable {
 }
 
 impl EntityTable {
+    /// Parse a loaded row's JSON-column text as YAML, the way the Python models'
+    /// `FromYAML` reads it, so a CSV cell holding `1` becomes a number.
+    ///
+    /// This covers loads alone. A create's `wire_object` already parsed its text, and a
+    /// second pass would reinterpret a value that parsed to a string.
+    fn yaml_columns(
+        self,
+        objects: &[Map<String, Value>],
+    ) -> Result<Vec<Map<String, Value>>, String> {
+        let mut parsed = objects.to_vec();
+        for object in &mut parsed {
+            for field in self.schema().columns {
+                if !matches!(field.family, FieldFamily::Json | FieldFamily::JsonValue) {
+                    continue;
+                }
+
+                if let Some(Value::String(text)) = object.get(field.key) {
+                    let value = yaml_serde::from_str(text).map_err(|error| {
+                        format!("The `{}` value does not parse as YAML. {error}", field.key)
+                    })?;
+                    object.insert(field.key.to_string(), value);
+                }
+            }
+        }
+
+        Ok(parsed)
+    }
+
     /// Apply the credential rules to a batch of wire objects, the failure naming the
     /// refused column.
     fn credentialed(
@@ -406,27 +435,7 @@ impl EntityTable {
             .collect();
         let rows = objects
             .iter()
-            .map(|object| {
-                let mut row = complete(&accepted, object, |key| self.default_value(key))?;
-                // A JSON column on an entity is declared `FromYAML` so a value arriving
-                // as text parses as YAML rather than staying a string. That is how a CSV
-                // cell holding `1` becomes a number, and it applies to a JSON input
-                // naming a string too because the model's validator sees no difference.
-                for field in self.schema().columns {
-                    if !matches!(field.family, FieldFamily::Json | FieldFamily::JsonValue) {
-                        continue;
-                    }
-
-                    if let Some(Value::String(text)) = row.get(field.key) {
-                        let parsed = yaml_serde::from_str(text).map_err(|error| {
-                            format!("The `{}` value does not parse as YAML. {error}", field.key)
-                        })?;
-                        row.insert(field.key.to_string(), parsed);
-                    }
-                }
-
-                Ok(row)
-            })
+            .map(|object| complete(&accepted, object, |key| self.default_value(key)))
             .collect::<Result<Vec<_>, String>>()?;
 
         Ok(match self {
@@ -755,6 +764,59 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn a_created_json_value_parses_exactly_once() {
+        let pairs = |values: &[(&str, &str)]| {
+            values
+                .iter()
+                .map(|(key, value)| (key.to_string(), value.to_string()))
+                .collect::<Vec<_>>()
+        };
+        let create = |value: &str| {
+            build_entity(
+                EntityTable::Settings,
+                &pairs(&[
+                    ("user_id", "0198c0de-0000-7000-8000-000000000001"),
+                    ("name", "x"),
+                    ("value", value),
+                ]),
+                None,
+            )
+        };
+
+        // A quoted string keeps its parsed string form. A second parse would read the
+        // contents as YAML again and turn it into the boolean.
+        let Ok(Entities::Settings(settings)) = create("\"true\"") else {
+            panic!("expected one setting");
+        };
+        assert_eq!(settings[0].value, Value::String("true".into()));
+
+        let Ok(Entities::Settings(settings)) = create("true") else {
+            panic!("expected one setting");
+        };
+        assert_eq!(settings[0].value, Value::Bool(true));
+    }
+
+    #[test]
+    fn a_loaded_json_text_column_reads_as_yaml() {
+        // A CSV cell is text, so a JSON column's cell parses the way the CLI's create
+        // text does.
+        let source = "user_id,name,value\n0198c0de-0000-7000-8000-000000000001,x,5\n";
+        let batches: Vec<_> = entity_batches(
+            EntityTable::Settings,
+            source.as_bytes(),
+            LoadFormat::Csv,
+            None,
+        )
+        .expect("a CSV source opens")
+        .collect();
+
+        let Ok(Entities::Settings(settings)) = &batches[0] else {
+            panic!("expected settings");
+        };
+        assert_eq!(settings[0].value, Value::from(5));
     }
 
     #[test]

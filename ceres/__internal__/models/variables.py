@@ -12,7 +12,6 @@ from ceres.__internal__.entity import (
     BaseAddressEntityOrder,
 )
 from ceres.data import (
-    FromYAML,
     JSONSerializable,
     MaybeSequence,
 )
@@ -84,13 +83,10 @@ class VariableFilter(BaseAddressEntityFilter["Variable", VariableField, Variable
     non-internal variables will be matched.
     """
     __nullable_filters__: ClassVar[frozenset[str]] = frozenset({"value"})
+    __yaml_filters__: ClassVar[frozenset[str]] = frozenset({"value"})
 
-    value: FromYAML[JSONSerializable] | None = None
-    """Filter by `value` being exactly equal to the given JSON-serializable value.
-
-    The value reads as YAML, matching how the create and update models take it, so a command line
-    comparing against a number or a boolean compares against that rather than against its text.
-    """
+    value: JSONSerializable | None = None
+    """Filter by `value` being exactly equal to the given JSON-serializable value."""
 
 
 class VariableCreate(BaseAddressEntityCreate, slots=True):
@@ -98,7 +94,7 @@ class VariableCreate(BaseAddressEntityCreate, slots=True):
 
     name: str
     """Name of the variable, unique per owning address."""
-    value: FromYAML[JSONSerializable]
+    value: JSONSerializable
     """Arbitrary JSON-serializable value stored for this variable."""
 
 
@@ -106,7 +102,7 @@ class VariableUpdate(TypedDict, total=False):
     """Partial update for an existing `Variable` record."""
 
     name: str
-    value: FromYAML[JSONSerializable]
+    value: JSONSerializable
 
 
 # Present the models as part of the public module that re-exports them.
