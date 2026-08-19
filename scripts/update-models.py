@@ -100,6 +100,9 @@ FILTER_NOUNS = {
 }
 """What a filter equality docstring calls the given values, when not the key itself."""
 
+FILTER_KEY_NOUNS = {"content": "strings"}
+"""Per-key overrides for keys whose plain plural reads poorly."""
+
 VALUE_FILTER_DOC = (
     "Filter by `{key}` being exactly equal to the given JSON-serializable value.\n\n"
     "The value reads as YAML, matching how the create and update models take it, so a "
@@ -313,7 +316,7 @@ def filter_doc(field: dict[str, Any]) -> str:
     if family == "json_value":
         return VALUE_FILTER_DOC.format(key=key)
 
-    noun = FILTER_NOUNS.get(family, f"{key}s")
+    noun = FILTER_KEY_NOUNS.get(key, FILTER_NOUNS.get(family, f"{key}s"))
     return f"Filter by `{key}` being equal to one or more given {noun}."
 
 

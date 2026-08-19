@@ -444,8 +444,6 @@ Union of record types that flow through the system as user-visible items.
 
 ### `MessageData`
 
-Raw message payload bytes, serialized to and from `latin-1` strings for transport.
-
 `bytes`
 
 ### `Output`

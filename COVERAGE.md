@@ -1,6 +1,6 @@
 # Coverage
 
-<!-- coverage:fingerprint:ea793bdf627ff17d -->
+<!-- coverage:fingerprint:74d7749caebcd23f -->
 
 ## Python
 
@@ -18,6 +18,16 @@
 | `ceres/__internal__/interop.py` | 90% |
 | `ceres/__internal__/lazy.py` | 82% |
 | `ceres/__internal__/manager.py` | 76% |
+| `ceres/__internal__/models/__init__.py` | 100% |
+| `ceres/__internal__/models/alerts.py` | 100% |
+| `ceres/__internal__/models/groups.py` | 100% |
+| `ceres/__internal__/models/logs.py` | 100% |
+| `ceres/__internal__/models/messages.py` | 100% |
+| `ceres/__internal__/models/permissions.py` | 100% |
+| `ceres/__internal__/models/settings.py` | 100% |
+| `ceres/__internal__/models/users.py` | 100% |
+| `ceres/__internal__/models/variables.py` | 100% |
+| `ceres/__internal__/models/workspaces.py` | 100% |
 | `ceres/__internal__/particles.py` | 97% |
 | `ceres/__internal__/project.py` | 79% |
 | `ceres/__internal__/protocols.py` | 100% |
@@ -42,7 +52,7 @@
 | `ceres/__main__.py` | 13% |
 | `ceres/access.py` | 99% |
 | `ceres/address.py` | 98% |
-| `ceres/alert.py` | 91% |
+| `ceres/alert.py` | 85% |
 | `ceres/channel.py` | 92% |
 | `ceres/component.py` | 86% |
 | `ceres/concurrency.py` | 91% |
@@ -69,32 +79,32 @@
 | `ceres/entity.py` | 99% |
 | `ceres/error.py` | 97% |
 | `ceres/event.py` | 95% |
-| `ceres/group.py` | 99% |
+| `ceres/group.py` | 98% |
 | `ceres/item.py` | 90% |
 | `ceres/job.py` | 59% |
 | `ceres/level.py` | 100% |
 | `ceres/loaded.py` | 94% |
-| `ceres/logs.py` | 89% |
-| `ceres/message.py` | 98% |
+| `ceres/logs.py` | 86% |
+| `ceres/message.py` | 96% |
 | `ceres/node.py` | 87% |
 | `ceres/notifier.py` | 100% |
 | `ceres/particle.py` | 90% |
 | `ceres/paths.py` | 100% |
-| `ceres/permission.py` | 98% |
+| `ceres/permission.py` | 95% |
 | `ceres/pruner.py` | 45% |
 | `ceres/record.py` | 89% |
 | `ceres/reference.py` | 71% |
 | `ceres/rtsp.py` | 93% |
 | `ceres/schedule.py` | 96% |
 | `ceres/server.py` | 66% |
-| `ceres/setting.py` | 96% |
+| `ceres/setting.py` | 93% |
 | `ceres/sieves.py` | 99% |
 | `ceres/statistics.py` | 95% |
 | `ceres/status.py` | 100% |
 | `ceres/tasklet.py` | 98% |
 | `ceres/timing.py` | 99% |
-| `ceres/user.py` | 97% |
-| `ceres/variable.py` | 86% |
+| `ceres/user.py` | 94% |
+| `ceres/variable.py` | 81% |
 | `ceres/version.py` | 92% |
 | `ceres/workspace.py` | 100% |
 | **Total** | **88%** |
@@ -144,22 +154,23 @@
 | `rust/ceres-core/src/writer.rs` | 45% |
 | `rust/ceres-database/src/backend.rs` | 42% |
 | `rust/ceres-database/src/credentials.rs` | 90% |
+| `rust/ceres-database/src/describe.rs` | 100% |
 | `rust/ceres-database/src/dynamic.rs` | 36% |
 | `rust/ceres-database/src/entities.rs` | 79% |
 | `rust/ceres-database/src/filter.rs` | 78% |
-| `rust/ceres-database/src/load.rs` | 92% |
-| `rust/ceres-database/src/records.rs` | 58% |
+| `rust/ceres-database/src/load.rs` | 93% |
+| `rust/ceres-database/src/records.rs` | 59% |
 | `rust/ceres-database/src/selector.rs` | 87% |
 | `rust/ceres-database/src/set.rs` | 76% |
 | `rust/ceres-database/src/store.rs` | 72% |
 | `rust/ceres-database/src/turso.rs` | 67% |
 | `rust/ceres-database/src/writer.rs` | 69% |
 | `rust/ceres-entities/src/address.rs` | 89% |
-| `rust/ceres-entities/src/entities.rs` | 75% |
+| `rust/ceres-entities/src/entities.rs` | 79% |
 | `rust/ceres-entities/src/filterable.rs` | 100% |
 | `rust/ceres-entities/src/records.rs` | 87% |
 | `rust/ceres-entities/src/timestamp.rs` | 100% |
-| `rust/ceres-macros/src/filterable.rs` | 90% |
+| `rust/ceres-macros/src/filterable.rs` | 91% |
 | `rust/ceres-macros/src/kebab.rs` | 57% |
 | `rust/ceres-macros/src/lib.rs` | 88% |
 | `rust/ceres-macros/src/python_config.rs` | 94% |

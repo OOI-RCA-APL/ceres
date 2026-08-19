@@ -78,7 +78,7 @@ class LogEntryFilter(BaseRecordFilter["LogEntry", LogEntryField, LogEntryOrder])
     max_level: Level | None = None
     """Filter by `level` being less than or equal to the given level value."""
     content: MaybeSequence[str] | None = None
-    """Filter by `content` being equal to one or more given contents."""
+    """Filter by `content` being equal to one or more given strings."""
     contains: MaybeSequence[str] | None = None
     """Filter by `content` containing one or more given substrings."""
     prefix: MaybeSequence[str] | None = None
