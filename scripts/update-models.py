@@ -39,8 +39,9 @@ FILTER_TYPES = {
     "boolean": "bool | None",
     "json_value": "FromYAML[JSONSerializable] | None",
     "plain_address": "MaybeSequence[Address] | None",
+    "level": "MaybeSequence[Level] | None",
 }
-"""Filter field annotations by family, for the families the entity tables use."""
+"""Filter field annotations by family, for the families the tables use."""
 
 ARGS_TYPES = {**FILTER_TYPES, "json_value": "JSONSerializable | None"}
 """FilterArgs annotations, which skip YAML coercion since TypedDicts never validate."""
@@ -53,10 +54,13 @@ CREATE_TYPES = {
     "json": "FromYAML[JSONSerializableDict]",
     "json_value": "FromYAML[JSONSerializable]",
     "plain_address": "Address",
+    "level": "Level",
 }
 """Create and update annotations by family."""
 
 DATA_IMPORTS = (
+    "BytesFromString",
+    "BytesToString",
     "EmailAddress",
     "FromYAML",
     "JSONSerializable",
@@ -81,11 +85,18 @@ ENTITY_BASES = tuple(
 )
 """Base names importable from `ceres.__internal__.entity`, matched against the body."""
 
+RECORD_BASES = tuple(
+    f"BaseRecord{suffix}"
+    for suffix in ("Create", "Field", "Filter", "FilterArgs", "Order", "Update")
+)
+"""Base names importable from `ceres.__internal__.record`, matched against the body."""
+
 FILTER_NOUNS = {
     "email": "email addresses",
     "uuid": "UUIDs",
     "plain_address": "addresses",
     "values": "values",
+    "bytes": "byte sequences",
 }
 """What a filter equality docstring calls the given values, when not the key itself."""
 
@@ -112,8 +123,10 @@ class Enum:
     table: str
     key: str
     doc: str
-    member_docs: MappingProxyType[str, str]
-    """Docstrings by member value, every value of the field's family covered."""
+    member_docs: MappingProxyType[str, str] | None = None
+    """Docstrings by member value, or `None` for bare members."""
+    aliases: bool = False
+    """Whether to render `<Name>Raw` and `<Name>Input` aliases beside the enum."""
 
 
 @dataclass(frozen=True)
@@ -126,6 +139,8 @@ class Entity:
     """Columns kept out of the `Field` and `Order` literals, a user's password hash."""
     computed_docs: MappingProxyType[str, str] = MappingProxyType({})
     """Docstrings for the table's computed filter keys."""
+    defaults: MappingProxyType[str, Any] = MappingProxyType({})
+    """Create defaults as JSON values, for record tables where the dump carries none."""
 
 
 @dataclass(frozen=True)
@@ -137,6 +152,10 @@ class Module:
     """The module declaring the entity classes the filters forward-reference."""
     entities: tuple[Entity, ...]
     enums: tuple[Enum, ...] = ()
+    preamble: tuple[str, ...] = ()
+    """Literal lines rendered after the enums, for supporting type aliases."""
+    extra_all: tuple[str, ...] = ()
+    """Names beyond the model and enum sets to list in `__all__`."""
 
 
 MODULES = [
@@ -204,6 +223,35 @@ MODULES = [
             ),
         ),
     ),
+    Module(
+        "alerts.py",
+        "ceres.alert",
+        (Entity("alerts", "Alert", defaults=MappingProxyType({"data": {}})),),
+    ),
+    Module(
+        "messages.py",
+        "ceres.message",
+        (Entity("messages", "Message", defaults=MappingProxyType({"connection": None})),),
+        enums=(
+            Enum(
+                "MessageDirection",
+                "messages",
+                "direction",
+                "Direction of a message on a connection, either outbound or inbound.",
+                aliases=True,
+            ),
+        ),
+        preamble=(
+            "type MessageData = Annotated[",
+            "    bytes,",
+            '    BytesFromString("latin-1", "ignore"),',
+            '    BytesToString("latin-1", "ignore"),',
+            "]",
+            '"""Raw message payload bytes, serialized to and from `latin-1` strings for transport."""',
+        ),
+        extra_all=("MessageData",),
+    ),
+    Module("logs.py", "ceres.logs", (Entity("logs", "LogEntry"),)),
 ]
 
 
@@ -269,10 +317,14 @@ def filter_doc(field: dict[str, Any]) -> str:
     return f"Filter by `{key}` being equal to one or more given {noun}."
 
 
-def filter_annotation(field: dict[str, Any], types: dict[str, str]) -> str:
-    """The filter or args annotation, parameterized by the Python enum for `values`."""
+def filter_annotation(field: dict[str, Any], types: dict[str, str], input_form: str = "") -> str:
+    """The filter or args annotation, parameterized by the Python type for `values` and
+    `bytes` families. `input_form` widens a `values` annotation to the enum's input alias."""
     family = field["family"]["name"]
     if family == "values":
+        return f"MaybeSequence[{field['python']}{input_form}] | None"
+
+    if family == "bytes":
         return f"MaybeSequence[{field['python']}] | None"
 
     return types[family]
@@ -320,33 +372,84 @@ OPERATION_DOCS = {
     "suffix": "ending with one or more given suffixes",
 }
 
+BYTES_OPERATION_DOCS = {
+    "contains": "containing one or more given byte substrings",
+    "prefix": "starting with one or more given byte prefixes",
+    "suffix": "ending with one or more given byte suffixes",
+}
 
-def render_entity(table: dict[str, Any], entity: Entity) -> list[str]:
+JSON_OPERATION_DOCS = {
+    "contains": "contains one or more given substrings",
+    "prefix": "starts with one or more given prefixes",
+    "suffix": "ends with one or more given suffixes",
+}
+
+
+def operation_doc(field: dict[str, Any], kind: str) -> str:
+    """The docstring of one operation key, phrased per family."""
+    key = field["key"]
+    family = field["family"]["name"]
+    if family == "json":
+        return f"Filter by whether or not the JSON text of `{key}` {JSON_OPERATION_DOCS[kind]}."
+
+    if family == "bytes":
+        return f"Filter by `{key}` {BYTES_OPERATION_DOCS[kind]}."
+
+    return f"Filter by `{key}` {OPERATION_DOCS[kind]}."
+
+
+def operation_annotation(field: dict[str, Any]) -> str:
+    """The annotation of one operation key, byte operations taking the payload type."""
+    if field["family"]["name"] == "bytes":
+        return f"MaybeSequence[{field['python']}] | None"
+
+    return "MaybeSequence[str] | None"
+
+
+def render_entity(table: dict[str, Any], entity: Entity, enums: tuple[Enum, ...]) -> list[str]:
     """Render one table's literals, filters, and operation models."""
     name = entity.name
-    family = base_family(table)
-    base_keys = {"id"} if family == "UUID" else {"address"} if family == "Address" else set()
+    if table["kind"] == "record":
+        base = "BaseRecord"
+        base_keys = {"id", "address", "timestamp"}
+    else:
+        family = base_family(table)
+        base = f"Base{family}Entity" if family else "BaseEntity"
+        base_keys = {"id"} if family == "UUID" else {"address"} if family == "Address" else set()
+
+    plain = base == "BaseEntity"
+    aliased = {enum.name for enum in enums if enum.aliases}
 
     def selectable(field: dict[str, Any]) -> bool:
         return field["key"] not in base_keys and field["key"] not in entity.hidden
 
+    def input_form(field: dict[str, Any]) -> str:
+        return "Input" if field["python"] in aliased else ""
+
     columns = [column for column in table["columns"] if column["key"] not in base_keys]
     literals = [column["key"] for column in table["columns"] if selectable(column)]
     # Ordering resolves over the filterable fields, so a skipped column is selectable
-    # but never orderable.
-    orderable = [field["key"] for field in table["fields"] if selectable(field)]
+    # but never orderable, and ordering by JSON text is not advertised.
+    orderable = [
+        field["key"]
+        for field in table["fields"]
+        if selectable(field) and field["family"]["name"] != "json"
+    ]
     fields = [field for field in table["fields"] if field["key"] not in base_keys]
     regular = [field for field in fields if field["family"]["name"] != "json_value"]
     nullable = [field for field in fields if field["family"]["name"] == "json_value"]
     fixed = set(table["fixed"])
-    defaults = table["defaults"]
+    defaults = {
+        **table["defaults"],
+        **{key: {"value": value} for key, value in entity.defaults.items()},
+    }
     lines: list[str] = []
 
     # Field and order literals.
     def literal(alias: str, keys: list[str], suffixes: tuple[str, ...]) -> None:
-        if family:
+        if not plain:
             lines.append(f"type {name}{alias} = (")
-            lines.append(f"    Base{family}Entity{alias}")
+            lines.append(f"    {base}{alias}")
             lines.append("    | Literal[")
             for key in keys:
                 for suffix in suffixes:
@@ -370,15 +473,21 @@ def render_entity(table: dict[str, Any], entity: Entity) -> list[str]:
 
     # FilterArgs.
     lines.append(
-        f"class {name}FilterArgs(Base{family}EntityFilterArgs"
-        f"[{name}Field, {name}Order], total=False):"
+        f"class {name}FilterArgs({base}FilterArgs[{name}Field, {name}Order], total=False):"
     )
     lines.append(f'    """Keyword-argument form of `{name}Filter` for ergonomic call sites."""')
     lines.append("")
     for field in regular:
-        lines.append(f"    {field['key']}: {filter_annotation(field, ARGS_TYPES)}")
+        family_name = field["family"]["name"]
+        if family_name != "json":
+            lines.append(
+                f"    {field['key']}: {filter_annotation(field, ARGS_TYPES, input_form(field))}"
+            )
+        if family_name == "level":
+            lines.append(f"    min_{field['key']}: Level | None")
+            lines.append(f"    max_{field['key']}: Level | None")
         for operation in field["operations"]:
-            lines.append(f"    {operation['key']}: MaybeSequence[str] | None")
+            lines.append(f"    {operation['key']}: {operation_annotation(field)}")
     for computed in table["computed"]:
         lines.append(f"    {computed['key']}: bool | None")
     for field in nullable:
@@ -387,22 +496,35 @@ def render_entity(table: dict[str, Any], entity: Entity) -> list[str]:
     lines.append("")
 
     # Filter.
-    lines.append(
-        f'class {name}Filter(Base{family}EntityFilter["{name}", {name}Field, {name}Order]):'
-    )
+    lines.append(f'class {name}Filter({base}Filter["{name}", {name}Field, {name}Order]):')
     lines.append(f'    """Filter for selecting `{name}` records."""')
     lines.append("")
     lines.append(f'    __table__: ClassVar[str] = "{table["name"]}"')
     lines.append("")
     for field in regular:
         key = field["key"]
-        lines.append(f"    {key}: {filter_annotation(field, FILTER_TYPES)} = None")
-        lines.extend(docstring(filter_doc(field), "    "))
-        for operation in field["operations"]:
-            lines.append(f"    {operation['key']}: MaybeSequence[str] | None = None")
+        family_name = field["family"]["name"]
+        if family_name != "json":
+            lines.append(f"    {key}: {filter_annotation(field, FILTER_TYPES)} = None")
+            lines.extend(docstring(filter_doc(field), "    "))
+        if family_name == "level":
+            lines.append(f"    min_{key}: Level | None = None")
             lines.extend(
-                docstring(f"Filter by `{key}` {OPERATION_DOCS[operation['kind']]}.", "    ")
+                docstring(
+                    f"Filter by `{key}` being greater than or equal to the given level value.",
+                    "    ",
+                )
             )
+            lines.append(f"    max_{key}: Level | None = None")
+            lines.extend(
+                docstring(
+                    f"Filter by `{key}` being less than or equal to the given level value.",
+                    "    ",
+                )
+            )
+        for operation in field["operations"]:
+            lines.append(f"    {operation['key']}: {operation_annotation(field)} = None")
+            lines.extend(docstring(operation_doc(field, operation["kind"]), "    "))
     for computed in table["computed"]:
         lines.append(f"    {computed['key']}: bool | None = None")
         lines.extend(docstring(entity.computed_docs[computed["key"]], "    "))
@@ -417,7 +539,7 @@ def render_entity(table: dict[str, Any], entity: Entity) -> list[str]:
     lines.append("")
 
     # Create.
-    lines.append(f"class {name}Create(Base{family}EntityCreate, slots=True):")
+    lines.append(f"class {name}Create({base}Create, slots=True):")
     lines.append(f'    """Payload for creating a new `{name}` record."""')
     lines.append("")
     for column in columns:
@@ -439,7 +561,8 @@ def render_entity(table: dict[str, Any], entity: Entity) -> list[str]:
             "\n\nThe record is only created or deleted, so this update payload has no "
             "mutable fields."
         )
-    lines.append(f"class {name}Update(TypedDict, total=False):")
+    update_base = "BaseRecordUpdate" if table["kind"] == "record" else "TypedDict"
+    lines.append(f"class {name}Update({update_base}, total=False):")
     lines.extend(docstring(update_doc, "    "))
     if settable:
         lines.append("")
@@ -459,7 +582,21 @@ def render_enum(table: dict[str, Any], enum: Enum) -> list[str]:
     lines.append("")
     for value in values:
         lines.append(f'    {value.upper()} = "{value}"')
-        lines.extend(docstring(enum.member_docs[value], "    "))
+        if enum.member_docs is not None:
+            lines.extend(docstring(enum.member_docs[value], "    "))
+    if enum.aliases:
+        quoted = ", ".join(f'"{value}"' for value in values)
+        lines.extend(
+            [
+                "",
+                "",
+                f"type {enum.name}Raw = Literal[{quoted}]",
+                f'"""Raw string form of `{enum.name}` accepted as input."""',
+                "",
+                f"type {enum.name}Input = {enum.name} | {enum.name}Raw",
+                f'"""Either a `{enum.name}` enum or its raw string form."""',
+            ]
+        )
     return lines
 
 
@@ -489,8 +626,13 @@ def header(module: Module, body: str) -> list[str]:
     def used(symbol: str) -> bool:
         return re.search(rf"\b{symbol}\b", code) is not None
 
-    typing = [symbol for symbol in ("Any", "ClassVar", "Literal", "TypedDict") if used(symbol)]
+    typing = [
+        symbol
+        for symbol in ("Annotated", "Any", "ClassVar", "Literal", "TypedDict")
+        if used(symbol)
+    ]
     entity = sorted(base for base in ENTITY_BASES if used(base))
+    record = sorted(base for base in RECORD_BASES if used(base))
     data = sorted(symbol for symbol in DATA_IMPORTS if used(symbol))
     config = sorted(symbol for symbol in CONFIG_IMPORTS if used(symbol))
     tables = ", ".join(f"`{entity.table}`" for entity in module.entities)
@@ -509,9 +651,14 @@ def header(module: Module, body: str) -> list[str]:
     if re.search(r"\bField\(", body):
         lines.append("from pydantic import Field")
         lines.append("")
-    lines.append("from ceres.__internal__.entity import (")
-    lines.extend(f"    {symbol}," for symbol in entity)
-    lines.append(")")
+    if entity:
+        lines.append("from ceres.__internal__.entity import (")
+        lines.extend(f"    {symbol}," for symbol in entity)
+        lines.append(")")
+    if record:
+        lines.append("from ceres.__internal__.record import (")
+        lines.extend(f"    {symbol}," for symbol in record)
+        lines.append(")")
     if used("Address"):
         lines.append("from ceres.address import Address")
     if config:
@@ -520,6 +667,8 @@ def header(module: Module, body: str) -> list[str]:
         lines.append("from ceres.data import (")
         lines.extend(f"    {symbol}," for symbol in data)
         lines.append(")")
+    if used("Level"):
+        lines.append("from ceres.level import Level")
     lines.extend(
         [
             "",
@@ -537,6 +686,13 @@ def header(module: Module, body: str) -> list[str]:
             for suffix in ("Create", "Field", "Filter", "FilterArgs", "Order", "Update")
         ]
         + [enum.name for enum in module.enums]
+        + [
+            f"{enum.name}{alias}"
+            for enum in module.enums
+            if enum.aliases
+            for alias in ("Input", "Raw")
+        ]
+        + list(module.extra_all)
     )
     lines.extend(f'    "{name}",' for name in exported)
     lines.extend(["]", "", ""])
@@ -580,7 +736,11 @@ def formatted(name: str, text: str) -> str:
 
 def render_module(module: Module, tables: dict[str, dict[str, Any]]) -> str:
     bodies = [render_enum(tables[enum.table], enum) for enum in module.enums]
-    bodies.extend(render_entity(tables[entity.table], entity) for entity in module.entities)
+    if module.preamble:
+        bodies.append(list(module.preamble))
+    bodies.extend(
+        render_entity(tables[entity.table], entity, module.enums) for entity in module.entities
+    )
     body = "\n\n\n".join("\n".join(lines).rstrip() for lines in bodies)
     text = "\n".join(header(module, body)) + "\n" + body
     text = text.rstrip() + "\n" + "\n".join(footer(module)) + "\n"

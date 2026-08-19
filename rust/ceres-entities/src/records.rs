@@ -36,10 +36,14 @@ pub struct Message {
     pub id: Uuid,
     pub address: Address,
     pub timestamp: Timestamp,
+    /// Optional name of the connection that produced the message.
     pub connection: Option<String>,
+    /// Whether the message was sent or received on a connection of the local component.
+    #[filterable(python = "MessageDirection")]
     pub direction: MessageDirection,
+    /// Raw payload bytes.
     #[serde(with = "latin1")]
-    #[filterable(bare_operations)]
+    #[filterable(bare_operations, python = "MessageData")]
     pub data: Vec<u8>,
 }
 
@@ -62,9 +66,12 @@ pub struct Alert {
     pub id: Uuid,
     pub address: Address,
     pub timestamp: Timestamp,
+    /// Severity level of the alert.
     pub level: Level,
+    /// Discriminator string identifying the kind of alert.
     #[serde(rename = "type")]
     pub kind: String,
+    /// Optional structured payload providing additional context for the alert.
     pub data: Map<String, Value>,
 }
 
@@ -74,7 +81,9 @@ pub struct LogEntry {
     pub id: Uuid,
     pub address: Address,
     pub timestamp: Timestamp,
+    /// Severity level of the log entry.
     pub level: Level,
+    /// Rendered textual content of the log entry.
     #[filterable(bare_operations)]
     pub content: String,
 }

@@ -340,14 +340,22 @@ mod tests {
             .find(|field| field.key == "password")
             .expect("the password column exists");
         assert_eq!(password.python, Some("Password | PasswordHash"));
-        assert!(password.doc.starts_with("Plaintext password or pre-computed hash"));
+        assert!(
+            password
+                .doc
+                .starts_with("Plaintext password or pre-computed hash")
+        );
 
         let admin = User::COLUMNS
             .iter()
             .find(|field| field.key == "admin")
             .expect("the admin column exists");
         assert_eq!(admin.python, None);
-        assert!(admin.doc.starts_with("Whether the user has administrative access"));
+        assert!(
+            admin
+                .doc
+                .starts_with("Whether the user has administrative access")
+        );
     }
 
     #[test]

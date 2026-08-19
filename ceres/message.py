@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Annotated, ClassVar, Literal, Unpack, override
+from typing import TYPE_CHECKING, ClassVar, Unpack, override
 
 from ceres.__internal__.entity import (
     BaseEntityManager,
@@ -11,16 +11,19 @@ from ceres.__internal__.entity import (
     Filtering,
 )
 from ceres.__internal__.manager import BaseNodeManager
-from ceres.__internal__.record import (
-    BaseRecord,
-    BaseRecordCreate,
-    BaseRecordField,
-    BaseRecordFilter,
-    BaseRecordFilterArgs,
-    BaseRecordOrder,
-    BaseRecordUpdate,
+from ceres.__internal__.models.messages import (
+    MessageCreate,
+    MessageData,
+    MessageDirection,
+    MessageDirectionInput,
+    MessageDirectionRaw,
+    MessageField,
+    MessageFilter,
+    MessageFilterArgs,
+    MessageOrder,
+    MessageUpdate,
 )
-from ceres.data import BytesFromString, BytesToString, MaybeSequence, StrEnum
+from ceres.__internal__.record import BaseRecord
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -29,110 +32,9 @@ if TYPE_CHECKING:
 
 __all__ = [
     "Message",
+    "MessageDirectionInput",
+    "MessageDirectionRaw",
 ]
-
-
-class MessageDirection(StrEnum):
-    """Direction of a message on a connection, either outbound or inbound."""
-
-    SEND = "send"
-    RECEIVE = "receive"
-
-
-type MessageDirectionRaw = Literal["send", "receive"]
-"""Raw string form of `MessageDirection` accepted as input."""
-
-type MessageDirectionInput = MessageDirection | MessageDirectionRaw
-"""Either a `MessageDirection` enum or its raw string form."""
-
-type MessageData = Annotated[
-    bytes,
-    BytesFromString("latin-1", "ignore"),
-    BytesToString("latin-1", "ignore"),
-]
-"""Raw message payload bytes, serialized to and from `latin-1` strings for transport."""
-
-
-type MessageField = (
-    BaseRecordField
-    | Literal[
-        "connection",
-        "direction",
-        "data",
-    ]
-)
-type MessageOrder = (
-    BaseRecordOrder
-    | Literal[
-        "connection",
-        "connection:asc",
-        "connection:desc",
-        "direction",
-        "direction:asc",
-        "direction:desc",
-        "data",
-        "data:asc",
-        "data:desc",
-    ]
-)
-
-
-class MessageFilterArgs(BaseRecordFilterArgs[MessageField, MessageOrder], total=False):
-    """Keyword-argument form of `MessageFilter` for ergonomic call sites."""
-
-    connection: MaybeSequence[str] | None
-    connection_contains: MaybeSequence[str] | None
-    connection_prefix: MaybeSequence[str] | None
-    connection_suffix: MaybeSequence[str] | None
-    direction: MaybeSequence[MessageDirectionInput] | None
-    data: MaybeSequence[MessageData] | None
-    contains: MaybeSequence[MessageData] | None
-    prefix: MaybeSequence[MessageData] | None
-    suffix: MaybeSequence[MessageData] | None
-
-
-class MessageFilter(BaseRecordFilter["Message", MessageField, MessageOrder]):
-    """Filter for selecting `Message` records by connection, direction, or payload contents."""
-
-    __table__: ClassVar[str] = "messages"
-
-    connection: MaybeSequence[str] | None = None
-    """Filter by `connection` being equal to one or more given strings."""
-    connection_contains: MaybeSequence[str] | None = None
-    """Filter by `connection` containing one or more given substrings."""
-    connection_prefix: MaybeSequence[str] | None = None
-    """Filter by `connection` starting with one or more given substrings."""
-    connection_suffix: MaybeSequence[str] | None = None
-    """Filter by `connection` ending with one or more given substrings."""
-    direction: MaybeSequence[MessageDirection] | None = None
-    """Filter by `direction`."""
-    data: MaybeSequence[MessageData] | None = None
-    """Filter by `data` being equal to one or more given byte sequences."""
-    contains: MaybeSequence[MessageData] | None = None
-    """Filter by `data` containing one or more given byte substrings."""
-    prefix: MaybeSequence[MessageData] | None = None
-    """Filter by `data` starting with one or more given byte prefixes."""
-    suffix: MaybeSequence[MessageData] | None = None
-    """Filter by `data` ending with one or more given byte suffixes."""
-
-
-class MessageCreate(BaseRecordCreate, slots=True):
-    """Payload for creating a new `Message` record."""
-
-    connection: str | None = None
-    """Optional name of the connection that produced the message."""
-    direction: MessageDirection
-    """Whether the message was sent or received on a connection of the local component."""
-    data: MessageData
-    """Raw payload bytes."""
-
-
-class MessageUpdate(BaseRecordUpdate, total=False):
-    """Partial update for an existing `Message` record."""
-
-    connection: str | None
-    direction: MessageDirection
-    data: MessageData
 
 
 class _BaseMessageQuery(
