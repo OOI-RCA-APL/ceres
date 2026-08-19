@@ -56,6 +56,25 @@ const derivedUnit = $(useDerivedChartUnit(() => widget, workspace).unit)
           }"
         />
       </div>
+      <div class="grid grid-cols-2 gap-x-2">
+        <c-schema-form-value
+          v-model="widget.fit"
+          :schema="{
+            type: 'string',
+            title: 'Fit (Y Axis)',
+            description: 'From zero anchors the axis at zero, data hugs the plotted extent.',
+            enum: ['from-zero', 'data'],
+          }"
+        />
+        <c-schema-form-value
+          v-model="widget.flipY"
+          :schema="{
+            type: 'boolean',
+            title: 'Flip Y Axis',
+            description: 'Draw the axis positive-down, for depth-like series.',
+          }"
+        />
+      </div>
     </div>
   </c-workspace-widget-settings>
 </template>

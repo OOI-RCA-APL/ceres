@@ -148,6 +148,9 @@ const axisOption: Option = $computed(() => {
     yAxis: {
       name: unit,
       type: 'value',
+      // The axis anchors at zero by default, and the data fit lets it hug the extent.
+      scale: widget.fit === 'data',
+      inverse: widget.flipY,
     },
   }
 })
