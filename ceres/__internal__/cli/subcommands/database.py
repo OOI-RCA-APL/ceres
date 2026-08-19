@@ -13,13 +13,13 @@ from ceres.__internal__.cli.shared import (
     temporary_signal_handler,
     write_progress,
 )
-from ceres.database.migrations import MIGRATIONS
+from ceres.database.database import MIGRATIONS
 from ceres.timing import sdelta, utc
 
 if TYPE_CHECKING:
     from rich.progress import Progress, TaskID
 
-    from ceres.database.migrations import Migration
+    from ceres.__internal__.core import Migration
 
 
 class MigrationProgress:

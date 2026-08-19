@@ -14,6 +14,7 @@ mod dynamic;
 mod entities;
 mod filter;
 mod load;
+pub mod migrations;
 mod records;
 mod selector;
 mod set;

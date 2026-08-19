@@ -396,7 +396,7 @@ impl RecordStore {
     }
 
     /// The dialect value forms this store's backend binds.
-    fn dialect(&self) -> SqlDialect {
+    pub fn dialect(&self) -> SqlDialect {
         self.backend.dialect()
     }
 

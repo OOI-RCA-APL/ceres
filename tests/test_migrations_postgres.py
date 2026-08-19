@@ -15,7 +15,7 @@ import os
 import pytest
 
 from ceres.__internal__.core import Connection, Store
-from ceres.database.migrations import MIGRATIONS
+from ceres.database.database import MIGRATIONS
 from tests import postgres
 from tests.postgres import POSTGRES_URL
 

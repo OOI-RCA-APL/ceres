@@ -1,6 +1,6 @@
 # Coverage
 
-<!-- coverage:fingerprint:93f833cf34e4fe73 -->
+<!-- coverage:fingerprint:616e23200b50af9a -->
 
 ## Python
 
@@ -70,9 +70,8 @@
 | `ceres/data/types.py` | 99% |
 | `ceres/data/uuid.py` | 77% |
 | `ceres/database/__init__.py` | 100% |
-| `ceres/database/database.py` | 93% |
+| `ceres/database/database.py` | 92% |
 | `ceres/database/enums.py` | 100% |
-| `ceres/database/migrations/__init__.py` | 98% |
 | `ceres/directory.py` | 93% |
 | `ceres/dispatcher.py` | 65% |
 | `ceres/engine.py` | 76% |
@@ -149,18 +148,20 @@
 | `rust/ceres-core/src/entities.rs` | 0% |
 | `rust/ceres-core/src/filters.rs` | 0% |
 | `rust/ceres-core/src/interop.rs` | 12% |
-| `rust/ceres-core/src/lib.rs` | 11% |
+| `rust/ceres-core/src/lib.rs` | 5% |
 | `rust/ceres-core/src/logging.rs` | 6% |
+| `rust/ceres-core/src/migrations.rs` | 0% |
 | `rust/ceres-core/src/server.rs` | 0% |
 | `rust/ceres-core/src/store.rs` | 0% |
 | `rust/ceres-core/src/writer.rs` | 45% |
-| `rust/ceres-database/src/backend.rs` | 42% |
+| `rust/ceres-database/src/backend.rs` | 50% |
 | `rust/ceres-database/src/credentials.rs` | 90% |
 | `rust/ceres-database/src/describe.rs` | 59% |
-| `rust/ceres-database/src/dynamic.rs` | 36% |
+| `rust/ceres-database/src/dynamic.rs` | 50% |
 | `rust/ceres-database/src/entities.rs` | 61% |
 | `rust/ceres-database/src/filter.rs` | 78% |
 | `rust/ceres-database/src/load.rs` | 94% |
+| `rust/ceres-database/src/migrations.rs` | 97% |
 | `rust/ceres-database/src/records.rs` | 36% |
 | `rust/ceres-database/src/selector.rs` | 87% |
 | `rust/ceres-database/src/set.rs` | 76% |

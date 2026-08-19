@@ -8,7 +8,7 @@ that runs ahead of what landed, says the opposite of what happened.
 from typing import TYPE_CHECKING, cast
 
 from ceres.__internal__.cli.subcommands.database import MigrationProgress
-from ceres.database.migrations import Migration
+from ceres.__internal__.core import Migration
 
 if TYPE_CHECKING:
     from rich.progress import Progress
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 def _migration(id: int, name: str) -> Migration:
     """A migration with no scripts, which is all the display reads from one."""
-    return Migration(id=id, name=name, scripts={})
+    return Migration(id, name, {})
 
 
 class Recorder:

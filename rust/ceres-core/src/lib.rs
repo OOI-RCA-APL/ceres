@@ -15,6 +15,7 @@ pub mod entities;
 pub mod filters;
 pub mod interop;
 pub mod logging;
+pub mod migrations;
 pub mod server;
 pub mod store;
 pub mod writer;
@@ -176,6 +177,7 @@ fn ceres_core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<writer::RecordWriter>()?;
     module.add_class::<store::Store>()?;
     module.add_class::<store::RowChunks>()?;
+    module.add_class::<migrations::Migration>()?;
     module.add_class::<server::NativeServer>()?;
     module.add_function(pyo3::wrap_pyfunction!(server::openapi_schema, module)?)?;
     module.add_function(pyo3::wrap_pyfunction!(filters::insert_compiled, module)?)?;
@@ -189,6 +191,12 @@ fn ceres_core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(pyo3::wrap_pyfunction!(writer::hash_bcrypt, module)?)?;
     module.add_function(pyo3::wrap_pyfunction!(writer::verify_bcrypt, module)?)?;
     module.add_function(pyo3::wrap_pyfunction!(writer::special_use_domains, module)?)?;
+    module.add_function(pyo3::wrap_pyfunction!(migrations::migrations, module)?)?;
+    module.add_function(pyo3::wrap_pyfunction!(migrations::migration_ddl, module)?)?;
+    module.add_function(pyo3::wrap_pyfunction!(
+        migrations::destructive_migration_warning,
+        module
+    )?)?;
     Ok(())
 }
 

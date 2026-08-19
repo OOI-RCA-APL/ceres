@@ -97,7 +97,6 @@ features = ["extension-module"]
 include = [
     { path = "ceres/py.typed", format = "wheel" },
     { path = "ceres/static/**/*", format = ["sdist", "wheel"] },
-    { path = "ceres/database/migrations/*.sql", format = "wheel" },
     { path = "rust-toolchain.toml", format = "sdist" },
     { path = ".cargo/config.toml", format = "sdist" },
     { path = "ceres.__internal__.core.data/scripts/.keep", format = "sdist" },
