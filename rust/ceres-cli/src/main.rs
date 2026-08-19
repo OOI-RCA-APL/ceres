@@ -60,7 +60,10 @@ fn main() -> ExitCode {
     }
 
     let command = commands::surface::augment(Cli::command());
-    let matches = command.get_matches();
+    let matches = match command.try_get_matches() {
+        Ok(matches) => matches,
+        Err(error) => suggest_equals(error, &arguments).exit(),
+    };
 
     // A table group's whole surface is generated, so it is dispatched from the matches
     // directly. Everything else is declared and reads back into its own type.
@@ -78,6 +81,49 @@ fn main() -> ExitCode {
     };
     let output = Output::new(color_override(&matches));
     report(run(cli, arguments, &output), &output)
+}
+
+/// Add an equals-form tip to a missing-value error whose next token was a flag.
+///
+/// An option never swallows a flag-shaped token as its value, so `--contains --no-color`
+/// fails, and the tip names the `--contains=--no-color` spelling that passes it through.
+fn suggest_equals(mut error: clap::Error, arguments: &[OsString]) -> clap::Error {
+    use clap::error::{ContextKind, ContextValue, ErrorKind};
+
+    if error.kind() != ErrorKind::InvalidValue {
+        return error;
+    }
+
+    let Some(ContextValue::String(invalid)) = error.get(ContextKind::InvalidArg) else {
+        return error;
+    };
+    let Some(option) = invalid.split_whitespace().next().map(str::to_string) else {
+        return error;
+    };
+    if !option.starts_with("--") {
+        return error;
+    }
+
+    let mut iterator = arguments.iter();
+    while let Some(argument) = iterator.next() {
+        if argument.to_str() != Some(option.as_str()) {
+            continue;
+        }
+
+        if let Some(next) = iterator.next().and_then(|value| value.to_str())
+            && next.starts_with('-')
+        {
+            let tip = format!("to pass '{next}' as the value, write '{option}={next}'");
+            error.insert(
+                ContextKind::Suggested,
+                ContextValue::StyledStrs(vec![tip.into()]),
+            );
+        }
+
+        break;
+    }
+
+    error
 }
 
 /// Turn a command's outcome into the process's exit status, reporting as it goes.
