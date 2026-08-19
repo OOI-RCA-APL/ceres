@@ -241,13 +241,30 @@ fn run(cli: Cli, arguments: Vec<OsString>, output: &Output) -> Result<()> {
     };
 
     match command {
-        // Commands that load the engine or operate on the database run in the Python runtime.
-        // Run keeps the development-source flag for its console dev server, the others have
-        // no Python-side parameter for it.
+        // Commands that load the engine run in the Python runtime. Run keeps the
+        // development-source flag for its console dev server, check has no Python-side
+        // parameter for it.
         Command::Run(_) => match runtime::delegate(development::normalize_run(arguments))? {},
-        Command::Check(_) | Command::Database(_) | Command::Generate(_) => {
-            match runtime::delegate(development::strip(&arguments))? {}
+        Command::Check(_) => match runtime::delegate(development::strip(&arguments))? {},
+
+        Command::Database(args) => {
+            let project = Project::discover(config)?;
+            match args.command {
+                cli::DatabaseCommand::Ddl => commands::database::ddl(&project),
+                cli::DatabaseCommand::Shell => commands::database::shell(&project),
+                cli::DatabaseCommand::Clear => commands::database::clear(&project, output),
+                cli::DatabaseCommand::Migrate(migrate) => {
+                    commands::database::migrate(&project, output, migrate.yes)
+                }
+                cli::DatabaseCommand::Migrations => {
+                    commands::database::list_migrations(&project, output)
+                }
+            }
         }
+
+        Command::Generate(args) => match args.command {
+            cli::GenerateCommand::Openapi(openapi) => commands::generate::openapi(&openapi),
+        },
 
         Command::Reload => {
             let project = Project::discover(config)?;

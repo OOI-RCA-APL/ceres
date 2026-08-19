@@ -16,6 +16,9 @@ path = "src/main.rs"
 ceres-config = { path = "../ceres-config" }
 ceres-database = { path = "../ceres-database" }
 ceres-entities = { path = "../ceres-entities" }
+# Only for the OpenAPI document, so `generate openapi` renders the same schema the
+# running server serves.
+ceres-server = { path = "../ceres-server" }
 # A dump colors the two kinds of string worth telling apart at a glance by handing them to
 # the parsers that own those formats, rather than by matching their shape.
 chrono = { version = "0.4", default-features = false, features = ["std"] }

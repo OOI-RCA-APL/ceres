@@ -137,27 +137,27 @@ Manage the project database
 
 #### `ceres database ddl`
 
-Show DDL commands used to initialize the database.
+Show DDL commands used to initialize the database
 
 #### `ceres database shell`
 
-Open an interactive database shell (psql or sqlite3) for the project database.
+Open an interactive database shell (psql or sqlite3) for the project database
 
 #### `ceres database clear`
 
-Remove all data from the database. Tables and indexes are not removed, only truncated.
+Remove all data from the database. Tables and indexes are not removed, only truncated
 
 #### `ceres database migrate`
 
-Apply pending database migrations.
+Apply pending database migrations
 
 | Option | Required | Description |
 | --- | --- | --- |
-| `--yes` |  | Apply without prompting for confirmation. |
+| `--yes` |  | Apply without prompting for confirmation |
 
 #### `ceres database migrations`
 
-Show applied and pending database migrations.
+Show applied and pending database migrations
 
 ### `ceres generate`
 
@@ -165,13 +165,13 @@ Generate various project resources
 
 #### `ceres generate openapi`
 
-Generate up-to-date OpenAPI schema for the Ceres Rest API.
+Generate up-to-date OpenAPI schema for the Ceres Rest API
 
 | Option | Required | Description |
 | --- | --- | --- |
-| `--output` `OUTPUT` |  | File path to write to. If omitted, standard output is used. |
-| `--format` `FORMAT` |  | Specify the output file format. |
-| `--indent` `INDENT` |  | Specify indentation size of output. |
+| `--output` `PATH` |  | File path to write to. Standard output is used if not specified |
+| `--format` `FORMAT` |  | Specify the output file format |
+| `--indent` `INDENT` |  | Specify indentation size of output |
 
 ### `ceres alerts`
 

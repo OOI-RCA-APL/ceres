@@ -430,14 +430,10 @@ def _delegated() -> dict[str, type]:
     arguments, which are captured and replayed rather than parsed.
     """
     from ceres.__internal__.cli.main import CheckCommand, RunCommand
-    from ceres.__internal__.cli.subcommands.database import DatabaseCommand
-    from ceres.__internal__.cli.subcommands.generate import GenerateCommand
 
     return {
         "run": RunCommand,
         "check": CheckCommand,
-        "database": DatabaseCommand,
-        "generate": GenerateCommand,
     }
 
 

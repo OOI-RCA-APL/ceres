@@ -31,7 +31,7 @@ from ceres.__internal__.cli.shared import (
     temporary_signal_handler,
     write,
 )
-from ceres.__internal__.lazy import __lazy_imports__, unlazy
+from ceres.__internal__.lazy import __lazy_imports__
 from ceres.__internal__.utilities.exceptions import trace
 from ceres.address import AddressSelector
 from ceres.concurrency import cancel, el, race, spawn
@@ -231,11 +231,6 @@ class MainCliSettingsSource(CliSettingsSource):
         super().__init__(settings_cls, cli_parse_args=list(args))
 
 
-with __lazy_imports__(__name__):
-    from ceres.__internal__.cli.subcommands.database import DatabaseCommand
-    from ceres.__internal__.cli.subcommands.generate import GenerateCommand
-
-
 def main(args: Sequence[str] | None = None) -> int:
     """Serve as the public entry point for the Ceres CLI.
 
@@ -266,29 +261,12 @@ def _main(args: Sequence[str] | None = None, *, watching: bool = False) -> int:
     if watching:
         _watching = True
 
-    arguments = [token for token in args if not token.startswith("-")]
-    subcommand = arguments[0] if arguments else None
-    subcommands = {
-        "database": DatabaseCommand,
-        "generate": GenerateCommand,
-    }
-
-    if subcommand in subcommands:
-        subcommands = {subcommand: unlazy(subcommands[subcommand])}
-    else:
-        subcommands = {name: unlazy(value) for name, value in subcommands.items()}
-
-    fields: dict[str, Any] = {
-        name: (CliSubCommand[subcommand], ...) for name, subcommand in subcommands.items()
-    }
-
     from ceres.version import __version__
 
     MainCommand = create_model(
         "MainCommand",
-        **fields,
         __base__=BaseMainCommand,
-        __doc__=f"""Ceres CLI Version {__version__}""",
+        __doc__=f"""Ceres: {__version__}""",
     )
 
     color = None

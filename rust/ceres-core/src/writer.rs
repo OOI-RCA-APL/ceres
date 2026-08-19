@@ -30,29 +30,14 @@ use crate::interop::to_value_error;
 #[pyo3_stub_gen::derive::gen_stub_pyfunction]
 #[pyfunction]
 pub fn stored_columns() -> Vec<(&'static str, Vec<(&'static str, &'static str)>)> {
-    use ceres_database::{EntityTable as Entities, RecordTable as Records};
+    use ceres_database::{EntityTable, RecordTable};
 
-    let records = [
-        Records::Messages,
-        Records::Particles,
-        Records::Alerts,
-        Records::Logs,
-    ]
-    .into_iter()
-    .map(|table| (table.name(), described(table.columns())));
-    let entities = [
-        Entities::Users,
-        Entities::Variables,
-        Entities::Settings,
-        Entities::Workspaces,
-        Entities::WorkspaceEdits,
-        Entities::Groups,
-        Entities::GroupMemberships,
-        Entities::UserPermissions,
-        Entities::GroupPermissions,
-    ]
-    .into_iter()
-    .map(|table| (table.name(), described(table.columns())));
+    let records = RecordTable::ALL
+        .into_iter()
+        .map(|table| (table.name(), described(table.columns())));
+    let entities = EntityTable::ALL
+        .into_iter()
+        .map(|table| (table.name(), described(table.columns())));
 
     records.chain(entities).collect()
 }

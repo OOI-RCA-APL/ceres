@@ -1163,6 +1163,14 @@ class Store:
     r"""
     A natively-connected database the query layer reads and writes through.
     """
+    def initialized(self) -> Any:
+        r"""
+        Check whether the schema has been created in the database, as an awaitable.
+
+        The question is whether any table the schema owns is there, not whether the
+        database holds a table at all, so a table a configuration's `init` hook created
+        never makes an empty database look bootstrapped.
+        """
     def applied_migration_ids(self) -> Any:
         r"""
         The IDs of every migration recorded as applied, ascending, as an awaitable.

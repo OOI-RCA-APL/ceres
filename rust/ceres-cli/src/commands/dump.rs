@@ -703,20 +703,10 @@ pub(crate) fn open_store(
     directory: &Path,
     writing: bool,
 ) -> std::result::Result<RecordStore, String> {
-    // The configuration's connection hooks run here the way they do anywhere else it is
-    // opened, a database reached from a command being the same database.
-    let hooks = |shared: &ceres_config::SharedDatabaseConfig| {
-        (
-            shared.hooks.init.clone().unwrap_or_default(),
-            shared.hooks.connect.clone().unwrap_or_default(),
-            shared.hooks.close.clone().unwrap_or_default(),
-        )
-    };
-
     match config {
         DatabaseConfig::Sqlite(sqlite) => {
             let path = existing(sqlite.path.as_deref(), directory)?;
-            let (on_init, on_connect, on_close) = hooks(&sqlite.shared);
+            let (on_init, on_connect, on_close) = shared_hooks(&sqlite.shared);
             if writing {
                 RecordStore::sqlite_writable(&path, on_init, on_connect, on_close)
             } else {
@@ -726,65 +716,84 @@ pub(crate) fn open_store(
         }
         DatabaseConfig::Turso(turso) => {
             let path = existing(turso.path.as_deref(), directory)?;
-            let (on_init, on_connect, on_close) = hooks(&turso.shared);
+            let (on_init, on_connect, on_close) = shared_hooks(&turso.shared);
             Ok(RecordStore::turso(
                 &path, turso.mvcc, on_init, on_connect, on_close,
             ))
         }
-        DatabaseConfig::Postgres(postgres) => {
-            // Server settings shape what a query sees, `search_path` above all, so they
-            // are forwarded. Any other driver argument is a Python library's own, and
-            // guessing at one would silently change how the connection behaves.
-            let mut settings = Vec::new();
-            for (key, value) in &postgres.shared.engine {
-                if key != "connect_args" {
-                    return Err(unsupported(key));
-                }
+        DatabaseConfig::Postgres(postgres) => open_postgres(postgres),
+    }
+}
 
-                let Some(arguments) = value.as_object() else {
-                    return Err(unsupported(key));
+/// A configuration's connection lifecycle statements, ready to hand to a store.
+///
+/// The hooks run here the way they do anywhere else the database is opened, a database
+/// reached from a command being the same database.
+pub(crate) fn shared_hooks(
+    shared: &ceres_config::SharedDatabaseConfig,
+) -> (Vec<String>, Vec<String>, Vec<String>) {
+    (
+        shared.hooks.init.clone().unwrap_or_default(),
+        shared.hooks.connect.clone().unwrap_or_default(),
+        shared.hooks.close.clone().unwrap_or_default(),
+    )
+}
+
+/// Open the native store for a configured PostgreSQL database.
+pub(crate) fn open_postgres(
+    postgres: &ceres_config::PostgresDatabaseConfig,
+) -> std::result::Result<RecordStore, String> {
+    // Server settings shape what a query sees, `search_path` above all, so they
+    // are forwarded. Any other driver argument is a Python library's own, and
+    // guessing at one would silently change how the connection behaves.
+    let mut settings = Vec::new();
+    for (key, value) in &postgres.shared.engine {
+        if key != "connect_args" {
+            return Err(unsupported(key));
+        }
+
+        let Some(arguments) = value.as_object() else {
+            return Err(unsupported(key));
+        };
+        for (name, value) in arguments {
+            if name != "server_settings" {
+                return Err(unsupported(name));
+            }
+
+            let Some(held) = value.as_object() else {
+                return Err(unsupported(name));
+            };
+            for (setting, text) in held {
+                let Some(text) = text.as_str() else {
+                    return Err(unsupported(setting));
                 };
-                for (name, value) in arguments {
-                    if name != "server_settings" {
-                        return Err(unsupported(name));
-                    }
-
-                    let Some(held) = value.as_object() else {
-                        return Err(unsupported(name));
-                    };
-                    for (setting, text) in held {
-                        let Some(text) = text.as_str() else {
-                            return Err(unsupported(setting));
-                        };
-                        settings.push((setting.clone(), text.to_string()));
-                    }
-                }
+                settings.push((setting.clone(), text.to_string()));
             }
-
-            // Connection string parameters carry through by name so a configuration
-            // naming `sslmode` connects the way it says it does.
-            let mut parameters = Vec::new();
-            for (key, value) in postgres.shared.query.iter().flatten() {
-                for held in value.as_slice() {
-                    parameters.push((key.clone(), held.clone()));
-                }
-            }
-
-            RecordStore::postgres(
-                &postgres.host,
-                postgres.port,
-                &postgres.database,
-                &postgres.user,
-                postgres.password.as_ref().map(|secret| secret.expose()),
-                settings,
-                parameters,
-                postgres.shared.hooks.init.clone().unwrap_or_default(),
-                postgres.shared.hooks.connect.clone().unwrap_or_default(),
-                postgres.shared.hooks.close.clone().unwrap_or_default(),
-            )
-            .map_err(|error| error.to_string())
         }
     }
+
+    // Connection string parameters carry through by name so a configuration
+    // naming `sslmode` connects the way it says it does.
+    let mut parameters = Vec::new();
+    for (key, value) in postgres.shared.query.iter().flatten() {
+        for held in value.as_slice() {
+            parameters.push((key.clone(), held.clone()));
+        }
+    }
+
+    RecordStore::postgres(
+        &postgres.host,
+        postgres.port,
+        &postgres.database,
+        &postgres.user,
+        postgres.password.as_ref().map(|secret| secret.expose()),
+        settings,
+        parameters,
+        postgres.shared.hooks.init.clone().unwrap_or_default(),
+        postgres.shared.hooks.connect.clone().unwrap_or_default(),
+        postgres.shared.hooks.close.clone().unwrap_or_default(),
+    )
+    .map_err(|error| error.to_string())
 }
 
 /// What to say about a driver argument this cannot reproduce.

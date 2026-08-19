@@ -674,6 +674,7 @@ dependencies = [
  "ceres-config",
  "ceres-database",
  "ceres-entities",
+ "ceres-server",
  "chrono",
  "clap",
  "dotenvy",

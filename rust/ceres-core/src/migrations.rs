@@ -188,6 +188,20 @@ fn to_py_error(error: MigrateError) -> PyErr {
 #[gen_stub_pymethods]
 #[pymethods]
 impl Store {
+    /// Check whether the schema has been created in the database, as an awaitable.
+    ///
+    /// The question is whether any table the schema owns is there, not whether the
+    /// database holds a table at all, so a table a configuration's `init` hook created
+    /// never makes an empty database look bootstrapped.
+    fn initialized<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let store = self.store.clone();
+        pyo3_async_runtimes::tokio::future_into_py(py, async move {
+            ceres_database::migrations::initialized(&store)
+                .await
+                .map_err(crate::interop::to_value_error)
+        })
+    }
+
     /// The IDs of every migration recorded as applied, ascending, as an awaitable.
     ///
     /// Creates the bookkeeping table first so an empty database answers with an empty

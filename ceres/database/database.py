@@ -498,43 +498,7 @@ class Database:
             `True` if any table this schema owns is present, `False` otherwise.
         """
         with wrap_database_errors():
-            rows = await self._store().fetch(*self._table_names_query())
-
-        present = {str(row["name"]) for row in rows}
-        return bool(present & self._owned_table_names())
-
-    @staticmethod
-    def _owned_table_names() -> set[str]:
-        """Every table name this schema is the author of.
-
-        The entity tables come from the native layer, which is the single authority on
-        what the schema holds, and `migrations` is added because it is bookkeeping owned
-        here rather than an entity row.
-        """
-        from ceres.__internal__.core import stored_columns
-
-        return {table for table, _ in stored_columns()} | {"migrations"}
-
-    def _table_names_query(self) -> tuple[str, list[Any]]:
-        """A statement listing the tables in scope for this connection, each as `name`.
-
-        The wording follows what each backend counts as a table of the caller's. Neither
-        backend's internal tables are the caller's, and on PostgreSQL neither is a table in
-        a schema this connection does not resolve names against. Scoping to the search path
-        rather than to every schema on the server makes the answer this database's
-        rather than the server's, which matters wherever one server holds more than one.
-        """
-        if self.type.value == "postgres":
-            return (
-                "SELECT tablename AS name FROM pg_catalog.pg_tables "
-                "WHERE schemaname = ANY(current_schemas(false))",
-                [],
-            )
-
-        return (
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
-            [],
-        )
+            return await self._store().initialized()
 
     async def hash_password(self, password: str) -> PasswordHash:
         """Hash a plaintext password using the configured hashing parameters.

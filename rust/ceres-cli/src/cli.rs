@@ -36,9 +36,11 @@ pub fn flag_value(arguments: &[OsString], flag: &str) -> Option<PathBuf> {
 }
 
 #[derive(Debug, Parser)]
+// The banner carries the header style's own codes so it matches the section headings.
+// Help renders through anstream, which strips them whenever color is off.
 #[command(
     name = "ceres",
-    about = concat!("Ceres CLI Version ", env!("CERES_VERSION")),
+    about = concat!("\x1b[1m\x1b[4mCeres:\x1b[0m ", env!("CERES_VERSION")),
     disable_version_flag = true
 )]
 pub struct Cli {
@@ -178,15 +180,78 @@ pub enum Command {
     Service(ServiceArgs),
 
     /// Manage the project database.
-    #[command(disable_help_flag = true)]
-    Database(DelegatedArgs),
+    Database(DatabaseArgs),
 
     /// Generate various project resources.
-    #[command(disable_help_flag = true)]
-    Generate(DelegatedArgs),
+    Generate(GenerateArgs),
     // The table command groups are not declared here. Their whole surface is
     // generated from the entity definitions at startup, which keeps the flags a
     // table accepts and the filter keys its compiler serves from ever disagreeing.
+}
+
+#[derive(Debug, Args)]
+pub struct DatabaseArgs {
+    #[command(subcommand)]
+    pub command: DatabaseCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum DatabaseCommand {
+    /// Show DDL commands used to initialize the database.
+    Ddl,
+
+    /// Open an interactive database shell (psql or sqlite3) for the project database.
+    Shell,
+
+    /// Remove all data from the database. Tables and indexes are not removed, only truncated.
+    Clear,
+
+    /// Apply pending database migrations.
+    Migrate(MigrateArgs),
+
+    /// Show applied and pending database migrations.
+    Migrations,
+}
+
+#[derive(Debug, Args)]
+pub struct MigrateArgs {
+    /// Apply without prompting for confirmation.
+    #[arg(long)]
+    pub yes: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct GenerateArgs {
+    #[command(subcommand)]
+    pub command: GenerateCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum GenerateCommand {
+    /// Generate up-to-date OpenAPI schema for the Ceres Rest API.
+    Openapi(OpenapiArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct OpenapiArgs {
+    /// File path to write to. Standard output is used if not specified.
+    #[arg(long, value_name = "PATH")]
+    pub output: Option<PathBuf>,
+
+    /// Specify the output file format.
+    #[arg(long, value_enum, default_value_t = SchemaFormat::Yaml)]
+    pub format: SchemaFormat,
+
+    /// Specify indentation size of output.
+    #[arg(long, default_value_t = 2)]
+    pub indent: u64,
+}
+
+/// Supported output formats for the OpenAPI schema.
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+pub enum SchemaFormat {
+    Yaml,
+    Json,
 }
 
 #[derive(Debug, Subcommand)]

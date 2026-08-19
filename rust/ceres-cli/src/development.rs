@@ -125,10 +125,7 @@ pub fn delegate(source: &Path, arguments: Vec<OsString>, output: &Output) -> Res
         );
     }
 
-    output.warn(format!(
-        "Using development source at '{}'.",
-        source.display()
-    ));
+    output.warn(format!("Ceres Source (Development): {}", source.display()));
 
     let status = Command::new("cargo")
         .args(["build", "-q", "-p", "ceres-cli"])

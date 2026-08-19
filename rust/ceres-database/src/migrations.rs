@@ -13,7 +13,9 @@ use std::sync::LazyLock;
 use include_dir::{Dir, include_dir};
 
 use crate::dynamic::Cell;
+use crate::entities::EntityTable;
 use crate::filter::SqlDialect;
+use crate::records::RecordTable;
 use crate::store::{Error, RecordStore};
 
 /// The migration script files, embedded at build time.
@@ -298,6 +300,53 @@ pub enum MigrateError {
     Reporter(ReporterError),
 }
 
+/// Every table name this schema is the author of.
+///
+/// The entity and record tables come from the table enums, the single authority on what
+/// the schema holds, and `migrations` is added because it is bookkeeping owned by this
+/// layer rather than an entity row.
+pub fn owned_table_names() -> impl Iterator<Item = &'static str> {
+    RecordTable::ALL
+        .iter()
+        .map(RecordTable::name)
+        .chain(EntityTable::ALL.iter().map(EntityTable::name))
+        .chain(["migrations"])
+}
+
+/// Check whether this schema has been created in the database.
+///
+/// The question is whether any table this schema owns is there, not whether the database
+/// holds a table at all. A configuration's `init` hook runs on connections opened before
+/// any migration has, and one that creates a table of its own would otherwise make an
+/// empty database look bootstrapped, leaving a project whose migrations never run and
+/// whose schema is never created.
+pub async fn initialized(store: &RecordStore) -> Result<bool, Error> {
+    // The wording follows what each backend counts as a table of the caller's. Neither
+    // backend's internal tables are the caller's, and on PostgreSQL neither is a table in
+    // a schema this connection does not resolve names against.
+    let sql = match store.dialect() {
+        SqlDialect::Postgres => {
+            "SELECT tablename AS name FROM pg_catalog.pg_tables \
+             WHERE schemaname = ANY(current_schemas(false))"
+        }
+        SqlDialect::SqliteText => {
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+        }
+    };
+
+    let rows = store.fetch_dynamic(None, sql, Vec::new()).await?;
+    let present: std::collections::HashSet<&str> = rows
+        .iter()
+        .flat_map(|row| row.iter())
+        .filter_map(|(column, cell)| match cell {
+            Cell::Text(name) if column == "name" => Some(name.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    Ok(owned_table_names().any(|name| present.contains(name)))
+}
+
 /// Return the IDs of every migration recorded as applied, in ascending order.
 ///
 /// Creates the bookkeeping table first so an empty database answers with an empty list
@@ -470,6 +519,31 @@ mod tests {
 
     fn migration(id: i64, name: &str, sql: &str) -> Migration {
         Migration::new(id, name, [(None, sql.to_owned())]).unwrap()
+    }
+
+    #[tokio::test]
+    async fn initialized_answers_for_owned_tables_only() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = store(&directory.path().join("test.sqlite"));
+        assert!(!initialized(&store).await.unwrap());
+
+        // A table this schema does not own, as an `init` hook could create, must not
+        // make an empty database look bootstrapped.
+        store
+            .execute_script("CREATE TABLE unrelated (id INTEGER PRIMARY KEY);")
+            .await
+            .unwrap();
+        assert!(!initialized(&store).await.unwrap());
+
+        let migrations = [migration(
+            1,
+            "first",
+            "CREATE TABLE users (id INTEGER PRIMARY KEY);",
+        )];
+        migrate(&store, &migrations, &mut SilentReporter)
+            .await
+            .unwrap();
+        assert!(initialized(&store).await.unwrap());
     }
 
     #[tokio::test]
