@@ -259,8 +259,8 @@ pub struct GateUser {
 /// including per-instance temporary SQLite paths, which is why it takes resolved
 /// connection parameters rather than a configuration.
 ///
-/// Which backend is behind it is known only through [`DatabaseBackend`] so every
-/// operation below is written once.
+/// Which backend is behind it is known only through the private `DatabaseBackend` trait
+/// so every operation below is written once.
 pub struct RecordStore {
     backend: Arc<dyn DatabaseBackend>,
 }

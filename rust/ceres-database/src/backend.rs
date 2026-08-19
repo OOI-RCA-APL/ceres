@@ -30,7 +30,7 @@ use crate::turso::{parameter_value, sea_value};
 ///
 /// This is the caller's intent rather than a promise about the backend. One that cannot
 /// overlap writers runs a [`Writing::Concurrent`] transaction the only way it can so ask
-/// [`DatabaseBackend::overlaps_writers`] when the answer changes what a caller does.
+/// the private trait's `overlaps_writers` when the answer changes what a caller does.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum Writing {
     /// However the backend opens a transaction by default.
