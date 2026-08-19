@@ -66,7 +66,9 @@ components:
       output: ./local/data/sensor-b/
 ```
 
-Paths are relative to the configuration file, and Ceres creates none of the directories along them. Create `local/` before the first run, or the engine stops on a database it cannot open.
+Paths are relative to the configuration file. A writable database creates the
+directories leading to its file, so `./local/database.sqlite` works on a fresh project.
+Other paths, like a driver's output directory, are the driver's own to create.
 
 ### Environment Files
 

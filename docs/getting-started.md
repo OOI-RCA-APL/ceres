@@ -60,7 +60,8 @@ components:
 
 `class` is a Python import path. `arguments` are passed to the component and validated against its annotations, so a typo or a wrong type fails at load rather than at run.
 
-The database path is relative to the configuration file, and Ceres will not create directories along the way. Point it at a file in a directory that already exists.
+The database path is relative to the configuration file, and a writable database creates
+the directories leading to its file, so a fresh project needs nothing made first.
 
 `logging.events` is off here only to keep the output short. Left on, every lifecycle event is logged as JSON beside your own log lines, which is useful once you are debugging and noisy while you are reading.
 
