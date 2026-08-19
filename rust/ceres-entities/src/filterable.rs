@@ -34,6 +34,9 @@ pub struct FilterField {
     /// The Python type spelling when the family's default mapping is too coarse,
     /// declared as `#[filterable(python = "...")]` on the field.
     pub python: Option<&'static str>,
+    /// Whether generated Python `Field` and `Order` literals leave the column out,
+    /// declared as `#[filterable(hidden)]` on a user's password hash.
+    pub hidden: bool,
 }
 
 /// One operation filter on a field, its wire key and what it matches.
@@ -116,6 +119,8 @@ impl FieldFamily {
 
 /// An entity whose fields are known at compile time.
 pub trait Filterable {
+    /// The struct's own name, which generated Python models take as the class name.
+    const NAME: &'static str;
     /// The fields a filter may name, which `#[filterable(skip)]` keeps a column out of.
     const FIELDS: &'static [FilterField];
     /// Every column the entity stores, the skipped ones included.
@@ -141,6 +146,13 @@ pub trait Filterable {
 pub trait FilterValues {
     /// The values in declaration order, which for ordered enums is severity order.
     const VALUES: &'static [&'static str];
+    /// The enum's own name, which a generated Python enum takes as its class name.
+    const NAME: &'static str = "";
+    /// The enum's doc comment, which a generated Python enum carries as its docstring.
+    const DOC: &'static str = "";
+    /// Each variant's doc comment in [`VALUES`](FilterValues::VALUES) order, empty
+    /// where a variant has none.
+    const VALUE_DOCS: &'static [&'static str] = &[];
 }
 
 impl FilterValues for Level {

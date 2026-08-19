@@ -1,9 +1,8 @@
-//! Dump every table's schema for the Python model generator.
+//! Describe every table's schema for the Python model generator.
 //!
-//! The generated Python models mirror the entity definitions, and only a build of this
-//! crate can see the derived tables, so the dump is JSON that
-//! `scripts/update-models.py` renders. The dump test writes it under `target/` the way
-//! the CLI reference dump does, and `make models` orders the two.
+//! The generated Python models mirror the entity definitions, and only this crate can
+//! see the derived tables, so `ceres-models` reads this description and renders the
+//! modules under `ceres/__internal__/models/`.
 
 use ceres_entities::{FieldFamily, FilterField};
 use serde_json::{Value, json};
@@ -73,6 +72,7 @@ fn field(field: &FilterField) -> Value {
             .collect::<Vec<_>>(),
         "doc": field.doc,
         "python": field.python,
+        "hidden": field.hidden,
     })
 }
 
@@ -81,6 +81,8 @@ fn table(name: &str, kind: &str, schema: &Schema, defaults: Value) -> Value {
     json!({
         "name": name,
         "kind": kind,
+        "entity": schema.entity,
+        "python_module": schema.python_module,
         "doc": schema.doc,
         "fields": schema.fields.iter().map(field).collect::<Vec<_>>(),
         "columns": schema.columns.iter().map(field).collect::<Vec<_>>(),
@@ -99,17 +101,18 @@ fn table(name: &str, kind: &str, schema: &Schema, defaults: Value) -> Value {
                     Shape::Literal(value) => json!({"name": "literal", "value": value}),
                     Shape::Present => json!({"name": "present"}),
                 },
+                "doc": computed.doc,
             }))
             .collect::<Vec<_>>(),
         "defaults": defaults,
     })
 }
 
-/// The default of every entity column that has one, symbolically for generated values.
-fn defaults(entity: EntityTable, schema: &Schema) -> Value {
+/// The default of every column that has one, symbolically for generated values.
+fn defaults(schema: &Schema, default: impl Fn(&str) -> Option<ColumnDefault>) -> Value {
     let mut described = serde_json::Map::new();
     for column in schema.columns {
-        let Some(default) = entity.column_default(column.key) else {
+        let Some(default) = default(column.key) else {
             continue;
         };
         let value = match default {
@@ -129,16 +132,13 @@ pub fn tables() -> Value {
         match entry {
             Table::Record(record) => {
                 let schema = record.schema();
-                described.push(table(schema.name, "record", &schema, json!({})));
+                let defaults = defaults(&schema, |key| record.column_default(key));
+                described.push(table(schema.name, "record", &schema, defaults));
             }
             Table::Entity(entity) => {
                 let schema = entity.schema();
-                described.push(table(
-                    schema.name,
-                    "entity",
-                    &schema,
-                    defaults(entity, &schema),
-                ));
+                let defaults = defaults(&schema, |key| entity.column_default(key));
+                described.push(table(schema.name, "entity", &schema, defaults));
             }
         }
     }
@@ -148,23 +148,7 @@ pub fn tables() -> Value {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use super::*;
-
-    /// Where the dump lands, for `scripts/update-models.py` to read.
-    fn destination() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../target/models/tables.json")
-    }
-
-    #[test]
-    fn dump_the_table_schemas_for_the_model_generator() {
-        let path = destination();
-        std::fs::create_dir_all(path.parent().expect("a parent directory"))
-            .expect("creating the dump directory");
-        let dump = serde_json::to_string_pretty(&tables()).expect("serializing the schemas");
-        std::fs::write(&path, dump + "\n").expect("writing the schemas");
-    }
 
     #[test]
     fn the_dump_carries_the_model_essentials() {

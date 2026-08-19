@@ -343,7 +343,7 @@ impl RecordTable {
     fn records(self, objects: &[Map<String, Value>]) -> Result<Records, String> {
         let rows = objects
             .iter()
-            .map(|object| complete(self.accepted(), object, record_default))
+            .map(|object| complete(self.accepted(), object, |key| record_default(self, key)))
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(match self {
@@ -548,7 +548,14 @@ fn complete(
 }
 
 /// The value an absent record field takes, matching the record models' own defaults.
-fn record_default(key: &str) -> Option<Value> {
+fn record_default(table: RecordTable, key: &str) -> Option<Value> {
+    if let Some(default) = table.column_default(key) {
+        return Some(match default {
+            ColumnDefault::GeneratedUuid => uuid::Uuid::now_v7().to_string().into(),
+            ColumnDefault::Literal(value) => value,
+        });
+    }
+
     Some(match key {
         "id" => uuid::Uuid::now_v7().to_string().into(),
         "timestamp" => Timestamp(chrono::Utc::now()).to_wire().into(),
@@ -556,6 +563,18 @@ fn record_default(key: &str) -> Option<Value> {
         // or required, which refuses one.
         _ => Value::Null,
     })
+}
+
+impl RecordTable {
+    /// The declared default of an absent record column, beyond the generated ID and
+    /// timestamp every record takes.
+    pub(crate) fn column_default(self, key: &str) -> Option<ColumnDefault> {
+        match (self, key) {
+            (Self::Alerts, "data") => Some(ColumnDefault::Literal(Value::Object(Map::new()))),
+            (Self::Messages, "connection") => Some(ColumnDefault::Literal(Value::Null)),
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]

@@ -19,15 +19,15 @@ use uuid::Uuid;
 use crate::address::Address;
 use crate::records::RenderRows;
 
-/// What kind of thing a permission grant applies to.
+/// Discriminator for the kind of target a permission grant applies to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, FilterValues)]
 #[serde(rename_all = "lowercase")]
 pub enum PermissionTargetType {
-    /// One component, named by address.
+    /// Grant applies to a specific component by address.
     Component,
-    /// Every component carrying a tag.
+    /// Grant applies to all components carrying a given tag.
     Tag,
-    /// Every component, with an empty target string.
+    /// Grant applies to every component. The target string is empty.
     All,
 }
 
@@ -71,7 +71,7 @@ pub struct User {
     /// running these commands already holds the database credentials and the value is a
     /// hash rather than a recoverable secret. It is not filterable, and the Python
     /// filter does not expose it either.
-    #[filterable(skip, python = "Password | PasswordHash")]
+    #[filterable(skip, hidden, python = "Password | PasswordHash")]
     pub password: String,
     /// Whether the user has administrative access to all components and workspaces.
     pub admin: bool,

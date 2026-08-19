@@ -783,6 +783,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ceres-models"
+version = "0.0.0"
+dependencies = [
+ "ceres-database",
+ "ceres-entities",
+ "serde_json",
+]
+
+[[package]]
 name = "ceres-server"
 version = "0.0.0"
 dependencies = [

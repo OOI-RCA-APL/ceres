@@ -22,7 +22,7 @@ use crate::entities::{
 use crate::filterable::Filterable;
 use crate::timestamp::Timestamp;
 
-/// The direction a message traveled through a connection.
+/// Direction of a message on a connection, either outbound or inbound.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, FilterValues)]
 #[serde(rename_all = "lowercase")]
 pub enum MessageDirection {
