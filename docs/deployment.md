@@ -68,6 +68,16 @@ components:
 
 Paths are relative to the configuration file, and Ceres creates none of the directories along them. Create `local/` before the first run, or the engine stops on a database it cannot open.
 
+### Environment Files
+
+Every `ceres` command reads a `.env` file from the project directory into its
+environment before doing anything else, and the engine and its components inherit the
+result. Variables already set in the real environment win over the file. The background
+service runs from the project directory, so the file applies there the same way.
+
+Use it for values your drivers read from the environment, and keep it out of version
+control when it carries credentials.
+
 ## Validating Configuration
 
 Before starting the service, validate your configuration.

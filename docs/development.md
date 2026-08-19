@@ -155,11 +155,35 @@ server, which rebuilds as you edit and serves in place of the built-in console:
 ceres run all --development-source /path/to/ceres
 ```
 
-`--development-source` works from any installed Ceres and applies to every command, not
-just `run`. It builds the checkout's CLI, points the invoking environment at an editable
-install of the checkout, and delegates the command to the checkout's binary, so the whole
-stack runs from source. Each step announces itself on stderr. The
-`CERES_DEVELOPMENT_SOURCE` environment variable provides a standing default the flag
+`--development-console-port` serves the dev console on its own port instead, leaving the
+built-in one where it is. The same flag also runs the whole engine from the checkout, as
+the next section describes.
+
+### Running From Source in Another Project
+
+`--development-source` runs the whole stack from a source checkout. It works from any
+installed Ceres, applies to every command, and announces each step on stderr. The
+invoking binary builds the checkout's CLI, points the invoking environment at an editable
+install of the checkout, and delegates the command to the checkout's binary:
+
+```sh
+ceres --development-source /path/to/ceres --version
+```
+
+```
+Building the Ceres CLI in /path/to/ceres/rust.
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.18s
+Delegating to /path/to/ceres/rust/target/debug/ceres.
+0.44.1
+```
+
+The first delegated command also installs the checkout into the environment as an
+editable package, and later ones skip the install while the wiring already points at the
+checkout. Delegation rebuilds only the CLI binary, so a change to the extension crates
+still needs `make install` in the checkout, and a plain Python change needs nothing at
+all.
+
+The `CERES_DEVELOPMENT_SOURCE` environment variable provides a standing default the flag
 overrides, and the CLI reads a `.env` file from the project directory, so a consumer
 project opts in with one line:
 
@@ -167,11 +191,9 @@ project opts in with one line:
 echo 'CERES_DEVELOPMENT_SOURCE=/path/to/ceres' >> .env
 ```
 
-Delegation rebuilds only the CLI binary, so a change to the extension crates still needs
-`make install` in the checkout. `--no-development-source` turns a standing source off for
-one command, and the `CERES_NO_DEVELOPMENT_SOURCE` environment variable turns it off for
-a whole session, either flag beating both variables. `--development-console-port` serves
-the dev console on its own port instead, leaving the built-in one where it is.
+`--no-development-source` turns a standing source off for one command, and the
+`CERES_NO_DEVELOPMENT_SOURCE` environment variable turns it off for a whole session,
+either flag beating both variables.
 
 ## Testing
 
