@@ -46,20 +46,20 @@ fn main() -> ExitCode {
     if let Some(source) = development::resolve(&arguments)
         && !development::delegated()
     {
-        let color = if arguments.iter().any(|argument| argument == "--color") {
-            Some(true)
-        } else if arguments.iter().any(|argument| argument == "--no-color") {
-            Some(false)
-        } else {
-            None
-        };
-        let output = Output::new(color);
+        let output = Output::new(raw_color_override(&arguments));
         let outcome =
             development::delegate(&source, arguments, &output).map(|never| match never {});
         return report(outcome, &output);
     }
 
+    // clap resolves color on its own, so the flags reach it here or its errors and help
+    // ignore them.
     let command = commands::surface::augment(Cli::command());
+    let command = match raw_color_override(&arguments) {
+        Some(true) => command.color(clap::ColorChoice::Always),
+        Some(false) => command.color(clap::ColorChoice::Never),
+        None => command,
+    };
     let matches = match command.try_get_matches() {
         Ok(matches) => matches,
         Err(error) => suggest_equals(error, &arguments).exit(),
@@ -179,6 +179,17 @@ fn report(outcome: Result<()>, output: &Output) -> ExitCode {
 
             ExitCode::from(exit.status.clamp(0, 255) as u8)
         }
+    }
+}
+
+/// The color choice the raw arguments made, read before clap has parsed anything.
+fn raw_color_override(arguments: &[OsString]) -> Option<bool> {
+    if arguments.iter().any(|argument| argument == "--color") {
+        Some(true)
+    } else if arguments.iter().any(|argument| argument == "--no-color") {
+        Some(false)
+    } else {
+        None
     }
 }
 
