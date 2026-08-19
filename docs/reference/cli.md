@@ -13,16 +13,16 @@ component address, or a selector matching several.
 
 | Option | Required | Description |
 | --- | --- | --- |
-| `--version` |  | Show the current Ceres version number and exit |
-| `--config` `PATH` |  | Use a specific Ceres configuration file, possibly outside the current working directory |
-| `--color` |  | Enable colorized output |
-| `--no-color` |  | Disable colorized output |
+| `--version` |  | Show the current Ceres version number and exit. |
+| `--config` `PATH` |  | Use a specific Ceres configuration file, possibly outside the current working directory. |
+| `--color` |  | Enable colorized output. |
+| `--no-color` |  | Disable colorized output. |
 
 ## Commands
 
 ### `ceres run`
 
-Start the engine as a foreground process
+Start the engine as a foreground process.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -33,153 +33,153 @@ Start the engine as a foreground process
 
 ### `ceres check`
 
-Validate project configuration (ceres.yaml) for errors
+Validate project configuration (ceres.yaml) for errors.
 
 ### `ceres reload`
 
-Apply configuration changes
+Apply configuration changes.
 
 ### `ceres status`
 
-Show engine and component statuses
+Show engine and component statuses.
 
 | Option | Required | Description |
 | --- | --- | --- |
-| `<ADDRESSES>` |  | Addresses of components to show the status of |
+| `<ADDRESSES>` |  | Addresses of components to show the status of. |
 
 ### `ceres start`
 
-Start components at the provided addresses
+Start components at the provided addresses.
 
 | Option | Required | Description |
 | --- | --- | --- |
-| `<ADDRESSES>` | yes | Addresses of components to start |
+| `<ADDRESSES>` | yes | Addresses of components to start. |
 
 ### `ceres stop`
 
-Stop components at the provided addresses
+Stop components at the provided addresses.
 
 | Option | Required | Description |
 | --- | --- | --- |
-| `<ADDRESSES>` | yes | Addresses of components to stop |
+| `<ADDRESSES>` | yes | Addresses of components to stop. |
 
 ### `ceres enable`
 
-Enable components at the provided addresses
+Enable components at the provided addresses.
 
 | Option | Required | Description |
 | --- | --- | --- |
-| `<ADDRESSES>` | yes | Addresses of components to enable |
+| `<ADDRESSES>` | yes | Addresses of components to enable. |
 
 ### `ceres disable`
 
-Disable components at the provided addresses
+Disable components at the provided addresses.
 
 | Option | Required | Description |
 | --- | --- | --- |
-| `<ADDRESSES>` | yes | Addresses of components to disable |
+| `<ADDRESSES>` | yes | Addresses of components to disable. |
 
 ### `ceres up`
 
-Start and enable components at the provided addresses
+Start and enable components at the provided addresses.
 
 | Option | Required | Description |
 | --- | --- | --- |
-| `<ADDRESSES>` | yes | Addresses of components to start and enable |
+| `<ADDRESSES>` | yes | Addresses of components to start and enable. |
 
 ### `ceres down`
 
-Stop and disable components at the provided addresses
+Stop and disable components at the provided addresses.
 
 | Option | Required | Description |
 | --- | --- | --- |
-| `<ADDRESSES>` | yes | Addresses of components to stop and disable |
+| `<ADDRESSES>` | yes | Addresses of components to stop and disable. |
 
 ### `ceres console`
 
-Commands for interacting with a project's web console
+Commands for interacting with a project's web console.
 
 #### `ceres console open`
 
-Open the project's web console in a browser
+Open the project's web console in a browser.
 
 #### `ceres console url`
 
-Write the project's web console URL to stdout
+Write the project's web console URL to stdout.
 
 ### `ceres service`
 
-Manage a user-level SystemD or LaunchD background service for this project
+Manage a user-level SystemD or LaunchD background service for this project.
 
 #### `ceres service generate`
 
-Generate a service definition file for this project
+Generate a service definition file for this project.
 
 | Option | Required | Description |
 | --- | --- | --- |
-| `<PATH>` |  | File path to write to. Standard output is used if not specified |
+| `<PATH>` |  | File path to write to. Standard output is used if not specified. |
 
 #### `ceres service start`
 
-Start the background service, creating and/or updating the service file as needed
+Start the background service, creating and/or updating the service file as needed.
 
 #### `ceres service stop`
 
-Stop the background service, deleting the service file afterwards
+Stop the background service, deleting the service file afterwards.
 
 #### `ceres service status`
 
-Show the status of the background service
+Show the status of the background service.
 
 ### `ceres database`
 
-Manage the project database
+Manage the project database.
 
 #### `ceres database ddl`
 
-Show DDL commands used to initialize the database
+Show DDL commands used to initialize the database.
 
 #### `ceres database shell`
 
-Open an interactive database shell (psql or sqlite3) for the project database
+Open an interactive database shell (psql or sqlite3) for the project database.
 
 #### `ceres database clear`
 
-Remove all data from the database. Tables and indexes are not removed, only truncated
+Remove all data from the database. Tables and indexes are not removed, only truncated.
 
 #### `ceres database migrate`
 
-Apply pending database migrations
+Apply pending database migrations.
 
 | Option | Required | Description |
 | --- | --- | --- |
-| `--yes` |  | Apply without prompting for confirmation |
+| `--yes` |  | Apply without prompting for confirmation. |
 
 #### `ceres database migrations`
 
-Show applied and pending database migrations
+Show applied and pending database migrations.
 
 ### `ceres generate`
 
-Generate various project resources
+Generate various project resources.
 
 #### `ceres generate openapi`
 
-Generate up-to-date OpenAPI schema for the Ceres Rest API
+Generate up-to-date OpenAPI schema for the Ceres Rest API.
 
 | Option | Required | Description |
 | --- | --- | --- |
-| `--output` `PATH` |  | File path to write to. Standard output is used if not specified |
-| `--format` `FORMAT` |  | Specify the output file format |
-| `--indent` `INDENT` |  | Specify indentation size of output |
+| `--output` `PATH` |  | File path to write to. Standard output is used if not specified. |
+| `--format` `FORMAT` |  | Specify the output file format. |
+| `--indent` `INDENT` |  | Specify indentation size of output. |
 
 ### `ceres alerts`
 
-Manage alerts
+Manage alerts.
 
 #### `ceres alerts select`
 
-Retrieve alerts
+Retrieve alerts.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -222,7 +222,7 @@ Retrieve alerts
 
 #### `ceres alerts count`
 
-Count alerts
+Count alerts.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -261,7 +261,7 @@ Count alerts
 
 #### `ceres alerts any`
 
-Check whether any alerts match, reporting through the exit status
+Check whether any alerts match, reporting through the exit status.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -300,7 +300,7 @@ Check whether any alerts match, reporting through the exit status
 
 #### `ceres alerts create`
 
-Create a alert
+Create a alert.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -317,7 +317,7 @@ Create a alert
 
 #### `ceres alerts update`
 
-Update alerts, reporting how many changed
+Update alerts, reporting how many changed.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -363,7 +363,7 @@ Update alerts, reporting how many changed
 
 #### `ceres alerts delete`
 
-Delete alerts, reporting how many were removed
+Delete alerts, reporting how many were removed.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -408,7 +408,7 @@ Delete alerts, reporting how many were removed
 
 #### `ceres alerts load`
 
-Load alerts from a file, reporting how many
+Load alerts from a file, reporting how many.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -418,7 +418,7 @@ Load alerts from a file, reporting how many
 
 #### `ceres alerts follow`
 
-Follow new alerts as they arrive
+Follow new alerts as they arrive.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -461,11 +461,11 @@ Follow new alerts as they arrive
 
 ### `ceres logs`
 
-Manage logs
+Manage logs.
 
 #### `ceres logs select`
 
-Retrieve logs
+Retrieve logs.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -505,7 +505,7 @@ Retrieve logs
 
 #### `ceres logs count`
 
-Count logs
+Count logs.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -541,7 +541,7 @@ Count logs
 
 #### `ceres logs any`
 
-Check whether any logs match, reporting through the exit status
+Check whether any logs match, reporting through the exit status.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -577,7 +577,7 @@ Check whether any logs match, reporting through the exit status
 
 #### `ceres logs create`
 
-Create a log entry
+Create a log entry.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -593,7 +593,7 @@ Create a log entry
 
 #### `ceres logs update`
 
-Update logs, reporting how many changed
+Update logs, reporting how many changed.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -636,7 +636,7 @@ Update logs, reporting how many changed
 
 #### `ceres logs delete`
 
-Delete logs, reporting how many were removed
+Delete logs, reporting how many were removed.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -678,7 +678,7 @@ Delete logs, reporting how many were removed
 
 #### `ceres logs load`
 
-Load logs from a file, reporting how many
+Load logs from a file, reporting how many.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -688,7 +688,7 @@ Load logs from a file, reporting how many
 
 #### `ceres logs follow`
 
-Follow new logs as they arrive
+Follow new logs as they arrive.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -728,11 +728,11 @@ Follow new logs as they arrive
 
 ### `ceres messages`
 
-Manage messages
+Manage messages.
 
 #### `ceres messages select`
 
-Retrieve messages
+Retrieve messages.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -774,7 +774,7 @@ Retrieve messages
 
 #### `ceres messages count`
 
-Count messages
+Count messages.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -812,7 +812,7 @@ Count messages
 
 #### `ceres messages any`
 
-Check whether any messages match, reporting through the exit status
+Check whether any messages match, reporting through the exit status.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -850,7 +850,7 @@ Check whether any messages match, reporting through the exit status
 
 #### `ceres messages create`
 
-Create a message
+Create a message.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -867,7 +867,7 @@ Create a message
 
 #### `ceres messages update`
 
-Update messages, reporting how many changed
+Update messages, reporting how many changed.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -912,7 +912,7 @@ Update messages, reporting how many changed
 
 #### `ceres messages delete`
 
-Delete messages, reporting how many were removed
+Delete messages, reporting how many were removed.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -956,7 +956,7 @@ Delete messages, reporting how many were removed
 
 #### `ceres messages load`
 
-Load messages from a file, reporting how many
+Load messages from a file, reporting how many.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -966,7 +966,7 @@ Load messages from a file, reporting how many
 
 #### `ceres messages follow`
 
-Follow new messages as they arrive
+Follow new messages as they arrive.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1008,11 +1008,11 @@ Follow new messages as they arrive
 
 ### `ceres particles`
 
-Manage particles
+Manage particles.
 
 #### `ceres particles select`
 
-Retrieve particles
+Retrieve particles.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1052,7 +1052,7 @@ Retrieve particles
 
 #### `ceres particles count`
 
-Count particles
+Count particles.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1088,7 +1088,7 @@ Count particles
 
 #### `ceres particles any`
 
-Check whether any particles match, reporting through the exit status
+Check whether any particles match, reporting through the exit status.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1124,7 +1124,7 @@ Check whether any particles match, reporting through the exit status
 
 #### `ceres particles create`
 
-Create a particle
+Create a particle.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1140,7 +1140,7 @@ Create a particle
 
 #### `ceres particles update`
 
-Update particles, reporting how many changed
+Update particles, reporting how many changed.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1183,7 +1183,7 @@ Update particles, reporting how many changed
 
 #### `ceres particles delete`
 
-Delete particles, reporting how many were removed
+Delete particles, reporting how many were removed.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1225,7 +1225,7 @@ Delete particles, reporting how many were removed
 
 #### `ceres particles load`
 
-Load particles from a file, reporting how many
+Load particles from a file, reporting how many.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1235,7 +1235,7 @@ Load particles from a file, reporting how many
 
 #### `ceres particles follow`
 
-Follow new particles as they arrive
+Follow new particles as they arrive.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1275,11 +1275,11 @@ Follow new particles as they arrive
 
 ### `ceres settings`
 
-Manage settings
+Manage settings.
 
 #### `ceres settings select`
 
-Retrieve settings
+Retrieve settings.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1301,7 +1301,7 @@ Retrieve settings
 
 #### `ceres settings count`
 
-Count settings
+Count settings.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1319,7 +1319,7 @@ Count settings
 
 #### `ceres settings any`
 
-Check whether any settings match, reporting through the exit status
+Check whether any settings match, reporting through the exit status.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1337,7 +1337,7 @@ Check whether any settings match, reporting through the exit status
 
 #### `ceres settings create`
 
-Create a setting
+Create a setting.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1351,7 +1351,7 @@ Create a setting
 
 #### `ceres settings update`
 
-Update settings, reporting how many changed
+Update settings, reporting how many changed.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1376,7 +1376,7 @@ Update settings, reporting how many changed
 
 #### `ceres settings delete`
 
-Delete settings, reporting how many were removed
+Delete settings, reporting how many were removed.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1400,7 +1400,7 @@ Delete settings, reporting how many were removed
 
 #### `ceres settings load`
 
-Load settings from a file, reporting how many
+Load settings from a file, reporting how many.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1410,11 +1410,11 @@ Load settings from a file, reporting how many
 
 ### `ceres users`
 
-Manage users
+Manage users.
 
 #### `ceres users select`
 
-Retrieve users
+Retrieve users.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1442,7 +1442,7 @@ Retrieve users
 
 #### `ceres users count`
 
-Count users
+Count users.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1466,7 +1466,7 @@ Count users
 
 #### `ceres users any`
 
-Check whether any users match, reporting through the exit status
+Check whether any users match, reporting through the exit status.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1490,7 +1490,7 @@ Check whether any users match, reporting through the exit status
 
 #### `ceres users create`
 
-Create a user
+Create a user.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1507,7 +1507,7 @@ Create a user
 
 #### `ceres users update`
 
-Update users, reporting how many changed
+Update users, reporting how many changed.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1538,7 +1538,7 @@ Update users, reporting how many changed
 
 #### `ceres users delete`
 
-Delete users, reporting how many were removed
+Delete users, reporting how many were removed.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1568,7 +1568,7 @@ Delete users, reporting how many were removed
 
 #### `ceres users load`
 
-Load users from a file, reporting how many
+Load users from a file, reporting how many.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1578,11 +1578,11 @@ Load users from a file, reporting how many
 
 ### `ceres variables`
 
-Manage variables
+Manage variables.
 
 #### `ceres variables select`
 
-Retrieve variables
+Retrieve variables.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1607,7 +1607,7 @@ Retrieve variables
 
 #### `ceres variables count`
 
-Count variables
+Count variables.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1628,7 +1628,7 @@ Count variables
 
 #### `ceres variables any`
 
-Check whether any variables match, reporting through the exit status
+Check whether any variables match, reporting through the exit status.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1649,7 +1649,7 @@ Check whether any variables match, reporting through the exit status
 
 #### `ceres variables create`
 
-Create a variable
+Create a variable.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1663,7 +1663,7 @@ Create a variable
 
 #### `ceres variables update`
 
-Update variables, reporting how many changed
+Update variables, reporting how many changed.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1691,7 +1691,7 @@ Update variables, reporting how many changed
 
 #### `ceres variables delete`
 
-Delete variables, reporting how many were removed
+Delete variables, reporting how many were removed.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1718,7 +1718,7 @@ Delete variables, reporting how many were removed
 
 #### `ceres variables load`
 
-Load variables from a file, reporting how many
+Load variables from a file, reporting how many.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1728,11 +1728,11 @@ Load variables from a file, reporting how many
 
 ### `ceres workspaces`
 
-Manage workspaces
+Manage workspaces.
 
 #### `ceres workspaces select`
 
-Retrieve workspaces
+Retrieve workspaces.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1759,7 +1759,7 @@ Retrieve workspaces
 
 #### `ceres workspaces count`
 
-Count workspaces
+Count workspaces.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1782,7 +1782,7 @@ Count workspaces
 
 #### `ceres workspaces any`
 
-Check whether any workspaces match, reporting through the exit status
+Check whether any workspaces match, reporting through the exit status.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1805,7 +1805,7 @@ Check whether any workspaces match, reporting through the exit status
 
 #### `ceres workspaces create`
 
-Create a workspace
+Create a workspace.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1822,7 +1822,7 @@ Create a workspace
 
 #### `ceres workspaces update`
 
-Update workspaces, reporting how many changed
+Update workspaces, reporting how many changed.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1852,7 +1852,7 @@ Update workspaces, reporting how many changed
 
 #### `ceres workspaces delete`
 
-Delete workspaces, reporting how many were removed
+Delete workspaces, reporting how many were removed.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1881,7 +1881,7 @@ Delete workspaces, reporting how many were removed
 
 #### `ceres workspaces load`
 
-Load workspaces from a file, reporting how many
+Load workspaces from a file, reporting how many.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1891,11 +1891,11 @@ Load workspaces from a file, reporting how many
 
 ### `ceres workspace-edits`
 
-Manage workspace-edits
+Manage workspace-edits.
 
 #### `ceres workspace-edits select`
 
-Retrieve workspace-edits
+Retrieve workspace-edits.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1914,7 +1914,7 @@ Retrieve workspace-edits
 
 #### `ceres workspace-edits count`
 
-Count workspace-edits
+Count workspace-edits.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1929,7 +1929,7 @@ Count workspace-edits
 
 #### `ceres workspace-edits any`
 
-Check whether any workspace-edits match, reporting through the exit status
+Check whether any workspace-edits match, reporting through the exit status.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1944,7 +1944,7 @@ Check whether any workspace-edits match, reporting through the exit status
 
 #### `ceres workspace-edits create`
 
-Create a workspace edit
+Create a workspace edit.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1958,7 +1958,7 @@ Create a workspace edit
 
 #### `ceres workspace-edits update`
 
-Update workspace-edits, reporting how many changed
+Update workspace-edits, reporting how many changed.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -1980,7 +1980,7 @@ Update workspace-edits, reporting how many changed
 
 #### `ceres workspace-edits delete`
 
-Delete workspace-edits, reporting how many were removed
+Delete workspace-edits, reporting how many were removed.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -2001,7 +2001,7 @@ Delete workspace-edits, reporting how many were removed
 
 #### `ceres workspace-edits load`
 
-Load workspace-edits from a file, reporting how many
+Load workspace-edits from a file, reporting how many.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -2011,11 +2011,11 @@ Load workspace-edits from a file, reporting how many
 
 ### `ceres groups`
 
-Manage groups
+Manage groups.
 
 #### `ceres groups select`
 
-Retrieve groups
+Retrieve groups.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -2037,7 +2037,7 @@ Retrieve groups
 
 #### `ceres groups count`
 
-Count groups
+Count groups.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -2055,7 +2055,7 @@ Count groups
 
 #### `ceres groups any`
 
-Check whether any groups match, reporting through the exit status
+Check whether any groups match, reporting through the exit status.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -2073,7 +2073,7 @@ Check whether any groups match, reporting through the exit status
 
 #### `ceres groups create`
 
-Create a group
+Create a group.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -2087,7 +2087,7 @@ Create a group
 
 #### `ceres groups update`
 
-Update groups, reporting how many changed
+Update groups, reporting how many changed.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -2112,7 +2112,7 @@ Update groups, reporting how many changed
 
 #### `ceres groups delete`
 
-Delete groups, reporting how many were removed
+Delete groups, reporting how many were removed.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -2136,7 +2136,7 @@ Delete groups, reporting how many were removed
 
 #### `ceres groups load`
 
-Load groups from a file, reporting how many
+Load groups from a file, reporting how many.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -2146,11 +2146,11 @@ Load groups from a file, reporting how many
 
 ### `ceres group-memberships`
 
-Manage group-memberships
+Manage group-memberships.
 
 #### `ceres group-memberships select`
 
-Retrieve group-memberships
+Retrieve group-memberships.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -2169,7 +2169,7 @@ Retrieve group-memberships
 
 #### `ceres group-memberships count`
 
-Count group-memberships
+Count group-memberships.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -2184,7 +2184,7 @@ Count group-memberships
 
 #### `ceres group-memberships any`
 
-Check whether any group-memberships match, reporting through the exit status
+Check whether any group-memberships match, reporting through the exit status.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -2199,7 +2199,7 @@ Check whether any group-memberships match, reporting through the exit status
 
 #### `ceres group-memberships create`
 
-Create a group membership
+Create a group membership.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -2212,7 +2212,7 @@ Create a group membership
 
 #### `ceres group-memberships update`
 
-Update group-memberships, reporting how many changed
+Update group-memberships, reporting how many changed.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -2234,7 +2234,7 @@ Update group-memberships, reporting how many changed
 
 #### `ceres group-memberships delete`
 
-Delete group-memberships, reporting how many were removed
+Delete group-memberships, reporting how many were removed.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -2255,7 +2255,7 @@ Delete group-memberships, reporting how many were removed
 
 #### `ceres group-memberships load`
 
-Load group-memberships from a file, reporting how many
+Load group-memberships from a file, reporting how many.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -2265,11 +2265,11 @@ Load group-memberships from a file, reporting how many
 
 ### `ceres user-permissions`
 
-Manage user-permissions
+Manage user-permissions.
 
 #### `ceres user-permissions select`
 
-Retrieve user-permissions
+Retrieve user-permissions.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -2290,7 +2290,7 @@ Retrieve user-permissions
 
 #### `ceres user-permissions count`
 
-Count user-permissions
+Count user-permissions.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -2307,7 +2307,7 @@ Count user-permissions
 
 #### `ceres user-permissions any`
 
-Check whether any user-permissions match, reporting through the exit status
+Check whether any user-permissions match, reporting through the exit status.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -2324,7 +2324,7 @@ Check whether any user-permissions match, reporting through the exit status
 
 #### `ceres user-permissions create`
 
-Create a user permission
+Create a user permission.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -2339,7 +2339,7 @@ Create a user permission
 
 #### `ceres user-permissions update`
 
-Update user-permissions, reporting how many changed
+Update user-permissions, reporting how many changed.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -2363,7 +2363,7 @@ Update user-permissions, reporting how many changed
 
 #### `ceres user-permissions delete`
 
-Delete user-permissions, reporting how many were removed
+Delete user-permissions, reporting how many were removed.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -2386,7 +2386,7 @@ Delete user-permissions, reporting how many were removed
 
 #### `ceres user-permissions load`
 
-Load user-permissions from a file, reporting how many
+Load user-permissions from a file, reporting how many.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -2396,11 +2396,11 @@ Load user-permissions from a file, reporting how many
 
 ### `ceres group-permissions`
 
-Manage group-permissions
+Manage group-permissions.
 
 #### `ceres group-permissions select`
 
-Retrieve group-permissions
+Retrieve group-permissions.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -2421,7 +2421,7 @@ Retrieve group-permissions
 
 #### `ceres group-permissions count`
 
-Count group-permissions
+Count group-permissions.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -2438,7 +2438,7 @@ Count group-permissions
 
 #### `ceres group-permissions any`
 
-Check whether any group-permissions match, reporting through the exit status
+Check whether any group-permissions match, reporting through the exit status.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -2455,7 +2455,7 @@ Check whether any group-permissions match, reporting through the exit status
 
 #### `ceres group-permissions create`
 
-Create a group permission
+Create a group permission.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -2470,7 +2470,7 @@ Create a group permission
 
 #### `ceres group-permissions update`
 
-Update group-permissions, reporting how many changed
+Update group-permissions, reporting how many changed.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -2494,7 +2494,7 @@ Update group-permissions, reporting how many changed
 
 #### `ceres group-permissions delete`
 
-Delete group-permissions, reporting how many were removed
+Delete group-permissions, reporting how many were removed.
 
 | Option | Required | Description |
 | --- | --- | --- |
@@ -2517,7 +2517,7 @@ Delete group-permissions, reporting how many were removed
 
 #### `ceres group-permissions load`
 
-Load group-permissions from a file, reporting how many
+Load group-permissions from a file, reporting how many.
 
 | Option | Required | Description |
 | --- | --- | --- |

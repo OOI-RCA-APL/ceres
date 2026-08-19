@@ -18,7 +18,7 @@ use ceres_database::{
 };
 use ceres_entities::FieldFamily;
 use clap::builder::PossibleValuesParser;
-use clap::{Arg, ArgAction, Command};
+use clap::{Arg, ArgAction, Command, CommandFactory as _};
 
 /// The verbs a table command takes.
 ///
@@ -199,7 +199,7 @@ impl Table {
     pub(crate) fn command(self) -> Command {
         let plural = self.plural();
         let mut command = Command::new(plural)
-            .about(format!("Manage {plural}"))
+            .about(format!("Manage {plural}."))
             .subcommand_required(true)
             .arg_required_else_help(true);
 
@@ -225,31 +225,31 @@ impl Table {
 
         match verb {
             "select" => command
-                .about(format!("Retrieve {plural}"))
+                .about(format!("Retrieve {plural}."))
                 .arg(field_positional())
                 .args(row_arguments())
                 .args(self.filter_arguments()),
             "follow" => command
-                .about(format!("Follow new {plural} as they arrive"))
+                .about(format!("Follow new {plural} as they arrive."))
                 .arg(field_positional())
                 .args(row_arguments())
                 .args(self.filter_arguments()),
             "count" => command
-                .about(format!("Count {plural}"))
+                .about(format!("Count {plural}."))
                 .arg(output())
                 .args(self.filter_arguments()),
             "any" => command
                 .about(format!(
-                    "Check whether any {plural} match, reporting through the exit status"
+                    "Check whether any {plural} match, reporting through the exit status."
                 ))
                 .arg(output())
                 .args(self.filter_arguments()),
             "create" => command
-                .about(format!("Create a {singular}"))
+                .about(format!("Create a {singular}."))
                 .args(row_arguments())
                 .args(self.create_arguments()),
             "update" => command
-                .about(format!("Update {plural}, reporting how many changed"))
+                .about(format!("Update {plural}, reporting how many changed."))
                 .arg(
                     Arg::new("set")
                         .long("set")
@@ -261,12 +261,12 @@ impl Table {
                 .args(row_arguments())
                 .args(self.filter_arguments()),
             "delete" => command
-                .about(format!("Delete {plural}, reporting how many were removed"))
+                .about(format!("Delete {plural}, reporting how many were removed."))
                 .args(write_arguments("deleted"))
                 .args(row_arguments())
                 .args(self.filter_arguments()),
             "load" => command
-                .about(format!("Load {plural} from a file, reporting how many"))
+                .about(format!("Load {plural} from a file, reporting how many."))
                 .arg(
                     Arg::new("path")
                         .required(true)
@@ -705,11 +705,39 @@ fn write_arguments(verb: &str) -> Vec<Arg> {
     ]
 }
 
-/// Add every table command group to the declared command tree.
-pub(crate) fn augment(command: Command) -> Command {
-    Table::all().into_iter().fold(command, |command, table| {
-        command.subcommand(table.command())
-    })
+/// The complete command tree: the declared commands plus every table command group.
+pub(crate) fn tree() -> Command {
+    let command = Table::all()
+        .into_iter()
+        .fold(crate::cli::Cli::command(), |command, table| {
+            command.subcommand(table.command())
+        });
+
+    punctuate(command)
+}
+
+/// Restore the period clap strips when a doc comment becomes help text.
+///
+/// Every help string is written with its terminal punctuation, and the derive API has no
+/// setting to keep it, so the built tree is repaired here. The root's own about is the
+/// version banner, which recursion never reaches.
+fn punctuate(command: Command) -> Command {
+    command
+        .mut_args(
+            |argument| match argument.get_help().map(ToString::to_string) {
+                Some(help) if !help.ends_with(['.', '!', '?']) => argument.help(format!("{help}.")),
+                _ => argument,
+            },
+        )
+        .mut_subcommands(|subcommand| {
+            let subcommand = punctuate(subcommand);
+            match subcommand.get_about().map(ToString::to_string) {
+                Some(about) if !about.ends_with(['.', '!', '?']) => {
+                    subcommand.about(format!("{about}."))
+                }
+                _ => subcommand,
+            }
+        })
 }
 
 #[cfg(test)]
