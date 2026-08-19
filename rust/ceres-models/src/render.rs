@@ -894,7 +894,11 @@ fn footer(module: &ModuleSpec, tables: &[&Value]) -> Vec<String> {
 ///
 /// Ruff is looked up beside the repository's own environment first, the way the stub
 /// generator finds it, so the render matches what `make lint` checks.
-fn formatted(root: &Path, name: &str, source: &str) -> String {
+///
+/// An environment failure, ruff missing or not runnable, returns `None` so the caller
+/// keeps the committed modules. Ruff refusing the source still panics, because that
+/// means the renderer emitted invalid Python and the build must say so.
+fn formatted(root: &Path, name: &str, source: &str) -> Option<String> {
     let venv_ruff = root.join(".venv/bin/ruff");
     let ruff = if venv_ruff.is_file() {
         venv_ruff
@@ -912,35 +916,18 @@ fn formatted(root: &Path, name: &str, source: &str) -> String {
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
-        .expect("the project ruff runs");
+        .ok()?;
     std::io::Write::write_all(
         &mut child.stdin.take().expect("a piped stdin"),
         source.as_bytes(),
     )
-    .expect("the source pipes to ruff");
-    let output = child.wait_with_output().expect("ruff finishes");
+    .ok()?;
+    let output = child.wait_with_output().ok()?;
     assert!(output.status.success(), "ruff format refused {name}");
-    String::from_utf8(output.stdout).expect("ruff emits UTF-8")
+    Some(String::from_utf8(output.stdout).expect("ruff emits UTF-8"))
 }
 
-/// Whether the project's ruff is reachable, without which the render must not write.
-///
-/// An unformatted module would read as drift against the committed one, so a build
-/// with no ruff keeps the committed modules and warns instead.
-fn ruff_available(root: &Path) -> bool {
-    if root.join(".venv/bin/ruff").is_file() {
-        return true;
-    }
-
-    Command::new("ruff")
-        .arg("--version")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success())
-}
-
-fn render_module(root: &Path, module: &ModuleSpec, dump: &Value) -> String {
+fn render_module(root: &Path, module: &ModuleSpec, dump: &Value) -> Option<String> {
     let all = entries(dump, "tables");
     let tables: Vec<&Value> = module
         .tables
@@ -979,28 +966,41 @@ fn render_module(root: &Path, module: &ModuleSpec, dump: &Value) -> String {
     formatted(root, module.file, &source)
 }
 
-/// Render every model module into the package, skipping when ruff is unreachable.
+/// Render every model module into the package.
+///
+/// An environment failure, ruff unreachable or the tree unwritable, warns and keeps
+/// the committed modules rather than failing every workspace build. CI's drift check
+/// still refuses a module that genuinely needs regenerating.
 fn generate(root: &Path) {
-    if !ruff_available(root) {
+    let skip = |reason: &str| {
         println!(
-            "cargo::warning=ruff is unavailable, keeping the committed model modules; \
-             regenerate with `make models` once the environment is installed"
+            "cargo::warning=keeping the committed model modules, {reason}; regenerate \
+             with `make models` once the environment allows it"
         );
-        return;
-    }
+    };
 
     let models = root.join("ceres/__internal__/models");
-    std::fs::create_dir_all(&models).expect("the models directory exists");
-    let dump = ceres_database::describe::tables();
-
-    let init = models.join("__init__.py");
-    if !init.is_file() {
-        std::fs::write(&init, format!("{BANNER}\n")).expect("the package init writes");
+    if std::fs::create_dir_all(&models).is_err() {
+        return skip("the models directory cannot be created");
     }
 
+    let dump = ceres_database::describe::tables();
+    let mut rendered = Vec::new();
     for module in MODULES {
-        let path = models.join(module.file);
-        let rendered = render_module(root, module, &dump);
-        std::fs::write(&path, rendered).expect("the module writes");
+        match render_module(root, module, &dump) {
+            Some(text) => rendered.push((models.join(module.file), text)),
+            None => return skip("the project ruff is unavailable"),
+        }
+    }
+
+    let init = models.join("__init__.py");
+    if !init.is_file() && std::fs::write(&init, format!("{BANNER}\n")).is_err() {
+        return skip("the package init cannot be written");
+    }
+
+    for (path, text) in rendered {
+        if std::fs::write(&path, text).is_err() {
+            return skip("a module cannot be written");
+        }
     }
 }

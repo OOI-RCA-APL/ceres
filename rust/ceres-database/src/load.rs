@@ -797,6 +797,23 @@ mod tests {
     }
 
     #[test]
+    fn a_loaded_alert_without_a_payload_takes_the_empty_default() {
+        // The load path shares the create path's declared defaults, so a row whose
+        // input never names the column fills the same way a create does.
+        let batches = read(
+            RecordTable::Alerts,
+            "{\"address\": \"@a\", \"level\": \"warning\", \"type\": \"t\"}\n",
+            LoadFormat::Json,
+        )
+        .unwrap();
+        let Records::Alerts(alerts) = &batches[0] else {
+            panic!("expected alerts");
+        };
+
+        assert!(alerts[0].data.is_empty());
+    }
+
+    #[test]
     fn a_created_json_value_parses_exactly_once() {
         let pairs = |values: &[(&str, &str)]| {
             values
