@@ -108,12 +108,18 @@ pub struct Setting {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Filterable)]
 pub struct Workspace {
     pub id: Uuid,
+    /// Human-readable name of the workspace.
+    #[filterable(python = "NonEmptyStr")]
     pub name: String,
-    /// The subtree the workspace covers, `~` for one placed on the engine itself.
+    /// Address this workspace is placed on. `~` is the engine root, anything else a
+    /// component.
     #[filterable(plain)]
     pub scope: Address,
+    /// Owning user when this workspace is private, `None` when it is shared.
     pub owner_id: Option<Uuid>,
+    /// Whether this workspace is part of the set an unauthenticated visitor sees.
     pub show_when_logged_out: bool,
+    /// Free-form structured payload attached to the workspace.
     #[filterable(skip)]
     pub data: Map<String, Value>,
 }
@@ -121,10 +127,14 @@ pub struct Workspace {
 /// A console layout a user has edited but not yet published.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Filterable)]
 pub struct WorkspaceEdit {
+    /// ID of the user whose draft edit this is.
     pub user_id: Uuid,
+    /// ID of the workspace being edited.
     pub workspace_id: Uuid,
-    /// The draft layout, stored like a workspace's own and filterable the same way,
-    /// which is to say not at all.
+    /// In-progress edit payload, serialized as JSON.
+    ///
+    /// It is stored like a workspace's own layout and filterable the same way, which is
+    /// to say not at all.
     #[filterable(skip)]
     pub data: Map<String, Value>,
 }

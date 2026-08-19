@@ -11,6 +11,7 @@ under `ceres/__internal__/models/`. Run `make models`, which orders the two, and
 
 import json
 import re
+import subprocess
 import sys
 import textwrap
 from dataclasses import dataclass
@@ -37,6 +38,7 @@ FILTER_TYPES = {
     "email": "MaybeSequence[EmailAddress] | None",
     "boolean": "bool | None",
     "json_value": "FromYAML[JSONSerializable] | None",
+    "plain_address": "MaybeSequence[Address] | None",
 }
 """Filter field annotations by family, for the families the entity tables use."""
 
@@ -48,7 +50,7 @@ CREATE_TYPES = {
     "text": "str",
     "email": "EmailAddress",
     "boolean": "bool",
-    "json": "dict[str, Any]",
+    "json": "FromYAML[JSONSerializableDict]",
     "json_value": "FromYAML[JSONSerializable]",
     "plain_address": "Address",
 }
@@ -58,7 +60,9 @@ DATA_IMPORTS = (
     "EmailAddress",
     "FromYAML",
     "JSONSerializable",
+    "JSONSerializableDict",
     "MaybeSequence",
+    "NonEmptyStr",
     "Password",
     "PasswordHash",
     "Username",
@@ -72,7 +76,7 @@ ENTITY_BASES = tuple(
 )
 """Base names importable from `ceres.__internal__.entity`, matched against the body."""
 
-FILTER_NOUNS = {"email": "email addresses", "uuid": "UUIDs"}
+FILTER_NOUNS = {"email": "email addresses", "uuid": "UUIDs", "plain_address": "addresses"}
 """What a filter equality docstring calls the given values, when not the key itself."""
 
 VALUE_FILTER_DOC = (
@@ -123,6 +127,26 @@ MODULES = [
                 "variables",
                 "Variable",
                 computed_docs=MappingProxyType({"internal": INTERNAL_DOC}),
+            ),
+        ),
+    ),
+    Module(
+        "workspaces.py",
+        "ceres.workspace",
+        (
+            Entity("workspace_edits", "WorkspaceEdit"),
+            Entity(
+                "workspaces",
+                "Workspace",
+                computed_docs=MappingProxyType(
+                    {
+                        "placed_on_engine": (
+                            "Filter by whether the workspace is placed on the engine root "
+                            "rather than a component."
+                        ),
+                        "owned": "Filter by whether the workspace is private to an owner at all.",
+                    }
+                ),
             ),
         ),
     ),
@@ -191,11 +215,37 @@ def filter_doc(field: dict[str, Any]) -> str:
     return f"Filter by `{key}` being equal to one or more given {noun}."
 
 
-def create_annotation(field: dict[str, Any]) -> str:
-    if field["python"]:
-        return field["python"]
+def create_annotation(field: dict[str, Any], described: dict[str, Any] | None) -> str:
+    """The create and update annotation, nullable when the column defaults to null."""
+    annotation = field["python"] or CREATE_TYPES[field["family"]["name"]]
+    if described is not None and described.get("value", ...) is None:
+        annotation += " | None"
 
-    return CREATE_TYPES[field["family"]["name"]]
+    return annotation
+
+
+def default_expression(field: dict[str, Any], value: Any) -> str:
+    """Render a column default as the expression the create model carries."""
+    family = field["family"]["name"]
+    if value is None:
+        return "None"
+
+    if family == "plain_address":
+        return f'Address("{value}")'
+
+    if family == "json":
+        if value == {}:
+            return "Field(default_factory=dict)"
+
+        raise ValueError(f"no rendering for a non-empty json default: {value!r}")
+
+    if isinstance(value, bool):
+        return str(value)
+
+    if isinstance(value, str):
+        return f'"{value}"'
+
+    return repr(value)
 
 
 OPERATION_DOCS = {
@@ -216,11 +266,9 @@ def render_entity(table: dict[str, Any], entity: Entity) -> list[str]:
 
     columns = [column for column in table["columns"] if column["key"] not in base_keys]
     literals = [column["key"] for column in table["columns"] if selectable(column)]
-    orderable = [
-        column["key"]
-        for column in table["columns"]
-        if selectable(column) and column["family"]["name"] not in ("json", "bytes")
-    ]
+    # Ordering resolves over the filterable fields, so a skipped column is selectable
+    # but never orderable.
+    orderable = [field["key"] for field in table["fields"] if selectable(field)]
     fields = [field for field in table["fields"] if field["key"] not in base_keys]
     regular = [field for field in fields if field["family"]["name"] != "json_value"]
     nullable = [field for field in fields if field["family"]["name"] == "json_value"]
@@ -311,8 +359,8 @@ def render_entity(table: dict[str, Any], entity: Entity) -> list[str]:
         default = ""
         described = defaults.get(key)
         if described and "value" in described:
-            default = f" = {described['value']!r}"
-        lines.append(f"    {key}: {create_annotation(column)}{default}")
+            default = f" = {default_expression(column, described['value'])}"
+        lines.append(f"    {key}: {create_annotation(column, described)}{default}")
         lines.extend(docstring(field_doc(column), "    "))
     lines.append("")
     lines.append("")
@@ -324,7 +372,9 @@ def render_entity(table: dict[str, Any], entity: Entity) -> list[str]:
     for column in columns:
         if column["key"] in fixed:
             continue
-        lines.append(f"    {column['key']}: {create_annotation(column)}")
+        lines.append(
+            f"    {column['key']}: {create_annotation(column, defaults.get(column['key']))}"
+        )
     return lines
 
 
@@ -338,7 +388,7 @@ def header(module: Module, body: str) -> list[str]:
     entity = sorted(base for base in ENTITY_BASES if used(base))
     data = sorted(symbol for symbol in DATA_IMPORTS if used(symbol))
     tables = ", ".join(f"`{entity.table}`" for entity in module.entities)
-    names = ", ".join(entity.name for entity in module.entities)
+    names = ", ".join(sorted(entity.name for entity in module.entities))
 
     lines = [
         BANNER,
@@ -350,15 +400,18 @@ def header(module: Module, body: str) -> list[str]:
     if used("UUID"):
         lines.append("from uuid import UUID")
     lines.append("")
+    if re.search(r"\bField\(", body):
+        lines.append("from pydantic import Field")
+        lines.append("")
     lines.append("from ceres.__internal__.entity import (")
     lines.extend(f"    {symbol}," for symbol in entity)
     lines.append(")")
+    if used("Address"):
+        lines.append("from ceres.address import Address")
     if data:
         lines.append("from ceres.data import (")
         lines.extend(f"    {symbol}," for symbol in data)
         lines.append(")")
-    if used("Address"):
-        lines.append("from ceres.address import Address")
     lines.extend(
         [
             "",
@@ -399,11 +452,24 @@ def footer(module: Module) -> list[str]:
     ]
 
 
+def formatted(name: str, text: str) -> str:
+    """Canonicalize with the project formatter, which wraps wide class headers."""
+    result = subprocess.run(
+        ["ruff", "format", "--stdin-filename", name, "-"],
+        input=text,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return result.stdout
+
+
 def render_module(module: Module, tables: dict[str, dict[str, Any]]) -> str:
     bodies = [render_entity(tables[entity.table], entity) for entity in module.entities]
     body = "\n\n\n".join("\n".join(lines).rstrip() for lines in bodies)
     text = "\n".join(header(module, body)) + "\n" + body
-    return text.rstrip() + "\n" + "\n".join(footer(module)) + "\n"
+    text = text.rstrip() + "\n" + "\n".join(footer(module)) + "\n"
+    return formatted(module.file, text)
 
 
 def main() -> int:

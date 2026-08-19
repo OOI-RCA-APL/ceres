@@ -44,9 +44,6 @@ type SettingOrder = Literal[
     "name",
     "name:asc",
     "name:desc",
-    "value",
-    "value:asc",
-    "value:desc",
 ]
 """Ordering keys accepted by `Setting` queries."""
 
