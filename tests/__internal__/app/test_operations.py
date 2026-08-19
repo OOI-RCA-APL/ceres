@@ -13,6 +13,9 @@ def test_yaml_filter_keys_parse_at_the_edge():
     quoted = _filter(VariableFilter, {"query": [("value", '"5"')]})
     assert quoted.value == "5"
 
+    repeated = _filter(VariableFilter, {"query": [("value", "1"), ("value", "2")]})
+    assert repeated.value == [1, 2]
+
 
 def test_other_keys_validate_from_their_text():
     parsed = _filter(VariableFilter, {"query": [("name", "x"), ("limit", "3")]})

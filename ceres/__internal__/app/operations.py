@@ -77,10 +77,16 @@ def _filter[T](model: type[T], arguments: dict[str, Any], limit: int | None = No
     data = _pairs(arguments)
 
     # A YAML-valued key arrives as text here and the model takes values as passed, so
-    # the parse happens at this edge for the query to compare typed values.
+    # the parse happens at this edge for the query to compare typed values. A repeated
+    # pair folds into a list, whose elements parse one by one.
     for name in getattr(model, "__yaml_filters__", frozenset()) & data.keys():
         if isinstance(data[name], str):
             data[name] = validate_yaml(Any, data[name])
+        elif isinstance(data[name], list):
+            data[name] = [
+                validate_yaml(Any, value) if isinstance(value, str) else value
+                for value in data[name]
+            ]
 
     if limit is not None:
         return validate(Annotated[model, Limit(limit)], data)
