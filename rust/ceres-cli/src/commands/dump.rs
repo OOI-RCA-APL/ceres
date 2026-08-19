@@ -1016,7 +1016,7 @@ fn prompt_password() -> Result<String> {
     };
     let password = read("User Password: ")?;
     if password != read("User Password (Confirm): ")? {
-        return Err(crate::error::Exit::failed("The passwords do not match."));
+        return Err(crate::error::Exit::failed("Passwords did not match."));
     }
 
     Ok(password)
