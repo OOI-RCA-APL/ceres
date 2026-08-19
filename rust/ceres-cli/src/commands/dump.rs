@@ -1014,8 +1014,8 @@ fn prompt_password() -> Result<String> {
         rpassword::prompt_password(prompt)
             .map_err(|error| crate::error::Exit::failed(format!("Failed to read it. {error}")))
     };
-    let password = read("Password: ")?;
-    if password != read("Repeat password: ")? {
+    let password = read("User Password: ")?;
+    if password != read("User Password (Confirm): ")? {
         return Err(crate::error::Exit::failed("The passwords do not match."));
     }
 
