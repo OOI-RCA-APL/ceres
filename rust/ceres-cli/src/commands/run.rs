@@ -59,9 +59,10 @@ pub fn run(
 
     // The engine only moves off its configured port when the dev console stands in for
     // the built-in one, so the host is told to rebind only then.
-    let server_port = development
-        .as_ref()
-        .and_then(|development| development.moved.then_some(development.engine));
+    let server_port = development.as_ref().and_then(|development| {
+        let addresses = &development.addresses;
+        addresses.moved.then_some(addresses.engine)
+    });
     let payload = payload(project, &args.addresses, false, server_port);
 
     if !args.watch && development.is_none() {
@@ -188,6 +189,8 @@ async fn resident(
 /// Start the host child.
 fn start(payload: &str) -> Result<Child> {
     tokio::process::Command::from(runtime::host(payload)?)
+        // A backstop for error paths, the ordinary shutdown escalating on its budget.
+        .kill_on_drop(true)
         .spawn()
         .map_err(|error| failure!("Failed to start the engine host. {error}"))
 }
@@ -246,6 +249,11 @@ fn watcher(
 ) -> Result<notify::RecommendedWatcher> {
     let config_path = project.config_path().to_owned();
     let rust_directory = rust.map(Path::to_owned);
+
+    let mut roots = vec![project.directory().to_owned(), package_directory()?];
+    roots.extend(rust.map(Path::to_owned));
+
+    let filter_roots = roots.clone();
     let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
         let Ok(event) = event else { return };
         if !matches!(
@@ -258,15 +266,18 @@ fn watcher(
         }
 
         for path in event.paths {
-            if relevant(&path, &config_path, rust_directory.as_deref()) {
+            if relevant(
+                &path,
+                &config_path,
+                &filter_roots,
+                rust_directory.as_deref(),
+            ) {
                 let _ = sender.send(path);
             }
         }
     })
     .map_err(|error| failure!("Failed to start the file watcher. {error}"))?;
 
-    let mut roots = vec![project.directory().to_owned(), package_directory()?];
-    roots.extend(rust.map(Path::to_owned));
     for root in roots {
         watcher
             .watch(&root, RecursiveMode::Recursive)
@@ -277,16 +288,32 @@ fn watcher(
 }
 
 /// Whether a changed path should restart the engine.
-fn relevant(path: &Path, config_path: &Path, rust: Option<&Path>) -> bool {
+fn relevant(path: &Path, config_path: &Path, roots: &[PathBuf], rust: Option<&Path>) -> bool {
     if path == config_path {
         return true;
     }
 
-    let ignored = path.components().any(|component| {
-        matches!(
-            component.as_os_str().to_str(),
-            Some(".git" | ".venv" | "__pycache__" | "node_modules" | "target")
-        )
+    // Only what sits below a watch root is judged, so a project living under a hidden
+    // parent, `~/.config` say, is not ignored wholesale. The longest matching root wins
+    // since the roots can nest.
+    let Some(below) = roots
+        .iter()
+        .filter_map(|root| path.strip_prefix(root).ok())
+        .min_by_key(|relative| relative.components().count())
+    else {
+        return false;
+    };
+
+    // Dot components cover version control, virtual environments, and tool caches in one
+    // stroke, and `site-packages` quiets a virtual environment whatever it is named.
+    let ignored = below.components().any(|component| {
+        component.as_os_str().to_str().is_some_and(|name| {
+            name.starts_with('.')
+                || matches!(
+                    name,
+                    "__pycache__" | "node_modules" | "site-packages" | "target"
+                )
+        })
     });
     if ignored {
         return false;
@@ -332,11 +359,7 @@ async fn rebuild(source: &Path) -> bool {
 /// The console dev server for a development source, and where everything listens.
 struct Development {
     console_directory: PathBuf,
-    host: String,
-    engine: u16,
-    console: u16,
-    /// Whether the engine moved off its configured port, which the host must then rebind.
-    moved: bool,
+    addresses: Addresses,
 }
 
 impl Development {
@@ -352,13 +375,9 @@ impl Development {
         }
 
         let meta = project.load_meta()?;
-        let addresses = assign_addresses(&meta.server.host, meta.server.port, console_port)?;
         Ok(Self {
             console_directory,
-            host: addresses.host,
-            engine: addresses.engine,
-            console: addresses.console,
-            moved: addresses.moved,
+            addresses: assign_addresses(&meta.server.host, meta.server.port, console_port)?,
         })
     }
 
@@ -367,25 +386,28 @@ impl Development {
     /// It proxies API calls through to the engine and holds its websockets straight to
     /// it, so it is told where the engine ended up rather than assuming the default port.
     fn spawn(&self, output: &Output) -> Result<Child> {
+        let addresses = &self.addresses;
         let child = tokio::process::Command::new("npm")
             .args(["run", "dev"])
             .current_dir(&self.console_directory)
             // Bound where the engine's own server would be, standing in for it. Nuxt
             // otherwise defaults to `localhost`, which Node resolves to the IPv6
             // loopback alone.
-            .env("NUXT_HOST", &self.host)
-            .env("NUXT_PORT", self.console.to_string())
+            .env("NUXT_HOST", &addresses.host)
+            .env("NUXT_PORT", addresses.console.to_string())
             // Read by the dev proxy for API calls and by the console itself for
             // websockets, which the proxy cannot upgrade and which therefore go straight
             // to the engine.
-            .env("CERES_API_PORT", self.engine.to_string())
-            .env("VITE_CERES_API_PORT", self.engine.to_string())
+            .env("CERES_API_PORT", addresses.engine.to_string())
+            .env("VITE_CERES_API_PORT", addresses.engine.to_string())
+            // A backstop for error paths, the ordinary shutdown terminating gracefully.
+            .kill_on_drop(true)
             .spawn()
             .map_err(|error| failure!("Failed to start the console dev server. {error}"))?;
 
         output.write(format!(
             "Console dev server on port {}, engine on {}.",
-            self.console, self.engine
+            addresses.console, addresses.engine
         ));
         Ok(child)
     }
@@ -393,8 +415,7 @@ impl Development {
 
 /// Stop the console dev server.
 ///
-/// Terminated rather than dropped, a dev server otherwise outliving the run and holding
-/// its port against the next one.
+/// Terminated and awaited so the run releases the console's port on the way out.
 async fn stop_console(child: &mut Child) {
     #[cfg(unix)]
     terminate(child);
@@ -422,6 +443,7 @@ struct Addresses {
     host: String,
     engine: u16,
     console: u16,
+    /// Whether the engine moved off its configured port, which the host must then rebind.
     moved: bool,
 }
 
@@ -558,25 +580,40 @@ mod tests {
     fn a_source_edit_is_only_relevant_where_it_can_matter() {
         let config = Path::new("/project/ceres.yaml");
         let rust = Path::new("/source/rust");
+        let roots = [PathBuf::from("/project"), PathBuf::from("/source/rust")];
+        let judge = |path: &str, rust| relevant(Path::new(path), config, &roots, rust);
 
-        assert!(relevant(config, config, None));
-        assert!(relevant(Path::new("/project/driver.py"), config, None));
-        assert!(relevant(
-            Path::new("/source/rust/lib.rs"),
-            config,
-            Some(rust)
+        assert!(relevant(config, config, &roots, None));
+        assert!(judge("/project/driver.py", None));
+        assert!(judge("/source/rust/lib.rs", Some(rust)));
+        assert!(!judge("/source/rust/lib.rs", None));
+        assert!(!judge("/project/notes.txt", None));
+        assert!(!judge("/project/__pycache__/driver.py", None));
+        assert!(!judge("/project/.venv/lib/site.py", None));
+        assert!(!judge(
+            "/project/venv/lib/python3/site-packages/thing.py",
+            None
         ));
-        assert!(!relevant(Path::new("/source/rust/lib.rs"), config, None));
-        assert!(!relevant(Path::new("/project/notes.txt"), config, None));
-        assert!(!relevant(
-            Path::new("/project/__pycache__/driver.py"),
+        assert!(!judge("/source/rust/target/debug/build.rs", Some(rust)));
+        assert!(!judge("/elsewhere/driver.py", None));
+    }
+
+    #[test]
+    fn a_project_under_a_hidden_parent_is_still_watched() {
+        let config = Path::new("/home/user/.config/project/ceres.yaml");
+        let roots = [PathBuf::from("/home/user/.config/project")];
+
+        assert!(relevant(
+            Path::new("/home/user/.config/project/driver.py"),
             config,
+            &roots,
             None
         ));
         assert!(!relevant(
-            Path::new("/source/rust/target/debug/build.rs"),
+            Path::new("/home/user/.config/project/.venv/site.py"),
             config,
-            Some(rust)
+            &roots,
+            None
         ));
     }
 }

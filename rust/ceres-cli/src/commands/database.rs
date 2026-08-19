@@ -3,10 +3,11 @@
 //! Everything here runs on the native store, reading the project's database
 //! configuration directly, so no command in the group needs the Python runtime.
 
+use std::collections::HashSet;
 use std::io::Write;
 use std::path::Path;
 
-use ceres_config::DatabaseConfig;
+use ceres_config::{DatabaseConfig, SharedDatabaseConfig};
 use ceres_database::migrations::{self, Migration, MigrationReporter, ReporterError};
 use ceres_database::{EntityTable, RecordStore, RecordTable, SqlDialect};
 
@@ -157,6 +158,19 @@ fn confirmed(question: &str) -> Result<bool> {
     }
 }
 
+/// Open the project's writable store, run one command against it, and clean up.
+///
+/// The store closes before a temporary database file is deleted, so its pool never
+/// touches a file on the way out.
+fn with_store(project: &Project, run: impl AsyncFnOnce(&RecordStore) -> Result<()>) -> Result<()> {
+    let meta = project.load_meta()?;
+    let (runtime, store, file) = open_writable(&meta.database, project.directory())?;
+    let outcome = runtime.block_on(run(&store));
+    drop(store);
+    file.cleanup();
+    outcome
+}
+
 /// Print the DDL statements used for database initialization to stdout.
 pub fn ddl(project: &Project) -> Result<()> {
     let meta = project.load_meta()?;
@@ -171,13 +185,9 @@ pub fn ddl(project: &Project) -> Result<()> {
 
 /// Print each known migration with its applied or pending status.
 pub fn list_migrations(project: &Project, output: &Output) -> Result<()> {
-    let meta = project.load_meta()?;
-    let (runtime, store, file) = open_writable(&meta.database, project.directory())?;
-
-    let outcome = runtime.block_on(async {
-        ping(&store).await?;
-        let applied = applied_set(&store).await?;
-        let unknown = unknown_ids(&store).await?;
+    with_store(project, async |store| {
+        ping(store).await?;
+        let applied = applied_set(store).await?;
 
         for migration in migrations::all() {
             let status = if applied.contains(&migration.id()) {
@@ -192,42 +202,27 @@ pub fn list_migrations(project: &Project, output: &Output) -> Result<()> {
             ));
         }
 
-        for id in unknown {
+        for id in unknown_ids(&applied) {
             output.write(format!(
                 "{id}: unknown (database is newer than this version)"
             ));
         }
 
         Ok(())
-    });
-
-    drop(store);
-    file.cleanup();
-    outcome
+    })
 }
 
 /// List pending migrations, prompt for confirmation, and apply them in order.
 pub fn migrate(project: &Project, output: &Output, yes: bool) -> Result<()> {
-    let meta = project.load_meta()?;
-    let (runtime, store, file) = open_writable(&meta.database, project.directory())?;
-    let outcome = runtime.block_on(run_migrate(&store, output, yes));
-    drop(store);
-    file.cleanup();
-    outcome
+    with_store(project, async |store| run_migrate(store, output, yes).await)
 }
 
 async fn run_migrate(store: &RecordStore, output: &Output, yes: bool) -> Result<()> {
     ping(store).await?;
 
-    let unknown = unknown_ids(store).await?;
-    if !unknown.is_empty() {
-        return Err(Exit::failed(format!(
-            "Database contains migrations unknown to this version of ceres: {}.",
-            join_ids(&unknown)
-        )));
-    }
-
     let applied = applied_set(store).await?;
+    refuse_unknown(&applied)?;
+
     let pending: Vec<&Migration> = migrations::all()
         .iter()
         .filter(|migration| !applied.contains(&migration.id()))
@@ -237,8 +232,7 @@ async fn run_migrate(store: &RecordStore, output: &Output, yes: bool) -> Result<
         return Ok(());
     }
 
-    // A database nothing has been applied to is being created rather than migrated so
-    // the run reads as one step rather than a named list.
+    // A database with nothing applied is being created, so the run reads as one step.
     let bootstrapping = applied.is_empty();
     let question = if bootstrapping {
         "Create the project database?"
@@ -318,12 +312,7 @@ impl MigrationReporter for Progress<'_> {
 
 /// Prompt for confirmation, then truncate every table in the project database.
 pub fn clear(project: &Project, output: &Output) -> Result<()> {
-    let meta = project.load_meta()?;
-    let (runtime, store, file) = open_writable(&meta.database, project.directory())?;
-    let outcome = runtime.block_on(run_clear(&store, output));
-    drop(store);
-    file.cleanup();
-    outcome
+    with_store(project, async |store| run_clear(store, output).await)
 }
 
 async fn run_clear(store: &RecordStore, output: &Output) -> Result<()> {
@@ -370,16 +359,9 @@ async fn run_clear(store: &RecordStore, output: &Output) -> Result<()> {
 
 /// Verify the database schema matches this version of Ceres.
 async fn assert_schema_current(store: &RecordStore) -> Result<()> {
-    let unknown = unknown_ids(store).await?;
-    if !unknown.is_empty() {
-        return Err(Exit::failed(format!(
-            "Database contains migrations unknown to this Ceres version: {}. The database \
-             is newer than the running version.",
-            join_ids(&unknown)
-        )));
-    }
-
     let applied = applied_set(store).await?;
+    refuse_unknown(&applied)?;
+
     let pending = migrations::all()
         .iter()
         .filter(|migration| !applied.contains(&migration.id()))
@@ -433,39 +415,48 @@ pub fn shell(project: &Project) -> Result<()> {
                 file.path
             )));
         }
-        DatabaseConfig::Sqlite(_) | DatabaseConfig::Turso(_) => {
-            let (path, shared, extension) = match &meta.database {
-                DatabaseConfig::Sqlite(sqlite) => (&sqlite.path, &sqlite.shared, "sqlite"),
-                DatabaseConfig::Turso(turso) => (&turso.path, &turso.shared, "turso"),
-                DatabaseConfig::Postgres(_) => unreachable!("matched above"),
-            };
-            let file = DatabaseFile::resolve(path.as_deref(), project.directory(), extension)?;
-
-            command = executable("sqlite3")?;
-            command.arg(&file.path);
-            // The setup statements run silenced so the shell opens quiet, then output
-            // comes back for the session itself.
-            command.args(["-cmd", &format!(".output {}", os_null())]);
-            // What the store sets on every connection it opens so the shell sees the
-            // database the way the running engine does. A shell without foreign keys on
-            // would let a statement through that the engine would refuse.
-            for statement in ["PRAGMA foreign_keys = ON", "PRAGMA busy_timeout = 30000"] {
-                command.args(["-cmd", statement]);
-            }
-
-            for statement in shared.hooks.connect.iter().flatten() {
-                command.args(["-cmd", statement]);
-            }
-
-            for statement in shared.hooks.init.iter().flatten() {
-                command.args(["-cmd", statement]);
-            }
-
-            command.args(["-cmd", ".output"]);
+        DatabaseConfig::Sqlite(sqlite) => {
+            command = sqlite_shell(project, sqlite.path.as_deref(), &sqlite.shared, "sqlite")?;
+        }
+        DatabaseConfig::Turso(turso) => {
+            command = sqlite_shell(project, turso.path.as_deref(), &turso.shared, "turso")?;
         }
     }
 
     match runtime::replace(command)? {}
+}
+
+/// The `sqlite3` invocation for a SQLite-family database, hooks applied.
+fn sqlite_shell(
+    project: &Project,
+    path: Option<&Path>,
+    shared: &SharedDatabaseConfig,
+    extension: &str,
+) -> Result<std::process::Command> {
+    let file = DatabaseFile::resolve(path, project.directory(), extension)?;
+
+    let mut command = executable("sqlite3")?;
+    command.arg(&file.path);
+    // The setup statements run silenced so the shell opens quiet, then output comes back
+    // for the session itself.
+    command.args(["-cmd", &format!(".output {}", os_null())]);
+    // What the store sets on every connection it opens so the shell sees the database the
+    // way the running engine does. A shell without foreign keys on would let a statement
+    // through that the engine would refuse.
+    for statement in ["PRAGMA foreign_keys = ON", "PRAGMA busy_timeout = 30000"] {
+        command.args(["-cmd", statement]);
+    }
+
+    for statement in shared.hooks.connect.iter().flatten() {
+        command.args(["-cmd", statement]);
+    }
+
+    for statement in shared.hooks.init.iter().flatten() {
+        command.args(["-cmd", statement]);
+    }
+
+    command.args(["-cmd", ".output"]);
+    Ok(command)
 }
 
 /// The platform's discard file, where the shell's setup output goes.
@@ -485,26 +476,37 @@ fn executable(name: &str) -> Result<std::process::Command> {
 }
 
 /// The applied migration IDs as a set, with store failures worded for the reader.
-async fn applied_set(store: &RecordStore) -> Result<std::collections::HashSet<i64>> {
+async fn applied_set(store: &RecordStore) -> Result<HashSet<i64>> {
     migrations::applied_ids(store)
         .await
         .map(|ids| ids.into_iter().collect())
         .map_err(|error| Exit::failed(error.to_string()))
 }
 
-/// The applied migration IDs this version does not know about.
-async fn unknown_ids(store: &RecordStore) -> Result<Vec<i64>> {
-    let known: std::collections::HashSet<i64> = migrations::all()
+/// The applied migration IDs this version does not know about, in ascending order.
+fn unknown_ids(applied: &HashSet<i64>) -> Vec<i64> {
+    let known: HashSet<i64> = migrations::all().iter().map(Migration::id).collect();
+    let mut unknown: Vec<i64> = applied
         .iter()
-        .map(ceres_database::migrations::Migration::id)
-        .collect();
-    let applied = migrations::applied_ids(store)
-        .await
-        .map_err(|error| Exit::failed(error.to_string()))?;
-    Ok(applied
-        .into_iter()
+        .copied()
         .filter(|id| !known.contains(id))
-        .collect())
+        .collect();
+    unknown.sort_unstable();
+    unknown
+}
+
+/// Refuse to touch a database whose applied migrations outrun this version.
+fn refuse_unknown(applied: &HashSet<i64>) -> Result<()> {
+    let unknown = unknown_ids(applied);
+    if unknown.is_empty() {
+        return Ok(());
+    }
+
+    Err(Exit::failed(format!(
+        "Database contains migrations unknown to this version of ceres: {}. The database \
+         is newer than the running version.",
+        join_ids(&unknown)
+    )))
 }
 
 /// Comma-separated IDs, for the messages that list them.

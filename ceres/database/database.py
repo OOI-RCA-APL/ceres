@@ -257,10 +257,7 @@ class Database:
     def ddl(self) -> list[str]:
         """Every script that creates this backend's schema, in the order they run.
 
-        The migrations are the schema so what initializes a database is the chain a fresh
-        one runs rather than a separate description of the result. The bookkeeping table
-        comes first since it is what records the rest as they are applied, and a migration
-        with no script for this backend is a recorded no-op that contributes nothing.
+        See `migration_ddl` for the ordering and how dialect-specific scripts render.
         """
         return migration_ddl(self.type.value, MIGRATIONS)
 

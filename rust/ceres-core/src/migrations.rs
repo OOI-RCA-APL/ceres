@@ -5,9 +5,10 @@
 //! migration work rather than holding a runner of its own.
 
 use std::collections::HashMap;
-use std::sync::Arc;
 
-use ceres_database::migrations::{MigrateError, MigrationReporter, ReporterError, parse_dialect};
+use ceres_database::migrations::{
+    self as native, MigrateError, MigrationReporter, ReporterError, parse_dialect,
+};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pyfunction, gen_stub_pymethods};
@@ -23,7 +24,7 @@ use crate::store::Store;
 #[pyclass(module = "ceres.__internal__.core", frozen)]
 #[derive(Clone)]
 pub struct Migration {
-    pub(crate) inner: ceres_database::migrations::Migration,
+    pub(crate) inner: native::Migration,
 }
 
 #[gen_stub_pymethods]
@@ -51,8 +52,7 @@ impl Migration {
             })
             .collect::<PyResult<Vec<_>>>()?;
 
-        let inner = ceres_database::migrations::Migration::new(id, name, scripts)
-            .map_err(PyValueError::new_err)?;
+        let inner = native::Migration::new(id, name, scripts).map_err(PyValueError::new_err)?;
         Ok(Self { inner })
     }
 
@@ -90,7 +90,7 @@ impl Migration {
 #[gen_stub_pyfunction]
 #[pyfunction]
 pub fn migrations() -> Vec<Migration> {
-    ceres_database::migrations::all()
+    native::all()
         .iter()
         .map(|inner| Migration {
             inner: inner.clone(),
@@ -111,14 +111,14 @@ pub fn migration_ddl(dialect: &str, migrations: Vec<Migration>) -> PyResult<Vec<
         .into_iter()
         .map(|migration| migration.inner)
         .collect();
-    Ok(ceres_database::migrations::ddl(&migrations, dialect))
+    Ok(native::ddl(&migrations, dialect))
 }
 
 /// Return the warning to log before a migration that discards data runs, by name.
 #[gen_stub_pyfunction]
 #[pyfunction]
 pub fn destructive_migration_warning(name: &str) -> Option<&'static str> {
-    ceres_database::migrations::destructive_warning(name)
+    native::destructive_warning(name)
 }
 
 /// Forward the runner's progress to a Python reporter object.
@@ -131,11 +131,7 @@ struct PyReporter {
 }
 
 impl PyReporter {
-    fn handle(
-        &self,
-        py: Python<'_>,
-        migration: &ceres_database::migrations::Migration,
-    ) -> Py<Migration> {
+    fn handle(&self, py: Python<'_>, migration: &native::Migration) -> Py<Migration> {
         self.handles
             .get(&migration.id())
             .expect("every migration in the run was handed over")
@@ -146,7 +142,7 @@ impl PyReporter {
 impl MigrationReporter for PyReporter {
     fn starting(
         &mut self,
-        migration: &ceres_database::migrations::Migration,
+        migration: &native::Migration,
         index: usize,
         total: usize,
     ) -> Result<(), ReporterError> {
@@ -158,10 +154,7 @@ impl MigrationReporter for PyReporter {
         .map_err(|error| Box::new(error) as ReporterError)
     }
 
-    fn finished(
-        &mut self,
-        migration: &ceres_database::migrations::Migration,
-    ) -> Result<(), ReporterError> {
+    fn finished(&mut self, migration: &native::Migration) -> Result<(), ReporterError> {
         Python::attach(|py| {
             self.reporter
                 .call_method1(py, "finished", (self.handle(py, migration),))
@@ -196,7 +189,7 @@ impl Store {
     fn initialized<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let store = self.store.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            ceres_database::migrations::initialized(&store)
+            native::initialized(&store)
                 .await
                 .map_err(crate::interop::to_value_error)
         })
@@ -209,7 +202,7 @@ impl Store {
     fn applied_migration_ids<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let store = self.store.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            ceres_database::migrations::applied_ids(&store)
+            native::applied_ids(&store)
                 .await
                 .map_err(crate::interop::to_value_error)
         })
@@ -240,15 +233,13 @@ impl Store {
             })
             .collect();
         let mut reporter = reporter.map(|reporter| PyReporter { reporter, handles });
-        let store: Arc<ceres_database::RecordStore> = self.store.clone();
+        let store = self.store.clone();
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
             let outcome = match reporter.as_mut() {
-                Some(reporter) => {
-                    ceres_database::migrations::migrate(&store, &natives, reporter).await
-                }
+                Some(reporter) => native::migrate(&store, &natives, reporter).await,
                 None => {
-                    let mut silent = ceres_database::migrations::SilentReporter;
-                    ceres_database::migrations::migrate(&store, &natives, &mut silent).await
+                    let mut silent = native::SilentReporter;
+                    native::migrate(&store, &natives, &mut silent).await
                 }
             };
 

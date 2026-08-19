@@ -194,11 +194,9 @@ async def _run(config_path: Path, addresses: Sequence[str], server_port: int | N
 
         with _signal_handler([signal.SIGINT, signal.SIGTERM], handle_exit_signal):
             await serve()
+    except HostFailed:
+        raise
     except Exception as exception:
-        if isinstance(exception, HostFailed):
-            raise
-
-        # Structured errors carry an actionable message, show it instead of a traceback.
         message = getattr(exception, "message", None) or getattr(exception, "reason", None)
         if isinstance(exception, Error) and isinstance(message, str):
             raise HostFailed(f"Engine startup failed. {message}")

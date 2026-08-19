@@ -168,8 +168,8 @@ Generate up-to-date OpenAPI schema for the Ceres Rest API.
 | Option | Required | Description |
 | --- | --- | --- |
 | `--output` `PATH` |  | File path to write to. Standard output is used if not specified. |
-| `--format` `FORMAT` |  | Specify the output file format. |
-| `--indent` `INDENT` |  | Specify indentation size of output. |
+| `--format` `FORMAT` |  | The output format. |
+| `--indent` `INDENT` |  | Indentation width for JSON output. |
 
 ### `ceres alerts`
 

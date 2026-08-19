@@ -781,6 +781,7 @@ pub(crate) fn open_postgres(
         }
     }
 
+    let (on_init, on_connect, on_close) = shared_hooks(&postgres.shared);
     RecordStore::postgres(
         &postgres.host,
         postgres.port,
@@ -789,9 +790,9 @@ pub(crate) fn open_postgres(
         postgres.password.as_ref().map(|secret| secret.expose()),
         settings,
         parameters,
-        postgres.shared.hooks.init.clone().unwrap_or_default(),
-        postgres.shared.hooks.connect.clone().unwrap_or_default(),
-        postgres.shared.hooks.close.clone().unwrap_or_default(),
+        on_init,
+        on_connect,
+        on_close,
     )
     .map_err(|error| error.to_string())
 }

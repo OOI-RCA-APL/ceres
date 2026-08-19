@@ -4,10 +4,9 @@
 //! directory, named `<id>-<name>.sql` for a script shared across dialects, or
 //! `<id>-<name>.sqlite.sql` / `<id>-<name>.postgres.sql` when the SQL differs by backend.
 //! The runner records each applied migration in a `migrations` bookkeeping table it
-//! creates for itself, and applies a script together with its record as one batch so a
-//! migration cannot land without being recorded and then run twice.
+//! creates for itself. See [`migrate`] for how a script and its record travel together.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
 use include_dir::{Dir, include_dir};
@@ -62,8 +61,7 @@ pub fn table_ddl(dialect: SqlDialect) -> &'static str {
 /// Return the warning to log before a migration that discards data runs.
 ///
 /// A migration belongs here only while operators still have it ahead of them. Once every
-/// deployment has run it the warning is noise on each load, and a warning nobody can act
-/// on teaches people to ignore the ones that matter.
+/// deployment has run it the warning is noise on each load.
 pub fn destructive_warning(name: &str) -> Option<&'static str> {
     let _ = name;
     None
@@ -84,10 +82,9 @@ pub fn parse_dialect(value: &str) -> Option<SqlDialect> {
 
 /// Every script that creates the schema, in the order they run.
 ///
-/// The migrations are the schema so what initializes a database is the chain a fresh one
-/// runs rather than a separate description of the result. The bookkeeping table comes
-/// first since it is what records the rest as they are applied, and a migration with no
-/// script for this dialect is a recorded no-op that contributes nothing.
+/// The migrations are the schema, so a fresh database runs the whole chain. The
+/// bookkeeping table comes first since it records the rest as they are applied, and a
+/// migration with no script for this dialect contributes nothing.
 pub fn ddl(migrations: &[Migration], dialect: SqlDialect) -> Vec<String> {
     let scripts = migrations
         .iter()
@@ -335,7 +332,7 @@ pub async fn initialized(store: &RecordStore) -> Result<bool, Error> {
     };
 
     let rows = store.fetch_dynamic(None, sql, Vec::new()).await?;
-    let present: std::collections::HashSet<&str> = rows
+    let present: HashSet<&str> = rows
         .iter()
         .flat_map(|row| row.iter())
         .filter_map(|(column, cell)| match cell {
@@ -382,7 +379,7 @@ pub async fn migrate(
     migrations: &[Migration],
     reporter: &mut (dyn MigrationReporter + Send),
 ) -> Result<Vec<i64>, MigrateError> {
-    let recorded: std::collections::HashSet<i64> = applied_ids(store).await?.into_iter().collect();
+    let recorded: HashSet<i64> = applied_ids(store).await?.into_iter().collect();
     let pending: Vec<&Migration> = migrations
         .iter()
         .filter(|migration| !recorded.contains(&migration.id))
@@ -652,7 +649,7 @@ mod tests {
     }
 
     /// The names of every `kind` ("table" or "index") the schema holds.
-    async fn names(store: &RecordStore, kind: &str) -> std::collections::HashSet<String> {
+    async fn names(store: &RecordStore, kind: &str) -> HashSet<String> {
         let rows = store
             .fetch_dynamic(
                 None,

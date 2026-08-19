@@ -239,11 +239,11 @@ pub struct OpenapiArgs {
     #[arg(long, value_name = "PATH")]
     pub output: Option<PathBuf>,
 
-    /// Specify the output file format.
+    /// The output format.
     #[arg(long, value_enum, default_value_t = SchemaFormat::Yaml)]
     pub format: SchemaFormat,
 
-    /// Specify indentation size of output.
+    /// Indentation width for JSON output.
     #[arg(long, default_value_t = 2)]
     pub indent: u64,
 }
