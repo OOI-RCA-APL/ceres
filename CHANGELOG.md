@@ -8,6 +8,14 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+**CLI**
+
+- Read a `.env` file from the project directory into the environment for every command.
+- Run the whole stack from a source checkout with `--development-source`, which now builds
+  the checkout's CLI, points the environment at an editable install of it, and delegates
+  the command to its binary. The `CERES_DEVELOPMENT_SOURCE` environment variable provides
+  a standing default the flag overrides.
+
 ## [0.44.1] - 2026-08-17
 
 **Fixes**

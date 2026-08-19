@@ -676,6 +676,7 @@ dependencies = [
  "ceres-entities",
  "chrono",
  "clap",
+ "dotenvy",
  "libc",
  "mimalloc",
  "plist",

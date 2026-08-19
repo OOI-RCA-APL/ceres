@@ -12,6 +12,29 @@ use clap::{Args, Parser, Subcommand};
 /// The Ceres package version, read from pyproject.toml at build time.
 pub const VERSION: &str = env!("CERES_VERSION");
 
+/// The value of a long flag, read from the raw arguments.
+///
+/// The delegated commands capture trailing arguments wholesale, which hides their flags
+/// from clap, so the raw arguments are the one place every position of a flag is visible.
+pub fn flag_value(arguments: &[OsString], flag: &str) -> Option<PathBuf> {
+    let mut iterator = arguments.iter();
+    while let Some(argument) = iterator.next() {
+        if argument == flag {
+            return iterator.next().map(PathBuf::from);
+        }
+
+        if let Some(value) = argument
+            .to_str()
+            .and_then(|text| text.strip_prefix(flag))
+            .and_then(|text| text.strip_prefix('='))
+        {
+            return Some(PathBuf::from(value));
+        }
+    }
+
+    None
+}
+
 #[derive(Debug, Parser)]
 #[command(
     name = "ceres",
@@ -26,6 +49,12 @@ pub struct Cli {
     /// Use a specific Ceres configuration file, possibly outside the current working directory.
     #[arg(long, global = true, value_name = "PATH")]
     pub config: Option<PathBuf>,
+
+    /// Run against a Ceres source checkout, building its CLI, pointing this environment at
+    /// an editable install of it, and delegating the command to its binary. Defaults to the
+    /// CERES_DEVELOPMENT_SOURCE environment variable.
+    #[arg(long, global = true, value_name = "PATH")]
+    pub development_source: Option<PathBuf>,
 
     /// Enable colorized output.
     #[arg(long, global = true, overrides_with = "no_color")]

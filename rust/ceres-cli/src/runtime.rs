@@ -16,8 +16,7 @@ use crate::error::{Result, failure};
 
 /// Replace the current process with the runtime running the given CLI arguments.
 ///
-/// Only returns on failure. On platforms without `exec`, wait for the child and exit with
-/// its status.
+/// Only returns on failure.
 pub fn delegate(arguments: Vec<OsString>) -> Result<std::convert::Infallible> {
     let python = find_python()?;
 
@@ -27,19 +26,29 @@ pub fn delegate(arguments: Vec<OsString>) -> Result<std::convert::Infallible> {
         .arg("ceres.__internal__.cli")
         .args(&arguments);
 
+    replace(command)
+}
+
+/// Replace the current process with the given command.
+///
+/// Only returns on failure. On platforms without `exec`, wait for the child and exit with
+/// its status.
+pub(crate) fn replace(mut command: Command) -> Result<std::convert::Infallible> {
+    let name = PathBuf::from(command.get_program());
+
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
 
         let error = command.exec();
-        Err(failure!("Failed to execute {}. {error}", python.display()))
+        Err(failure!("Failed to execute {}. {error}", name.display()))
     }
 
     #[cfg(not(unix))]
     {
         let status = command
             .status()
-            .map_err(|error| failure!("Failed to execute {}. {error}", python.display()))?;
+            .map_err(|error| failure!("Failed to execute {}. {error}", name.display()))?;
 
         Err(Exit::status(status.code().unwrap_or(1)))
     }
@@ -56,7 +65,7 @@ pub fn delegate(arguments: Vec<OsString>) -> Result<std::convert::Infallible> {
 /// 3. A `python` executable next to this binary's resolved path.
 /// 4. The active virtual environment's interpreter via `VIRTUAL_ENV`.
 /// 5. `python3`, then `python`, on `PATH`.
-fn find_python() -> Result<PathBuf> {
+pub(crate) fn find_python() -> Result<PathBuf> {
     if let Some(python) = std::env::var_os("CERES_PYTHON") {
         return Ok(PathBuf::from(python));
     }
@@ -111,7 +120,7 @@ pub fn invoked_executable() -> Option<PathBuf> {
 }
 
 /// Find an executable by name on `PATH`.
-fn which(name: &str) -> Option<PathBuf> {
+pub(crate) fn which(name: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
     for directory in std::env::split_paths(&path) {
         let candidate = directory.join(name);

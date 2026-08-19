@@ -3,6 +3,7 @@
 mod cli;
 mod client;
 mod commands;
+mod develop;
 mod error;
 mod highlight;
 mod output;
@@ -34,6 +35,21 @@ static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
 fn main() -> ExitCode {
     // Delegation replays the original arguments untouched, so capture them before parsing.
     let arguments: Vec<OsString> = std::env::args_os().skip(1).collect();
+
+    // The project's .env applies to everything that follows, including the delegation
+    // resolution below and every delegated child.
+    project::load_env(cli::flag_value(&arguments, "--config").as_deref());
+
+    // A development source takes over before any parsing, since the delegated commands'
+    // trailing capture hides the flag from clap.
+    if let Some(source) = develop::resolve(&arguments)
+        && !develop::delegated()
+    {
+        let output = Output::new(None);
+        let outcome = develop::delegate(&source, arguments).map(|never| match never {});
+        return report(outcome, &output);
+    }
+
     let command = commands::surface::augment(Cli::command());
     let matches = command.get_matches();
 
@@ -118,8 +134,11 @@ fn run(cli: Cli, arguments: Vec<OsString>, output: &Output) -> Result<()> {
 
     match command {
         // Commands that load the engine or operate on the database run in the Python runtime.
-        Command::Run(_) | Command::Check(_) | Command::Database(_) | Command::Generate(_) => {
-            match runtime::delegate(arguments)? {}
+        // Run keeps the development-source flag for its console dev server, the others have
+        // no Python-side parameter for it.
+        Command::Run(_) => match runtime::delegate(develop::normalize_run(arguments))? {},
+        Command::Check(_) | Command::Database(_) | Command::Generate(_) => {
+            match runtime::delegate(develop::strip(&arguments))? {}
         }
 
         Command::Reload => {

@@ -155,8 +155,21 @@ server, which rebuilds as you edit and serves in place of the built-in console:
 ceres run all --development-source /path/to/ceres
 ```
 
-The flag exists only in source checkouts. `--development-console-port` serves the dev
-console on its own port instead, leaving the built-in one where it is.
+`--development-source` works from any installed Ceres and applies to every command, not
+just `run`. It builds the checkout's CLI, points the invoking environment at an editable
+install of the checkout, and delegates the command to the checkout's binary, so the whole
+stack runs from source. Each step announces itself on stderr. The
+`CERES_DEVELOPMENT_SOURCE` environment variable provides a standing default the flag
+overrides, and the CLI reads a `.env` file from the project directory, so a consumer
+project opts in with one line:
+
+```sh
+echo 'CERES_DEVELOPMENT_SOURCE=/path/to/ceres' >> .env
+```
+
+Delegation rebuilds only the CLI binary, so a change to the extension crates still needs
+`make install` in the checkout. `--development-console-port` serves the dev console on
+its own port instead, leaving the built-in one where it is.
 
 ## Testing
 
