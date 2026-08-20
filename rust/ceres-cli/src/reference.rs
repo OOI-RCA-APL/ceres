@@ -69,7 +69,7 @@ mod tests {
         let path = destination();
         std::fs::create_dir_all(path.parent().expect("a parent directory"))
             .expect("creating the dump directory");
-        let tree = describe(&surface::tree());
+        let tree = describe(&surface::declared());
         let written = serde_json::to_string_pretty(&tree).expect("serializing the command tree");
         std::fs::write(&path, written + "\n").expect("writing the command tree");
     }

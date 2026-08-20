@@ -705,8 +705,19 @@ fn write_arguments(verb: &str) -> Vec<Arg> {
     ]
 }
 
-/// The complete command tree: the declared commands plus every table command group.
+/// The complete command tree, as the user sees it.
+///
+/// Building injects clap's own help and version entries, so the tree is built here for
+/// punctuation to reach them.
 pub(crate) fn tree() -> Command {
+    let mut command = declared();
+    command.build();
+    punctuate(command)
+}
+
+/// The declared surface alone: the derived commands plus every table command group,
+/// without clap's built-in entries. The reference page renders from this.
+pub(crate) fn declared() -> Command {
     let command = Table::all()
         .into_iter()
         .fold(crate::cli::Cli::command(), |command, table| {

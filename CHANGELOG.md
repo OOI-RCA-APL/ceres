@@ -8,6 +8,11 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+**CLI**
+
+- End the built-in help entries with terminal punctuation like every declared one.
+- Skip rebuilding an unchanged development source, trimming delegated startup.
+
 ## [0.45.0] - 2026-08-19
 
 **CLI**
