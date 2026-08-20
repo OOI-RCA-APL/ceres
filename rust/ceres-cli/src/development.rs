@@ -83,20 +83,22 @@ pub fn delegate(source: &Path, arguments: Vec<OsString>, output: &Output) -> Res
 
     output.warn(format!("Ceres Source (Development): {}", source.display()));
 
-    let status = Command::new("cargo")
-        .args(["build", "-q", "-p", "ceres-cli"])
-        .current_dir(&rust)
-        .status()
-        .map_err(|error| {
-            failure!("Failed to run cargo to build the development source. {error}")
-        })?;
-    if !status.success() {
-        fail!("Building the development source CLI failed, see the cargo output above.");
+    let binary = rust.join("target").join("debug").join("ceres");
+    if !binary_is_current(&source, &rust, &binary) {
+        let status = Command::new("cargo")
+            .args(["build", "-q", "-p", "ceres-cli"])
+            .current_dir(&rust)
+            .status()
+            .map_err(|error| {
+                failure!("Failed to run cargo to build the development source. {error}")
+            })?;
+        if !status.success() {
+            fail!("Building the development source CLI failed, see the cargo output above.");
+        }
     }
 
     sync_environment(&source)?;
 
-    let binary = rust.join("target").join("debug").join("ceres");
     if !binary.is_file() {
         fail!("The built CLI is missing at {}.", binary.display());
     }
@@ -104,6 +106,67 @@ pub fn delegate(source: &Path, arguments: Vec<OsString>, output: &Output) -> Res
     let mut command = Command::new(&binary);
     command.args(&arguments).env(DELEGATED, "1");
     runtime::replace(command)
+}
+
+/// Whether the built CLI is at least as new as every input under the checkout.
+///
+/// A current binary skips the cargo invocation, whose no-op freshness check costs an
+/// order of magnitude more than this scan. The judgment is by file timestamps alone, so
+/// a change arriving only through the environment, such as `RUSTFLAGS`, still needs the
+/// binary deleted or a source touched. Any doubt falls back to cargo.
+fn binary_is_current(source: &Path, rust: &Path, binary: &Path) -> bool {
+    let Ok(built) = binary.metadata().and_then(|metadata| metadata.modified()) else {
+        return false;
+    };
+
+    // The build directory configuration lives at the checkout root rather than under
+    // `rust/`, and moving it relocates every artifact the scan is judging.
+    let configuration = source.join(".cargo").join("config.toml");
+    if configuration.is_file() && !older(&configuration, built) {
+        return false;
+    }
+
+    tree_is_older(rust, built)
+}
+
+/// Whether everything under `directory` predates `built`, judged conservatively.
+///
+/// Directory timestamps count too, because a deletion or rename touches only its parent
+/// directory. Build output and hidden entries are skipped, and anything unreadable reads
+/// as newer.
+fn tree_is_older(directory: &Path, built: std::time::SystemTime) -> bool {
+    if !older(directory, built) {
+        return false;
+    }
+
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return false;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name == "target" || name.starts_with('.') {
+            continue;
+        }
+
+        let path = entry.path();
+        if path.is_dir() {
+            if !tree_is_older(&path, built) {
+                return false;
+            }
+        } else if !older(&path, built) {
+            return false;
+        }
+    }
+
+    true
+}
+
+/// Whether one path's modification time predates `built`.
+fn older(path: &Path, built: std::time::SystemTime) -> bool {
+    path.metadata()
+        .and_then(|metadata| metadata.modified())
+        .is_ok_and(|modified| modified < built)
 }
 
 /// Point the environment's `ceres-engine` at an editable install of the source.
@@ -212,6 +275,37 @@ mod tests {
 
     fn arguments(values: &[&str]) -> Vec<OsString> {
         values.iter().map(OsString::from).collect()
+    }
+
+    #[test]
+    fn a_current_binary_skips_the_build_and_an_edit_forces_one() {
+        let checkout = tempfile::tempdir().unwrap();
+        let source = checkout.path();
+        let rust = source.join("rust");
+        let sources = rust.join("ceres-cli").join("src");
+        std::fs::create_dir_all(&sources).unwrap();
+        let main = sources.join("main.rs");
+        std::fs::write(&main, "fn main() {}").unwrap();
+
+        let debug = rust.join("target").join("debug");
+        std::fs::create_dir_all(&debug).unwrap();
+        let binary = debug.join("ceres");
+
+        // No binary yet, so the build must run.
+        assert!(!binary_is_current(source, &rust, &binary));
+
+        std::fs::write(&binary, "built").unwrap();
+        assert!(binary_is_current(source, &rust, &binary));
+
+        // An edit anywhere under the checkout makes the binary stale again, and so does
+        // a deletion, which only its parent directory's timestamp records.
+        std::fs::write(&main, "fn main() { }").unwrap();
+        assert!(!binary_is_current(source, &rust, &binary));
+
+        std::fs::write(&binary, "rebuilt").unwrap();
+        assert!(binary_is_current(source, &rust, &binary));
+        std::fs::remove_file(&main).unwrap();
+        assert!(!binary_is_current(source, &rust, &binary));
     }
 
     #[test]
