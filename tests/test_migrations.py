@@ -127,8 +127,8 @@ async def test_migrate_is_safe_under_concurrent_calls(database, monkeypatch):
 
 
 def test_the_registry_holds_the_embedded_migrations():
-    assert len(MIGRATIONS) == 8
-    assert [migration.id for migration in MIGRATIONS] == list(range(1, 9))
+    assert len(MIGRATIONS) == 9
+    assert [migration.id for migration in MIGRATIONS] == list(range(1, 10))
     assert MIGRATIONS[0].render("sqlite") is not None
 
 

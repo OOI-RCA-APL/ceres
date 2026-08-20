@@ -90,6 +90,7 @@ __all__ = [
 type ParticleField = (
     BaseRecordField
     | Literal[
+        "connection",
         "type",
         "data",
     ]
@@ -97,6 +98,9 @@ type ParticleField = (
 type ParticleOrder = (
     BaseRecordOrder
     | Literal[
+        "connection",
+        "connection:asc",
+        "connection:desc",
         "type",
         "type:asc",
         "type:desc",
@@ -218,6 +222,10 @@ class ParticleFilterArgs(
     """`TypedDict` of keyword arguments accepted by `ParticleQuery.where()`."""
 
     cls: ImportString[type[ParticleT]] | None
+    connection: MaybeSequence[str] | None
+    connection_contains: MaybeSequence[str] | None
+    connection_prefix: MaybeSequence[str] | None
+    connection_suffix: MaybeSequence[str] | None
     type: MaybeSequence[str] | None
     type_contains: MaybeSequence[str] | None
     type_prefix: MaybeSequence[str] | None
@@ -237,6 +245,14 @@ class ParticleFilter(
 
     cls: ImportString[builtins.type[ParticleT]] | None = Field(default=None, alias="class")
     """Filter by particles being instances of a specific data class."""
+    connection: MaybeSequence[str] | None = None
+    """Filter by `connection` being equal to one or more given connections."""
+    connection_contains: MaybeSequence[str] | None = None
+    """Filter by `connection` containing one or more given substrings."""
+    connection_prefix: MaybeSequence[str] | None = None
+    """Filter by `connection` starting with one or more given prefixes."""
+    connection_suffix: MaybeSequence[str] | None = None
+    """Filter by `connection` ending with one or more given suffixes."""
     type: MaybeSequence[str] | None = None
     """Filter by `type` being equal to one or more given types."""
     type_contains: MaybeSequence[str] | None = None
@@ -300,6 +316,11 @@ class ParticleFilter(
 class ParticleCreate(BaseRecordCreate, slots=True):
     """Payload accepted by `ParticleManager.create()` to insert a new particle."""
 
+    connection: Annotated[
+        str | None,
+        pydantic.Field(exclude_if=lambda value: value is None),
+    ] = None
+    """Name of the connection whose messages produced this particle, if one did."""
     type: str
     data: JSONSerializableDict
 
@@ -307,6 +328,7 @@ class ParticleCreate(BaseRecordCreate, slots=True):
 class ParticleUpdate(BaseRecordUpdate, total=False):
     """Partial payload accepted by `ParticleManager.update()` to modify an existing particle."""
 
+    connection: str | None
     type: str
     data: JSONSerializableDict
 

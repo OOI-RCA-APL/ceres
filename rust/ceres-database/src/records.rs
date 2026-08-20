@@ -289,6 +289,7 @@ impl FromRow for Particle {
             id: row.uuid("id")?,
             address: Address::trusted(row.text("address")?),
             timestamp: row.timestamp("timestamp")?,
+            connection: row.optional_text("connection")?,
             kind: row.text("type")?,
             data: row.json_object("data")?,
             span: None,

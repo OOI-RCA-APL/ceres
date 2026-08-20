@@ -279,6 +279,12 @@
         "type": "TIMESTAMP"
       },
       {
+        "default": "NULL",
+        "name": "connection",
+        "nullable": true,
+        "type": "TEXT"
+      },
+      {
         "default": null,
         "name": "type",
         "nullable": false,
@@ -300,7 +306,7 @@
     "primary_key": [
       "id"
     ],
-    "statement": "CREATE TABLE particles ( id CHAR(32) NOT NULL, address TEXT NOT NULL, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL, type TEXT NOT NULL, data JSON NOT NULL, CONSTRAINT pk_particles PRIMARY KEY (id) )"
+    "statement": "CREATE TABLE \"particles\" ( id CHAR(32) NOT NULL, address TEXT NOT NULL, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL, connection TEXT DEFAULT NULL, type TEXT NOT NULL, data JSON NOT NULL, CONSTRAINT pk_particles PRIMARY KEY (id) )"
   },
   "settings": {
     "columns": [

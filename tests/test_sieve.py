@@ -524,3 +524,35 @@ class TestSieveConnectionBinding:
 
         received_data = sorted(message.data for message in all_received if message.data != b"probe")
         assert received_data == [b"a1", b"b1"]
+
+
+class TestSieveConnectionAttribution:
+    """Particles record the connection they were parsed from, when one can be attributed."""
+
+    def _config(self, connection: str | list[str] | None):
+        from ceres.config import MethodSieveConfig
+        from ceres.message import MessageFilter
+
+        return MethodSieveConfig(
+            name="parse",
+            method="parse",
+            filter=MessageFilter(connection=connection) if connection is not None else None,
+        )
+
+    def test_a_sieve_bound_to_one_connection_attributes_its_particles(self):
+        from ceres.sieves import SieveManager
+
+        assert SieveManager._sole_connection(self._config("pressure-1")) == "pressure-1"
+        assert SieveManager._sole_connection(self._config(["pressure-1"])) == "pressure-1"
+
+    def test_a_sieve_reading_several_connections_attributes_nothing(self):
+        from ceres.sieves import SieveManager
+
+        # Which of the two produced a given particle is not answerable here, and a wrong
+        # attribution is worse than none.
+        assert SieveManager._sole_connection(self._config(["pressure-1", "pressure-2"])) is None
+
+    def test_a_sieve_with_no_connection_filter_attributes_nothing(self):
+        from ceres.sieves import SieveManager
+
+        assert SieveManager._sole_connection(self._config(None)) is None
