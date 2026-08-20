@@ -277,6 +277,24 @@ mod tests {
         values.iter().map(OsString::from).collect()
     }
 
+    /// Backdate a tree's modification times, recursively.
+    ///
+    /// Filesystem timestamps are coarse enough that files written back to back can
+    /// share one, and the scan treats a tie as stale, so freshness is staged
+    /// explicitly rather than left to write order.
+    fn backdate(path: &Path) {
+        let past = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
+        std::fs::File::open(path)
+            .unwrap()
+            .set_modified(past)
+            .unwrap();
+        if path.is_dir() {
+            for entry in std::fs::read_dir(path).unwrap().flatten() {
+                backdate(&entry.path());
+            }
+        }
+    }
+
     #[test]
     fn a_current_binary_skips_the_build_and_an_edit_forces_one() {
         let checkout = tempfile::tempdir().unwrap();
@@ -295,6 +313,8 @@ mod tests {
         assert!(!binary_is_current(source, &rust, &binary));
 
         std::fs::write(&binary, "built").unwrap();
+        backdate(source);
+        std::fs::write(&binary, "built").unwrap();
         assert!(binary_is_current(source, &rust, &binary));
 
         // An edit anywhere under the checkout makes the binary stale again, and so does
@@ -302,6 +322,7 @@ mod tests {
         std::fs::write(&main, "fn main() { }").unwrap();
         assert!(!binary_is_current(source, &rust, &binary));
 
+        backdate(source);
         std::fs::write(&binary, "rebuilt").unwrap();
         assert!(binary_is_current(source, &rust, &binary));
         std::fs::remove_file(&main).unwrap();
