@@ -116,7 +116,7 @@ export const ChartWidgetModel = BaseWidgetModel.extend({
   type: z.literal('chart'),
   name: z.string().catch('Chart'),
   display: ChartWidgetDisplayModel.catch('line'),
-  fit: ChartWidgetFitModel.catch('from-zero'),
+  fit: ChartWidgetFitModel.catch('data'),
   /** Draw the Y axis positive-down, the convention for depth-like series. */
   flipY: z.boolean().catch(false),
   unit: z.string().nullish(),
