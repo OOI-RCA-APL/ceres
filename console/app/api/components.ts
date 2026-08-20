@@ -246,6 +246,11 @@ export const useComponents = defineStore('components', () => {
     return components
   }
 
+  function getConnection(address: Address | string, name: string): ConnectionInfo | null {
+    const component = get(address)
+    return component?.connections.find((current) => current.name === name) ?? null
+  }
+
   function getProcedure(address: Address, name: string): ProcedureInfo | null {
     const component = get(address)
     return component?.procedures.find((current) => current.name === name) ?? null
@@ -275,6 +280,7 @@ export const useComponents = defineStore('components', () => {
     all: computed(() => Object.values(mapping)),
     get,
     getDescendants,
+    getConnection,
     getProcedure,
     getQuery,
     getAction,
