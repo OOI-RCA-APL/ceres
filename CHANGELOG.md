@@ -8,6 +8,11 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+**Fixes**
+
+- Reach a running engine directly over loopback, ignoring `http_proxy` and the
+  resolver, so a proxied machine no longer reports it as stopped.
+
 ## [0.45.1] - 2026-08-19
 
 **CLI**

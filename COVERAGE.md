@@ -1,6 +1,6 @@
 # Coverage
 
-<!-- coverage:fingerprint:ace82a69c8ee4cbf -->
+<!-- coverage:fingerprint:7c0f1ff08c94f249 -->
 
 ## Python
 
@@ -116,7 +116,7 @@
 | Module | Coverage |
 |---|---|
 | `rust/ceres-cli/src/cli.rs` | 100% |
-| `rust/ceres-cli/src/client.rs` | 20% |
+| `rust/ceres-cli/src/client.rs` | 36% |
 | `rust/ceres-cli/src/commands/console.rs` | 57% |
 | `rust/ceres-cli/src/commands/database.rs` | 0% |
 | `rust/ceres-cli/src/commands/dump.rs` | 82% |
@@ -201,5 +201,5 @@
 | `rust/ceres-server/src/serve.rs` | 82% |
 | `rust/ceres-server/src/tls.rs` | 75% |
 | `rust/ceres-stubs/src/polish.rs` | 96% |
-| **Total** | **68%** |
+| **Total** | **67%** |
 <!-- coverage:rust:end -->

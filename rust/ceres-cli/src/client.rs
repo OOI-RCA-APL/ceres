@@ -1,7 +1,8 @@
 //! HTTP client for a running engine's CLI server.
 //!
 //! The engine writes a per-project server info file holding the ephemeral port and the token
-//! the CLI authenticates with. Requests target `http://localhost:<port>/api/`.
+//! the CLI authenticates with. Requests target `http://127.0.0.1:<port>/api/`, the address
+//! the server binds, so neither the resolver nor a proxy can route them anywhere else.
 
 use std::time::Duration;
 
@@ -67,7 +68,7 @@ impl Client {
             .header("Authorization", &self.info.token)
             // The handshake headers a client has to send for itself once the request is
             // built by hand rather than from a bare URL.
-            .header("Host", format!("localhost:{}", self.info.port))
+            .header("Host", format!("127.0.0.1:{}", self.info.port))
             .header("Connection", "Upgrade")
             .header("Upgrade", "websocket")
             .header("Sec-WebSocket-Version", "13")
@@ -112,7 +113,7 @@ impl Client {
 
     /// Build a full request URL from a path and query parameters.
     fn url(&self, path: &str, query: &[(&str, &str)]) -> String {
-        let mut url = format!("http://localhost:{}/api/{path}", self.info.port);
+        let mut url = format!("http://127.0.0.1:{}/api/{path}", self.info.port);
 
         for (index, (name, value)) in query.iter().enumerate() {
             let separator = if index == 0 { '?' } else { '&' };
@@ -155,6 +156,10 @@ fn agent(timeout: Option<Duration>) -> ureq::Agent {
     ureq::Agent::config_builder()
         .timeout_global(timeout)
         .http_status_as_error(false)
+        // Every request targets the loopback interface, and the default config takes a
+        // proxy from `http_proxy`, which would route them to a host that cannot reach
+        // the engine.
+        .proxy(None)
         .build()
         .into()
 }
@@ -182,5 +187,43 @@ mod tests {
     fn query_values_are_percent_encoded() {
         assert_eq!(encode("@sensor:all|~"), "%40sensor%3Aall%7C~");
         assert_eq!(encode("plain-value_1.0~"), "plain-value_1.0~");
+    }
+
+    // The engine is faked with one loopback listener because what matters is where the
+    // request lands, not what the engine answers.
+    #[test]
+    fn a_proxied_environment_cannot_reroute_the_loopback_client() {
+        use std::io::{Read, Write};
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let mut stream = stream;
+                let mut buffer = [0u8; 1024];
+                let _ = stream.read(&mut buffer);
+                let _ = stream.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n");
+            }
+        });
+
+        let client = Client {
+            info: ServerInfo {
+                port,
+                token: "token".into(),
+            },
+        };
+
+        // A proxied request goes to the dead proxy address and fails, so aliveness
+        // proves the proxy was ignored. SAFETY: no other test reads or writes the
+        // variables.
+        unsafe { std::env::set_var("http_proxy", "http://127.0.0.1:1") };
+        unsafe { std::env::set_var("HTTP_PROXY", "http://127.0.0.1:1") };
+        unsafe { std::env::set_var("ALL_PROXY", "http://127.0.0.1:1") };
+        let alive = client.alive();
+        unsafe { std::env::remove_var("http_proxy") };
+        unsafe { std::env::remove_var("HTTP_PROXY") };
+        unsafe { std::env::remove_var("ALL_PROXY") };
+
+        assert!(alive, "the client went to the proxy rather than the engine");
     }
 }
