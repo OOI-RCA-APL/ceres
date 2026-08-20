@@ -787,13 +787,13 @@ async def test_status_uses_defined_connectivity_override() -> None:
 
 
 async def test_connection_text_falls_back_to_the_field_that_holds_it() -> None:
-    """A bound connection with no text of its own takes the field's title and docstring."""
+    """A bound connection with no text of its own takes the field's label and docstring."""
     from ceres.connection import Connection
 
     class Instrument(Component):
-        borrowed: Bound[Connection] = Connection.Field(title="Pressure 1")
+        borrowed: Bound[Connection] = Connection.Field(label="Pressure 1")
         """Upstream pressure gauge."""
-        owned: Bound[Connection] = Connection.Field(title="Ignored")
+        owned: Bound[Connection] = Connection.Field(label="Ignored")
         """Ignored too."""
 
     engine = Engine()

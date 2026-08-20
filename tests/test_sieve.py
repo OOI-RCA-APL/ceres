@@ -404,6 +404,29 @@ class TestSieveConnectionBinding:
         assert bindings["parse-alpha"].connections is not None
         assert bindings["parse-beta"].connections is not None
 
+    def test_sieve_binding_accepts_connections_several_ways(self):
+        from ceres import Bound, Component, Connection, SplitByLine
+        from ceres.component import get_sieve_bindings
+
+        class Driver(Component):
+            alpha: Bound[Connection] | None = Connection.Field(None, splitter=SplitByLine())
+            beta: Bound[Connection] | None = Connection.Field(None, splitter=SplitByLine())
+
+            @sieve_decorator(alpha, beta)
+            async def parse_separately(self, message: Message) -> SimpleParticle | None:
+                return None
+
+            @sieve_decorator([alpha, beta])
+            async def parse_sequence(self, message: Message) -> SimpleParticle | None:
+                return None
+
+        bindings = get_sieve_bindings(Driver)
+        expected = ("alpha", "beta")
+        for name in ("parse-separately", "parse-sequence"):
+            connections = bindings[name].connections
+            assert connections is not None
+            assert tuple(field.name for field in connections) == expected
+
     async def test_sieve_filters_messages_by_connection(self):
         from ceres import Bound, Component, Connection, SplitByLine
         from ceres.event import MessageReceivedEvent

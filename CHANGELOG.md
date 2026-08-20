@@ -12,12 +12,13 @@ written, and the release workflow refuses a version that has no entry here.
 
 - Record the connection a particle was parsed from, which a sieve bound to one connection
   fills in.
-- Give a connection a `label` and a `description`, defaulting to the title and docstring of
-  the component field holding it.
+- Give a connection a `label` and a `description`, the description defaulting to the
+  docstring of the component field holding it.
 
 **Python API**
 
 - Rename `Source.label` to `Source.uri`, which every source answers as a URI.
+- Accept several connections on `@sieve`, given separately or as a sequence.
 
 **Fixes**
 
