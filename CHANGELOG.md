@@ -8,6 +8,8 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+## [0.45.2] - 2026-08-19
+
 **Fixes**
 
 - Reach a running engine directly over loopback, ignoring `http_proxy` and the
