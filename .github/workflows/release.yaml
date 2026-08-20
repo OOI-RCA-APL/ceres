@@ -118,11 +118,15 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.14t"
+      # Restores what the `cache` workflow saved on the default branch. Saving is off
+      # because this run is on a tag, so anything it wrote would be readable only by that
+      # tag and never by the next release.
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
           key: ${{ matrix.target }}
+          save-if: false
       - name: Create Wheel Data Directory
         shell: bash
         run: mkdir -p ceres.__internal__.core.data/scripts
