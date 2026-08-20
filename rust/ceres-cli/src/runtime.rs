@@ -51,6 +51,9 @@ pub(crate) fn replace(mut command: Command) -> Result<std::convert::Infallible> 
     }
 }
 
+/// The environment variable naming the interpreter to host the engine with.
+pub(crate) const PYTHON: &str = "CERES_PYTHON";
+
 /// Locate the Python interpreter of the environment Ceres is installed in.
 ///
 /// Search order:
@@ -63,7 +66,7 @@ pub(crate) fn replace(mut command: Command) -> Result<std::convert::Infallible> 
 /// 4. The active virtual environment's interpreter via `VIRTUAL_ENV`.
 /// 5. `python3`, then `python`, on `PATH`.
 pub(crate) fn find_python() -> Result<PathBuf> {
-    if let Some(python) = std::env::var_os("CERES_PYTHON") {
+    if let Some(python) = std::env::var_os(PYTHON) {
         return Ok(PathBuf::from(python));
     }
 

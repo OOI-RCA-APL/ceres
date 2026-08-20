@@ -346,7 +346,10 @@ fn package_directory() -> Result<PathBuf> {
 
 /// Rebuild the source's extension into the environment, returning whether it succeeded.
 async fn rebuild(source: &Path) -> bool {
-    let Ok(command) = development::installer(source, true) else {
+    let Ok(python) = runtime::find_python() else {
+        return false;
+    };
+    let Ok(command) = development::installer(&python, source, true) else {
         return false;
     };
 

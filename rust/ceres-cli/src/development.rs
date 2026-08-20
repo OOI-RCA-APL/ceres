@@ -83,6 +83,9 @@ pub fn delegate(source: &Path, arguments: Vec<OsString>, output: &Output) -> Res
 
     output.warn(format!("Ceres Source (Development): {}", source.display()));
 
+    // Handed to the replacement, whose own directory holds no interpreter to find. Left
+    // to search again it would land on whatever `PATH` offers.
+    let python = runtime::find_python()?;
     let binary = rust.join("target").join("debug").join("ceres");
     if !binary_is_current(&source, &rust, &binary) {
         let status = Command::new("cargo")
@@ -97,14 +100,18 @@ pub fn delegate(source: &Path, arguments: Vec<OsString>, output: &Output) -> Res
         }
     }
 
-    sync_environment(&source)?;
+    sync_environment(&python, &source)?;
 
     if !binary.is_file() {
         fail!("The built CLI is missing at {}.", binary.display());
     }
 
     let mut command = Command::new(&binary);
-    command.args(&arguments).env(DELEGATED, "1");
+    command
+        .args(&arguments)
+        .env(DELEGATED, "1")
+        .env(runtime::PYTHON, &python);
+
     runtime::replace(command)
 }
 
@@ -173,27 +180,25 @@ fn older(path: &Path, built: std::time::SystemTime) -> bool {
 ///
 /// An environment already tracking the source is left alone, so a delegated run only pays
 /// for the install when the wiring is absent or points elsewhere.
-fn sync_environment(source: &Path) -> Result<()> {
-    let python = runtime::find_python()?;
-
+fn sync_environment(python: &Path, source: &Path) -> Result<()> {
     // A bare system interpreter is never the right install target, so only an explicit
     // CERES_PYTHON skips the virtual environment check.
     let virtualenv = python
         .parent()
         .and_then(Path::parent)
         .is_some_and(|root| root.join("pyvenv.cfg").is_file());
-    if !virtualenv && std::env::var_os("CERES_PYTHON").is_none() {
+    if !virtualenv && std::env::var_os(runtime::PYTHON).is_none() {
         fail!(
             "No virtual environment found to sync to the development source. Run from \
              the project's environment, or set CERES_PYTHON to its interpreter."
         );
     }
 
-    if tracks_source(&python, source) {
+    if tracks_source(python, source) {
         return Ok(());
     }
 
-    let status = installer(source, false)?
+    let status = installer(python, source, false)?
         .status()
         .map_err(|error| failure!("Failed to run the package installer. {error}"))?;
     if !status.success() {
@@ -207,11 +212,10 @@ fn sync_environment(source: &Path) -> Result<()> {
 ///
 /// A reinstall forces the extension to rebuild even when the wiring already points at
 /// the source, which is what a watch-mode Rust edit needs.
-pub(crate) fn installer(source: &Path, reinstall: bool) -> Result<Command> {
-    let python = runtime::find_python()?;
+pub(crate) fn installer(python: &Path, source: &Path, reinstall: bool) -> Result<Command> {
     let mut command = if let Some(uv) = runtime::which("uv") {
         let mut command = Command::new(uv);
-        command.args(["pip", "install", "--python"]).arg(&python);
+        command.args(["pip", "install", "--python"]).arg(python);
         if reinstall {
             command.args(["--reinstall-package", "ceres-engine"]);
         }
@@ -219,7 +223,7 @@ pub(crate) fn installer(source: &Path, reinstall: bool) -> Result<Command> {
         command.arg("-e").arg(source);
         command
     } else {
-        let mut command = Command::new(&python);
+        let mut command = Command::new(python);
         command.args(["-m", "pip", "install"]);
         if reinstall {
             command.args(["--force-reinstall", "--no-deps"]);
