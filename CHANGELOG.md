@@ -8,6 +8,22 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+**Engine**
+
+- Record the connection a particle was parsed from, which a sieve bound to one connection
+  fills in.
+- Give a connection a `label` and a `description`, defaulting to the title and docstring of
+  the component field holding it.
+
+**Python API**
+
+- Rename `Source.label` to `Source.uri`, which every source answers as a URI.
+
+**Fixes**
+
+- Host the engine on the environment's own interpreter when running from a development
+  source, rather than whichever one `PATH` offers.
+
 ## [0.45.2] - 2026-08-19
 
 **Fixes**
