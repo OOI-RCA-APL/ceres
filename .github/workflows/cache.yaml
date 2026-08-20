@@ -1,0 +1,76 @@
+name: cache
+# Build the release matrix on the default branch so its Rust cache exists there.
+#
+# A workflow run may read caches saved on its own ref and on the default branch, and
+# nothing else. Releases run on a tag, so a cache a release saves is readable only by that
+# tag and every later release compiles the dependency graph from nothing. Building here
+# puts one entry per target on `main`, which every tag can then restore.
+#
+# The trigger names exactly what `Swatinem/rust-cache` hashes into its key, so a run
+# happens only when the existing entries stop matching. Ordinary source changes reuse them.
+on:
+  push:
+    branches: [main]
+    paths:
+      - rust/**/Cargo.toml
+      - rust/Cargo.lock
+      - rust-toolchain.toml
+      - .cargo/config.toml
+      - .github/workflows/cache.yaml
+  workflow_dispatch:
+
+jobs:
+  # Named for the release workflow's own build job, whose key this has to reproduce. The
+  # action folds the job ID into the key, so a different name here caches for nobody.
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          - os: macos-15
+            target: aarch64-apple-darwin
+          - os: macos-15
+            target: x86_64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      # Both interpreters, because pyo3 compiles against the one it is given and a cache
+      # built against another would be rebuilt rather than restored.
+      - name: Install Python
+        id: standard
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - name: Install Free-Threaded Python
+        id: freethreaded
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14t"
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+          key: ${{ matrix.target }}
+      - name: Create Wheel Data Directory
+        shell: bash
+        run: mkdir -p ceres.__internal__.core.data/scripts
+      # The bundle is untracked and irrelevant to compilation, but the wheel declares it,
+      # so an empty directory keeps maturin from reporting a missing include.
+      - name: Create the Console Directory
+        shell: bash
+        run: mkdir -p ceres/static/console
+      # The same build the release runs, because a cache is only restored by a compilation
+      # matching the one that filled it.
+      - name: Build Wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist --interpreter ${{ runner.os == 'Windows' && format('{0} {1}', steps.standard.outputs.python-path, steps.freethreaded.outputs.python-path) || '3.14 3.14t' }}
+          manylinux: auto
