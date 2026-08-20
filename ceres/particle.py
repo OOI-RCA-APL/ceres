@@ -649,6 +649,7 @@ class Particle(
             id=self.id,
             address=self.address,
             timestamp=self.timestamp,
+            connection=self.connection,
             type=self.type,
             data=simplify(self.data),
             span=self.span,

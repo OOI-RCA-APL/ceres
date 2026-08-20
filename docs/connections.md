@@ -14,6 +14,8 @@ components:
     class: my_project.Driver
     connections:
       - name: primary
+        label: Pressure 1
+        description: Pressure and temperature from the first gauge.
         arguments:
           source:
             class: ceres.connection.TCPSource
@@ -24,9 +26,19 @@ components:
             class: ceres.connection.SplitByLine
 ```
 
-Everything except `name` and `class` goes under `arguments`. A connection entry accepts exactly three keys, `name`, `class`, and `arguments`, and anything else fails to load. `class` defaults to `Connection` itself and is only needed for a subclass.
+Everything except `name`, `class`, `label`, and `description` goes under `arguments`. A connection entry accepts exactly those five keys and anything else fails to load. `class` defaults to `Connection` itself and is only needed for a subclass.
 
 This gives `@driver` a connection called `primary` that splits on newlines and stores each line as a `Message`.
+
+`label` is the name shown wherever the connection is listed, which is what tells two connections of the same kind apart. `description` says what it carries. A component that declares the connection as a field can supply both itself, so a deployment only writes them when it wants different text.
+
+```python
+class Driver(Component):
+    pressure_1: Bound[Connection] = Connection.Field(name="pressure-1", label="Pressure 1")
+    """Pressure and temperature from the first gauge."""
+```
+
+A connection with no description of its own takes the field's docstring, so documenting the field is enough.
 
 ### As A Component Argument
 
@@ -188,6 +200,8 @@ class Driver(Component):
 ```
 
 `@sieve` also takes `stored`, `retries`, `retry_delay`, and message filters like `prefix`, `suffix`, and `contains`, so a component with several message shapes can route each to its own method.
+
+Naming several connections, `@sieve(first, second)`, reads all of them through one method. A particle records the connection it was parsed from, and a sieve reading more than one cannot say which of them produced a given particle, so give each connection its own sieve wherever that attribution matters.
 
 A sieve can instead name a class in `ceres.yaml`.
 
