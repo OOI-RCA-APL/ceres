@@ -43,7 +43,9 @@ class ConnectionInfo(DataObject):
     """Summary of a named connection on a component."""
 
     name: Name
-    label: str
+    label: str | None
+    description: str | None
+    uri: str
 
 
 class ParticleFieldInfo(DataObject):
@@ -89,7 +91,12 @@ def _describe_component(component: Component, *, visible: bool) -> ComponentInfo
     if visible:
         procedures = list(system.get_procedure_bindings().values())
         connections = [
-            ConnectionInfo(name=connection.name, label=connection.label)
+            ConnectionInfo(
+                name=connection.name,
+                label=connection.label,
+                description=connection.description,
+                uri=connection.uri,
+            )
             for connection in system.connections.all()
             if connection.name is not None
         ]
@@ -232,7 +239,9 @@ class ConnectionStateInfo(DataObject):
     """A component connection together with its current connectivity state."""
 
     name: Name
-    label: str
+    label: str | None
+    description: str | None
+    uri: str
     connectivity: Connectivity
 
 
@@ -254,6 +263,8 @@ async def get_component_connections(
         ConnectionStateInfo(
             name=connection.name,
             label=connection.label,
+            description=connection.description,
+            uri=connection.uri,
             connectivity=connection.connectivity,
         )
         for connection in component.system.connections.all()

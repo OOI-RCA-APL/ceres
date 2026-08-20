@@ -13,8 +13,12 @@ class ConnectionStatus(DataObject, slots=True):
 
     name: Name
     """Name of the connection within its component."""
-    label: str
-    """Human-readable label of the connection's source, such as its transport URL."""
+    label: str | None
+    """Human-readable name for the connection, unset when it has none."""
+    description: str | None
+    """What the connection carries, unset when it has none."""
+    uri: str
+    """Where the connection's source reads from, such as `tcp://host:port`."""
     connectivity: Connectivity
     """Current transport connectivity state of the connection."""
 

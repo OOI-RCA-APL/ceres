@@ -134,3 +134,36 @@ def test_pop_to_size():
     popped = buffer.pop_to(5, by=3)
     assert popped == Chunk(b"abcdefghijkl", start + timedelta(seconds=2))
     assert buffer.data == b"mno"
+
+
+def test_source_reports_its_uri():
+    from ceres import TCPSource
+    from ceres.connection import UNIXSocketSource
+
+    assert TCPSource(host="localhost", port=4001).uri == "tcp://localhost:4001"
+    assert UNIXSocketSource(socket="/tmp/instrument.sock").uri == "unix:///tmp/instrument.sock"
+
+
+def test_a_connection_reports_the_uri_of_its_source():
+    from ceres import TCPSource
+    from ceres.connection import Connection
+
+    connection = Connection(source=TCPSource(host="localhost", port=4002))
+    assert connection.uri == "tcp://localhost:4002"
+
+
+def test_a_connection_carries_its_own_label_and_description():
+    from ceres import TCPSource
+    from ceres.connection import Connection
+
+    connection = Connection(
+        source=TCPSource(host="localhost", port=4001),
+        label="Pressure 1",
+        description="Upstream pressure gauge.",
+    )
+    assert connection.label == "Pressure 1"
+    assert connection.description == "Upstream pressure gauge."
+
+    bare = Connection(source=TCPSource(host="localhost", port=4001))
+    assert bare.label is None
+    assert bare.description is None

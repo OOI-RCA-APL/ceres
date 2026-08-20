@@ -31,8 +31,12 @@ class Source(DataObject):
 
     @property
     @abstractmethod
-    def label(self) -> str:
-        """A short human-readable identifier for the source (e.g. `tcp://host:port`)."""
+    def uri(self) -> str:
+        """The URI this source reads from, such as `tcp://host:port`.
+
+        A transport with no established scheme takes one of its own, so consumers can
+        always parse this.
+        """
         ...
 
     @abstractmethod
@@ -184,8 +188,8 @@ class TCPSource(AnyIOSource):
 
     @property
     @override
-    def label(self) -> str:
-        """Return a `tcp://host:port` label identifying this source."""
+    def uri(self) -> str:
+        """Return the `tcp://host:port` this source reads from."""
         return f"tcp://{self.host}:{self.port}"
 
     @override
@@ -207,8 +211,8 @@ class UNIXSocketSource(AnyIOSource):
 
     @property
     @override
-    def label(self) -> str:
-        """Return a `unix://path` label identifying this source."""
+    def uri(self) -> str:
+        """Return the `unix://path` this source reads from."""
         return f"unix://{self.socket}"
 
     @override

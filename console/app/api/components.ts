@@ -70,7 +70,9 @@ export const ProcedureInfoModel = z.discriminatedUnion('type', [QueryInfoModel, 
 export type ConnectionStateInfo = z.infer<typeof ConnectionStateInfoModel>
 export const ConnectionStateInfoModel = z.object({
   name: z.string(),
-  label: z.string(),
+  label: z.string().nullish(),
+  description: z.string().nullish(),
+  uri: z.string(),
   connectivity: ConnectivityModel,
 })
 
@@ -85,8 +87,15 @@ export const JobInfoModel = z.object({
 export type ConnectionInfo = z.infer<typeof ConnectionInfoModel>
 export const ConnectionInfoModel = z.object({
   name: z.string(),
-  label: z.string(),
+  label: z.string().nullish(),
+  description: z.string().nullish(),
+  uri: z.string(),
 })
+
+/** What to call a connection on screen, falling back to the name it is addressed by. */
+export function connectionLabel(connection: { name: string; label?: string | null }): string {
+  return connection.label ?? connection.name
+}
 
 export type ParticleFieldInfo = z.infer<typeof ParticleFieldInfoModel>
 export const ParticleFieldInfoModel = z.object({

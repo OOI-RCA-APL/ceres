@@ -4,6 +4,7 @@ import { upperFirst } from 'lodash-es'
 import { useAccess } from '@/api/access'
 import type { Address } from '@/api/address'
 import { AddressSelector } from '@/api/address'
+import { connectionLabel } from '@/api/components'
 import { useEngine } from '@/api/engine'
 import type { Connectivity } from '@/api/shared'
 import { guard } from '@/errors'
@@ -376,8 +377,8 @@ const rowClass = 'flex min-h-[26px] items-center gap-2 px-2.5 py-0.5'
             />
           </c-tooltip>
           <div>
-            <div class="text-sm">{{ connection.name }}</div>
-            <c-text variant="description">{{ connection.label }}</c-text>
+            <div class="text-sm">{{ connectionLabel(connection) }}</div>
+            <c-text variant="description">{{ connection.uri }}</c-text>
           </div>
         </div>
       </div>

@@ -5,9 +5,21 @@ from typing import Any, override
 
 import pytest
 
-from ceres import Component, Engine, Event, Level, Ref, action, listener, query, routine
+from ceres import (
+    Component,
+    Engine,
+    Event,
+    Level,
+    Ref,
+    TCPSource,
+    action,
+    listener,
+    query,
+    routine,
+)
 from ceres.address import Address
 from ceres.component import (
+    Bound,
     ComponentAccessLevel,
     RoutineBinding,
     RoutineRestartPolicy,
@@ -739,7 +751,7 @@ async def test_status_reports_per_connection_connectivity() -> None:
     assert status.connectivity is None
     assert len(status.connections) == 1
     assert status.connections[0].name == "link"
-    assert status.connections[0].label == "tcp://localhost:2999"
+    assert status.connections[0].uri == "tcp://localhost:2999"
     assert status.connections[0].connectivity == Connectivity.DISCONNECTED
 
 
@@ -772,3 +784,71 @@ async def test_status_uses_defined_connectivity_override() -> None:
     status = await component.system.get_status()
 
     assert status.connectivity == Connectivity.CONNECTED
+
+
+async def test_connection_text_falls_back_to_the_field_that_holds_it() -> None:
+    """A bound connection with no text of its own takes the field's title and docstring."""
+    from ceres.connection import Connection
+
+    class Instrument(Component):
+        borrowed: Bound[Connection] = Connection.Field(title="Pressure 1")
+        """Upstream pressure gauge."""
+        owned: Bound[Connection] = Connection.Field(title="Ignored")
+        """Ignored too."""
+
+    engine = Engine()
+    component = Instrument(
+        __with_name__="instrument",
+        borrowed=Connection(source=TCPSource(host="localhost", port=4001)),
+        owned=Connection(
+            source=TCPSource(host="localhost", port=4002),
+            label="Pressure 2",
+            description="Set on the connection.",
+        ),
+    )
+    engine.attach(component)
+
+    status = await component.system.get_status()
+    connections = {connection.name: connection for connection in status.connections}
+
+    assert connections["borrowed"].label == "Pressure 1"
+    assert connections["borrowed"].description == "Upstream pressure gauge."
+    assert connections["borrowed"].uri == "tcp://localhost:4001"
+
+    # What the connection carries outranks the field it fills.
+    assert connections["owned"].label == "Pressure 2"
+    assert connections["owned"].description == "Set on the connection."
+
+
+async def test_connection_config_carries_label_and_description() -> None:
+    """A connection declared in configuration keeps the text written beside it."""
+    from ceres.config import ConnectionConfig
+
+    connection = validate(
+        ConnectionConfig,
+        {
+            "name": "pressure-1",
+            "label": "Pressure 1",
+            "description": "Upstream pressure gauge.",
+            "arguments": {
+                "name": "pressure-1",
+                "label": "Pressure 1",
+                "description": "Upstream pressure gauge.",
+                "source": {
+                    "class": "ceres.TCPSource",
+                    "arguments": {"host": "localhost", "port": 4001},
+                },
+            },
+        },
+    )
+    assert connection.label == "Pressure 1"
+    assert connection.description == "Upstream pressure gauge."
+
+    config = ComponentConfig(name="instrument", connections=[connection])
+    component = Component(__with_name__="instrument", __with_config__=config)
+    Engine().attach(component)
+
+    status = await component.system.get_status()
+    assert status.connections[0].label == "Pressure 1"
+    assert status.connections[0].description == "Upstream pressure gauge."
+    assert status.connections[0].uri == "tcp://localhost:4001"

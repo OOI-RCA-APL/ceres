@@ -42,6 +42,7 @@ from ceres.constants import DEFAULT_BUFFER_DROP, DEFAULT_BUFFER_SIZE
 from ceres.data import (
     DataObject,
     Name,
+    NonBlankStr,
     OrderedStrEnum,
     PositiveTimeDelta,
     StrEnum,
@@ -209,6 +210,10 @@ class ConnectionConfig(DataObject):
 
     name: Name
     """Connection name, unique within the owning component."""
+    label: NonBlankStr | None = None
+    """Human-readable name shown in place of `name` wherever the connection is listed."""
+    description: NonBlankStr | None = None
+    """What the connection carries."""
 
     cls: ImportString[type[Connection]] = Field(
         default_factory=_get_connection_class,

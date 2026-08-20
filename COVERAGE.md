@@ -1,6 +1,6 @@
 # Coverage
 
-<!-- coverage:fingerprint:7c0f1ff08c94f249 -->
+<!-- coverage:fingerprint:3a355aa92b947482 -->
 
 ## Python
 
@@ -46,7 +46,7 @@
 | `ceres/__internal__/utilities/platforms.py` | 100% |
 | `ceres/__internal__/utilities/randomize.py` | 100% |
 | `ceres/__internal__/utilities/text.py` | 100% |
-| `ceres/__internal__/utilities/typing.py` | 86% |
+| `ceres/__internal__/utilities/typing.py` | 87% |
 | `ceres/__internal__/utilities/undefined.py` | 88% |
 | `ceres/__internal__/utilities/validation.py` | 100% |
 | `ceres/__internal__/workspace_redaction.py` | 92% |
@@ -55,12 +55,12 @@
 | `ceres/address.py` | 98% |
 | `ceres/alert.py` | 85% |
 | `ceres/channel.py` | 92% |
-| `ceres/component.py` | 86% |
+| `ceres/component.py` | 87% |
 | `ceres/concurrency.py` | 91% |
 | `ceres/config.py` | 80% |
-| `ceres/connection/__init__.py` | 61% |
-| `ceres/connection/buffer.py` | 80% |
-| `ceres/connection/source.py` | 90% |
+| `ceres/connection/__init__.py` | 62% |
+| `ceres/connection/buffer.py` | 81% |
+| `ceres/connection/source.py` | 97% |
 | `ceres/connection/splitter.py` | 100% |
 | `ceres/connectivity.py` | 100% |
 | `ceres/constants.py` | 100% |
@@ -136,7 +136,7 @@
 | `rust/ceres-cli/src/output.rs` | 94% |
 | `rust/ceres-cli/src/project.rs` | 83% |
 | `rust/ceres-cli/src/reference.rs` | 100% |
-| `rust/ceres-cli/src/runtime.rs` | 10% |
+| `rust/ceres-cli/src/runtime.rs` | 9% |
 | `rust/ceres-cli/src/selector.rs` | 100% |
 | `rust/ceres-cli/src/service.rs` | 39% |
 | `rust/ceres-config/src/database.rs` | 89% |
@@ -201,5 +201,5 @@
 | `rust/ceres-server/src/serve.rs` | 82% |
 | `rust/ceres-server/src/tls.rs` | 75% |
 | `rust/ceres-stubs/src/polish.rs` | 96% |
-| **Total** | **67%** |
+| **Total** | **68%** |
 <!-- coverage:rust:end -->

@@ -194,6 +194,8 @@ Configuration for a single named connection on a component. The `class` field se
 | `class` | string |  | `Connection` subclass to instantiate, defaults to the base `Connection` class. |
 | `arguments` | object |  | Keyword arguments passed to the connection constructor. |
 | `name` | string | required | Connection name, unique within the owning component. |
+| `label` | string |  | Human-readable name shown in place of `name` wherever the connection is listed. |
+| `description` | string |  | What the connection carries. |
 
 ### `ClassSieveConfig`
 

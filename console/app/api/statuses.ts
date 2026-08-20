@@ -10,7 +10,9 @@ import { ConnectivityModel } from '@/api/shared'
 export type ConnectionStatus = z.infer<typeof ConnectionStatusModel>
 export const ConnectionStatusModel = z.object({
   name: z.string(),
-  label: z.string(),
+  label: z.string().nullish(),
+  description: z.string().nullish(),
+  uri: z.string(),
   connectivity: ConnectivityModel,
 })
 

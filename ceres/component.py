@@ -1479,6 +1479,15 @@ class ComponentSystem(Node, ComponentSource):
                 if instance.name is None:
                     instance.name = connection.name
 
+                # A connection with no text of its own borrows the field's, whose
+                # description pydantic already resolved from the docstring.
+                field = type(self.component).__pydantic_fields__.get(connection.field)
+                if field is not None:
+                    if instance.label is None:
+                        instance.label = field.title
+                    if instance.description is None:
+                        instance.description = field.description
+
                 connections[instance.name] = instance
 
         # Load connections from static connections.
@@ -2228,6 +2237,8 @@ class ComponentSystem(Node, ComponentSource):
             ConnectionStatus(
                 name=connection.name,
                 label=connection.label,
+                description=connection.description,
+                uri=connection.uri,
                 connectivity=connection.connectivity,
             )
             for connection in self.connections.all()

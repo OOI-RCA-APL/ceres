@@ -9,6 +9,7 @@ import { Address } from '@/api/address'
 import { useAuth } from '@/api/auth'
 import { useQuery } from '@/api/client'
 import type { ConnectionInfo, ConnectionStateInfo, JobInfo, ProcedureInfo } from '@/api/components'
+import { connectionLabel } from '@/api/components'
 import { useEngine } from '@/api/engine'
 import type { ComponentAccessLevel } from '@/api/permissions'
 import type { Connectivity } from '@/api/shared'
@@ -656,8 +657,8 @@ const configHighlighted = $computed(() =>
                   </c-text>
                   <c-list-item v-for="connection in connections" :key="connection.name">
                     <div class="grow">
-                      <c-text variant="body3">{{ connection.name }}</c-text>
-                      <c-text variant="description">{{ connection.label }}</c-text>
+                      <c-text variant="body3">{{ connectionLabel(connection) }}</c-text>
+                      <c-text variant="description">{{ connection.uri }}</c-text>
                     </div>
                     <c-tooltip
                       v-if="'connectivity' in connection"
