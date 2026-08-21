@@ -15,30 +15,34 @@ const isRequired = $computed(() => form.getRequired(path))
 // nothing to report.
 const isHidden = $computed(() => isRequired && path.length === 0)
 const error = $computed(() => form.getValidationErrorMessage(path))
-const borderColorClass = $computed(() => {
+const backgroundColorClass = $computed(() => {
   if (error != null) {
-    return 'border-error'
+    return 'bg-error'
   }
   if (isHidden) {
-    return 'border-transparent'
+    return 'bg-transparent'
   }
   if (isDefined) {
-    return 'border-primary'
+    return 'bg-primary'
   }
 
-  return 'border-accented'
+  return 'bg-accented'
 })
+
+// Embedded, the field sits in the run of a sentence where a heavier mark would read as part of
+// the text rather than as the field's own edge.
+const widthClass = $computed(() => (form.embedded ? 'w-0.5' : 'w-[3px]'))
 </script>
 
 <template>
   <c-tooltip :disabled="error == null" :text="error ?? undefined">
-    <!-- Drawn as the left edge of a box rounded like the control it marks, so the mark follows
-    the corners away rather than standing straight across them. Clipped to a constant width, so
-    the inside stays a straight line while the outside curves. -->
-    <div class="h-full w-0.5 overflow-hidden">
+    <!-- A box rounded like the control it marks, filled and then cut to a narrow strip, so the
+    outside follows the corners away while the cut leaves the inside a straight line. Filled
+    rather than stroked, since a stroke curves on both of its edges. -->
+    <div class="h-full overflow-hidden" :class="widthClass">
       <div
-        class="h-full w-[calc(var(--ui-radius)*1.5)] rounded-l-[calc(var(--ui-radius)*1.5)] border-l-2"
-        :class="borderColorClass"
+        class="h-full w-[calc(var(--ui-radius)*1.5)] rounded-l-[calc(var(--ui-radius)*1.5)]"
+        :class="backgroundColorClass"
       />
     </div>
   </c-tooltip>

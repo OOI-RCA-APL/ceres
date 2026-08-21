@@ -58,8 +58,16 @@ function measure() {
     return
   }
 
+  // A dialog opening under a scale transition hands back rectangles in the size it is drawn at
+  // that moment, so the scale is divided back out and the bar is placed in the field's own
+  // units however far through the animation this runs.
   const box = control.getBoundingClientRect()
-  indicatorBox = { top: box.top - root.getBoundingClientRect().top, height: box.height }
+  const scale = control.offsetHeight > 0 ? box.height / control.offsetHeight : 1
+  const offset = box.top - root.getBoundingClientRect().top
+  indicatorBox = {
+    top: scale > 0 ? offset / scale : offset,
+    height: control.offsetHeight,
+  }
 }
 
 useResizeObserver($$(root), measure)
