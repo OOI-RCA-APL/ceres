@@ -30,27 +30,26 @@ const placement = $computed(() => workspace.scope.toString())
     @update:open="(value: boolean) => value || emit('close', false)"
   >
     <template #body>
-      <c-text class="mb-4 block" variant="body1">
+      <c-text class="block" variant="body1">
         <template v-if="to === 'shared'">
-          <c-icon class="mr-1 align-text-bottom" :name="icons.workspace" size="16" />
           "{{ workspace.name }}" becomes visible to everyone who can view
-          <c-text variant="mono-xs">{{ placement }}</c-text
-          >, and editable by anyone who can manage it.
+          <c-text element="span" variant="mono-xs">{{ placement }}</c-text
+          >.
         </template>
-        <template v-else>
-          <c-icon
-            class="mr-1 align-text-bottom text-warning"
-            :name="icons.privateWorkspace"
-            size="16"
-          />
-          "{{ workspace.name }}" becomes private to you.
-        </template>
+        <template v-else>"{{ workspace.name }}" becomes private to you.</template>
       </c-text>
 
-      <c-text v-if="to === 'private'" class="mb-4 block italic text-warning" variant="body2">
-        Anyone else who can see <c-text variant="mono-xs">{{ placement }}</c-text> loses access to
-        it, along with any unsaved changes they are holding against it. Copying leaves the shared
-        workspace where it is.
+      <c-text v-if="to === 'shared'" class="mt-1 mb-4 block" variant="description">
+        Anyone who can manage
+        <c-text element="span" variant="mono-xs">{{ placement }}</c-text>
+        can edit it.
+      </c-text>
+
+      <c-text v-else class="mt-1 mb-4 block italic text-warning" variant="body2">
+        Anyone else who can see
+        <c-text element="span" variant="mono-xs">{{ placement }}</c-text>
+        loses access to it, along with any unsaved changes they are holding against it. Copying
+        leaves the shared workspace where it is.
       </c-text>
 
       <c-radio-group
@@ -62,7 +61,7 @@ const placement = $computed(() => workspace.scope.toString())
       />
       <c-text v-if="!canMove" class="mt-2 block pl-2" variant="description">
         Moving the original requires manage access on
-        <c-text variant="mono-xs">{{ placement }}</c-text
+        <c-text element="span" variant="mono-xs">{{ placement }}</c-text
         >.
       </c-text>
     </template>
