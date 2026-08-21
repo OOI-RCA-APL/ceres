@@ -8,12 +8,16 @@ const {
   input,
   autofocus = false,
   addressOptions = [],
+  connectionOptions = [],
 } = defineProps<{
   input: FilterValueInput
   autofocus?: boolean
 
   /** The choices an address input offers, from the hosting view's scope. */
   addressOptions?: readonly string[]
+
+  /** The choices a connection input offers, from the addresses the view's filter reaches. */
+  connectionOptions?: readonly string[]
 }>()
 
 let modelValue: unknown = $(defineModel<unknown>({ required: true }))
@@ -39,7 +43,12 @@ const schema = $computed<SchemaObject>(() => {
     case 'enum':
       return { type: 'string', enum: [...input.options], optional: true }
     case 'connection':
-      return { type: 'string', format: 'connection', optional: true }
+      return {
+        type: 'string',
+        format: 'connection',
+        optional: true,
+        examples: [...connectionOptions],
+      }
     case 'integer':
       return {
         type: 'integer',

@@ -4,7 +4,7 @@ import type { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
 
 let modelValue: unknown = $(defineModel<unknown>({ required: true }))
 
-const { form, path } = defineProps<{
+const { form, path, schema } = defineProps<{
   form: SchemaForm
   schema: SchemaObject & { type: 'string'; format: 'connection' }
   path: SchemaPath
@@ -16,15 +16,24 @@ const title = $computed(() => form.getLabel(path))
 const isRequired = $computed(() => form.getRequired(path))
 const description = $computed(() => form.getDescription(path))
 
-// Every connection name the engine carries, offered as a list rather than typed out. A name is
-// unique only within its own component, so the same one stands for every component declaring it.
-const items = $computed(() => [
-  ...new Set(
-    engine.components.all.flatMap((component) =>
-      component.connections.map((connection) => connection.name),
+// The names to offer, taken from the schema where whoever built it narrowed them. A filter bar
+// names the connections its address filter can reach, and without such a list every connection
+// the engine carries is offered. A name is unique only within its own component, so the same one
+// stands for every component declaring it.
+const items = $computed(() => {
+  const named = schema.examples
+  if (Array.isArray(named) && named.length > 0) {
+    return named.map(String)
+  }
+
+  return [
+    ...new Set(
+      engine.components.all.flatMap((component) =>
+        component.connections.map((connection) => connection.name),
+      ),
     ),
-  ),
-])
+  ]
+})
 
 const selected = $computed(() => (typeof modelValue === 'string' ? modelValue : undefined))
 

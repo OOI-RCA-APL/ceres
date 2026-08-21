@@ -15,6 +15,7 @@ const {
   nested = false,
   focusId = null,
   addressOptions = [],
+  connectionOptions = [],
 } = defineProps<{
   item: FilterItem
   /** Whether the root item renders highlighted. Children never highlight on their own. */
@@ -26,6 +27,7 @@ const {
   /** The item whose value input claims focus, for a condition just accepted from the input. */
   focusId?: string | null
   addressOptions?: readonly string[]
+  connectionOptions?: readonly string[]
 }>()
 
 // The bar carries a lifted chip, since where it lands is a root position only the bar knows.
@@ -83,6 +85,7 @@ const definition = $computed(() => (isBlock(item) ? null : getFilterDefinition(i
       </c-dropdown-menu>
       <c-filter-item
         :address-options="addressOptions"
+        :connection-options="connectionOptions"
         :focus-id="focusId"
         :item="child"
         nested
@@ -125,6 +128,7 @@ const definition = $computed(() => (isBlock(item) ? null : getFilterDefinition(i
     <c-filter-value-input
       :address-options="addressOptions"
       :autofocus="focusId === item.id"
+      :connection-options="connectionOptions"
       :input="definition?.input ?? { type: 'text' }"
       :model-value="item.value"
       @commit="emit('commit')"

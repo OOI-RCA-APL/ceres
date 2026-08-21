@@ -69,6 +69,49 @@ export class AddressSelector {
     })
     return new AddressSelector(segments.join('|'))
   }
+
+  /** Whether this selector picks out an address, mirroring the backend `matches`.
+   *
+   * Each segment is read as written, so a selector that may be relative is resolved through
+   * `asAbsolute` first.
+   */
+  public selects(address: string | Address): boolean {
+    const value = address.toString()
+    return this.value.split('|').some((segment) => segmentSelects(segment, value))
+  }
+}
+
+/** Whether one absolute segment picks out an address, mirroring the backend's own. */
+function segmentSelects(segment: string, address: string): boolean {
+  const marker = segment.indexOf(':')
+  if (marker < 0) {
+    return address === segment
+  }
+
+  const base = segment.slice(0, marker)
+  const modifier = segment.slice(marker + 1)
+  if (base === engineRoot) {
+    // The engine has no children form, so only these two arise.
+    return modifier === 'all' || address !== engineRoot
+  }
+
+  if (base === '@') {
+    // With no component named, `all` and `descendants` both reach every component, and
+    // `children` the top-level ones.
+    return modifier === 'children'
+      ? address.startsWith('@') && !address.includes('.')
+      : address !== engineRoot
+  }
+
+  const descendant = address.startsWith(`${base}.`) ? address.slice(base.length + 1) : null
+  switch (modifier) {
+    case 'all':
+      return address === base || descendant != null
+    case 'descendants':
+      return descendant != null
+    default:
+      return descendant != null && !descendant.includes('.')
+  }
 }
 
 export class Address extends AddressSelector {
