@@ -99,6 +99,15 @@ underneath by bubbling. */
   left: 0;
   width: 16px;
   height: 16px;
+  opacity: 0.35;
+  transition: opacity 0.15s;
+  /* Not a control, despite sitting on a tab that is one. */
+  cursor: default;
+}
+
+/* Full strength once the pointer is on it, which is also when the tooltip names what it means. */
+.edited:hover {
+  opacity: 1;
 }
 
 .edited::before {
