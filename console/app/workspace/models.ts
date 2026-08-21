@@ -84,7 +84,8 @@ export const ProceduresWidgetModel = BaseWidgetModel.extend({
   type: z.literal('procedures'),
   name: z.string().catch('Procedures'),
   procedureAddress: AddressModel.nullish(),
-  procedureType: ProcedureTypeModel.catch('action'),
+  /** Narrows the list to actions or to queries, unset for both. */
+  procedureType: ProcedureTypeModel.nullish(),
   procedureName: z.string().nullish(),
 })
 
@@ -92,8 +93,15 @@ export type ChartWidgetDisplay = z.infer<typeof ChartWidgetDisplayModel>
 export const ChartWidgetDisplayModel = z.enum(['line', 'scatter', 'bar'])
 
 export type ChartWidgetFit = z.infer<typeof ChartWidgetFitModel>
-/** How the Y axis bounds follow the data, anchored at zero or hugging the data's extent. */
-export const ChartWidgetFitModel = z.enum(['from-zero', 'data'])
+/** Which series bound the Y axis, the ones switched on in the legend or every one of them. */
+export const ChartWidgetFitModel = z.enum(['shown', 'all'])
+
+/** The most decimal places a widget reads a value out to, trailing zeros never shown.
+
+Two places by default, enough to separate readings a sensor genuinely distinguishes without
+carrying the noise of a float's last digits onto the screen.
+*/
+export const DecimalsModel = z.number().int().min(0).max(10).catch(2)
 
 export type ChartWidgetSeries = z.infer<typeof ChartWidgetSeriesModel>
 export const ChartWidgetSeriesModel = z.object({
@@ -108,6 +116,8 @@ export type ChartWidgetParticle = z.infer<typeof ChartWidgetParticleModel>
 export const ChartWidgetParticleModel = z.object({
   address: AddressSelectorModel.nullish(),
   type: z.string().nullish(),
+  /** Narrows the group to one connection's particles, unset for every connection's. */
+  connection: z.string().nullish(),
   series: safeArrayOf(ChartWidgetSeriesModel),
 })
 
@@ -116,7 +126,10 @@ export const ChartWidgetModel = BaseWidgetModel.extend({
   type: z.literal('chart'),
   name: z.string().catch('Chart'),
   display: ChartWidgetDisplayModel.catch('line'),
-  fit: ChartWidgetFitModel.catch('data'),
+  fit: ChartWidgetFitModel.catch('shown'),
+  /** Extend the Y axis to include zero, whatever the plotted extent. */
+  fromZero: z.boolean().catch(false),
+  decimals: DecimalsModel,
   /** Draw the Y axis positive-down, the convention for depth-like series. */
   flipY: z.boolean().catch(false),
   unit: z.string().nullish(),
@@ -138,6 +151,9 @@ export const MeterWidgetModel = BaseWidgetModel.extend({
   particleAddress: AddressSelectorModel.nullish(),
   particleType: z.string().nullish(),
   particleField: z.string().nullish(),
+  /** Narrows the reading to one connection's particles, unset for every connection's. */
+  particleConnection: z.string().nullish(),
+  decimals: DecimalsModel,
   fontSize: z.number().min(1).max(60).nullish(),
   fontWeight: TextWeightModel.default('normal').catch('normal'),
   prefix: z.string().nullish(),

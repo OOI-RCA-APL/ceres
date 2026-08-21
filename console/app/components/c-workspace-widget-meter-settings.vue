@@ -99,6 +99,13 @@ const selected = $computed<ParticleFieldRef[]>({
             :particle-type="widget.particleType ?? null"
             @update:model-value="(value) => (widget.particleField = value)"
           />
+          <!-- A type two connections both produce otherwise reads whichever record landed last,
+          which is two instruments taking turns in one number. -->
+          <c-particle-connection-select
+            :address="resolvedParticleAddress"
+            :model-value="widget.particleConnection ?? null"
+            @update:model-value="(value) => (widget.particleConnection = value)"
+          />
         </div>
       </div>
       <c-text class="mb-2" variant="title2">Display</c-text>
@@ -133,6 +140,16 @@ const selected = $computed<ParticleFieldRef[]>({
             type: 'string',
             title: 'Suffix',
             optional: true,
+          }"
+        />
+        <c-schema-form-value
+          v-model="widget.decimals"
+          :schema="{
+            type: 'integer',
+            title: 'Decimals',
+            minimum: 0,
+            maximum: 10,
+            default: 2,
           }"
         />
       </div>

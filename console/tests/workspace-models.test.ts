@@ -25,14 +25,16 @@ describe('defaultWidgetName', () => {
 })
 
 describe('a chart widget', () => {
-  it('fits its data rather than anchoring the axis at zero', () => {
-    expect(createWidget('chart')).toMatchObject({ fit: 'data' })
+  it('fits the series its legend leaves on, and does not reach for zero', () => {
+    expect(createWidget('chart')).toMatchObject({ fit: 'shown', fromZero: false })
+  })
+
+  it('reads its values out to two decimal places', () => {
+    expect(createWidget('chart')).toMatchObject({ decimals: 2 })
   })
 
   it('keeps the fit it was stored with', () => {
-    const chart = ChartWidgetModel.parse({ type: 'chart', fit: 'from-zero' })
-
-    expect(chart.fit).toBe('from-zero')
+    expect(ChartWidgetModel.parse({ type: 'chart', fit: 'all' }).fit).toBe('all')
   })
 })
 

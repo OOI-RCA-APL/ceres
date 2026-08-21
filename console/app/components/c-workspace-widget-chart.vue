@@ -14,9 +14,9 @@ import icons from '@/icons'
 import { useDerivedChartUnit } from '@/particle-types'
 import { usePreferences } from '@/preferences'
 import { duration, useTime, utc, parseDuration } from '@/time'
-import { debouncedComputed, toTitle } from '@/utilities'
+import { debouncedComputed, formatNumber, toTitle } from '@/utilities'
 import { useWorkspace } from '@/workspace'
-import type { ChartWidget, ChartWidgetSeries } from '@/workspace'
+import type { ChartWidget, ChartWidgetParticle, ChartWidgetSeries } from '@/workspace'
 
 const { widget } = defineProps<{
   widget: ChartWidget
@@ -43,6 +43,79 @@ const pending: Data = $ref({})
 // option rebuild replaces. Plain arrays, off the reactive graph, since a record arriving must
 // redraw two lines and not rebuild the option around them.
 const plotted: Data = {}
+
+/** The extent across every plotted series, whatever the legend hides.
+
+Held rather than derived, the axis asking for it on every render and a full sweep of the
+records being far too much to spend there. Folded forward as records arrive and recomputed
+only where they are replaced or dropped.
+*/
+let allExtent = $shallowRef<{ min: number; max: number } | null>(null)
+
+function foldExtent(entries: DataEntry[]) {
+  let extent = allExtent
+  for (const [, value] of entries) {
+    const current = Number(value)
+    if (!Number.isFinite(current)) {
+      continue
+    }
+
+    extent =
+      extent == null
+        ? { min: current, max: current }
+        : { min: Math.min(extent.min, current), max: Math.max(extent.max, current) }
+  }
+
+  allExtent = extent
+}
+
+function recomputeExtent() {
+  allExtent = null
+  for (const id in plotted) {
+    foldExtent(plotted[id]!)
+  }
+}
+
+/** The connections found producing each group's type, by `address|type`.
+
+Nothing declares which connections produce which type, so an unfiltered load is what reveals
+it. A type one connection produces is never split and costs no extra query.
+*/
+const splitConnections = $ref<Record<string, string[]>>({})
+
+function groupKey(particle: ChartWidgetParticle): string {
+  return `${particle.address?.toString() ?? ''}|${particle.type ?? ''}`
+}
+
+/** The connections a group draws a line each for, empty where it draws one line for all. */
+function splitFor(particle: ChartWidgetParticle): string[] {
+  if (particle.connection != null) {
+    return []
+  }
+
+  const found = splitConnections[groupKey(particle)] ?? []
+  return found.length > 1 ? found : []
+}
+
+/** What one drawn line is keyed by, a split group qualifying its series by connection. */
+function lineId(series: ChartWidgetSeries, connection: string | null): string {
+  return connection == null ? series.id : `${series.id}|${connection}`
+}
+
+/** Every line the chart currently draws, which is what may be written into. */
+const drawnIds = $computed(() => {
+  const ids = new Set<string>()
+  for (const particle of widget.particles) {
+    const connections = splitFor(particle)
+    for (const series of particle.series) {
+      for (const connection of connections.length > 0 ? connections : [null]) {
+        ids.add(lineId(series, connection))
+      }
+    }
+  }
+
+  return ids
+})
 
 function togglePause() {
   if (!isPaused) {
@@ -73,47 +146,40 @@ const end = $computed(() => {
   return null
 })
 
-function append(seriesName: string, entries: DataEntry[], to: 'pending' | 'instance') {
+// Keyed by series ID rather than by the name on screen, two groups of the same type differing
+// only by connection drawing two lines that would otherwise share a name and a bucket.
+function append(seriesId: string, entries: DataEntry[], to: 'pending' | 'instance') {
   if (entries.length === 0) {
     return
   }
 
   if (to === 'pending') {
-    pending[seriesName] ??= []
-    pending[seriesName].push(...entries)
+    pending[seriesId] ??= []
+    pending[seriesId].push(...entries)
     return
   }
 
-  plotted[seriesName] ??= []
-  plotted[seriesName].push(...entries)
+  plotted[seriesId] ??= []
+  plotted[seriesId].push(...entries)
+  foldExtent(entries)
 }
 
-/** Draw what `names` hold, or every series when no names are given.
+/** Draw what `ids` hold, or every line when none are given.
 
 One partial application per batch, carrying only ids and data, so a tick costs one draw however
-many series received records, and none of the option around them is rebuilt.
+many lines received records, and none of the option around them is rebuilt. Lines the option no
+longer carries are dropped, since a group splitting by connection retires the one it drew for
+all of them and writing into a series that is gone is an error.
 */
-function draw(names?: string[]) {
-  const series = (names ?? Object.keys(plotted)).flatMap((name) => {
-    const id = seriesIds[name]
-    return id == null ? [] : [{ id, data: plotted[name] ?? [] }]
-  })
+function draw(ids?: string[]) {
+  const series = (ids ?? Object.keys(plotted))
+    .filter((id) => drawnIds.has(id))
+    .map((id) => ({ id, data: plotted[id] ?? [] }))
 
   if (series.length > 0) {
     instance?.setOption({ series })
   }
 }
-
-const seriesIds = $computed(() => {
-  const ids = {} as Record<string, string>
-  for (const particle of widget.particles) {
-    for (const [index, series] of particle.series.entries()) {
-      ids[getSeriesName(series, index)] = series.id
-    }
-  }
-
-  return ids
-})
 
 const xMin = $computed(() => (isPaused ? frozenXMin : start.valueOf()))
 const xMax = $computed(() => (isPaused ? frozenXMax : (end ?? time.now).valueOf()))
@@ -148,11 +214,20 @@ const axisOption: Option = $computed(() => {
     yAxis: {
       name: unit,
       type: 'value',
-      // Both fits let the maximum hug the data. From-zero extends only the minimum to
-      // zero, so all-negative data still spans its own extent.
+      axisLabel: {
+        formatter: (value: number) => formatNumber(value, widget.decimals),
+      },
       scale: true,
-      min: (value: { min: number }) =>
-        widget.fit === 'from-zero' ? Math.min(0, value.min) : value.min,
+      // Shown fits whatever the legend leaves on, which is the extent the axis is handed.
+      // All reaches past it to the series switched off, holding the axis still as they go.
+      min: (value: { min: number }) => {
+        const base =
+          widget.fit === 'all' ? Math.min(value.min, allExtent?.min ?? value.min) : value.min
+        // Zero extends the minimum alone, so all-negative data still spans its own extent.
+        return widget.fromZero ? Math.min(0, base) : base
+      },
+      max: (value: { max: number }) =>
+        widget.fit === 'all' ? Math.max(value.max, allExtent?.max ?? value.max) : value.max,
       inverse: widget.flipY,
     },
   }
@@ -179,9 +254,24 @@ const seriesColors = $computed(() => {
   // The palette is read off the document, so the mode is what says to read it again.
   void preferences.isDarkModeEnabled
   const palette = chartPalette().series
-  return widget.particles
-    .flatMap((particle) => particle.series)
-    .map((series, index) => series.color ?? palette[index % palette.length] ?? palette[0]!)
+
+  // A chosen color stands for one line, so a split group takes the palette instead rather than
+  // drawing every one of its connections in the same color.
+  const colors: Record<string, string> = {}
+  let position = 0
+  for (const particle of widget.particles) {
+    const connections = splitFor(particle)
+    for (const series of particle.series) {
+      for (const connection of connections.length > 0 ? connections : [null]) {
+        const fallback = palette[position % palette.length] ?? palette[0]!
+        colors[lineId(series, connection)] =
+          connections.length > 0 ? fallback : (series.color ?? fallback)
+        position += 1
+      }
+    }
+  }
+
+  return colors
 })
 
 const baseAxisOption = $computed(() => axisOption)
@@ -193,40 +283,40 @@ The records belong to the chart, which `load` and the arriving stream write into
 later, so each rebuild would put back a list from before the records that arrived in between.
 */
 const baseOption: Option = $computed(() => {
-  // Counted across every particle entry rather than within one, the chart drawing them as a
-  // single run.
-  let position = 0
-  const series = widget.particles.flatMap((particle) =>
-    particle.series.map((series, index) => {
-      const name = getSeriesName(series, index)
-      const color = seriesColors[position]
-      position += 1
-      const result = {
-        // The stable ID is what `replaceMerge` matches on, keeping surviving series merged
-        // in place rather than recreated.
-        id: series.id,
-        name,
-        type: widget.display,
-        itemStyle: { color },
-        lineStyle: { color },
-        ...({ progressive: false } as any),
-        ...animation,
-        showSymbol: false, // Disable showing dots, for performance.
-        symbolSize: 3,
-        emphasis: {
-          scale: false, // Disable showing dot on hover.
-        } as any,
-        large: true, // Enable large data set optimization.
-        largeThreshold: 1,
-        // Drawn at the resolution of the axis rather than of the feed, which at a hundred
-        // records a second puts thousands of them on the same column of pixels. The shape is
-        // kept, peaks included, rather than thinned by taking every nth record.
-        sampling: 'lttb',
-      }
+  const series = widget.particles.flatMap((particle) => {
+    const connections = splitFor(particle)
+    return particle.series.flatMap((series, index) =>
+      (connections.length > 0 ? connections : [null]).map((connection) => {
+        const base = getSeriesName(series, index)
+        const name = connection == null ? base : `${base} (${connection})`
+        const color = seriesColors[lineId(series, connection)]
+        const result = {
+          // The stable ID is what `replaceMerge` matches on, keeping surviving series merged
+          // in place rather than recreated.
+          id: lineId(series, connection),
+          name,
+          type: widget.display,
+          itemStyle: { color },
+          lineStyle: { color },
+          ...({ progressive: false } as any),
+          ...animation,
+          showSymbol: false, // Disable showing dots, for performance.
+          symbolSize: 3,
+          emphasis: {
+            scale: false, // Disable showing dot on hover.
+          } as any,
+          large: true, // Enable large data set optimization.
+          largeThreshold: 1,
+          // Drawn at the resolution of the axis rather than of the feed, which at a hundred
+          // records a second puts thousands of them on the same column of pixels. The shape is
+          // kept, peaks included, rather than thinned by taking every nth record.
+          sampling: 'lttb',
+        }
 
-      return result
-    }),
-  )
+        return result
+      }),
+    )
+  })
 
   return {
     tooltip: {
@@ -241,14 +331,17 @@ const baseOption: Option = $computed(() => {
         }
 
         const header = utc(params[0].value[0]).format('YYYY-MM-DD HH:mm:ss.SSS') + ' UTC'
-        const lines = params.map(
-          (p: any) =>
-            `${p.marker} ${p.seriesName}: <strong>${p.value[1]}${unit ? ' ' + unit : ''}</strong>`,
-        )
+        const lines = params.map((p: any) => {
+          const value = p.value[1]
+          const read = typeof value === 'number' ? formatNumber(value, widget.decimals) : value
+          return `${p.marker} ${p.seriesName}: <strong>${read}${unit ? ' ' + unit : ''}</strong>`
+        })
         return `${header}<br/>${lines.join('<br/>')}`
       },
     },
-    legend: { show: widget.particles.flatMap((particle) => particle.series).length > 1 },
+    // Counted over the lines drawn rather than the series configured, a group split by
+    // connection standing for one series and several lines.
+    legend: { show: series.length > 1 },
     dataZoom: [{ type: 'inside', filterMode: 'none' }],
     series,
     ...baseAxisOption,
@@ -287,46 +380,99 @@ watch([() => instance, () => axisOption], () => {
   }, 0)
 })
 
+async function fetchParticles(particle: ChartWidgetParticle, connection: string | null) {
+  return await engine.particles.getAll({
+    address: workspace.resolveAddress(particle.address),
+    type: particle.type,
+    connection,
+    after: widget.after,
+    timespan: widget.timespan ?? '1h',
+    // Subsampling buckets by time and keeps one record per bucket, so a query covering several
+    // connections would thin them against each other. One query per drawn line keeps each whole.
+    subsample: 5000,
+    limit: 5000,
+  })
+}
+
+function collect(
+  data: Data,
+  particles: Particle[],
+  group: ChartWidgetParticle,
+  key: string | null,
+) {
+  for (const current of group.series) {
+    const field = current.field
+    if (field == null) {
+      continue
+    }
+
+    for (const particle of particles) {
+      const value = particle.data[field]
+      if (typeof value === 'number' || typeof value === 'string' || typeof value === 'boolean') {
+        const bucket = (data[lineId(current, key)] ??= [])
+        bucket.push([utc(particle.timestamp).valueOf(), value as any])
+      }
+    }
+  }
+}
+
 async function load() {
   await Promise.all(
-    widget.particles.map(async ({ address, type, series }) => {
+    widget.particles.map(async (group) => {
       const data = {} as Data
       if (instance != null) {
-        const particles = await engine.particles.getAll({
-          address: workspace.resolveAddress(address),
-          type,
-          after: widget.after,
-          timespan: widget.timespan ?? '1h',
-          subsample: 5000,
-          limit: 5000,
-        })
+        const known = splitFor(group)
+        if (known.length > 0) {
+          const results = await Promise.all(
+            known.map(async (connection) => [connection, await fetchParticles(group, connection)]),
+          )
+          for (const [connection, particles] of results as [string, Particle[]][]) {
+            collect(data, particles, group, connection)
+          }
+        } else {
+          const particles = await fetchParticles(group, group.connection ?? null)
 
-        for (const [i, current] of series.entries()) {
-          const field = current.field
-          const name = getSeriesName(current, i)
-          if (field == null) {
-            continue
+          // What the records themselves say produced this type, nothing else declaring it.
+          const found =
+            group.connection == null
+              ? [
+                  ...new Set(
+                    particles.map((particle) => particle.connection).filter((name) => name != null),
+                  ),
+                ].sort()
+              : []
+
+          if (group.connection == null) {
+            splitConnections[groupKey(group)] = found
           }
 
-          for (const particle of particles) {
-            const timestamp = particle.timestamp
-            const value = particle.data[field]
-            if (
-              typeof value === 'number' ||
-              typeof value === 'string' ||
-              typeof value === 'boolean'
-            ) {
-              data[name] ??= []
-              data[name].push([utc(timestamp).valueOf(), value as any])
+          if (found.length > 1) {
+            // These records came thinned against each other, so they are dropped rather than
+            // drawn, and each connection is asked for on its own.
+            for (const series of group.series) {
+              plotted[series.id] = []
             }
+
+            const results = await Promise.all(
+              found.map(async (connection) => [
+                connection,
+                await fetchParticles(group, connection),
+              ]),
+            )
+            for (const [connection, records] of results as [string, Particle[]][]) {
+              collect(data, records, group, connection)
+            }
+          } else {
+            collect(data, particles, group, null)
           }
         }
       }
 
-      for (const [name, entries] of Object.entries(data)) {
-        plotted[name] = [...entries]
+      for (const [id, entries] of Object.entries(data)) {
+        plotted[id] = [...entries]
       }
 
+      recomputeExtent()
       draw(Object.keys(data))
     }),
   )
@@ -436,6 +582,7 @@ function prune() {
   }
 
   if (dropped.length > 0) {
+    recomputeExtent()
     draw(dropped)
   }
 }
@@ -450,6 +597,7 @@ client.useStream({
       query: {
         address: workspace.resolveAddress(particle.address),
         type: particle.type,
+        connection: particle.connection,
       },
     })),
   ),
@@ -472,8 +620,20 @@ client.useStream({
       return
     }
 
-    for (const [i, series] of particleDefinition.series.entries()) {
-      const label = getSeriesName(series, i)
+    // A split group has a line per connection, so the record joins the one it came in on. Its
+    // own connection is unset only where the group is not split.
+    const connections = splitFor(particleDefinition)
+    const key =
+      connections.length > 0 &&
+      particle.connection != null &&
+      connections.includes(particle.connection)
+        ? particle.connection
+        : null
+    if (connections.length > 0 && key == null) {
+      return
+    }
+
+    for (const series of particleDefinition.series) {
       if (series.field == null) {
         continue
       }
@@ -481,7 +641,7 @@ client.useStream({
       const value = particle.data[series.field]
       if (typeof value === 'number' || typeof value === 'string' || typeof value === 'boolean') {
         const entry: DataEntry = [utc(particle.timestamp).valueOf(), value as any]
-        append(label, [entry], 'pending')
+        append(lineId(series, key), [entry], 'pending')
       }
     }
   },

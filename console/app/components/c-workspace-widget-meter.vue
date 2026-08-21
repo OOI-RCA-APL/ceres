@@ -6,6 +6,7 @@ import { useEngine } from '@/api/engine'
 import { ParticleModel } from '@/api/particles'
 import type { Particle } from '@/api/particles'
 import { displayDuration, useTime, utc } from '@/time'
+import { formatNumber } from '@/utilities'
 import { useWorkspace } from '@/workspace'
 import type { MeterWidget } from '@/workspace'
 
@@ -42,6 +43,7 @@ onMounted(async () => {
     await engine.particles.getAll({
       address: resolvedParticleAddress,
       type: widget.particleType,
+      connection: widget.particleConnection,
       order: 'timestamp:desc',
       limit: 1,
     })
@@ -89,6 +91,10 @@ const stringified = $computed(() => {
     return value
   }
 
+  if (typeof value === 'number') {
+    return formatNumber(value, widget.decimals)
+  }
+
   return JSON.stringify(value)
 })
 
@@ -128,6 +134,7 @@ client.useStream({
     query: {
       address: resolvedParticleAddress,
       type: widget.particleType,
+      connection: widget.particleConnection,
     },
   })),
   parse: ParticleModel,

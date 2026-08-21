@@ -23,8 +23,13 @@ const component = $computed(() =>
   resolvedProcedureAddress == null ? null : engine.components.get(resolvedProcedureAddress),
 )
 
+// No type chosen lists both, the widget being a way into a component's procedures before it is
+// a filter over them.
 const procedures = $computed(
-  () => component?.procedures.filter((procedure) => procedure.type === widget.procedureType) ?? [],
+  () =>
+    component?.procedures.filter(
+      (procedure) => widget.procedureType == null || procedure.type === widget.procedureType,
+    ) ?? [],
 )
 
 const selected = $computed(() => {
@@ -35,7 +40,16 @@ const selected = $computed(() => {
   return procedures.find((procedure) => procedure.name === widget.procedureName) ?? null
 })
 
-const typePlural = $computed(() => (widget.procedureType === 'action' ? 'actions' : 'queries'))
+const typePlural = $computed(() => {
+  switch (widget.procedureType) {
+    case 'action':
+      return 'actions'
+    case 'query':
+      return 'queries'
+    default:
+      return 'procedures'
+  }
+})
 
 watchEffect(() => {
   if (selected == null && procedures.length > 0) {
@@ -55,20 +69,26 @@ watchEffect(() => {
             (widget.procedureAddress = value != null && value !== '' ? Address.parse(value) : null)
         "
       />
+      <!-- Optional so it can be cleared back to listing both, which is what it opens on. -->
       <c-schema-form-value
         v-model="widget.procedureType"
         class="w-[140px]"
-        :schema="{ type: 'string', title: 'Procedure Type', enum: ['action', 'query'] }"
+        :schema="{
+          type: 'string',
+          title: 'Procedure Type',
+          enum: ['action', 'query'],
+          optional: true,
+        }"
       />
     </div>
     <c-separator class="my-2" />
     <template v-if="procedures.length > 0">
       <c-schema-form-value
         v-model="widget.procedureName"
-        class="mb-2"
+        class="mb-3"
         :schema="{
           type: 'string',
-          title: upperFirst(widget.procedureType),
+          title: upperFirst(widget.procedureType ?? 'procedure'),
           enum: procedures.map((procedure) => procedure.name),
         }"
       />

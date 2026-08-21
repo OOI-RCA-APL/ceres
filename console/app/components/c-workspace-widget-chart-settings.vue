@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { useDerivedChartUnit } from '@/particle-types'
-import { useWorkspace } from '@/workspace'
+import { ChartWidgetFitModel, useWorkspace } from '@/workspace'
 import type { ChartWidget } from '@/workspace'
 
 const { widget } = defineProps<{
@@ -56,14 +56,31 @@ const derivedUnit = $(useDerivedChartUnit(() => widget, workspace).unit)
           }"
         />
       </div>
-      <div class="grid grid-cols-2 gap-x-2">
+      <!-- A row gap as well, this being the one block that wraps onto a second row. -->
+      <div class="grid grid-cols-2 gap-x-2 gap-y-1">
         <c-schema-form-value
           v-model="widget.fit"
           :schema="{
             type: 'string',
-            title: 'Fit (Y Axis)',
-            description: 'From zero anchors the axis at zero, data hugs the plotted extent.',
-            enum: ['from-zero', 'data'],
+            title: 'Fit To (Y Axis)',
+            enum: ChartWidgetFitModel.options,
+          }"
+        />
+        <c-schema-form-value
+          v-model="widget.decimals"
+          :schema="{
+            type: 'integer',
+            title: 'Decimals',
+            minimum: 0,
+            maximum: 10,
+            default: 2,
+          }"
+        />
+        <c-schema-form-value
+          v-model="widget.fromZero"
+          :schema="{
+            type: 'boolean',
+            title: 'From Zero',
           }"
         />
         <c-schema-form-value
@@ -71,7 +88,6 @@ const derivedUnit = $(useDerivedChartUnit(() => widget, workspace).unit)
           :schema="{
             type: 'boolean',
             title: 'Flip Y Axis',
-            description: 'Draw the axis positive-down, for depth-like series.',
           }"
         />
       </div>
