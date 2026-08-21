@@ -59,11 +59,27 @@ const resolvedFilter = $computed(() => ({
 
 // The address filter offers each component and its subtree selector, narrowed to the
 // workspace's placement so it matches what the record APIs can actually return.
-const addressFilterOptions = $computed(() =>
-  engine.components.all
-    .filter((component) => workspace.isWithinScope(component.address))
-    .flatMap((component) => [component.address.toString(), component.address.all().toString()]),
+const scopedComponents = $computed(() =>
+  engine.components.all.filter((component) => workspace.isWithinScope(component.address)),
 )
+
+const addressFilterOptions = $computed(() =>
+  scopedComponents.flatMap((component) => [
+    component.address.toString(),
+    // The `:all` form reaches a component's descendants, so it selects nothing beyond the
+    // plain address on one that has none.
+    ...(component.components.length > 0 ? [component.address.all().toString()] : []),
+  ]),
+)
+
+/** Every connection name in scope, which the bar offers as a connection condition's value. */
+const connectionFilterOptions = $computed(() => [
+  ...new Set(
+    scopedComponents.flatMap((component) =>
+      component.connections.map((connection) => connection.name),
+    ),
+  ),
+])
 
 const columns = $computed(() => [
   { label: 'Timestamp', name: 'timestamp', minWidth: 88 },
@@ -644,6 +660,7 @@ useStream(debouncedFilter as never, async (record: Record) => {
       ref="filterBar"
       v-model="widget.query"
       :address-options="addressFilterOptions"
+      :connection-options="connectionFilterOptions"
       :record-kind="recordKind"
     />
     <c-separator />

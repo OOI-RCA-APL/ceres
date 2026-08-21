@@ -6,7 +6,7 @@ let modelValue: unknown = $(defineModel<unknown>({ required: true }))
 
 const { form, path } = defineProps<{
   form: SchemaForm
-  schema: SchemaObject & { type: 'string'; format: 'address' }
+  schema: SchemaObject & { type: 'string'; format: 'connection' }
   path: SchemaPath
 }>()
 
@@ -16,11 +16,15 @@ const title = $computed(() => form.getLabel(path))
 const isRequired = $computed(() => form.getRequired(path))
 const description = $computed(() => form.getDescription(path))
 
-// Every component the engine carries, which is what an address can name. Offered as a list
-// rather than typed out, an address being long and exact.
-const items = $computed(() =>
-  engine.components.all.map((component) => component.address.toString()),
-)
+// Every connection name the engine carries, offered as a list rather than typed out. A name is
+// unique only within its own component, so the same one stands for every component declaring it.
+const items = $computed(() => [
+  ...new Set(
+    engine.components.all.flatMap((component) =>
+      component.connections.map((connection) => connection.name),
+    ),
+  ),
+])
 
 const selected = $computed(() => (typeof modelValue === 'string' ? modelValue : undefined))
 
@@ -35,12 +39,14 @@ function onClear() {
       <c-text element="span" variant="mono-sm">{{ title }}</c-text>
       <c-text class="text-muted" element="span" variant="mono-sm">
         <span class="mx-1">{{ '⸱' }}</span>
-        <span>address</span>
+        <span>connection</span>
       </c-text>
     </div>
     <!-- Embedded puts the clear beside the field rather than in the trailing slot, which is drawn
     over the field and would sit on the value it clears. -->
     <div :class="form.embedded ? 'flex min-w-0 items-center gap-0.5' : 'contents'">
+      <!-- Created as typed as well as chosen, since a connection the engine is not carrying now
+      still named the records that are being looked through. -->
       <c-select-menu
         :class="form.embedded ? 'w-auto font-mono' : 'w-full font-mono'"
         create-item
@@ -58,8 +64,6 @@ function onClear() {
         @create="(value: string) => (modelValue = value)"
         @update:model-value="(value: string | undefined) => (modelValue = value)"
       >
-        <!-- The value alone, since "Create" reads as making a component rather than as filtering
-        on an address the engine is not carrying right now. -->
         <template #create-item-label="{ item }">
           <span class="font-mono">"{{ item }}"</span>
         </template>

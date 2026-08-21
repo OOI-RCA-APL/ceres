@@ -11,6 +11,8 @@ export type FilterValueInput =
   | { type: 'integer'; minimum?: number; exclusiveMaximum?: number }
   | { type: 'enum'; options: readonly string[] }
   | { type: 'address' }
+  /** Chosen from the connections the hosting view's scope declares, which only it knows. */
+  | { type: 'connection' }
 
 export type FilterDefinition = {
   /** The registry key a stored condition names, also the filter structure field it writes. */
@@ -134,7 +136,7 @@ export const filterDefinitions: readonly FilterDefinition[] = [
     kind: 'connection',
     label: 'Connection',
     aliases: ['connection', 'port', 'via'],
-    input: { type: 'text' },
+    input: { type: 'connection' },
     kinds: ['messages', 'particles'],
     columns: { messages: 'connection', particles: 'connection' },
   },

@@ -28,10 +28,16 @@ import icons from '@/icons'
 import { moved, usePointerReorder } from '@/reorder'
 import type { SelectMode } from '@/workspace'
 
-const { recordKind, addressOptions = [] } = defineProps<{
+const {
+  recordKind,
+  addressOptions = [],
+  connectionOptions = [],
+} = defineProps<{
   recordKind: RecordKind
   /** The choices an address condition offers, from the hosting view's scope. */
   addressOptions?: readonly string[]
+  /** The connection names the hosting view's scope declares, offered the same way. */
+  connectionOptions?: readonly string[]
 }>()
 
 let query = $(defineModel<FilterQuery>({ required: true }))
@@ -84,14 +90,83 @@ const groupingOperator = $computed<'and' | 'or' | null>(() => {
   return typed === 'and' || typed === 'or' ? typed : null
 })
 
-/** Where the free text entry sits, which is after every field it is offered beneath. */
+/** An address is written with or without its leading marker, so both are matched the same. */
+function withoutMarker(value: string): string {
+  return value.startsWith('@') ? value.slice(1) : value
+}
+
+/** How much must be typed before values are offered, since a single letter is in most of them
+and the fields would be buried under the matches. */
+const minimumValueSearch = 2
+
+/** The most values offered at once, so a common substring cannot fill the list. */
+const maximumValueSuggestions = 8
+
+type ValueSuggestion = { definition: FilterDefinition; value: string }
+
+/** The values a definition can be given outright, wherever the console knows them. */
+function valuesFor(definition: FilterDefinition): readonly string[] {
+  if (definition.input.type === 'enum') {
+    return definition.input.options
+  }
+  if (definition.input.type === 'address') {
+    return addressOptions
+  }
+
+  return definition.kind === 'connection' ? connectionOptions : []
+}
+
+/** The known values the typed text names outright, prefix matches first.
+
+Offered so naming the field and then picking the value is not two steps to say what typing
+`receive` or a component's address already said. An enum is separated from the rest, its values
+being few and exact where addresses and connections are many.
+*/
+function matchValues(wanted: 'enum' | 'named'): ValueSuggestion[] {
+  const typed = withoutMarker(search.trim().toLowerCase())
+  if (typed.length < minimumValueSearch) {
+    return []
+  }
+
+  const matched: { definition: FilterDefinition; value: string; leads: boolean }[] = []
+  for (const definition of definitionsFor(recordKind)) {
+    if ((definition.input.type === 'enum') !== (wanted === 'enum')) {
+      continue
+    }
+
+    for (const value of valuesFor(definition)) {
+      const candidate = withoutMarker(value.toLowerCase())
+      if (candidate.includes(typed)) {
+        matched.push({ definition, value, leads: candidate.startsWith(typed) })
+      }
+    }
+  }
+
+  return [...matched.filter((match) => match.leads), ...matched.filter((match) => !match.leads)]
+    .slice(0, maximumValueSuggestions)
+    .map(({ definition, value }) => ({ definition, value }))
+}
+
+/** An enum value reads as the whole condition, so it is offered above the fields. */
+const enumSuggestions = $computed(() => matchValues('enum'))
+
+/** Addresses and connections sit below the text search, since a fragment of one is as likely
+to be wanted as the text it is, and there are far more of them than of anything else offered. */
+const namedSuggestions = $computed(() => matchValues('named'))
+
 const groupingCount = $computed(() => (groupingOperator == null ? 0 : 1))
+
+/** Where the fields start, the enum values naming a condition outright sitting above them. */
+const fieldsOffset = $computed(() => groupingCount + enumSuggestions.length)
 const freeTextIndex = $computed(() =>
-  freeTextDefinition == null ? -1 : groupingCount + suggestions.length,
+  freeTextDefinition == null ? -1 : fieldsOffset + suggestions.length,
 )
-const suggestionCount = $computed(
-  () => groupingCount + suggestions.length + (freeTextDefinition == null ? 0 : 1),
+
+/** Where the named values start, which is under everything else the bar offers. */
+const namedOffset = $computed(
+  () => fieldsOffset + suggestions.length + (freeTextDefinition == null ? 0 : 1),
 )
+const suggestionCount = $computed(() => namedOffset + namedSuggestions.length)
 const isSuggesting = $computed(() => isInputFocused && suggestionCount > 0)
 
 /** The group conditions are being added to, set by typing its operator and left behind on the
@@ -144,6 +219,14 @@ function acceptFreeText() {
   focusId = condition.id
 }
 
+// The condition arrives with its value already, so focus stays in the bar rather than moving
+// into a picker offering the choice that was just made.
+function acceptValue(suggestion: ValueSuggestion) {
+  append(createCondition(suggestion.definition.kind, suggestion.value))
+  search = ''
+  highlighted = 0
+}
+
 function onEnter() {
   if (search.trim() === '') {
     return
@@ -161,9 +244,28 @@ function onEnter() {
     return
   }
 
-  const definition = suggestions[highlighted - groupingCount] ?? suggestions[0]
+  const suggested =
+    enumSuggestions[highlighted - groupingCount] ?? namedSuggestions[highlighted - namedOffset]
+  if (suggested != null) {
+    acceptValue(suggested)
+    return
+  }
+
+  const definition = suggestions[highlighted - fieldsOffset]
   if (definition != null) {
     accept(definition)
+    return
+  }
+
+  // Nothing sits on the highlighted row, so whatever leads the list is taken.
+  const leading = enumSuggestions[0]
+  if (leading != null) {
+    acceptValue(leading)
+    return
+  }
+
+  if (suggestions[0] != null) {
+    accept(suggestions[0])
   } else {
     acceptFreeText()
   }
@@ -568,14 +670,30 @@ provide(filterLiftKey, {
             : {{ groupingOperator }}
           </c-text>
         </button>
+        <!-- Above the fields, since text matching a value names the whole condition while a
+        field match names only half of it. -->
+        <button
+          v-for="(suggestion, index) in enumSuggestions"
+          :key="`${suggestion.definition.kind}=${suggestion.value}`"
+          class="flex w-full cursor-pointer items-baseline gap-2 px-2 py-0.5 text-left"
+          :class="index + groupingCount === highlighted && 'bg-accented/60'"
+          type="button"
+          @mousedown.prevent="acceptValue(suggestion)"
+          @mousemove="highlighted = index + groupingCount"
+        >
+          <c-text element="span" variant="mono-sm">{{ suggestion.definition.label }}</c-text>
+          <c-text class="text-muted truncate" element="span" variant="mono-xs">
+            : {{ suggestion.definition.input.type }} = "{{ suggestion.value }}"
+          </c-text>
+        </button>
         <button
           v-for="(definition, index) in suggestions"
           :key="definition.kind"
           class="flex w-full cursor-pointer items-baseline gap-2 px-2 py-0.5 text-left"
-          :class="index + groupingCount === highlighted && 'bg-accented/60'"
+          :class="index + fieldsOffset === highlighted && 'bg-accented/60'"
           type="button"
           @mousedown.prevent="accept(definition)"
-          @mousemove="highlighted = index + groupingCount"
+          @mousemove="highlighted = index + fieldsOffset"
         >
           <c-text element="span" variant="mono-sm">{{ definition.label }}</c-text>
           <c-text class="text-muted" element="span" variant="mono-xs">
@@ -588,13 +706,27 @@ provide(filterLiftKey, {
           :class="freeTextIndex === highlighted && 'bg-accented/60'"
           type="button"
           @mousedown.prevent="acceptFreeText()"
-          @mousemove="highlighted = suggestionCount - 1"
+          @mousemove="highlighted = fieldsOffset + suggestions.length"
         >
           <c-text element="span" variant="mono-sm">{{ freeTextDefinition.label }}</c-text>
           <!-- The text as typed, shown as the value it would be given, since this row differs from
           the ones above by carrying one already. -->
           <c-text class="text-muted truncate" element="span" variant="mono-xs">
             : str = "{{ search.trim() }}"
+          </c-text>
+        </button>
+        <button
+          v-for="(suggestion, index) in namedSuggestions"
+          :key="`${suggestion.definition.kind}=${suggestion.value}`"
+          class="flex w-full cursor-pointer items-baseline gap-2 px-2 py-0.5 text-left"
+          :class="index + namedOffset === highlighted && 'bg-accented/60'"
+          type="button"
+          @mousedown.prevent="acceptValue(suggestion)"
+          @mousemove="highlighted = index + namedOffset"
+        >
+          <c-text element="span" variant="mono-sm">{{ suggestion.definition.label }}</c-text>
+          <c-text class="text-muted truncate" element="span" variant="mono-xs">
+            : str = "{{ suggestion.value }}"
           </c-text>
         </button>
       </div>
