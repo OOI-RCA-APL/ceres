@@ -26,7 +26,7 @@ describe('defaultWidgetName', () => {
 
 describe('a chart widget', () => {
   it('fits the series its legend leaves on, and does not reach for zero', () => {
-    expect(createWidget('chart')).toMatchObject({ fit: 'shown', fromZero: false })
+    expect(createWidget('chart')).toMatchObject({ fit: 'shown-data', fromZero: false })
   })
 
   it('reads its values out to two decimal places', () => {
@@ -34,7 +34,7 @@ describe('a chart widget', () => {
   })
 
   it('keeps the fit it was stored with', () => {
-    expect(ChartWidgetModel.parse({ type: 'chart', fit: 'all' }).fit).toBe('all')
+    expect(ChartWidgetModel.parse({ type: 'chart', fit: 'all-data' }).fit).toBe('all-data')
   })
 })
 

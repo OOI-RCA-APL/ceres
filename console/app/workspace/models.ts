@@ -94,7 +94,7 @@ export const ChartWidgetDisplayModel = z.enum(['line', 'scatter', 'bar'])
 
 export type ChartWidgetFit = z.infer<typeof ChartWidgetFitModel>
 /** Which series bound the Y axis, the ones switched on in the legend or every one of them. */
-export const ChartWidgetFitModel = z.enum(['shown', 'all'])
+export const ChartWidgetFitModel = z.enum(['shown-data', 'all-data'])
 
 /** The most decimal places a widget reads a value out to, trailing zeros never shown.
 
@@ -126,7 +126,7 @@ export const ChartWidgetModel = BaseWidgetModel.extend({
   type: z.literal('chart'),
   name: z.string().catch('Chart'),
   display: ChartWidgetDisplayModel.catch('line'),
-  fit: ChartWidgetFitModel.catch('shown'),
+  fit: ChartWidgetFitModel.catch('shown-data'),
   /** Extend the Y axis to include zero, whatever the plotted extent. */
   fromZero: z.boolean().catch(false),
   decimals: DecimalsModel,
@@ -172,7 +172,7 @@ export const VideoWidgetModel = BaseWidgetModel.extend({
 
 /** A stored control color, in the vocabulary the old console wrote and the engine still holds. */
 export type Color = z.infer<typeof ColorModel>
-export const ColorModel = z.enum(['primary', 'positive', 'warning', 'negative'])
+export const ColorModel = z.enum(['primary', 'positive', 'warning', 'negative', 'white', 'black'])
 
 export type ButtonStyling = z.infer<typeof ButtonStylingModel>
 export const ButtonStylingModel = z.enum(['flat', 'outlined'])
@@ -185,7 +185,7 @@ export const ButtonActionModel = z.object({
   address: AddressModel.nullish(),
   action: z.string().nullish(),
   arguments: z.record(z.string(), z.any()).catch(() => ({})),
-  color: ColorModel.nullish().catch(undefined),
+  color: ColorModel.catch('primary'),
   styling: ButtonStylingModel.nullish().catch(undefined),
   tooltip: z.string().nullish().catch(undefined),
 

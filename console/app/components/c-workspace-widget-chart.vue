@@ -238,12 +238,12 @@ const axisOption: Option = $computed(() => {
       // All reaches past it to the series switched off, holding the axis still as they go.
       min: (value: { min: number }) => {
         const base =
-          widget.fit === 'all' ? Math.min(value.min, allExtent?.min ?? value.min) : value.min
+          widget.fit === 'all-data' ? Math.min(value.min, allExtent?.min ?? value.min) : value.min
         // Zero extends the minimum alone, so all-negative data still spans its own extent.
         return widget.fromZero ? Math.min(0, base) : base
       },
       max: (value: { max: number }) =>
-        widget.fit === 'all' ? Math.max(value.max, allExtent?.max ?? value.max) : value.max,
+        widget.fit === 'all-data' ? Math.max(value.max, allExtent?.max ?? value.max) : value.max,
       inverse: widget.flipY,
     },
   }
