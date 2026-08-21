@@ -4,7 +4,6 @@
 # maturin in `release.yaml`, never through this file, so nothing here needs to.
 PROFILE ?= dev
 CARGO_PROFILE = $(if $(filter dev,$(PROFILE)),,--release)
-CARGO_OUTPUT = $(if $(filter dev,$(PROFILE)),debug,release)
 
 # Exported to every recipe, because a bare `uv run` resyncs, and a sync that disagrees
 # with the installed build's configuration rebuilds the extension from scratch.
@@ -23,7 +22,6 @@ install: | ceres/static/console
 	uv sync
 	cd console && make install
 	cd rust && cargo build $(CARGO_PROFILE) -p ceres-cli
-	ln -sf ../../rust/target/$(CARGO_OUTPUT)/ceres .venv/bin/ceres
 # The bundle is a build artifact rather than a committed file, so a fresh clone has none
 # until something builds one. An order-only prerequisite, so a bundle already there is left
 # alone and only its absence costs a build.
