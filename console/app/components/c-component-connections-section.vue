@@ -5,7 +5,7 @@ import type { Address } from '@/api/address'
 import type { ConnectionInfo, ConnectionStateInfo } from '@/api/components'
 import type { Connectivity } from '@/api/shared'
 import type { DetailWidgetAction } from '@/components/c-detail-widget-section.vue'
-import { createBlock, createCondition } from '@/filters/model'
+import { scopedQuery } from '@/filters/model'
 import icons from '@/icons'
 import { toTitle } from '@/utilities'
 import { createWidget } from '@/workspace'
@@ -41,7 +41,6 @@ let expanded = $(defineModel<boolean>('expanded', { required: true }))
 alternatives to each other. */
 function viewFor(kind: 'messages' | 'particles', names: string[]): Widget {
   const widget = createWidget(kind) as MessagesWidget | ParticlesWidget
-  const conditions = names.map((name) => createCondition('connection', name))
 
   // A connection reads as either kind, so the name carries which one this is. Several
   // connections keep the default, no one of them standing for the rest.
@@ -49,10 +48,7 @@ function viewFor(kind: 'messages' | 'particles', names: string[]): Widget {
     widget.name = `${toTitle(names[0] as string)} ${kind === 'messages' ? 'Messages' : 'Particles'}`
   }
 
-  widget.query = [
-    createCondition('address', address.toString()),
-    ...(conditions.length > 1 ? [createBlock('or', conditions)] : conditions),
-  ]
+  widget.query = scopedQuery(address.toString(), 'connection', names)
   return widget
 }
 

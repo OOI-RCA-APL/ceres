@@ -3,7 +3,7 @@ import type { ContextMenuItem } from '@nuxt/ui'
 
 import { type Address, AddressSelector } from '@/api/address'
 import type { ParticleFieldDetails } from '@/components/c-particle-field-details-dialog.vue'
-import { createCondition } from '@/filters/model'
+import { scopedQuery } from '@/filters/model'
 import icons from '@/icons'
 import {
   fieldRefKey,
@@ -58,21 +58,32 @@ let selection = $ref<ParticleFieldRef[]>([])
 /** The field the open context menu was raised on. */
 let contextRef = $ref<ParticleFieldRef | null>(null)
 
-/** The type header the open context menu was raised on, which the field items do not act on. */
-let contextType = $ref<ParticleTypeRef | null>(null)
+/** The selected type headers the open context menu acts on, which the field items do not
+touch. Empty whenever the menu was raised on a field. */
+let contextTypes = $ref<ParticleTypeRef[]>([])
 
 /** The field whose details dialog is showing, opened from the context menu. */
 let detailsField = $ref<ParticleFieldDetails | null>(null)
 
 const menuItems = $computed<ContextMenuItem[][]>(() => {
-  if (contextType != null) {
+  if (contextTypes.length > 0) {
+    const chosen = contextTypes
     return [
       [
         {
           label: 'Create Particles View',
           icon: icons.particles,
-          onSelect: () => emit('create', [particlesWidgetFor(contextType as ParticleTypeRef)]),
+          onSelect: () => emit('create', particlesViewsFor(chosen, 'combined')),
         },
+        ...(chosen.length > 1
+          ? [
+              {
+                label: 'Create Separate Particles Views',
+                icon: icons.particles,
+                onSelect: () => emit('create', particlesViewsFor(chosen, 'separate')),
+              },
+            ]
+          : []),
       ],
     ]
   }
@@ -113,12 +124,34 @@ function onTreeContext(event: MouseEvent) {
   }
 }
 
-/** A view of one type's records, narrowed to the component that declares it. */
-function particlesWidgetFor(ref: ParticleTypeRef): ParticlesWidget {
+/** A view of one component's records, narrowed to the given types.
+
+A view of one type is named after it, since that name is the whole of what it shows. Several
+types keep the default, no one of them standing for the rest.
+*/
+function particlesWidget(address: string, types: string[]): ParticlesWidget {
   const widget = createWidget('particles') as ParticlesWidget
-  widget.name = toTitle(ref.type)
-  widget.query = [createCondition('address', ref.address), createCondition('type', ref.type)]
+  if (types.length === 1) {
+    widget.name = toTitle(types[0] as string)
+  }
+
+  widget.query = scopedQuery(address, 'type', types)
   return widget
+}
+
+/** The views the given types become, one per component that declares any of them, or one per
+type where they are wanted apart. */
+function particlesViewsFor(refs: ParticleTypeRef[], form: 'combined' | 'separate'): Widget[] {
+  if (form === 'separate') {
+    return refs.map((ref) => particlesWidget(ref.address, [ref.type]))
+  }
+
+  const byAddress = new Map<string, string[]>()
+  for (const ref of refs) {
+    byAddress.set(ref.address, [...(byAddress.get(ref.address) ?? []), ref.type])
+  }
+
+  return [...byAddress].map(([address, types]) => particlesWidget(address, types))
 }
 
 function showDetails() {
@@ -242,18 +275,37 @@ function dropMeters() {
   pendingDrop = null
 }
 
-// A type stands for one view of its records, so the drop needs nothing asked of it.
-function onTypePress(ref: ParticleTypeRef) {
-  if (insertDrag == null || insertAt == null) {
+// One type reads only one way, so its drop lands without asking. Several can be one view of
+// them all or a view each, which is the same question the dragged fields answer.
+function onTypePress(refs: ParticleTypeRef[]) {
+  if (insertDrag == null || insertAt == null || refs.length === 0) {
     return
   }
 
-  const widget = particlesWidgetFor(ref)
-  insertDrag([widget], (placement) => {
-    if (placement != null) {
-      insertAt?.([widget], placement)
+  insertDrag(particlesViewsFor(refs, 'combined'), (placement) => {
+    if (placement == null) {
+      return
     }
+
+    if (refs.length === 1) {
+      insertAt?.(particlesViewsFor(refs, 'combined'), placement)
+      return
+    }
+
+    pendingTypeDrop = { placement, refs }
   })
+}
+
+/** A drop waiting on the one-view-or-several prompt, with the types that were dragged. */
+let pendingTypeDrop = $ref<{ placement: WidgetPlacement; refs: ParticleTypeRef[] } | null>(null)
+
+function dropTypeViews(form: 'combined' | 'separate') {
+  if (pendingTypeDrop == null) {
+    return
+  }
+
+  insertAt?.(particlesViewsFor(pendingTypeDrop.refs, form), pendingTypeDrop.placement)
+  pendingTypeDrop = null
 }
 </script>
 
@@ -272,17 +324,17 @@ function onTypePress(ref: ParticleTypeRef) {
           @item-context="
             (event, ref) => {
               contextRef = ref
-              contextType = null
+              contextTypes = []
             }
           "
           @item-press="onItemPress"
           @type-context="
-            (event, ref) => {
+            (event, refs) => {
               contextRef = null
-              contextType = ref
+              contextTypes = refs
             }
           "
-          @type-press="(event, ref) => onTypePress(ref)"
+          @type-press="(event, refs) => onTypePress(refs)"
         />
       </c-context-menu>
     </c-detail-section>
@@ -323,6 +375,35 @@ function onTypePress(ref: ParticleTypeRef) {
             :ui="{ label: 'grow text-left' }"
             variant="ghost"
             @click="dropMeters"
+          />
+        </div>
+      </template>
+    </c-modal>
+    <!-- Several dragged types are one view of them all or a view each. -->
+    <c-modal
+      :open="pendingTypeDrop != null"
+      title="Add Widgets"
+      @update:open="(value: boolean) => !value && (pendingTypeDrop = null)"
+    >
+      <template #body>
+        <div class="flex min-w-56 flex-col gap-1">
+          <c-button
+            block
+            color="neutral"
+            :icon="icons.particles"
+            label="Create Particles View"
+            :ui="{ label: 'grow text-left' }"
+            variant="ghost"
+            @click="dropTypeViews('combined')"
+          />
+          <c-button
+            block
+            color="neutral"
+            :icon="icons.particles"
+            label="Create Separate Particles Views"
+            :ui="{ label: 'grow text-left' }"
+            variant="ghost"
+            @click="dropTypeViews('separate')"
           />
         </div>
       </template>

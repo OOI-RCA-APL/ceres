@@ -13,10 +13,12 @@ import {
   groupConnection,
   removeParticleSeries,
   toggleParticleField,
+  typeRefKey,
   withGroupConnection,
 } from '@/particle-series'
 import type { ParticleFieldRef, ParticleTypeRef } from '@/particle-series'
 import { filterParticleTypes, useParticleTypesByAddress } from '@/particle-types'
+import { createRowSelection } from '@/row-selection'
 import { ChartWidgetSeriesModel, useWorkspace } from '@/workspace'
 import type { ChartWidgetParticle, ChartWidgetSeries, SelectMode } from '@/workspace'
 
@@ -60,11 +62,11 @@ const emit = defineEmits<{
   /** A plain press landed on a field row, which a host may turn into a drag. */
   itemPress: [event: PointerEvent, ref: ParticleFieldRef]
 
-  /** A right click landed on a type header row. */
-  typeContext: [event: MouseEvent, ref: ParticleTypeRef]
+  /** A right click landed on a type header row, with the selection it now acts on. */
+  typeContext: [event: MouseEvent, refs: ParticleTypeRef[]]
 
-  /** A plain press landed on a type header row, which a host may turn into a drag. */
-  typePress: [event: PointerEvent, ref: ParticleTypeRef]
+  /** A plain press landed on a type header row, with the types a drag from it would carry. */
+  typePress: [event: PointerEvent, refs: ParticleTypeRef[]]
 }>()
 
 let modelValue = $(defineModel<ChartWidgetParticle[]>({ default: () => [] }))
@@ -96,6 +98,7 @@ let anchor = $ref<string | null>(null)
 function onSelect(address: string, type: string, field: string, mode: SelectMode) {
   const ref: ParticleFieldRef = { address, type, field }
   const key = fieldRefKey(ref)
+  typeRows.clear()
 
   if (single || mode === 'replace') {
     selected = [ref]
@@ -125,12 +128,55 @@ function onSelect(address: string, type: string, field: string, mode: SelectMode
 // A right click acts on the selection, so a row outside it becomes the selection first.
 function onContext(address: string, type: string, field: string, event: MouseEvent) {
   const ref: ParticleFieldRef = { address, type, field }
+  typeRows.clear()
   if (!selectedKeys.has(fieldRefKey(ref))) {
     selected = [ref]
     anchor = fieldRefKey(ref)
   }
 
   emit('itemContext', event, ref)
+}
+
+/** Every visible type in tree order, which is what a header range spans and the order a
+selection of them reads back in. */
+const typeOrder = $computed<ParticleTypeRef[]>(() =>
+  visibleNodes.flatMap((node) => {
+    const address = node.toString()
+    return (filteredByAddress.get(address) ?? []).map((type) => ({ address, type: type.type }))
+  }),
+)
+
+// Held here rather than in a model, since a host acts on the types an event hands it rather than
+// on a selection it has to keep.
+const typeRows = createRowSelection({ ids: () => typeOrder.map(typeRefKey) })
+
+const selectedTypeKeys = $computed(() => typeRows.selectedIds.value)
+
+function typesFor(keys: string[]): ParticleTypeRef[] {
+  const wanted = new Set(keys)
+  return typeOrder.filter((ref) => wanted.has(typeRefKey(ref)))
+}
+
+function onTypeSelect(address: string, type: string, mode: SelectMode) {
+  typeRows.select(typeRefKey({ address, type }), mode)
+
+  // The tree carries one selection, and the two act on different things, so picking a header
+  // puts the fields down.
+  if (selected.length > 0) {
+    selected = []
+  }
+}
+
+function onTypeContext(address: string, type: string, event: MouseEvent) {
+  typeRows.ensureSelected(typeRefKey({ address, type }))
+  emit('typeContext', event, typesFor(typeRows.selected()))
+}
+
+function onTypePress(address: string, type: string, event: PointerEvent) {
+  const keys = typeRows.pressTargets(typeRefKey({ address, type }), event)
+  if (keys != null) {
+    emit('typePress', event, typesFor(keys))
+  }
 }
 
 const engine = useEngine()
@@ -402,6 +448,7 @@ function addManualEntry() {
           :item-actions="itemActions"
           :particles="modelValue"
           :selected-keys="selectedKeys"
+          :selected-type-keys="selectedTypeKeys"
           :selection-mode="selectionMode"
           :shown-types="filteredByAddress.get(node.toString()) ?? []"
           @context="(type, field, event) => onContext(node.toString(), type, field, event)"
@@ -411,12 +458,9 @@ function addManualEntry() {
           "
           @select="(type, field, mode) => onSelect(node.toString(), type, field, mode)"
           @toggle="(type, field, value) => toggleField(node.toString(), type, field, value)"
-          @type-context="
-            (type, event) => emit('typeContext', event, { address: node.toString(), type })
-          "
-          @type-press="
-            (type, event) => emit('typePress', event, { address: node.toString(), type })
-          "
+          @type-context="(type, event) => onTypeContext(node.toString(), type, event)"
+          @type-press="(type, event) => onTypePress(node.toString(), type, event)"
+          @type-select="(type, mode) => onTypeSelect(node.toString(), type, mode)"
         />
       </div>
     </div>

@@ -20,6 +20,11 @@ export function fieldRefKey(ref: ParticleFieldRef): string {
   return `${ref.address}|${ref.type}|${ref.field}`
 }
 
+/** The key a selection tracks a type under, unique across the whole tree. */
+export function typeRefKey(ref: ParticleTypeRef): string {
+  return `${ref.address}|${ref.type}`
+}
+
 /** The connection a group is narrowed to, `null` standing for every connection. */
 export function groupConnection(particle: ChartWidgetParticle): string | null {
   return particle.connection ?? null

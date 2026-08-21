@@ -6,7 +6,7 @@ import type { Address } from '@/api/address'
 import type { ParticleFieldInfo, ParticleTypeInfo } from '@/api/components'
 import type { ParticleFieldDetails } from '@/components/c-particle-field-details-dialog.vue'
 import icons from '@/icons'
-import { fieldRefKey } from '@/particle-series'
+import { fieldRefKey, typeRefKey } from '@/particle-series'
 import { describeFieldDescription, describeFieldType } from '@/particle-types'
 import { isPlainPress, selectMode } from '@/row-selection'
 import type { Schema } from '@/schema-form'
@@ -17,6 +17,7 @@ const {
   particles = [],
   selectionMode = 'toggle',
   selectedKeys = new Set<string>(),
+  selectedTypeKeys = new Set<string>(),
   itemActions = false,
   bare = false,
   defaultOpened = false,
@@ -37,6 +38,9 @@ const {
 
   /** The selection in highlight mode, as `fieldRefKey` keys spanning the whole tree. */
   selectedKeys?: Set<string>
+
+  /** The selected type headers, as `typeRefKey` keys spanning the whole tree. */
+  selectedTypeKeys?: ReadonlySet<string>
 
   /** Renders a more-actions button on each field row, sharing the `context` event with
   right clicks. */
@@ -80,6 +84,18 @@ function isTypeOpened(type: ParticleTypeInfo): boolean {
 // Toggles made by hosts that do not persist expansion still hold for this mount.
 const localOpen = $ref<Record<string, boolean>>({})
 
+// A plain click on a header expands it, the tree's first purpose. Held modifiers ask for the
+// header itself instead, which is the same vocabulary the field rows answer to.
+function onTypeClick(type: ParticleTypeInfo, event: MouseEvent) {
+  const mode = selectionMode === 'highlight' ? selectMode(event) : 'replace'
+  if (mode === 'replace') {
+    toggleType(type, event)
+    return
+  }
+
+  emit('typeSelect', type.type, mode)
+}
+
 function toggleType(type: ParticleTypeInfo, event: MouseEvent) {
   // A press the pointer travelled from was a drag, and its release still reaches the header as
   // a click, which would collapse the type the widget was just dragged out of.
@@ -112,6 +128,9 @@ const emit = defineEmits<{
 
   /** A plain press on a field row in highlight mode, which a host may turn into a drag. */
   press: [type: string, field: string, event: PointerEvent]
+
+  /** A modifier click on a type header row, which selects rather than expanding it. */
+  typeSelect: [type: string, mode: SelectMode]
 
   /** A right click on a type header row, before the hosting menu opens on the event. */
   typeContext: [type: string, event: MouseEvent]
@@ -179,6 +198,10 @@ function isFieldOn(type: string, field: string): boolean {
 
 function typeHasSelection(type: ParticleTypeInfo): boolean {
   return type.fields.some((field) => isFieldOn(type.type, field.name))
+}
+
+function isTypeSelected(type: ParticleTypeInfo): boolean {
+  return selectedTypeKeys.has(typeRefKey({ address: address.toString(), type: type.type }))
 }
 
 // Read against every declared type rather than the filtered view so a selection hidden by a
@@ -273,13 +296,18 @@ function travelled(event: MouseEvent): boolean {
       <div v-for="type in shownTypes" :key="type.type">
         <button
           class="hover:bg-elevated/50 flex w-full items-center gap-1 px-2 py-0.5 text-left"
-          :class="typeHasSelection(type) && 'text-primary'"
+          :class="[
+            typeHasSelection(type) && 'text-primary',
+            // Neutral rather than a semantic color, so the highlight never fights the text.
+            isTypeSelected(type) && 'bg-[#80808029]',
+          ]"
           data-particle-type
           type="button"
-          @click="toggleType(type, $event as MouseEvent)"
+          @click="onTypeClick(type, $event as MouseEvent)"
           @contextmenu="
             selectionMode === 'highlight' && emit('typeContext', type.type, $event as MouseEvent)
           "
+          @mousedown="(event: MouseEvent) => event.shiftKey && event.preventDefault()"
           @pointerdown="onTypePointerDown(type.type, $event as PointerEvent)"
         >
           <c-icon
