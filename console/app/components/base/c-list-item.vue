@@ -42,7 +42,11 @@ const isPressable = $computed(() => element !== 'div' || selectable)
   <component
     :is="element"
     class="flex items-center gap-2 px-3 py-1"
-    :class="isPressable && 'hover:bg-elevated w-full cursor-pointer text-left disabled:opacity-50'"
+    :class="[
+      isPressable && 'hover:bg-elevated w-full text-left disabled:opacity-50',
+      // Held back for a selectable row, whose click picks it out of the list rather than acting.
+      isPressable && !selectable && 'cursor-pointer',
+    ]"
     :disabled="isButton ? disabled : undefined"
     :to="to ?? undefined"
     :type="isButton ? 'button' : undefined"

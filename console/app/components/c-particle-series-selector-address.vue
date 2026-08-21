@@ -328,8 +328,11 @@ function travelled(event: MouseEvent): boolean {
             v-for="field in type.fields"
             :key="field.name"
             :class="[
-              'group hover:bg-elevated/50 flex min-h-6 cursor-pointer items-center',
+              'group hover:bg-elevated/50 flex min-h-6 items-center',
               'gap-2 rounded-sm px-1 select-none',
+              // The pointer cursor marks the toggling row, the highlighting one only selecting
+              // the field.
+              selectionMode === 'toggle' && 'cursor-pointer',
               // Neutral rather than a semantic color, so the highlight never fights the text.
               selectionMode === 'highlight' && isFieldOn(type.type, field.name) && 'bg-[#80808029]',
             ]"

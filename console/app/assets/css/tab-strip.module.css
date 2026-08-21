@@ -107,8 +107,8 @@ underneath by bubbling. */
   position: absolute;
   top: 5px;
   left: 5px;
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
   background-color: currentColor;
 }
