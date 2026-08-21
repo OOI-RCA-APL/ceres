@@ -36,7 +36,7 @@ use yaml_serde::Value as Yaml;
 use crate::credentials::normalize_email;
 use crate::entities::EntityTable;
 use crate::records::{Computed, RecordTable, Schema, Shape};
-use crate::selector::{AddressSelector, valid_address};
+use crate::selector::{AddressSelector, Scope, valid_address};
 use crate::store::Parameter;
 
 /// How values render into the statement, per backend family.
@@ -427,6 +427,101 @@ impl FilterCore {
         statement
     }
 
+    /// Where to discover branches, when expanding the listing over them would pay.
+    ///
+    /// Returns None where the rewrite would be unsound or worthless. The selector has to bound
+    /// every row the statement can return, which holds only while it is conjoined with the rest
+    /// of the tree. A node carrying `or` children puts its own conditions on one side of an OR
+    /// instead, where a row matching another side need not carry a selected address at all, and
+    /// expanding over the discovered branches would drop it with no error.
+    pub(crate) fn expansion_scope(&self) -> Option<Scope> {
+        // A statement with no limit reads its whole result set either way, so per-branch limits
+        // have nothing to win and the union is only more work.
+        self.limit?;
+        if !self.node.or_children.is_empty() {
+            return None;
+        }
+
+        let scope = self.node.address.as_ref()?.scope(self.node.root.as_deref());
+
+        // Segments that are all literal addresses already compile to equality, which seeks.
+        (!scope.prefixes.is_empty() || scope.unbounded).then_some(scope)
+    }
+
+    /// Build the listing statement as one ordered, limited seek per branch, merged.
+    ///
+    /// Each branch keeps the filter's own conditions, so a branch list covering more addresses
+    /// than the selector admits still returns exactly what the plain statement would.
+    pub(crate) fn statement_over(
+        &self,
+        branches: &[String],
+        dialect: SqlDialect,
+        now: Option<NaiveDateTime>,
+    ) -> SelectStatement {
+        let now = resolve_now(now);
+        let terms = self.order_terms();
+        let address = self
+            .schema
+            .fields
+            .iter()
+            .find(|field| field.family == FieldFamily::Address)
+            .map(|field| field.key)
+            .unwrap_or("address");
+
+        // Any row in the merged page is in its own branch's leading rows, so each branch needs
+        // to offer as many as the page can reach past. Taking the limit alone drops rows from
+        // every page but the first.
+        let depth = self
+            .limit
+            .unwrap_or(0)
+            .saturating_add(self.offset.unwrap_or(0));
+
+        let mut merged: Option<SelectStatement> = None;
+        for branch in branches {
+            let mut seek = Query::select();
+            seek.column(Asterisk).from(Alias::new(self.schema.name));
+            for condition in self.node.combined_conditions(self.schema, dialect, now) {
+                seek.and_where(condition);
+            }
+
+            seek.and_where(Expr::col(Alias::new(address)).eq(branch.as_str()));
+            for term in &terms {
+                order_by(&mut seek, *term, dialect);
+            }
+
+            seek.limit(depth);
+
+            // SQLite reads an `ORDER BY` on an operand of a compound select as the whole
+            // compound's, so each branch is wrapped in a subquery to keep its own.
+            let mut wrapped = Query::select();
+            wrapped
+                .column(Asterisk)
+                .from_subquery(seek, Alias::new("branch"));
+            merged = Some(match merged {
+                None => wrapped,
+                Some(mut held) => {
+                    held.union(sea_query::UnionType::All, wrapped);
+                    held
+                }
+            });
+        }
+
+        let Some(merged) = merged else {
+            return self.statement(dialect, Some(now));
+        };
+
+        let mut statement = Query::select();
+        statement
+            .column(Asterisk)
+            .from_subquery(merged, Alias::new("branches"));
+        for term in terms {
+            order_by(&mut statement, term, dialect);
+        }
+
+        self.page(&mut statement, dialect);
+        statement
+    }
+
     /// Apply the filter's limit and offset to a statement.
     ///
     /// SQLite refuses a bare `OFFSET` so an unlimited query carrying one gets the
@@ -770,6 +865,21 @@ impl<T: Tabled> Filter<T> {
     /// Build the listing statement, matching the Python query layer's semantics.
     pub fn statement(&self, dialect: SqlDialect, now: Option<NaiveDateTime>) -> SelectStatement {
         self.filter.statement(dialect, now)
+    }
+
+    /// Where to discover branches, when expanding the listing over them would pay.
+    pub(crate) fn expansion_scope(&self) -> Option<Scope> {
+        self.filter.expansion_scope()
+    }
+
+    /// Build the listing statement as one ordered, limited seek per branch, merged.
+    pub(crate) fn statement_over(
+        &self,
+        branches: &[String],
+        dialect: SqlDialect,
+        now: Option<NaiveDateTime>,
+    ) -> SelectStatement {
+        self.filter.statement_over(branches, dialect, now)
     }
 
     /// Build the count statement.
@@ -3245,6 +3355,115 @@ mod tests {
             sql,
             "SELECT * FROM \"alerts\" WHERE \"address\" = '@sensor.temp' AND \"level\" IN \
              ('warning', 'error', 'critical') ORDER BY \"timestamp\" DESC LIMIT 10"
+        );
+    }
+
+    /// A listing filter over `address`, with whatever else the case needs.
+    fn listing(extra: &[(&str, &str)]) -> RecordFilter {
+        let mut wanted = vec![("address", "@driver:all"), ("limit", "10")];
+        wanted.extend_from_slice(extra);
+        RecordFilter::parse(RecordTable::Logs, &pairs(&wanted)).unwrap()
+    }
+
+    #[test]
+    fn a_subtree_selector_reports_where_its_branches_live() {
+        let scope = listing(&[]).expansion_scope().unwrap();
+
+        assert_eq!(scope.literals, vec!["@driver".to_string()]);
+        assert_eq!(scope.prefixes, vec!["@driver.".to_string()]);
+        assert!(!scope.unbounded);
+    }
+
+    #[test]
+    fn a_wildcard_selector_reaches_every_address() {
+        let filter = RecordFilter::parse(
+            RecordTable::Logs,
+            &pairs(&[("address", "@:all"), ("limit", "10")]),
+        )
+        .unwrap();
+
+        assert!(filter.expansion_scope().unwrap().unbounded);
+    }
+
+    #[test]
+    fn a_literal_address_is_left_alone() {
+        let filter = RecordFilter::parse(
+            RecordTable::Logs,
+            &pairs(&[("address", "@driver"), ("limit", "10")]),
+        )
+        .unwrap();
+
+        assert!(filter.expansion_scope().is_none());
+    }
+
+    #[test]
+    fn an_unlimited_listing_is_left_alone() {
+        let filter =
+            RecordFilter::parse(RecordTable::Logs, &pairs(&[("address", "@driver:all")])).unwrap();
+
+        assert!(filter.expansion_scope().is_none());
+    }
+
+    #[test]
+    fn an_or_group_refuses_expansion() {
+        // The selector sits on one side of the OR, so a row matching the other side carries an
+        // address no branch would seek to, and expanding would drop it.
+        let filter = RecordFilter::parse(
+            RecordTable::Logs,
+            &pairs(&[
+                ("address", "@driver:all"),
+                ("or", "{level: error}"),
+                ("limit", "10"),
+            ]),
+        )
+        .unwrap();
+
+        assert!(filter.expansion_scope().is_none());
+    }
+
+    #[test]
+    fn the_expansion_seeks_once_per_branch_and_merges() {
+        let branches = ["@driver".to_string(), "@driver.connection".to_string()];
+        let sql = listing(&[("order", "timestamp:desc")])
+            .statement_over(&branches, SqlDialect::SqliteText, None)
+            .to_string(SqliteQueryBuilder);
+
+        assert!(sql.contains("\"address\" = '@driver'"), "{sql}");
+        assert!(sql.contains("\"address\" = '@driver.connection'"), "{sql}");
+        assert!(sql.contains("UNION ALL"), "{sql}");
+        // The filter's own conditions reach every branch rather than the merged result alone.
+        assert_eq!(
+            sql.matches("ORDER BY \"timestamp\" DESC LIMIT 10").count(),
+            3,
+            "{sql}"
+        );
+    }
+
+    #[test]
+    fn the_per_branch_limit_covers_the_offset() {
+        // A page reached past the first needs every branch to offer the rows it skips as well,
+        // or the merged page is short by rows that exist.
+        let branches = ["@driver".to_string()];
+        let sql = listing(&[("order", "timestamp:desc"), ("offset", "20")])
+            .statement_over(&branches, SqlDialect::SqliteText, None)
+            .to_string(SqliteQueryBuilder);
+
+        assert!(sql.contains("LIMIT 30"), "{sql}");
+        assert!(sql.contains("LIMIT 10 OFFSET 20"), "{sql}");
+    }
+
+    #[test]
+    fn an_empty_branch_list_falls_back_to_the_plain_statement() {
+        let filter = listing(&[]);
+        let expanded = filter
+            .statement_over(&[], SqlDialect::SqliteText, None)
+            .to_string(SqliteQueryBuilder);
+
+        assert_eq!(
+            expanded,
+            filter
+                .statement(SqlDialect::SqliteText, None)
+                .to_string(SqliteQueryBuilder)
         );
     }
 

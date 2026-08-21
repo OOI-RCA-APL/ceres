@@ -14,11 +14,21 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 
 use crate::backend::{DatabaseBackend, PostgresBackend, Sink, SqliteBackend, Write, Writing};
 use crate::credentials::Credentials;
+use crate::dynamic::Cell;
 use crate::entities::EntityTable;
 use crate::filter::{EntityFilter, Filter, RecordFilter, SqlDialect, Tabled};
 use crate::load::Conflict;
 use crate::records::RecordTable;
+use crate::selector::Scope;
 use crate::turso::TursoBackend;
+
+/// How many branches a listing expands over before the plain statement is used instead.
+///
+/// Every branch is a seek and a subquery, so the union stops being the cheaper shape once a
+/// selector reaches a whole deployment's components rather than one subtree. The cap bounds the
+/// statement rather than picking the faster plan, the range form it falls back to being
+/// proportional to the table however many branches there are.
+const BRANCH_CAP: usize = 256;
 
 /// A statement parameter, as the Python layer's bind processors produce them.
 ///
@@ -415,8 +425,133 @@ impl RecordStore {
             return Ok(filter.table().empty());
         }
 
-        self.select(filter.table(), filter.statement(self.dialect(), None))
-            .await
+        let statement = self
+            .listing_statement(filter, filter.table().schema().name)
+            .await?;
+        self.select(filter.table(), statement).await
+    }
+
+    /// The listing statement to run, expanded over the selector's branches where that pays.
+    ///
+    /// A subtree selector compiles to a range on the address, which finds its rows but returns
+    /// them ordered by address rather than by the sort column, so the whole subtree is read and
+    /// sorted to answer for one page. Seeking each branch separately keeps the ordering, at one
+    /// seek per branch. Falls back to the plain statement whenever the rewrite would not hold.
+    async fn listing_statement<T: Tabled>(
+        &self,
+        filter: &Filter<T>,
+        table: &str,
+    ) -> Result<SelectStatement, Error> {
+        let Some(scope) = filter.expansion_scope() else {
+            return Ok(filter.statement(self.dialect(), None));
+        };
+
+        let branches = self.discover_branches(table, "address", &scope).await?;
+
+        // No branches means nothing was written under the selector, which the plain statement
+        // answers as cheaply. Past the cap the union grows longer than the scan it replaces.
+        if branches.is_empty() || branches.len() > BRANCH_CAP {
+            return Ok(filter.statement(self.dialect(), None));
+        }
+
+        Ok(filter.statement_over(&branches, self.dialect(), None))
+    }
+
+    /// The distinct addresses a scope covers, read from the records themselves.
+    ///
+    /// Discovery reads the data rather than the configuration, because a decommissioned
+    /// component's history is reachable only if its address is still discoverable, and that is
+    /// the case this whole rewrite exists to serve.
+    ///
+    /// Each hop seeks to the next distinct value, so the cost is one index seek per branch
+    /// rather than one per row. The bounds are a range and never a prefix pattern, a pattern's
+    /// residual per-row check defeating the `min()` short-circuit while reporting an identical
+    /// query plan.
+    async fn discover_branches(
+        &self,
+        table: &str,
+        column: &str,
+        scope: &Scope,
+    ) -> Result<Vec<String>, Error> {
+        let mut found: Vec<String> = scope.literals.clone();
+        let ranges: Vec<(Option<String>, Option<String>)> = if scope.unbounded {
+            vec![(None, None)]
+        } else {
+            scope
+                .prefixes
+                .iter()
+                .map(|prefix| (Some(prefix.clone()), Some(Scope::ceiling(prefix))))
+                .collect()
+        };
+
+        for (floor, ceiling) in ranges {
+            let walked = self.walk_distinct(table, column, &floor, &ceiling).await?;
+            found.extend(walked);
+            if found.len() > BRANCH_CAP {
+                break;
+            }
+        }
+
+        found.sort();
+        found.dedup();
+        Ok(found)
+    }
+
+    /// Walk one range's distinct values, seeking from each to the next.
+    async fn walk_distinct(
+        &self,
+        table: &str,
+        column: &str,
+        floor: &Option<String>,
+        ceiling: &Option<String>,
+    ) -> Result<Vec<String>, Error> {
+        let mut found = Vec::new();
+        let mut cursor = floor.clone();
+        let mut inclusive = floor.is_some();
+        while found.len() <= BRANCH_CAP {
+            let mut conditions = Vec::new();
+            let mut parameters = Vec::new();
+            if let Some(cursor) = &cursor {
+                let comparison = if inclusive { ">=" } else { ">" };
+                parameters.push(Parameter::Text(cursor.clone()));
+                conditions.push(format!("\"{column}\" {comparison} {}", self.placeholder(1)));
+            }
+
+            if let Some(ceiling) = ceiling {
+                parameters.push(Parameter::Text(ceiling.clone()));
+                conditions.push(format!(
+                    "\"{column}\" < {}",
+                    self.placeholder(parameters.len())
+                ));
+            }
+
+            let where_clause = if conditions.is_empty() {
+                String::new()
+            } else {
+                format!(" WHERE {}", conditions.join(" AND "))
+            };
+            let sql = format!("SELECT min(\"{column}\") AS next FROM \"{table}\"{where_clause}");
+            let rows = self.backend.query_rows(None, &sql, parameters).await?;
+            let next = rows.first().and_then(|row| match row.first() {
+                Some((_, Cell::Text(value))) => Some(value.clone()),
+                _ => None,
+            });
+
+            let Some(next) = next else { break };
+            found.push(next.clone());
+            cursor = Some(next);
+            inclusive = false;
+        }
+
+        Ok(found)
+    }
+
+    /// One bind placeholder, numbered where the dialect wants it numbered.
+    fn placeholder(&self, position: usize) -> String {
+        match self.dialect() {
+            SqlDialect::Postgres => format!("${position}"),
+            SqlDialect::SqliteText => "?".to_string(),
+        }
     }
 
     /// Fetch the records a parsed native filter matches, a chunk at a time.
@@ -498,7 +633,9 @@ impl RecordStore {
             return sink(filter.table().empty());
         }
 
-        let statement = filter.statement(self.dialect(), None);
+        let statement = self
+            .listing_statement(filter, filter.table().schema().name)
+            .await?;
         T::stream(self.backend.as_ref(), filter.table(), statement, sink).await
     }
 

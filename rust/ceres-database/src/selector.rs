@@ -75,6 +75,68 @@ impl AddressSelector {
             .iter()
             .any(|segment| segment_matches(&absolute_segment(segment, base(root)), address))
     }
+
+    /// Where to look for the addresses this selector admits, resolved against a root.
+    ///
+    /// A superset is allowed, and `children` takes the `descendants` range for that reason. The
+    /// caller keeps the selector's own condition on every branch it builds, so an address the
+    /// scope over-reports is filtered out by the same predicate it always was.
+    pub(crate) fn scope(&self, root: Option<&str>) -> Scope {
+        let mut scope = Scope::default();
+        for segment in &self.segments {
+            let segment = absolute_segment(segment, base(root));
+            let Some((held, modifier)) = segment.split_once(':') else {
+                scope.literals.push(segment);
+                continue;
+            };
+
+            let modifier = Modifier::parse(modifier).expect("validation admits known modifiers");
+
+            // Both wildcards reach every component, which is every address bar the engine's own.
+            if held == "~" || held == "@" {
+                return Scope::everything();
+            }
+
+            if modifier == Modifier::All {
+                scope.literals.push(held.to_string());
+            }
+
+            scope.prefixes.push(format!("{held}."));
+        }
+
+        scope
+    }
+}
+
+/// Where a selector's addresses are found, as literals to take directly and prefixes to walk.
+///
+/// `unbounded` is a selector reaching every address, which has no prefix to narrow the walk to.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct Scope {
+    pub(crate) literals: Vec<String>,
+    pub(crate) prefixes: Vec<String>,
+    pub(crate) unbounded: bool,
+}
+
+impl Scope {
+    fn everything() -> Self {
+        Self {
+            unbounded: true,
+            ..Self::default()
+        }
+    }
+
+    /// The exclusive upper bound of a prefix walk, the separator stepped to the next character.
+    ///
+    /// Every prefix ends in the `.` a child hangs off, so the step stays inside ASCII. Migration
+    /// `0008` collates text by code point, which is what lets a range stand in for the prefix
+    /// pattern, and a range is what keeps a loose scan's `min()` short-circuit.
+    pub(crate) fn ceiling(prefix: &str) -> String {
+        let mut stepped = prefix.to_string();
+        stepped.pop();
+        stepped.push('/');
+        stepped
+    }
 }
 
 /// The base relative segments resolve against, every component when the root is absent
