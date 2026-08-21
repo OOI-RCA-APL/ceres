@@ -205,6 +205,21 @@ export async function copyText(text: string) {
   await navigator.clipboard.writeText(text)
 }
 
+/** Menu `content` props that keep a closing menu's focus restore from interrupting an edit.
+
+A closing menu moves focus back to what held it before opening, which would take it from an
+inline edit the menu itself just opened and leave the field with nothing to blur.
+*/
+export function keepFocusWhile(editing: () => boolean) {
+  return {
+    onCloseAutoFocus: (event: Event) => {
+      if (editing()) {
+        event.preventDefault()
+      }
+    },
+  }
+}
+
 /** Save `content` as a file download named `name`. */
 export function downloadFile(name: string, content: string, type = 'application/json') {
   const url = URL.createObjectURL(new Blob([content], { type }))

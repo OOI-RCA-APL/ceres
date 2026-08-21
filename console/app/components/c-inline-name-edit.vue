@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import { onClickOutside } from '@vueuse/core'
 import { nextTick, watch } from 'vue'
 
 const {
@@ -27,6 +28,11 @@ const emit = defineEmits<{
 
 let draft = $ref(name)
 let input = $ref<HTMLInputElement | null>(null)
+let field = $ref<HTMLElement | null>(null)
+
+// A press outside commits on its own rather than through blur, since a closing menu can move
+// focus off the field and leave it with no blur to end the edit.
+onClickOutside($$(field), commit)
 
 // When editing began. Renaming is usually reached from a menu, and a menu hands focus back to
 // whatever opened it as it closes, which lands just after this field has appeared and taken focus.
@@ -197,6 +203,7 @@ function cancel() {
   whatever the field is sitting in and be taken as opening it. -->
   <span
     v-if="editing"
+    ref="field"
     :class="$style.field"
     :data-value="draft"
     @click.stop

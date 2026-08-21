@@ -10,7 +10,7 @@ import { isWorkspaceFile, useFileDrop } from '@/filedrop'
 import icons from '@/icons'
 import { useModifiers } from '@/modifiers'
 import { moved, usePointerReorder } from '@/reorder'
-import { isStructurallyEqual } from '@/utilities'
+import { isStructurallyEqual, keepFocusWhile } from '@/utilities'
 import {
   comparableWorkspaceData,
   isWorkspaceWritable,
@@ -265,6 +265,8 @@ function hasWorkingCopy(workspace: Workspace): boolean {
 // Which tab is having its name edited in place, if any.
 let editingId = $ref<string | null>(null)
 
+const menuContent = keepFocusWhile(() => editingId != null)
+
 // Renaming a workspace changes it for everybody who can see it so it takes the same write access
 // deleting does rather than being offered to anyone who can merely look at it.
 function openRename(workspace: Workspace) {
@@ -419,6 +421,7 @@ grows and the tabs pass beneath it. -->
       <c-context-menu
         v-for="(workspace, index) in workspaces"
         :key="workspace.id"
+        :content="menuContent"
         :items="menuItems(workspace)"
       >
         <div
@@ -454,7 +457,7 @@ grows and the tabs pass beneath it. -->
               @rename="(value: string) => rename(workspace, value)"
               @update:editing="(value: boolean) => (editingId = value ? workspace.id : null)"
             />
-            <c-dropdown-menu :items="menuItems(workspace)">
+            <c-dropdown-menu :content="menuContent" :items="menuItems(workspace)">
               <c-tooltip
                 :disabled="!hasWorkingCopy(workspace)"
                 text="This workspace has unsaved changes."
