@@ -78,7 +78,7 @@ const definition = $computed(() => (isBlock(item) ? null : getFilterDefinition(i
           @click.stop
           @pointerdown.stop
         >
-          <c-text element="span" variant="mono-xs">{{ item.op }}</c-text>
+          <c-text inline variant="mono-xs">{{ item.op }}</c-text>
         </button>
       </c-dropdown-menu>
       <c-filter-item
@@ -119,7 +119,7 @@ const definition = $computed(() => (isBlock(item) ? null : getFilterDefinition(i
     :style="nested ? lift?.styleFor(item.id) : undefined"
     v-on="nested ? (lift?.handlers(item.id) ?? {}) : {}"
   >
-    <c-text class="text-muted" element="span" variant="mono-xs">
+    <c-text class="text-muted" inline variant="mono-xs">
       {{ definition?.label ?? item.kind }}:
     </c-text>
     <c-filter-value-input

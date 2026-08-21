@@ -34,14 +34,22 @@ export const variantClasses: Record<TextVariant, string> = {
 </script>
 
 <script lang="ts" setup>
-const { element = 'div' } = defineProps<{
+const { element, inline = false } = defineProps<{
   variant: TextVariant
+  /** Flows with the text around it, for a phrase set inside a sentence. Applies to a named
+  `element` as well, so a heading can be laid out beside other text. */
+  inline?: boolean
+  /** The tag to render, for a heading or preformatted text. */
   element?: string
 }>()
+
+// Block otherwise, because the vertical spacing utilities and `truncate` that most call sites
+// carry have no effect on an inline box.
+const tag = $computed(() => element ?? (inline ? 'span' : 'div'))
 </script>
 
 <template>
-  <component :is="element" :class="variantClasses[variant]">
+  <component :is="tag" :class="[variantClasses[variant], inline && 'inline']">
     <slot />
   </component>
 </template>

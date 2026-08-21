@@ -33,7 +33,7 @@ const placement = $computed(() => workspace.scope.toString())
       <c-text class="block" variant="body1">
         <template v-if="to === 'shared'">
           "{{ workspace.name }}" becomes visible to everyone who can view
-          <c-text element="span" variant="mono-xs">{{ placement }}</c-text
+          <c-text inline variant="mono-xs">{{ placement }}</c-text
           >.
         </template>
         <template v-else>"{{ workspace.name }}" becomes private to you.</template>
@@ -41,13 +41,13 @@ const placement = $computed(() => workspace.scope.toString())
 
       <c-text v-if="to === 'shared'" class="mt-1 mb-4 block" variant="description">
         Anyone who can manage
-        <c-text element="span" variant="mono-xs">{{ placement }}</c-text>
+        <c-text inline variant="mono-xs">{{ placement }}</c-text>
         can edit it.
       </c-text>
 
       <c-text v-else class="mt-1 mb-4 block italic text-warning" variant="body2">
         Anyone else who can see
-        <c-text element="span" variant="mono-xs">{{ placement }}</c-text>
+        <c-text inline variant="mono-xs">{{ placement }}</c-text>
         loses access to it, along with any unsaved changes they are holding against it. Copying
         leaves the shared workspace where it is.
       </c-text>
@@ -61,7 +61,7 @@ const placement = $computed(() => workspace.scope.toString())
       />
       <c-text v-if="!canMove" class="mt-2 block pl-2" variant="description">
         Moving the original requires manage access on
-        <c-text element="span" variant="mono-xs">{{ placement }}</c-text
+        <c-text inline variant="mono-xs">{{ placement }}</c-text
         >.
       </c-text>
     </template>

@@ -36,8 +36,8 @@ function onClear() {
 <template>
   <div :class="form.embedded && 'contents'">
     <div v-if="!form.embedded" class="mb-1 flex items-baseline gap-1">
-      <c-text element="span" variant="mono-sm">{{ title }}</c-text>
-      <c-text class="text-muted" element="span" variant="mono-sm">
+      <c-text inline variant="mono-sm">{{ title }}</c-text>
+      <c-text class="text-muted" inline variant="mono-sm">
         <span class="mx-1">{{ '⸱' }}</span>
         <span>connection</span>
       </c-text>

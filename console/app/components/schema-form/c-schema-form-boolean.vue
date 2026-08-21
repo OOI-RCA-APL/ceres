@@ -30,8 +30,8 @@ const description = $computed(() => form.getDescription(path))
 <template>
   <div>
     <div class="mb-1 flex items-baseline gap-1">
-      <c-text element="span" variant="mono-sm">{{ label }}</c-text>
-      <c-text class="text-muted" element="span" variant="mono-sm">
+      <c-text inline variant="mono-sm">{{ label }}</c-text>
+      <c-text class="text-muted" inline variant="mono-sm">
         <span class="mx-1">{{ '⸱' }}</span>
         <span>bool</span>
       </c-text>

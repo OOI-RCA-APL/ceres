@@ -737,10 +737,8 @@ provide(filterLiftKey, {
           @mousedown.prevent="acceptGrouping(groupingOperator)"
           @mousemove="highlighted = 0"
         >
-          <c-text element="span" variant="mono-sm">Group</c-text>
-          <c-text class="text-muted" element="span" variant="mono-xs"
-            >: {{ groupingOperator }}</c-text
-          >
+          <c-text inline variant="mono-sm">Group</c-text>
+          <c-text class="text-muted" inline variant="mono-xs">: {{ groupingOperator }}</c-text>
         </button>
         <button
           v-if="freeTextDefinition != null"
@@ -750,10 +748,10 @@ provide(filterLiftKey, {
           @mousedown.prevent="acceptFreeText()"
           @mousemove="highlighted = groupingCount + 0"
         >
-          <c-text element="span" variant="mono-sm">{{ freeTextDefinition.label }}</c-text>
+          <c-text inline variant="mono-sm">{{ freeTextDefinition.label }}</c-text>
           <!-- The text as typed, shown as the value it would be given, since this row differs from
           the ones above by carrying one already. -->
-          <c-text class="text-muted truncate" element="span" variant="mono-xs"
+          <c-text class="text-muted truncate" inline variant="mono-xs"
             >: str = "{{ search.trim() }}"</c-text
           >
         </button>
@@ -766,8 +764,8 @@ provide(filterLiftKey, {
           @mousedown.prevent="acceptValue(suggestion)"
           @mousemove="highlighted = index + valuesOffset"
         >
-          <c-text element="span" variant="mono-sm">{{ suggestion.definition.label }}</c-text>
-          <c-text class="text-muted truncate" element="span" variant="mono-xs"
+          <c-text inline variant="mono-sm">{{ suggestion.definition.label }}</c-text>
+          <c-text class="text-muted truncate" inline variant="mono-xs"
             >: {{ typeLabel(suggestion.definition.input) }} = "{{ suggestion.value }}"</c-text
           >
           <!-- Says which row Tab lands on, that being the only way to reach it without leaving
@@ -791,8 +789,8 @@ provide(filterLiftKey, {
           @mousedown.prevent="accept(definition)"
           @mousemove="highlighted = index + fieldsOffset"
         >
-          <c-text element="span" variant="mono-sm">{{ definition.label }}</c-text>
-          <c-text class="text-muted" element="span" variant="mono-xs"
+          <c-text inline variant="mono-sm">{{ definition.label }}</c-text>
+          <c-text class="text-muted" inline variant="mono-xs"
             >: {{ typeLabel(definition.input) }}</c-text
           >
           <div class="grow" />

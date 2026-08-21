@@ -152,8 +152,8 @@ function onInput(value: string | number) {
       class="mb-1 flex cursor-text items-baseline gap-1"
       @click="focusInput()"
     >
-      <c-text element="span" variant="mono-sm">{{ title }}</c-text>
-      <c-text class="text-muted" element="span" variant="mono-sm">
+      <c-text inline variant="mono-sm">{{ title }}</c-text>
+      <c-text class="text-muted" inline variant="mono-sm">
         <span class="mx-1">{{ '⸱' }}</span>
         <span>{{ schemaType }}</span>
         <slot name="label-append" />
@@ -165,7 +165,7 @@ function onInput(value: string | number) {
     positions its own trailing slot absolutely and clears it with padding, which cannot hold once
     the controls are a suffix and two buttons wide. -->
     <define-trailing>
-      <c-text v-if="suffix" class="text-muted" element="span" variant="mono-xs">
+      <c-text v-if="suffix" class="text-muted" inline variant="mono-xs">
         {{ suffix }}
       </c-text>
       <slot name="append" />

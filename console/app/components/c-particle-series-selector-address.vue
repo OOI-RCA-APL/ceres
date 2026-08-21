@@ -350,12 +350,12 @@ function travelled(event: MouseEvent): boolean {
             <div class="flex min-w-0 grow items-baseline gap-2 whitespace-nowrap">
               <c-text
                 :class="isFieldOn(type.type, field.name) && 'text-primary'"
-                element="span"
+                inline
                 variant="mono-sm"
               >
                 {{ field.name }}:
               </c-text>
-              <c-text class="text-muted" element="span" variant="mono-sm">
+              <c-text class="text-muted" inline variant="mono-sm">
                 {{ describeFieldType(field.schema as Schema) }}
               </c-text>
               <span
