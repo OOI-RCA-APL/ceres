@@ -96,6 +96,7 @@ const icons = {
   submit: 'i-mdi-check',
   switchLeft: 'i-mdi-transfer-left',
   switchRight: 'i-mdi-transfer-right',
+  keyboardTab: 'i-mdi-keyboard-tab',
   tab: 'i-mdi-tab',
   tabAdd: 'i-mdi-tab-plus',
   tabUnselected: 'i-mdi-tab-unselected',

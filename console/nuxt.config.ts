@@ -23,6 +23,10 @@ function projectVersion(): string {
 
 export default defineNuxtConfig({
   compatibilityDate: '2026-08-14',
+  // The icon bundle below is built from `icons.ts` as this file is read, and a file the
+  // configuration imports is not watched for itself, so an icon added there would draw
+  // nothing until the dev server was restarted by hand.
+  watch: ['icons.ts'],
   // The release this console ships in. Nuxt compares it to tell a running console that a
   // newer one is being served, and the default is a fresh UUID that would make the
   // committed bundle differ on every build.
