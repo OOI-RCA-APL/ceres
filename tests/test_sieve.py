@@ -563,19 +563,19 @@ class TestSieveConnectionAttribution:
         )
 
     def test_a_sieve_bound_to_one_connection_attributes_its_particles(self):
-        from ceres.sieves import SieveManager
+        from ceres.sieves import _sole_connection
 
-        assert SieveManager._sole_connection(self._config("pressure-1")) == "pressure-1"
-        assert SieveManager._sole_connection(self._config(["pressure-1"])) == "pressure-1"
+        assert _sole_connection(self._config("pressure-1")) == "pressure-1"
+        assert _sole_connection(self._config(["pressure-1"])) == "pressure-1"
 
     def test_a_sieve_reading_several_connections_attributes_nothing(self):
-        from ceres.sieves import SieveManager
+        from ceres.sieves import _sole_connection
 
         # Which of the two produced a given particle is not answerable here, and a wrong
         # attribution is worse than none.
-        assert SieveManager._sole_connection(self._config(["pressure-1", "pressure-2"])) is None
+        assert _sole_connection(self._config(["pressure-1", "pressure-2"])) is None
 
     def test_a_sieve_with_no_connection_filter_attributes_nothing(self):
-        from ceres.sieves import SieveManager
+        from ceres.sieves import _sole_connection
 
-        assert SieveManager._sole_connection(self._config(None)) is None
+        assert _sole_connection(self._config(None)) is None

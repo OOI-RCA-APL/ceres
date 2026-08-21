@@ -1,6 +1,6 @@
 # Coverage
 
-<!-- coverage:fingerprint:ad1aa2db3a3c3693 -->
+<!-- coverage:fingerprint:9aeb160345a5722d -->
 
 ## Python
 
@@ -29,7 +29,7 @@
 | `ceres/__internal__/models/users.py` | 100% |
 | `ceres/__internal__/models/variables.py` | 100% |
 | `ceres/__internal__/models/workspaces.py` | 100% |
-| `ceres/__internal__/particles.py` | 97% |
+| `ceres/__internal__/particles.py` | 94% |
 | `ceres/__internal__/project.py` | 79% |
 | `ceres/__internal__/protocols.py` | 100% |
 | `ceres/__internal__/record.py` | 82% |
