@@ -8,6 +8,8 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+## [0.46.0] - 2026-08-21
+
 **Engine**
 
 - Record the connection a particle was parsed from, which a sieve bound to one connection
