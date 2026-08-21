@@ -15,6 +15,13 @@ written, and the release workflow refuses a version that has no entry here.
 - Give a connection a `label` and a `description`, the description defaulting to the
   docstring of the component field holding it.
 - Report the connections stamped on each particle type's records alongside its fields.
+- Index each record table's address alongside its timestamp, and alongside the level,
+  connection, or direction a record view filters with it, so a filtered listing seeks its rows
+  instead of reading back through every newer one. Migration `0010` builds these, holding each
+  table closed to writes while it does, which takes minutes on a large history.
+- Answer a listing over a component's subtree as one ordered seek per branch, the branches read
+  from the records so a decommissioned component's history is still reached.
+- Compile SQLite 3.51.3 into the engine, from 3.46.0.
 
 **Python API**
 
@@ -44,6 +51,8 @@ written, and the release workflow refuses a version that has no entry here.
 - Host the engine on the environment's own interpreter when running from a development
   source, rather than whichever one `PATH` offers.
 - Dismiss an inline rename opened from a menu when the pointer goes elsewhere.
+- Offer a record view's connection and address choices from the addresses its own filter
+  reaches, rather than every one the engine carries.
 
 ## [0.45.2] - 2026-08-19
 
