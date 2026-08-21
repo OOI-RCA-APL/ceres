@@ -30,7 +30,7 @@ const placement = $computed(() => workspace.scope.toString())
     @update:open="(value: boolean) => value || emit('close', false)"
   >
     <template #body>
-      <c-text class="block" variant="body1">
+      <c-text class="block" variant="body2">
         <template v-if="to === 'shared'">
           "{{ workspace.name }}" becomes visible to everyone who can view
           <c-text inline variant="mono-xs">{{ placement }}</c-text
@@ -45,7 +45,7 @@ const placement = $computed(() => workspace.scope.toString())
         can edit it.
       </c-text>
 
-      <c-text v-else class="mt-1 mb-4 block italic text-warning" variant="body2">
+      <c-text v-else class="mt-1 mb-4 block italic text-warning" variant="description">
         Anyone else who can see
         <c-text inline variant="mono-xs">{{ placement }}</c-text>
         loses access to it, along with any unsaved changes they are holding against it. Copying
