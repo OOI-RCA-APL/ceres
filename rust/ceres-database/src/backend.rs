@@ -16,9 +16,9 @@ use sea_query::{
     DeleteStatement, InsertStatement, PostgresQueryBuilder, SelectStatement, SqliteQueryBuilder,
     UpdateStatement,
 };
-use sea_query_binder::SqlxBinder;
 use sqlx::Row as _;
 
+use crate::binder::SqlxBinder;
 use crate::dynamic::{Row, Table};
 use crate::entities::EntityTable;
 use crate::filter::SqlDialect;
@@ -203,7 +203,7 @@ impl Write {
     fn build_sqlx<B: sea_query::QueryBuilder>(
         self,
         builder: B,
-    ) -> (String, sea_query_binder::SqlxValues) {
+    ) -> (String, crate::binder::SqlxValues) {
         match self {
             Write::Update(statement) => statement.build_sqlx(builder),
             Write::Delete(statement) => statement.build_sqlx(builder),
@@ -300,7 +300,9 @@ macro_rules! sqlx_backend {
                 statement: SelectStatement,
             ) -> Result<Records, Error> {
                 let (sql, values) = statement.build_sqlx($builder);
-                let rows = sqlx::query_with(&sql, values).fetch_all(&self.0).await?;
+                let rows = sqlx::query_with(sqlx::AssertSqlSafe(sql), values)
+                    .fetch_all(&self.0)
+                    .await?;
                 crate::records::decode(table, rows)
             }
 
@@ -311,7 +313,7 @@ macro_rules! sqlx_backend {
                 sink: Sink<'_, Records>,
             ) -> Result<(), Error> {
                 let (sql, values) = statement.build_sqlx($builder);
-                let mut cursor = sqlx::query_with(&sql, values).fetch(&self.0);
+                let mut cursor = sqlx::query_with(sqlx::AssertSqlSafe(sql), values).fetch(&self.0);
                 drain(
                     &mut cursor,
                     |rows| crate::records::decode(table, rows),
@@ -327,7 +329,7 @@ macro_rules! sqlx_backend {
                 sink: Sink<'_, Entities>,
             ) -> Result<(), Error> {
                 let (sql, values) = statement.build_sqlx($builder);
-                let mut cursor = sqlx::query_with(&sql, values).fetch(&self.0);
+                let mut cursor = sqlx::query_with(sqlx::AssertSqlSafe(sql), values).fetch(&self.0);
                 drain(
                     &mut cursor,
                     |rows| crate::entities::decode(table, rows),
@@ -338,21 +340,25 @@ macro_rules! sqlx_backend {
 
             async fn count(&self, statement: SelectStatement) -> Result<u64, Error> {
                 let (sql, values) = statement.build_sqlx($builder);
-                let row = sqlx::query_with(&sql, values).fetch_one(&self.0).await?;
+                let row = sqlx::query_with(sqlx::AssertSqlSafe(sql), values)
+                    .fetch_one(&self.0)
+                    .await?;
                 let count: i64 = row.try_get(0)?;
                 Ok(count.max(0) as u64)
             }
 
             async fn exists(&self, statement: SelectStatement) -> Result<bool, Error> {
                 let (sql, values) = statement.build_sqlx($builder);
-                let row = sqlx::query_with(&sql, values).fetch_one(&self.0).await?;
+                let row = sqlx::query_with(sqlx::AssertSqlSafe(sql), values)
+                    .fetch_one(&self.0)
+                    .await?;
                 Ok(row.try_get(0)?)
             }
 
             async fn write(&self, statement: Write) -> Result<u64, Error> {
                 let (sql, values) = statement.build_sqlx($builder);
                 let mut transaction = self.0.begin().await?;
-                let affected = sqlx::query_with(&sql, values)
+                let affected = sqlx::query_with(sqlx::AssertSqlSafe(sql), values)
                     .execute(&mut *transaction)
                     .await?
                     .rows_affected();
@@ -367,7 +373,7 @@ macro_rules! sqlx_backend {
             ) -> Result<Records, Error> {
                 let (sql, values) = statement.build_sqlx($builder);
                 let mut transaction = self.0.begin().await?;
-                let rows = sqlx::query_with(&sql, values)
+                let rows = sqlx::query_with(sqlx::AssertSqlSafe(sql), values)
                     .fetch_all(&mut *transaction)
                     .await?;
                 transaction.commit().await?;
@@ -381,7 +387,7 @@ macro_rules! sqlx_backend {
             ) -> Result<Entities, Error> {
                 let (sql, values) = statement.build_sqlx($builder);
                 let mut transaction = self.0.begin().await?;
-                let rows = sqlx::query_with(&sql, values)
+                let rows = sqlx::query_with(sqlx::AssertSqlSafe(sql), values)
                     .fetch_all(&mut *transaction)
                     .await?;
                 transaction.commit().await?;
@@ -400,7 +406,7 @@ macro_rules! sqlx_backend {
                     // as they were and the refusal is the caller's own to report.
                     let (statement, rows) = batch.map_err(Error::Refused)?;
                     let (sql, values) = statement.build_sqlx($builder);
-                    sqlx::query_with(&sql, values)
+                    sqlx::query_with(sqlx::AssertSqlSafe(sql), values)
                         .execute(&mut *transaction)
                         .await?;
                     written += rows;
@@ -416,7 +422,7 @@ macro_rules! sqlx_backend {
                 sql: &str,
                 parameters: Vec<Parameter>,
             ) -> Result<Records, Error> {
-                let rows = $bind(sqlx::query(sql), parameters)
+                let rows = $bind(sqlx::query(sqlx::AssertSqlSafe(sql)), parameters)
                     .fetch_all(&self.0)
                     .await?;
                 crate::records::decode(table, rows)
@@ -429,7 +435,8 @@ macro_rules! sqlx_backend {
                 parameters: Vec<Parameter>,
                 sink: Sink<'_, Records>,
             ) -> Result<(), Error> {
-                let mut cursor = $bind(sqlx::query(sql), parameters).fetch(&self.0);
+                let mut cursor =
+                    $bind(sqlx::query(sqlx::AssertSqlSafe(sql)), parameters).fetch(&self.0);
                 drain(
                     &mut cursor,
                     |rows| crate::records::decode(table, rows),
@@ -444,7 +451,7 @@ macro_rules! sqlx_backend {
                 sql: &str,
                 parameters: Vec<Parameter>,
             ) -> Result<Vec<Row>, Error> {
-                $bind(sqlx::query(sql), parameters)
+                $bind(sqlx::query(sqlx::AssertSqlSafe(sql)), parameters)
                     .fetch_all(&self.0)
                     .await?
                     .iter()
@@ -462,7 +469,8 @@ macro_rules! sqlx_backend {
                 parameters: Vec<Parameter>,
                 sink: Sink<'_, Vec<Row>>,
             ) -> Result<(), Error> {
-                let mut cursor = $bind(sqlx::query(sql), parameters).fetch(&self.0);
+                let mut cursor =
+                    $bind(sqlx::query(sqlx::AssertSqlSafe(sql)), parameters).fetch(&self.0);
                 drain(
                     &mut cursor,
                     |rows| {
@@ -479,21 +487,23 @@ macro_rules! sqlx_backend {
             }
 
             async fn execute(&self, sql: &str, parameters: Vec<Parameter>) -> Result<u64, Error> {
-                Ok($bind(sqlx::query(sql), parameters)
+                Ok($bind(sqlx::query(sqlx::AssertSqlSafe(sql)), parameters)
                     .execute(&self.0)
                     .await?
                     .rows_affected())
             }
 
             async fn execute_script(&self, sql: &str) -> Result<(), Error> {
-                sqlx::raw_sql(sql).execute(&self.0).await?;
+                sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
+                    .execute(&self.0)
+                    .await?;
                 Ok(())
             }
 
             async fn gate_user(&self, id: uuid::Uuid) -> Result<Option<GateUser>, Error> {
                 let $id = id;
                 let (sql, bound) = ($gate_sql, $gate_bind);
-                let row = sqlx::query(&sql)
+                let row = sqlx::query(sqlx::AssertSqlSafe(sql))
                     .bind(bound)
                     .fetch_optional(&self.0)
                     .await?;
@@ -547,9 +557,9 @@ sqlx_backend!(
 /// SQLite stores timestamps and UUIDs as text so those bind in the stored form rather
 /// than as their own types, or equality against a stored row misses.
 fn bind_sqlite<'q>(
-    mut query: sqlx::query::Query<'q, sqlx::Sqlite, sqlx::sqlite::SqliteArguments<'q>>,
+    mut query: sqlx::query::Query<'q, sqlx::Sqlite, sqlx::sqlite::SqliteArguments>,
     parameters: Vec<Parameter>,
-) -> sqlx::query::Query<'q, sqlx::Sqlite, sqlx::sqlite::SqliteArguments<'q>> {
+) -> sqlx::query::Query<'q, sqlx::Sqlite, sqlx::sqlite::SqliteArguments> {
     for parameter in parameters {
         query = match parameter {
             Parameter::Null => query.bind(None::<String>),

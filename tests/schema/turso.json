@@ -40,7 +40,7 @@
     ],
     "foreign_keys": [],
     "indexes": [
-      "CREATE INDEX IF NOT EXISTS ix_alerts__address ON alerts (address)",
+      "CREATE INDEX IF NOT EXISTS ix_alerts__address__timestamp ON alerts (address, timestamp)",
       "CREATE INDEX IF NOT EXISTS ix_alerts__timestamp ON alerts (timestamp)",
       "CREATE INDEX IF NOT EXISTS ix_alerts__type ON alerts (type)"
     ],
@@ -176,7 +176,8 @@
     ],
     "foreign_keys": [],
     "indexes": [
-      "CREATE INDEX IF NOT EXISTS ix_logs__address ON logs (address)",
+      "CREATE INDEX IF NOT EXISTS ix_logs__address__level__timestamp ON logs (address, level, timestamp)",
+      "CREATE INDEX IF NOT EXISTS ix_logs__address__timestamp ON logs (address, timestamp)",
       "CREATE INDEX IF NOT EXISTS ix_logs__content ON logs (content)",
       "CREATE INDEX IF NOT EXISTS ix_logs__timestamp ON logs (timestamp)"
     ],
@@ -226,7 +227,9 @@
     ],
     "foreign_keys": [],
     "indexes": [
-      "CREATE INDEX IF NOT EXISTS ix_messages__address ON messages (address)",
+      "CREATE INDEX IF NOT EXISTS ix_messages__address__connection__timestamp ON messages (address, connection, timestamp)",
+      "CREATE INDEX IF NOT EXISTS ix_messages__address__direction__timestamp ON messages (address, direction, timestamp)",
+      "CREATE INDEX IF NOT EXISTS ix_messages__address__timestamp ON messages (address, timestamp)",
       "CREATE INDEX IF NOT EXISTS ix_messages__connection ON messages (connection)",
       "CREATE INDEX IF NOT EXISTS ix_messages__data ON messages (data)",
       "CREATE INDEX IF NOT EXISTS ix_messages__timestamp ON messages (timestamp)"
@@ -299,7 +302,8 @@
     ],
     "foreign_keys": [],
     "indexes": [
-      "CREATE INDEX IF NOT EXISTS ix_particles__address ON particles (address)",
+      "CREATE INDEX IF NOT EXISTS ix_particles__address__connection__timestamp ON particles (address, connection, timestamp)",
+      "CREATE INDEX IF NOT EXISTS ix_particles__address__timestamp ON particles (address, timestamp)",
       "CREATE INDEX IF NOT EXISTS ix_particles__timestamp ON particles (timestamp)",
       "CREATE INDEX IF NOT EXISTS ix_particles__type ON particles (type)"
     ],

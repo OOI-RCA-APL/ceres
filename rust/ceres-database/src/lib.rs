@@ -9,6 +9,7 @@
 //! of them.
 
 mod backend;
+mod binder;
 mod credentials;
 pub mod describe;
 mod dynamic;
