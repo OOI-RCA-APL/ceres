@@ -48,6 +48,7 @@
     }
   },
   "devDependencies": {
+    "@iconify-json/lucide": "^1.2.124",
     "@iconify-json/mdi": "^1.2.3",
     "@types/lodash-es": "^4.17.12",
     "@types/node": "^26.2.0",

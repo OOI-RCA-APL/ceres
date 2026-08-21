@@ -25,7 +25,7 @@ const icons = {
   configuration: 'i-mdi-cogs',
   confirm: 'i-mdi-check',
   confirmDialog: 'i-mdi-comment-question-outline',
-  connection: 'i-mdi-routes',
+  connection: 'i-mdi-connection',
   copy: 'i-mdi-content-copy',
   cut: 'i-mdi-content-cut',
   darkMode: 'i-mdi-weather-night',
@@ -106,6 +106,7 @@ const icons = {
   viewer: 'i-mdi-account-eye',
   impersonate: 'i-mdi-account-switch',
   viewOriginal: 'i-mdi-eye-arrow-left',
+  warning: 'i-mdi-alert-outline',
   workingCopy: 'i-mdi-pencil-box-multiple',
   workspace: 'i-mdi-dots-grid',
 } as const
