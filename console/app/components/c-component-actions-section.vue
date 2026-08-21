@@ -37,10 +37,6 @@ let expanded = $(defineModel<boolean>('expanded', { required: true }))
 usually wanted in. */
 function controlsFor(chosen: ActionInfo[]): ControlsWidget {
   const widget = createWidget('controls') as ControlsWidget
-  if (chosen.length === 1) {
-    widget.name = toTitle((chosen[0] as ActionInfo).name)
-  }
-
   widget.buttons = chosen.map((action) =>
     ButtonActionModel.parse({
       label: toTitle(action.name),
@@ -53,7 +49,8 @@ function controlsFor(chosen: ActionInfo[]): ControlsWidget {
 
 const widgetActions: DetailWidgetAction<ActionInfo>[] = [
   {
-    label: 'Create Controls',
+    // A controls widget holds nothing but buttons today, so it is named by what it gets.
+    label: (chosen) => (chosen.length === 1 ? 'Create Button' : 'Create Buttons'),
     separateLabel: 'Create Separate Controls',
     icon: icons.controls,
     combined: (chosen) => [controlsFor(chosen)],
@@ -84,9 +81,9 @@ function isBlocked(action: ActionInfo): boolean {
     title="Actions"
     @create="(widgets: Widget[]) => emit('create', widgets)"
   >
-    <template #row="{ item }">
+    <template #row="{ item, selected }">
       <div class="grow">
-        <c-text variant="body3">{{ item.name }}</c-text>
+        <c-text :class="selected && 'text-primary'" variant="body3">{{ item.name }}</c-text>
         <c-text variant="description">{{ describeProcedurePermissions(item) }}</c-text>
       </div>
       <c-tooltip v-if="isBlocked(item)" text="Not available with your access.">
