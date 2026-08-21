@@ -152,6 +152,13 @@ const typeRows = createRowSelection({ ids: () => typeOrder.map(typeRefKey) })
 
 const selectedTypeKeys = $computed(() => typeRows.selectedIds.value)
 
+/** Drop the type header selection, the fields being held by the caller's own model. */
+function clearTypeSelection() {
+  typeRows.clear()
+}
+
+defineExpose({ clearTypeSelection })
+
 function typesFor(keys: string[]): ParticleTypeRef[] {
   const wanted = new Set(keys)
   return typeOrder.filter((ref) => wanted.has(typeRefKey(ref)))

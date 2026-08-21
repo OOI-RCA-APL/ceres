@@ -1,4 +1,19 @@
+import { onClickOutside } from '@vueuse/core'
+import type { MaybeRefOrGetter } from 'vue'
+
 import type { SelectMode } from '@/workspace'
+
+/** Drop the selection when a press lands away from `container`.
+
+A menu or dialog is drawn at the far end of the page while acting on the selection it was opened
+over, so a press inside one is left alone.
+*/
+export function clearOnOutsidePress(
+  container: MaybeRefOrGetter<HTMLElement | null | undefined>,
+  clear: () => void,
+) {
+  onClickOutside(container, clear, { ignore: ['[role="menu"]', '[role="dialog"]'] })
+}
 
 /** The select mode a click's modifiers ask for, matching the workspace's own vocabulary. */
 export function selectMode(event: MouseEvent): SelectMode {

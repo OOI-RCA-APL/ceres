@@ -12,6 +12,7 @@ import {
   toggleParticleField,
 } from '@/particle-series'
 import { useParticleTypes } from '@/particle-types'
+import { clearOnOutsidePress } from '@/row-selection'
 import { toTitle } from '@/utilities'
 import {
   type ChartWidget,
@@ -54,6 +55,17 @@ let expandedTypes = $(
 const types = $(useParticleTypes(() => address.toString()).types)
 
 let selection = $ref<ParticleFieldRef[]>([])
+
+let section = $ref<HTMLElement | null>(null)
+let selector = $ref<{ clearTypeSelection: () => void } | null>(null)
+
+clearOnOutsidePress(
+  () => section,
+  () => {
+    selection = []
+    selector?.clearTypeSelection()
+  },
+)
 
 /** The field the open context menu was raised on. */
 let contextRef = $ref<ParticleFieldRef | null>(null)
@@ -310,10 +322,11 @@ function dropTypeViews(form: 'combined' | 'separate') {
 </script>
 
 <template>
-  <div v-if="types.length > 0" class="border-default rounded-md border">
+  <div v-if="types.length > 0" ref="section" class="border-default rounded-md border">
     <c-detail-section v-model:expanded="expanded" :title="`Particles (${types.length})`">
       <c-context-menu :items="menuItems">
         <c-particle-series-selector
+          ref="selector"
           v-model:expanded-types="expandedTypes"
           v-model:selected="selection"
           :address="address.toString()"
