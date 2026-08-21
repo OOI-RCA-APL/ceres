@@ -91,78 +91,78 @@ function isFormat(format: string) {
 </script>
 
 <template>
-  <template v-if="schema == null">
-    <div>Unable to resolve schema definition at path: {{ JSON.stringify(path) }}</div>
-  </template>
-  <template v-else>
-    <!-- Embedded, the node is not the positioning context, so the bar resolves against the host
-    and is drawn at its edge rather than partway into it. -->
-    <div ref="root" :class="!form.embedded && 'relative'">
-      <template v-if="typeof schema === 'boolean'">
-        <c-schema-form-any v-bind="forward" @update:model-value="update" />
-      </template>
-      <template v-else-if="schema.enum != null">
-        <c-schema-form-enum v-bind="forward" @update:model-value="update" />
-      </template>
-      <template v-else-if="is('boolean')">
-        <c-schema-form-boolean v-bind="forward" @update:model-value="update" />
-      </template>
-      <template v-else-if="is('integer')">
-        <c-schema-form-integer v-bind="forward" @update:model-value="update" />
-      </template>
-      <template v-else-if="is('number')">
-        <c-schema-form-number v-bind="forward" @update:model-value="update" />
-      </template>
-      <template v-else-if="is('string')">
-        <c-schema-form-date-time
-          v-if="isFormat('date-time')"
-          v-bind="forward"
-          @update:model-value="update"
-        />
-        <c-schema-form-date
-          v-else-if="isFormat('date')"
-          v-bind="forward"
-          @update:model-value="update"
-        />
-        <c-schema-form-duration
-          v-else-if="isFormat('duration')"
-          v-bind="forward"
-          @update:model-value="update"
-        />
-        <c-schema-form-address-selector
-          v-else-if="isFormat('address-selector')"
-          v-bind="forward"
-          @update:model-value="update"
-        />
-        <c-schema-form-address
-          v-else-if="isFormat('address')"
-          v-bind="forward"
-          @update:model-value="update"
-        />
-        <c-schema-form-string v-else v-bind="forward" @update:model-value="update" />
-      </template>
-      <template v-else-if="is('array')">
-        <c-schema-form-array v-bind="forward" @update:model-value="update" />
-      </template>
-      <template v-else-if="is('object')">
-        <c-schema-form-object v-bind="forward" @update:model-value="update" />
-      </template>
-      <template v-else>
-        <c-schema-form-any v-bind="forward" @update:model-value="update" />
-      </template>
-      <c-schema-form-node-value-indicator
-        class="absolute left-0"
-        :class="indicatorBox == null && 'top-0 h-full'"
-        :form
-        :model-value="modelValue"
-        :path
-        :style="{
-          zIndex: path.length,
-          ...(indicatorBox != null
-            ? { top: `${indicatorBox.top}px`, height: `${indicatorBox.height}px` }
-            : {}),
-        }"
+  <!-- One root, as an element rather than a `template`, so a class given to a field reaches it.
+  A pair of `template` branches is a fragment, and a fragment inherits no attributes at all. -->
+  <div v-if="schema == null">
+    Unable to resolve schema definition at path: {{ JSON.stringify(path) }}
+  </div>
+  <!-- Embedded, the node is not the positioning context, so the bar resolves against the host
+  and is drawn at its edge rather than partway into it. -->
+  <div v-else ref="root" :class="!form.embedded && 'relative'">
+    <template v-if="typeof schema === 'boolean'">
+      <c-schema-form-any v-bind="forward" @update:model-value="update" />
+    </template>
+    <template v-else-if="schema.enum != null">
+      <c-schema-form-enum v-bind="forward" @update:model-value="update" />
+    </template>
+    <template v-else-if="is('boolean')">
+      <c-schema-form-boolean v-bind="forward" @update:model-value="update" />
+    </template>
+    <template v-else-if="is('integer')">
+      <c-schema-form-integer v-bind="forward" @update:model-value="update" />
+    </template>
+    <template v-else-if="is('number')">
+      <c-schema-form-number v-bind="forward" @update:model-value="update" />
+    </template>
+    <template v-else-if="is('string')">
+      <c-schema-form-date-time
+        v-if="isFormat('date-time')"
+        v-bind="forward"
+        @update:model-value="update"
       />
-    </div>
-  </template>
+      <c-schema-form-date
+        v-else-if="isFormat('date')"
+        v-bind="forward"
+        @update:model-value="update"
+      />
+      <c-schema-form-duration
+        v-else-if="isFormat('duration')"
+        v-bind="forward"
+        @update:model-value="update"
+      />
+      <c-schema-form-address-selector
+        v-else-if="isFormat('address-selector')"
+        v-bind="forward"
+        @update:model-value="update"
+      />
+      <c-schema-form-address
+        v-else-if="isFormat('address')"
+        v-bind="forward"
+        @update:model-value="update"
+      />
+      <c-schema-form-string v-else v-bind="forward" @update:model-value="update" />
+    </template>
+    <template v-else-if="is('array')">
+      <c-schema-form-array v-bind="forward" @update:model-value="update" />
+    </template>
+    <template v-else-if="is('object')">
+      <c-schema-form-object v-bind="forward" @update:model-value="update" />
+    </template>
+    <template v-else>
+      <c-schema-form-any v-bind="forward" @update:model-value="update" />
+    </template>
+    <c-schema-form-node-value-indicator
+      class="absolute left-0"
+      :class="indicatorBox == null && 'top-0 h-full'"
+      :form
+      :model-value="modelValue"
+      :path
+      :style="{
+        zIndex: path.length,
+        ...(indicatorBox != null
+          ? { top: `${indicatorBox.top}px`, height: `${indicatorBox.height}px` }
+          : {}),
+      }"
+    />
+  </div>
 </template>
