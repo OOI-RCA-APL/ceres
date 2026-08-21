@@ -15,11 +15,10 @@ const derivedUnit = $(useDerivedChartUnit(() => widget, workspace).unit)
 
 <template>
   <c-workspace-widget-settings :widget>
-    <div class="pb-1">
-      <c-text variant="th">Particle Fields</c-text>
-    </div>
+    <c-text class="mb-2" variant="title2">Particles</c-text>
     <!-- The selector's own "Manual Entry" section carries the margin under it. -->
     <c-particle-series-selector v-model="widget.particles" collapse-unselected show-selected />
+    <c-text class="mb-2" variant="title2">Display</c-text>
     <div class="flex flex-col gap-1">
       <div class="grid grid-cols-2 gap-x-2">
         <c-schema-form-value

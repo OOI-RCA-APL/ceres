@@ -58,8 +58,19 @@ function measure() {
     return
   }
 
+  // Held to the straight run of the control's left edge, since a bar carried across the corners
+  // stands away from a border that has already curved off from it.
+  const style = getComputedStyle(control)
+  const radius = Math.max(
+    parseFloat(style.borderTopLeftRadius) || 0,
+    parseFloat(style.borderBottomLeftRadius) || 0,
+  )
+
   const box = control.getBoundingClientRect()
-  indicatorBox = { top: box.top - root.getBoundingClientRect().top, height: box.height }
+  indicatorBox = {
+    top: box.top - root.getBoundingClientRect().top + radius,
+    height: Math.max(0, box.height - radius * 2),
+  }
 }
 
 useResizeObserver($$(root), measure)
