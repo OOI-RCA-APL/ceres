@@ -101,10 +101,12 @@ const menuItems = $computed<ContextMenuItem[][]>(() => {
   ]
 })
 
-// Every item here acts on a row, so a right click landing elsewhere in the list is defaulted
-// and the menu's trigger leaves it alone.
+// Every item here acts on the selection, so a right click that cannot reach it is defaulted and
+// the menu's trigger leaves it alone. A blocked row counts as elsewhere, or the menu would open
+// over it offering to build from whatever was selected before.
 function onListContext(event: MouseEvent) {
-  if ((event.target as HTMLElement).closest('[data-detail-row]') == null) {
+  const row = (event.target as HTMLElement).closest('[data-detail-row]')
+  if (row == null || row.hasAttribute('data-detail-blocked')) {
     event.preventDefault()
   }
 }
@@ -114,20 +116,25 @@ let pendingDrop = $ref<{ placement: WidgetPlacement; keys: string[] } | null>(nu
 
 const pendingChoices = $computed(() => (pendingDrop == null ? [] : choicesFor(pendingDrop.keys)))
 
-function onRowClick(item: T, event: MouseEvent) {
-  if (disabled?.(item) !== true) {
-    rows.onClick(keyOf(item), event)
+/** What a row listens for, which a blocked row is given none of, so it stays the plain
+undecorated element it was before any of this could be built from it. */
+function handlersFor(item: T) {
+  if (disabled?.(item) === true) {
+    return {}
   }
-}
 
-function onRowContext(item: T) {
-  if (disabled?.(item) !== true) {
-    rows.ensureSelected(keyOf(item))
+  return {
+    click: (event: MouseEvent) => rows.onClick(keyOf(item), event),
+    contextmenu: () => rows.ensureSelected(keyOf(item)),
+    // A shift click extends the selection, and the browser would otherwise take it as a text
+    // selection across the rows it spans.
+    mousedown: (event: MouseEvent) => event.shiftKey && event.preventDefault(),
+    pointerdown: (event: PointerEvent) => onRowPress(item, event),
   }
 }
 
 function onRowPress(item: T, event: PointerEvent) {
-  if (insertDrag == null || insertAt == null || disabled?.(item) === true) {
+  if (insertDrag == null || insertAt == null) {
     return
   }
 
@@ -185,11 +192,10 @@ workspace to build widgets from what they name. -->
             // Neutral rather than a semantic color, so the highlight never fights the text.
             rows.isSelected(keyOf(item)) && 'bg-[#80808029]'
           "
+          :data-detail-blocked="disabled?.(item) === true ? '' : undefined"
           data-detail-row
-          @click="onRowClick(item, $event as MouseEvent)"
-          @contextmenu="onRowContext(item)"
-          @mousedown="(event: MouseEvent) => event.shiftKey && event.preventDefault()"
-          @pointerdown="onRowPress(item, $event as PointerEvent)"
+          :selectable="disabled?.(item) !== true"
+          v-on="handlersFor(item)"
         >
           <slot :item="item" name="row" />
         </c-list-item>

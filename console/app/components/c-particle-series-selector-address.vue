@@ -235,11 +235,13 @@ function onPointerDown(type: string, field: string, event: PointerEvent) {
   emit('press', type, field, event)
 }
 
-/** Where the last press landed, for telling a click apart from a drag's release. */
+/** Where the last press landed, for telling a click apart from a drag's release. Cleared by
+every press so one gesture never answers for the next. */
 let pressPoint: { x: number; y: number } | null = null
 
 function onTypePointerDown(type: string, event: PointerEvent) {
-  if (!isPlainPress(event)) {
+  pressPoint = null
+  if (selectionMode !== 'highlight' || !isPlainPress(event)) {
     return
   }
 
@@ -248,15 +250,15 @@ function onTypePointerDown(type: string, event: PointerEvent) {
 }
 
 /** Whether the pointer moved far enough since the press for the gesture to be a drag rather
-than a click. */
+than a click. A keyboard activation reports no press at all and is never one. */
 function travelled(event: MouseEvent): boolean {
-  if (pressPoint == null) {
+  const from = pressPoint
+  pressPoint = null
+  if (from == null || event.detail === 0) {
     return false
   }
 
-  const distance = Math.hypot(event.clientX - pressPoint.x, event.clientY - pressPoint.y)
-  pressPoint = null
-  return distance > 4
+  return Math.hypot(event.clientX - from.x, event.clientY - from.y) > 4
 }
 </script>
 
@@ -275,7 +277,9 @@ function travelled(event: MouseEvent): boolean {
           data-particle-type
           type="button"
           @click="toggleType(type, $event as MouseEvent)"
-          @contextmenu="emit('typeContext', type.type, $event as MouseEvent)"
+          @contextmenu="
+            selectionMode === 'highlight' && emit('typeContext', type.type, $event as MouseEvent)
+          "
           @pointerdown="onTypePointerDown(type.type, $event as PointerEvent)"
         >
           <c-icon
