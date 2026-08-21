@@ -30,6 +30,10 @@ written, and the release workflow refuses a version that has no entry here.
 - Fit a chart's Y axis to the shown series or to all of them, with a separate toggle for
   anchoring at zero.
 - Choose a connection for a meter.
+- Build a messages or particles view from a component's connections, dragged into a workspace
+  or created from their context menu.
+- Build a particles view from a declared particle type the same way.
+- Build a controls widget from a component's actions, one button per action.
 - Peek a workspace into view when it is chosen from a list or from a docked tab strip.
 
 **Fixes**

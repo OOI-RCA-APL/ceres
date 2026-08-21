@@ -8,6 +8,7 @@ import type { ParticleFieldDetails } from '@/components/c-particle-field-details
 import icons from '@/icons'
 import { fieldRefKey } from '@/particle-series'
 import { describeFieldDescription, describeFieldType } from '@/particle-types'
+import { isPlainPress, selectMode } from '@/row-selection'
 import type { Schema } from '@/schema-form'
 import type { ChartWidgetParticle, SelectMode } from '@/workspace'
 
@@ -79,7 +80,13 @@ function isTypeOpened(type: ParticleTypeInfo): boolean {
 // Toggles made by hosts that do not persist expansion still hold for this mount.
 const localOpen = $ref<Record<string, boolean>>({})
 
-function toggleType(type: ParticleTypeInfo) {
+function toggleType(type: ParticleTypeInfo, event: MouseEvent) {
+  // A press the pointer travelled from was a drag, and its release still reaches the header as
+  // a click, which would collapse the type the widget was just dragged out of.
+  if (travelled(event)) {
+    return
+  }
+
   const value = !isTypeOpened(type)
 
   // A toggle while a search is forcing everything open would be forgotten anyway.
@@ -105,6 +112,12 @@ const emit = defineEmits<{
 
   /** A plain press on a field row in highlight mode, which a host may turn into a drag. */
   press: [type: string, field: string, event: PointerEvent]
+
+  /** A right click on a type header row, before the hosting menu opens on the event. */
+  typeContext: [type: string, event: MouseEvent]
+
+  /** A plain press on a type header row, which a host may turn into a drag. */
+  typePress: [type: string, event: PointerEvent]
 }>()
 
 // The type list renders inside the address expansion item, or on its own in bare mode.
@@ -172,15 +185,6 @@ function typeHasSelection(type: ParticleTypeInfo): boolean {
 // search still marks its containers.
 const addressHasSelection = $computed(() => types.some(typeHasSelection))
 
-/** The select mode a click's modifiers ask for, matching the workspace's own vocabulary. */
-function modeOf(event: MouseEvent): SelectMode {
-  if (event.shiftKey) {
-    return 'extend'
-  }
-
-  return event.metaKey || event.ctrlKey ? 'toggle' : 'replace'
-}
-
 /** The field whose details dialog is showing. */
 let detailsField = $ref<ParticleFieldDetails | null>(null)
 
@@ -188,7 +192,7 @@ let detailsField = $ref<ParticleFieldDetails | null>(null)
 // toggle mode the checkbox already carries the choice and a single click opens it.
 function onClick(type: string, field: ParticleFieldInfo, event: MouseEvent) {
   if (selectionMode === 'highlight') {
-    emit('select', type, field.name, modeOf(event))
+    emit('select', type, field.name, selectMode(event))
   } else {
     detailsField = { address: address.toString(), type, field }
   }
@@ -224,14 +228,35 @@ function onActions(event: MouseEvent) {
 // Only a plain press is offered as a drag. A modified press is a selection gesture, and the
 // click that follows an untravelled press still selects as it always did.
 function onPointerDown(type: string, field: string, event: PointerEvent) {
-  if (selectionMode !== 'highlight' || event.button !== 0) {
-    return
-  }
-  if (event.shiftKey || event.metaKey || event.ctrlKey) {
+  if (selectionMode !== 'highlight' || !isPlainPress(event)) {
     return
   }
 
   emit('press', type, field, event)
+}
+
+/** Where the last press landed, for telling a click apart from a drag's release. */
+let pressPoint: { x: number; y: number } | null = null
+
+function onTypePointerDown(type: string, event: PointerEvent) {
+  if (!isPlainPress(event)) {
+    return
+  }
+
+  pressPoint = { x: event.clientX, y: event.clientY }
+  emit('typePress', type, event)
+}
+
+/** Whether the pointer moved far enough since the press for the gesture to be a drag rather
+than a click. */
+function travelled(event: MouseEvent): boolean {
+  if (pressPoint == null) {
+    return false
+  }
+
+  const distance = Math.hypot(event.clientX - pressPoint.x, event.clientY - pressPoint.y)
+  pressPoint = null
+  return distance > 4
 }
 </script>
 
@@ -247,8 +272,11 @@ function onPointerDown(type: string, field: string, event: PointerEvent) {
         <button
           class="hover:bg-elevated/50 flex w-full items-center gap-1 px-2 py-0.5 text-left"
           :class="typeHasSelection(type) && 'text-primary'"
+          data-particle-type
           type="button"
-          @click="toggleType(type)"
+          @click="toggleType(type, $event as MouseEvent)"
+          @contextmenu="emit('typeContext', type.type, $event as MouseEvent)"
+          @pointerdown="onTypePointerDown(type.type, $event as PointerEvent)"
         >
           <c-icon
             class="text-muted shrink-0 transition-transform"

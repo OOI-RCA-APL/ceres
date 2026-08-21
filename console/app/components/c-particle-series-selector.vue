@@ -15,7 +15,7 @@ import {
   toggleParticleField,
   withGroupConnection,
 } from '@/particle-series'
-import type { ParticleFieldRef } from '@/particle-series'
+import type { ParticleFieldRef, ParticleTypeRef } from '@/particle-series'
 import { filterParticleTypes, useParticleTypesByAddress } from '@/particle-types'
 import { ChartWidgetSeriesModel, useWorkspace } from '@/workspace'
 import type { ChartWidgetParticle, ChartWidgetSeries, SelectMode } from '@/workspace'
@@ -59,6 +59,12 @@ const emit = defineEmits<{
 
   /** A plain press landed on a field row, which a host may turn into a drag. */
   itemPress: [event: PointerEvent, ref: ParticleFieldRef]
+
+  /** A right click landed on a type header row. */
+  typeContext: [event: MouseEvent, ref: ParticleTypeRef]
+
+  /** A plain press landed on a type header row, which a host may turn into a drag. */
+  typePress: [event: PointerEvent, ref: ParticleTypeRef]
 }>()
 
 let modelValue = $(defineModel<ChartWidgetParticle[]>({ default: () => [] }))
@@ -405,6 +411,12 @@ function addManualEntry() {
           "
           @select="(type, field, mode) => onSelect(node.toString(), type, field, mode)"
           @toggle="(type, field, value) => toggleField(node.toString(), type, field, value)"
+          @type-context="
+            (type, event) => emit('typeContext', event, { address: node.toString(), type })
+          "
+          @type-press="
+            (type, event) => emit('typePress', event, { address: node.toString(), type })
+          "
         />
       </div>
     </div>

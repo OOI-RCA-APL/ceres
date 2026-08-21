@@ -8,10 +8,16 @@ import { useAccess } from '@/api/access'
 import { Address } from '@/api/address'
 import { useAuth } from '@/api/auth'
 import { useQuery } from '@/api/client'
-import type { ConnectionInfo, ConnectionStateInfo, JobInfo, ProcedureInfo } from '@/api/components'
+import type {
+  ActionInfo,
+  ConnectionInfo,
+  ConnectionStateInfo,
+  JobInfo,
+  ProcedureInfo,
+} from '@/api/components'
+import { canInvokeProcedure, describeProcedurePermissions } from '@/api/components'
 import { useEngine } from '@/api/engine'
 import type { ComponentAccessLevel } from '@/api/permissions'
-import type { Connectivity } from '@/api/shared'
 import CWorkspaceHost from '@/components/c-workspace-host.vue'
 import { useDialogs } from '@/dialogs'
 import icons from '@/icons'
@@ -201,38 +207,14 @@ const queries = $computed(
 )
 
 const actions = $computed(
-  () => component?.procedures.filter((procedure) => procedure.type === 'action') ?? [],
+  () =>
+    component?.procedures.filter(
+      (procedure): procedure is ActionInfo => procedure.type === 'action',
+    ) ?? [],
 )
 
-// Each procedure declares its own minimum level, listed here as reference rather than as a
-// control since procedures are invoked from workspaces and interfaces instead of this page.
-function permissionsLabel(procedure: ProcedureInfo): string {
-  if (procedure.permissions === 'public') {
-    return 'Public, requires no permissions.'
-  }
-
-  return `Requires "${procedure.permissions}" access permission.`
-}
-
-const permissionRank: Record<Exclude<ProcedureInfo['permissions'], 'public'>, number> = {
-  view: 0,
-  operate: 1,
-  manage: 2,
-  deny: 3,
-}
-
-// Whether the current user's access level meets the procedure's declared minimum.
 function canInvoke(procedure: ProcedureInfo): boolean {
-  if (procedure.permissions === 'public') {
-    return true
-  }
-
-  const level: ComponentAccessLevel | null = effectiveAccess
-  if (level == null) {
-    return false
-  }
-
-  return permissionRank[level] >= permissionRank[procedure.permissions]
+  return canInvokeProcedure(procedure, effectiveAccess)
 }
 
 const accessIcon = $computed(() => {
@@ -275,19 +257,7 @@ const connections = $computed<(ConnectionInfo | ConnectionStateInfo)[]>(
   () => connectionsQuery.data.value ?? component?.connections ?? [],
 )
 
-const connectivityColors: Record<Connectivity, string> = {
-  connected: 'bg-success',
-  connecting: 'bg-warning',
-  disconnected: 'bg-error',
-}
-
 const running = $computed(() => engine.statuses.get(address)?.running ?? false)
-
-// A stopped component's connections are expectedly down, shown inert grey rather than alarming
-// red, with the pulse stilled to match.
-function connectivityColor(connectivity: Connectivity): string {
-  return running ? connectivityColors[connectivity] : 'bg-inverted/40'
-}
 
 const jobs = $computed(() => jobsQuery.data.value ?? [])
 
@@ -419,37 +389,15 @@ const configHighlighted = $computed(() =>
             />
 
             <c-list>
-              <c-detail-section
+              <c-component-connections-section
                 v-model:expanded="persisted.connections"
-                :title="`Connections (${connections.length})`"
-              >
-                <c-text v-if="connections.length === 0" class="px-3" variant="description">
-                  No connections.
-                </c-text>
-                <c-list-item v-for="connection in connections" :key="connection.name">
-                  <div class="grow">
-                    <div class="flex items-baseline gap-2">
-                      <c-text variant="body3">{{ connection.name }}</c-text>
-                      <c-text v-if="connection.label" variant="description">
-                        {{ connection.label }}
-                      </c-text>
-                    </div>
-                    <c-text variant="description">{{ connection.uri }}</c-text>
-                  </div>
-                  <c-tooltip
-                    v-if="'connectivity' in connection"
-                    :text="upperFirst(connection.connectivity)"
-                  >
-                    <span
-                      :class="[
-                        $style.dot,
-                        !running && $style.still,
-                        connectivityColor(connection.connectivity),
-                      ]"
-                    />
-                  </c-tooltip>
-                </c-list-item>
-              </c-detail-section>
+                :address
+                :connections
+                :insert-at="hostRef?.workspace?.insertWidgetsAt"
+                :insert-drag="hostRef?.workspace?.startInsertDrag"
+                :running
+                @create="createWidgetsScoped"
+              />
               <c-detail-section v-model:expanded="persisted.jobs" :title="`Jobs (${jobs.length})`">
                 <c-text v-if="jobs.length === 0" class="px-3" variant="description">
                   No jobs.
@@ -474,7 +422,9 @@ const configHighlighted = $computed(() =>
                 <c-list-item v-for="query in queries" :key="query.name">
                   <div class="grow">
                     <c-text variant="body3">{{ query.name }}</c-text>
-                    <c-text variant="description">{{ permissionsLabel(query) }}</c-text>
+                    <c-text variant="description">
+                      {{ describeProcedurePermissions(query) }}
+                    </c-text>
                   </div>
                   <c-badge v-if="query.live" color="success" size="sm" variant="subtle">
                     live
@@ -484,23 +434,15 @@ const configHighlighted = $computed(() =>
                   </c-tooltip>
                 </c-list-item>
               </c-detail-section>
-              <c-detail-section
+              <c-component-actions-section
                 v-model:expanded="persisted.actions"
-                :title="`Actions (${actions.length})`"
-              >
-                <c-text v-if="actions.length === 0" class="px-3" variant="description">
-                  No actions.
-                </c-text>
-                <c-list-item v-for="action in actions" :key="action.name">
-                  <div class="grow">
-                    <c-text variant="body3">{{ action.name }}</c-text>
-                    <c-text variant="description">{{ permissionsLabel(action) }}</c-text>
-                  </div>
-                  <c-tooltip v-if="!canInvoke(action)" text="Not available with your access.">
-                    <c-icon class="size-4 text-muted" :name="icons.locked" />
-                  </c-tooltip>
-                </c-list-item>
-              </c-detail-section>
+                :access="effectiveAccess"
+                :actions
+                :address
+                :insert-at="hostRef?.workspace?.insertWidgetsAt"
+                :insert-drag="hostRef?.workspace?.startInsertDrag"
+                @create="createWidgetsScoped"
+              />
             </c-list>
 
             <c-component-particles-section
@@ -550,28 +492,3 @@ const configHighlighted = $computed(() =>
     </c-workspace-host>
   </c-full-page>
 </template>
-
-<style module>
-.dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  flex: none;
-  border-radius: 50%;
-  animation: pulse 2s ease-in-out infinite;
-}
-
-.still {
-  animation: none;
-}
-
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.65;
-  }
-}
-</style>

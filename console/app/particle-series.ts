@@ -9,6 +9,12 @@ export type ParticleFieldRef = {
   field: string
 }
 
+/** One declared particle type of one address, as the selector trees' type headers stand for. */
+export type ParticleTypeRef = {
+  address: string
+  type: string
+}
+
 /** The key a selection tracks a field under, unique across the whole tree. */
 export function fieldRefKey(ref: ParticleFieldRef): string {
   return `${ref.address}|${ref.type}|${ref.field}`

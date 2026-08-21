@@ -3,8 +3,14 @@ import type { ContextMenuItem } from '@nuxt/ui'
 
 import { type Address, AddressSelector } from '@/api/address'
 import type { ParticleFieldDetails } from '@/components/c-particle-field-details-dialog.vue'
+import { createCondition } from '@/filters/model'
 import icons from '@/icons'
-import { fieldRefKey, type ParticleFieldRef, toggleParticleField } from '@/particle-series'
+import {
+  fieldRefKey,
+  type ParticleFieldRef,
+  type ParticleTypeRef,
+  toggleParticleField,
+} from '@/particle-series'
 import { useParticleTypes } from '@/particle-types'
 import { toTitle } from '@/utilities'
 import {
@@ -12,6 +18,7 @@ import {
   type ChartWidgetParticle,
   createWidget,
   type MeterWidget,
+  type ParticlesWidget,
   type Widget,
   type WidgetPlacement,
 } from '@/workspace'
@@ -51,38 +58,67 @@ let selection = $ref<ParticleFieldRef[]>([])
 /** The field the open context menu was raised on. */
 let contextRef = $ref<ParticleFieldRef | null>(null)
 
+/** The type header the open context menu was raised on, which the field items do not act on. */
+let contextType = $ref<ParticleTypeRef | null>(null)
+
 /** The field whose details dialog is showing, opened from the context menu. */
 let detailsField = $ref<ParticleFieldDetails | null>(null)
 
-const menuItems = $computed<ContextMenuItem[][]>(() => [
-  [
-    {
-      label: 'Show Details',
-      icon: icons.details,
-      disabled: contextRef == null,
-      onSelect: showDetails,
-    },
-    {
-      label: 'Create Chart',
-      icon: icons.chart,
-      disabled: selection.length === 0,
-      onSelect: createChart,
-    },
-    {
-      label: 'Create Meter',
-      icon: icons.meter,
-      disabled: selection.length === 0,
-      onSelect: createMeters,
-    },
-  ],
-])
+const menuItems = $computed<ContextMenuItem[][]>(() => {
+  if (contextType != null) {
+    return [
+      [
+        {
+          label: 'Create Particles View',
+          icon: icons.particles,
+          onSelect: () => emit('create', [particlesWidgetFor(contextType as ParticleTypeRef)]),
+        },
+      ],
+    ]
+  }
 
-// Every item here acts on a field, so a right click landing elsewhere in the tree is defaulted
-// and the menu's trigger leaves it alone.
+  return [
+    [
+      {
+        label: 'Show Details',
+        icon: icons.details,
+        disabled: contextRef == null,
+        onSelect: showDetails,
+      },
+      {
+        label: 'Create Chart',
+        icon: icons.chart,
+        disabled: selection.length === 0,
+        onSelect: createChart,
+      },
+      {
+        label: 'Create Meter',
+        icon: icons.meter,
+        disabled: selection.length === 0,
+        onSelect: createMeters,
+      },
+    ],
+  ]
+})
+
+// Every item here acts on a field or a type, so a right click landing elsewhere in the tree is
+// defaulted and the menu's trigger leaves it alone.
 function onTreeContext(event: MouseEvent) {
-  if ((event.target as HTMLElement).closest('[data-particle-field]') == null) {
+  const target = event.target as HTMLElement
+  if (
+    target.closest('[data-particle-field]') == null &&
+    target.closest('[data-particle-type]') == null
+  ) {
     event.preventDefault()
   }
+}
+
+/** A view of one type's records, narrowed to the component that declares it. */
+function particlesWidgetFor(ref: ParticleTypeRef): ParticlesWidget {
+  const widget = createWidget('particles') as ParticlesWidget
+  widget.name = toTitle(ref.type)
+  widget.query = [createCondition('address', ref.address), createCondition('type', ref.type)]
+  return widget
 }
 
 function showDetails() {
@@ -205,6 +241,20 @@ function dropMeters() {
   insertAt?.(meterWidgetsFor(pendingDrop.refs), pendingDrop.placement)
   pendingDrop = null
 }
+
+// A type stands for one view of its records, so the drop needs nothing asked of it.
+function onTypePress(ref: ParticleTypeRef) {
+  if (insertDrag == null || insertAt == null) {
+    return
+  }
+
+  const widget = particlesWidgetFor(ref)
+  insertDrag([widget], (placement) => {
+    if (placement != null) {
+      insertAt?.([widget], placement)
+    }
+  })
+}
 </script>
 
 <template>
@@ -219,8 +269,20 @@ function dropMeters() {
           item-actions
           selection-mode="highlight"
           @contextmenu="onTreeContext"
-          @item-context="(event, ref) => (contextRef = ref)"
+          @item-context="
+            (event, ref) => {
+              contextRef = ref
+              contextType = null
+            }
+          "
           @item-press="onItemPress"
+          @type-context="
+            (event, ref) => {
+              contextRef = null
+              contextType = ref
+            }
+          "
+          @type-press="(event, ref) => onTypePress(ref)"
         />
       </c-context-menu>
     </c-detail-section>

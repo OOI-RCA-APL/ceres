@@ -26,6 +26,7 @@ const icons = {
   confirm: 'i-mdi-check',
   confirmDialog: 'i-mdi-comment-question-outline',
   connection: 'i-mdi-connection',
+  controls: 'i-mdi-gesture-tap-button',
   copy: 'i-mdi-content-copy',
   cut: 'i-mdi-content-cut',
   darkMode: 'i-mdi-weather-night',
@@ -68,6 +69,7 @@ const icons = {
   menuLeft: 'i-mdi-menu-left',
   menuRight: 'i-mdi-menu-right',
   menuUp: 'i-mdi-menu-up',
+  messages: 'i-mdi-message-text-outline',
   meter: 'i-mdi-numeric',
   more: 'i-mdi-dots-horizontal',
   moreVertical: 'i-mdi-dots-vertical',
@@ -77,6 +79,7 @@ const icons = {
   // A page with its top band highlighted, matching the overview the toggle collapses.
   overview: 'i-mdi-page-layout-header',
   palette: 'i-mdi-palette',
+  particles: 'i-mdi-atom-variant',
   password: 'i-mdi-form-textbox-password',
   paste: 'i-mdi-content-paste',
   pause: 'i-mdi-pause',

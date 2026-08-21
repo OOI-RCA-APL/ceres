@@ -6,6 +6,7 @@ import { type Address, AddressModel } from '@/api/address'
 import { useAuth } from '@/api/auth'
 import { useClient, useQuery } from '@/api/client'
 import { MessageModel } from '@/api/messages'
+import type { ComponentAccessLevel } from '@/api/permissions'
 import { AnyResultModel, ConnectivityModel } from '@/api/shared'
 
 export type ProcedureType = z.infer<typeof ProcedureTypeModel>
@@ -66,6 +67,38 @@ export const ActionInfoModel = BaseProcedureInfoModel.extend({
 
 export type ProcedureInfo = z.infer<typeof ProcedureInfoModel>
 export const ProcedureInfoModel = z.discriminatedUnion('type', [QueryInfoModel, ActionInfoModel])
+
+const permissionRank: Record<Exclude<ProcedurePermissions, 'public'>, number> = {
+  view: 0,
+  operate: 1,
+  manage: 2,
+  deny: 3,
+}
+
+/** Whether `level` of access to a procedure's component is enough to invoke it. */
+export function canInvokeProcedure(
+  procedure: ProcedureInfo,
+  level: ComponentAccessLevel | null,
+): boolean {
+  if (procedure.permissions === 'public') {
+    return true
+  }
+
+  if (level == null) {
+    return false
+  }
+
+  return permissionRank[level] >= permissionRank[procedure.permissions]
+}
+
+/** The access a procedure asks for, as a sentence. */
+export function describeProcedurePermissions(procedure: ProcedureInfo): string {
+  if (procedure.permissions === 'public') {
+    return 'Public, requires no permissions.'
+  }
+
+  return `Requires "${procedure.permissions}" access permission.`
+}
 
 export type ConnectionStateInfo = z.infer<typeof ConnectionStateInfoModel>
 export const ConnectionStateInfoModel = z.object({
