@@ -11,6 +11,7 @@ const renderedData = $computed(() => highlight(JSON.stringify(particle.data), 'j
 
 <template>
   <c-record-view-record :record="particle">
+    <c-record-view-connection :address="particle.address" :name="particle.connection" />
     <c-record-view-cell class="w-0 min-w-13" name="type">
       <span class="font-mono text-[10px]">
         {{ particle.type }}

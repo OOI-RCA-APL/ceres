@@ -135,8 +135,16 @@ export const filterDefinitions: readonly FilterDefinition[] = [
     label: 'Connection',
     aliases: ['connection', 'port', 'via'],
     input: { type: 'text' },
-    kinds: ['messages'],
-    columns: { messages: 'connection' },
+    kinds: ['messages', 'particles'],
+    columns: { messages: 'connection', particles: 'connection' },
+  },
+  {
+    kind: 'connection_contains',
+    label: 'Connection Contains',
+    aliases: ['connection', 'contains'],
+    input: { type: 'text' },
+    kinds: ['messages', 'particles'],
+    columns: { messages: 'connection', particles: 'connection' },
   },
   {
     kind: 'direction',
