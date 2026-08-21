@@ -380,10 +380,10 @@ function addManualEntry() {
       <c-separator />
       <div class="overflow-y-auto py-1" :style="{ maxHeight: `${maxHeight}px` }">
         <div v-if="addressNodes.length === 0" class="px-2 py-1">
-          <c-text class="text-muted" variant="body2">No components in this scope.</c-text>
+          <c-text variant="description">No components in this scope.</c-text>
         </div>
         <div v-else-if="visibleNodes.length === 0" class="px-2 py-1">
-          <c-text class="text-muted" variant="body2">No matching fields.</c-text>
+          <c-text variant="description">No matching fields.</c-text>
         </div>
         <c-particle-series-selector-address
           v-for="node in visibleNodes"
@@ -411,11 +411,11 @@ function addManualEntry() {
 
     <template v-if="showSelected">
       <div class="mt-4 pb-1">
-        <c-text variant="title3">Series</c-text>
+        <c-text variant="title2">Series</c-text>
       </div>
       <div class="border-default rounded-md border pb-1">
         <div v-if="selectedGroups.length === 0" class="px-2 py-1">
-          <c-text class="text-muted" variant="body2">No particle series selected.</c-text>
+          <c-text variant="description">No particle series selected.</c-text>
         </div>
         <template v-for="group in selectedGroups" :key="group.address">
           <template

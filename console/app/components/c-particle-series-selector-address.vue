@@ -239,7 +239,7 @@ function onPointerDown(type: string, field: string, event: PointerEvent) {
   <define-type-list>
     <div>
       <div v-if="shownTypes.length === 0" class="px-2 py-1">
-        <c-text class="text-muted" variant="body2">
+        <c-text variant="description">
           {{ effectiveFilter === '' ? 'No declared particle types.' : 'No matching fields.' }}
         </c-text>
       </div>

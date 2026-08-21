@@ -420,8 +420,12 @@ const menuItems = $computed<MenuItem[][]>(() => {
       on a widget that is wearing no header. -->
       <c-modal v-if="settingsComponent != null" v-model:open="isShowingSettingsDialog">
         <template #content>
-          <div>
-            <component :is="settingsComponent as any" :widget="widget" />
+          <!-- Held to the viewport with the body scrolling inside it, so a long settings form
+          stays reachable and "Done" stays on screen rather than below the fold. -->
+          <div class="flex max-h-[85vh] flex-col">
+            <div class="min-h-0 flex-1 overflow-y-auto">
+              <component :is="settingsComponent as any" :widget="widget" />
+            </div>
             <c-separator />
             <c-button
               block
