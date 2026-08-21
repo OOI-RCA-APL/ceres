@@ -1,4 +1,6 @@
 <script lang="ts" setup>
+import type { DropdownMenuItem } from '@nuxt/ui'
+
 import { Address } from '@/api/address'
 import type { ParticleTypeInfo } from '@/api/components'
 import { useEngine } from '@/api/engine'
@@ -6,12 +8,17 @@ import { defaultSeriesColor } from '@/chart'
 import icons from '@/icons'
 import {
   addParticleSeries,
+  duplicateParticleGroup,
   fieldRefKey,
+  groupConnection,
   removeParticleSeries,
   toggleParticleField,
+  typeRefKey,
+  withGroupConnection,
 } from '@/particle-series'
-import type { ParticleFieldRef } from '@/particle-series'
+import type { ParticleFieldRef, ParticleTypeRef } from '@/particle-series'
 import { filterParticleTypes, useParticleTypesByAddress } from '@/particle-types'
+import { createRowSelection } from '@/row-selection'
 import { ChartWidgetSeriesModel, useWorkspace } from '@/workspace'
 import type { ChartWidgetParticle, ChartWidgetSeries, SelectMode } from '@/workspace'
 
@@ -54,6 +61,12 @@ const emit = defineEmits<{
 
   /** A plain press landed on a field row, which a host may turn into a drag. */
   itemPress: [event: PointerEvent, ref: ParticleFieldRef]
+
+  /** A right click landed on a type header row, with the selection it now acts on. */
+  typeContext: [event: MouseEvent, refs: ParticleTypeRef[]]
+
+  /** A plain press landed on a type header row, with the types a drag from it would carry. */
+  typePress: [event: PointerEvent, refs: ParticleTypeRef[]]
 }>()
 
 let modelValue = $(defineModel<ChartWidgetParticle[]>({ default: () => [] }))
@@ -85,6 +98,7 @@ let anchor = $ref<string | null>(null)
 function onSelect(address: string, type: string, field: string, mode: SelectMode) {
   const ref: ParticleFieldRef = { address, type, field }
   const key = fieldRefKey(ref)
+  typeRows.clear()
 
   if (single || mode === 'replace') {
     selected = [ref]
@@ -114,12 +128,62 @@ function onSelect(address: string, type: string, field: string, mode: SelectMode
 // A right click acts on the selection, so a row outside it becomes the selection first.
 function onContext(address: string, type: string, field: string, event: MouseEvent) {
   const ref: ParticleFieldRef = { address, type, field }
+  typeRows.clear()
   if (!selectedKeys.has(fieldRefKey(ref))) {
     selected = [ref]
     anchor = fieldRefKey(ref)
   }
 
   emit('itemContext', event, ref)
+}
+
+/** Every visible type in tree order, which is what a header range spans and the order a
+selection of them reads back in. */
+const typeOrder = $computed<ParticleTypeRef[]>(() =>
+  visibleNodes.flatMap((node) => {
+    const address = node.toString()
+    return (filteredByAddress.get(address) ?? []).map((type) => ({ address, type: type.type }))
+  }),
+)
+
+// Held here rather than in a model, since a host acts on the types an event hands it rather than
+// on a selection it has to keep.
+const typeRows = createRowSelection({ ids: () => typeOrder.map(typeRefKey) })
+
+const selectedTypeKeys = $computed(() => typeRows.selectedIds.value)
+
+/** Drop the type header selection, the fields being held by the caller's own model. */
+function clearTypeSelection() {
+  typeRows.clear()
+}
+
+defineExpose({ clearTypeSelection })
+
+function typesFor(keys: string[]): ParticleTypeRef[] {
+  const wanted = new Set(keys)
+  return typeOrder.filter((ref) => wanted.has(typeRefKey(ref)))
+}
+
+function onTypeSelect(address: string, type: string, mode: SelectMode) {
+  typeRows.select(typeRefKey({ address, type }), mode)
+
+  // The tree carries one selection, and the two act on different things, so picking a header
+  // puts the fields down.
+  if (selected.length > 0) {
+    selected = []
+  }
+}
+
+function onTypeContext(address: string, type: string, event: MouseEvent) {
+  typeRows.ensureSelected(typeRefKey({ address, type }))
+  emit('typeContext', event, typesFor(typeRows.selected()))
+}
+
+function onTypePress(address: string, type: string, event: PointerEvent) {
+  const keys = typeRows.pressTargets(typeRefKey({ address, type }), event)
+  if (keys != null) {
+    emit('typePress', event, typesFor(keys))
+  }
 }
 
 const engine = useEngine()
@@ -191,27 +255,120 @@ function toggleField(address: string, type: string, field: string, value: boolea
   modelValue = toggleParticleField(modelValue, address, type, field, value)
 }
 
-type SelectedTypeGroup = { type: string; series: ChartWidgetSeries[] }
+type SelectedTypeGroup = {
+  type: string
+  connection: string | null
+  /** Where the group sits in the model, for the actions that act on the whole group. */
+  index: number
+  series: ChartWidgetSeries[]
+  warning: string | null
+}
 type SelectedAddressGroup = { address: string; types: SelectedTypeGroup[] }
+
+/** Why a stored series names something the components do not declare, if it does.
+
+A driver rename leaves the series behind pointing at a type nothing produces, and the chart
+then draws an empty plot with nothing on screen saying why.
+*/
+function seriesWarning(address: string, type: string): string | null {
+  // Nothing is known before the component list lands, which is not the same as nothing existing.
+  if (engine.components.all.length === 0) {
+    return null
+  }
+
+  const declared = declaredByAddress.get(address)
+  if (declared == null) {
+    return `No component at ${address} in this scope.`
+  }
+
+  if (!declared.some((current) => current.type === type)) {
+    return `${address} declares no particle type "${type}".`
+  }
+
+  return null
+}
 
 // Grouped for display under the same address/type hierarchy the tree uses, merging any stored
 // entries that happen to share an address and type rather than assuming one entry per pair.
 const selectedGroups = $computed<SelectedAddressGroup[]>(() => {
-  const byAddress = new Map<string, Map<string, ChartWidgetSeries[]>>()
+  const byAddress = new Map<string, Map<string, SelectedTypeGroup>>()
 
-  for (const particle of modelValue) {
+  for (const [index, particle] of modelValue.entries()) {
     const address = particle.address?.toString() ?? '(no address)'
     const type = particle.type ?? '(no type)'
-    const byType = byAddress.get(address) ?? new Map<string, ChartWidgetSeries[]>()
-    byType.set(type, [...(byType.get(type) ?? []), ...particle.series])
+    const connection = groupConnection(particle)
+    const byType = byAddress.get(address) ?? new Map<string, SelectedTypeGroup>()
+
+    // Narrowing to a connection is what separates two groups of the same type, so it belongs
+    // in the key rather than merging them back into one row.
+    const key = `${type}|${connection ?? ''}`
+    const existing = byType.get(key)
+    byType.set(key, {
+      type,
+      connection,
+      index: existing?.index ?? index,
+      series: [...(existing?.series ?? []), ...particle.series],
+      warning: seriesWarning(address, type),
+    })
     byAddress.set(address, byType)
   }
 
   return [...byAddress.entries()].map(([address, byType]) => ({
     address,
-    types: [...byType.entries()].map(([type, series]) => ({ type, series })),
+    types: [...byType.values()],
   }))
 })
+
+/** The connections a group's type can narrow to.
+
+The type's declared connections are the ones its records carry, so they are the whole
+useful list. A type declaring none is unattributed and falls back to every connection the
+component has, which at least bounds the choice.
+*/
+function connectionsFor(group: SelectedTypeGroup, address: string): string[] {
+  const declared = declaredByAddress
+    .get(address)
+    ?.find((current) => current.type === group.type)?.connections
+  if (declared != null && declared.length > 0) {
+    return [...declared]
+  }
+
+  return (engine.components.get(address)?.connections ?? []).map((connection) => connection.name)
+}
+
+function connectionItems(group: SelectedTypeGroup, address: string): DropdownMenuItem[][] {
+  const every = {
+    label: 'Every Connection',
+    type: 'checkbox' as const,
+    checked: group.connection == null,
+    onSelect: () => (modelValue = withGroupConnection(modelValue, group.index, null)),
+  }
+
+  // A stored connection the list no longer carries still shows as itself.
+  const names = connectionsFor(group, address)
+  if (group.connection != null && !names.includes(group.connection)) {
+    names.push(group.connection)
+  }
+
+  const declared = names.map((connection) => ({
+    label: connection,
+    type: 'checkbox' as const,
+    checked: group.connection === connection,
+    onSelect: () => (modelValue = withGroupConnection(modelValue, group.index, connection)),
+  }))
+
+  return [[every], declared].filter((entries) => entries.length > 0)
+}
+
+function groupItems(group: SelectedTypeGroup): DropdownMenuItem[] {
+  return [
+    {
+      label: 'Duplicate Group',
+      icon: icons.duplicate,
+      onSelect: () => (modelValue = duplicateParticleGroup(modelValue, group.index)),
+    },
+  ]
+}
 
 // What the chart draws this series in. A widget stored before series carried a color has none to
 // show, and the swatch must still stand for the line it edits.
@@ -282,10 +439,10 @@ function addManualEntry() {
       <c-separator />
       <div class="overflow-y-auto py-1" :style="{ maxHeight: `${maxHeight}px` }">
         <div v-if="addressNodes.length === 0" class="px-2 py-1">
-          <c-text class="text-muted" variant="body2">No components in this scope.</c-text>
+          <c-text variant="description">No components in this scope.</c-text>
         </div>
         <div v-else-if="visibleNodes.length === 0" class="px-2 py-1">
-          <c-text class="text-muted" variant="body2">No matching fields.</c-text>
+          <c-text variant="description">No matching fields.</c-text>
         </div>
         <c-particle-series-selector-address
           v-for="node in visibleNodes"
@@ -298,6 +455,7 @@ function addManualEntry() {
           :item-actions="itemActions"
           :particles="modelValue"
           :selected-keys="selectedKeys"
+          :selected-type-keys="selectedTypeKeys"
           :selection-mode="selectionMode"
           :shown-types="filteredByAddress.get(node.toString()) ?? []"
           @context="(type, field, event) => onContext(node.toString(), type, field, event)"
@@ -307,26 +465,58 @@ function addManualEntry() {
           "
           @select="(type, field, mode) => onSelect(node.toString(), type, field, mode)"
           @toggle="(type, field, value) => toggleField(node.toString(), type, field, value)"
+          @type-context="(type, event) => onTypeContext(node.toString(), type, event)"
+          @type-press="(type, event) => onTypePress(node.toString(), type, event)"
+          @type-select="(type, mode) => onTypeSelect(node.toString(), type, mode)"
         />
       </div>
     </div>
 
     <template v-if="showSelected">
       <div class="mt-4 pb-1">
-        <c-text variant="th">Series</c-text>
+        <c-text variant="title2">Series</c-text>
       </div>
       <div class="border-default rounded-md border pb-1">
         <div v-if="selectedGroups.length === 0" class="px-2 py-1">
-          <c-text class="text-muted" variant="body2">No particle series selected.</c-text>
+          <c-text variant="description">No particle series selected.</c-text>
         </div>
         <template v-for="group in selectedGroups" :key="group.address">
-          <template v-for="typeGroup in group.types" :key="`${group.address}|${typeGroup.type}`">
+          <template
+            v-for="typeGroup in group.types"
+            :key="`${group.address}|${typeGroup.type}|${typeGroup.connection ?? ''}`"
+          >
             <!-- The established path notation, one line standing in for the address and type
             levels. -->
-            <div class="px-2 py-1">
+            <div class="flex items-center gap-1.5 px-2 py-1">
               <c-text variant="mono-sm">
                 {{ group.address }}::particles::{{ typeGroup.type }}
               </c-text>
+              <c-tooltip v-if="typeGroup.warning != null" :text="typeGroup.warning">
+                <c-icon class="text-warning shrink-0" :name="icons.warning" size="14" />
+              </c-tooltip>
+              <div class="grow" />
+              <!-- Narrowing to a connection is the rare case, so unset it is an icon and only a
+              chosen connection takes the room to name itself. -->
+              <c-dropdown-menu
+                :items="connectionItems(typeGroup, group.address)"
+                size="sm"
+                :ui="{ content: 'w-auto min-w-fit' }"
+              >
+                <c-tooltip :text="typeGroup.connection == null ? 'Every Connection' : 'Connection'">
+                  <c-button
+                    :color="typeGroup.connection == null ? 'neutral' : 'primary'"
+                    :icon="icons.connection"
+                    :label="typeGroup.connection ?? undefined"
+                    size="xs"
+                    :square="typeGroup.connection == null"
+                    :ui="{ label: 'font-mono text-[10px]' }"
+                    variant="ghost"
+                  />
+                </c-tooltip>
+              </c-dropdown-menu>
+              <c-dropdown-menu :items="groupItems(typeGroup)" size="sm">
+                <c-button color="neutral" :icon="icons.more" size="xs" square variant="ghost" />
+              </c-dropdown-menu>
             </div>
             <div
               v-for="series in typeGroup.series"
@@ -366,7 +556,7 @@ function addManualEntry() {
       <!-- Collapsed by default since manual entry is the fallback for undeclared fields. -->
       <div class="border-default mt-4 mb-4 rounded-md border">
         <button
-          class="hover:bg-elevated/50 flex w-full items-center gap-1 px-2 py-1 text-left"
+          class="hover:bg-elevated/50 flex w-full items-center gap-1 px-2 py-0.5 text-left"
           type="button"
           @click="isManualEntryOpen = !isManualEntryOpen"
         >
@@ -374,9 +564,9 @@ function addManualEntry() {
             class="text-muted shrink-0 transition-transform"
             :class="isManualEntryOpen && 'rotate-90'"
             :name="icons.chevronRight"
-            size="14"
+            size="12"
           />
-          <c-text variant="body2">Manual Entry</c-text>
+          <c-text variant="title3">Manual Entry</c-text>
         </button>
         <div v-if="isManualEntryOpen" class="flex flex-col gap-2 p-2 pt-3">
           <c-workspace-address-select v-model="manualAddress" />

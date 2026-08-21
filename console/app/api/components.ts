@@ -6,6 +6,7 @@ import { type Address, AddressModel } from '@/api/address'
 import { useAuth } from '@/api/auth'
 import { useClient, useQuery } from '@/api/client'
 import { MessageModel } from '@/api/messages'
+import type { ComponentAccessLevel } from '@/api/permissions'
 import { AnyResultModel, ConnectivityModel } from '@/api/shared'
 
 export type ProcedureType = z.infer<typeof ProcedureTypeModel>
@@ -67,10 +68,44 @@ export const ActionInfoModel = BaseProcedureInfoModel.extend({
 export type ProcedureInfo = z.infer<typeof ProcedureInfoModel>
 export const ProcedureInfoModel = z.discriminatedUnion('type', [QueryInfoModel, ActionInfoModel])
 
+const permissionRank: Record<Exclude<ProcedurePermissions, 'public'>, number> = {
+  view: 0,
+  operate: 1,
+  manage: 2,
+  deny: 3,
+}
+
+/** Whether `level` of access to a procedure's component is enough to invoke it. */
+export function canInvokeProcedure(
+  procedure: ProcedureInfo,
+  level: ComponentAccessLevel | null,
+): boolean {
+  if (procedure.permissions === 'public') {
+    return true
+  }
+
+  if (level == null) {
+    return false
+  }
+
+  return permissionRank[level] >= permissionRank[procedure.permissions]
+}
+
+/** The access a procedure asks for, as a sentence. */
+export function describeProcedurePermissions(procedure: ProcedureInfo): string {
+  if (procedure.permissions === 'public') {
+    return 'Public, requires no permissions.'
+  }
+
+  return `Requires "${procedure.permissions}" access permission.`
+}
+
 export type ConnectionStateInfo = z.infer<typeof ConnectionStateInfoModel>
 export const ConnectionStateInfoModel = z.object({
   name: z.string(),
-  label: z.string(),
+  label: z.string().nullish(),
+  description: z.string().nullish(),
+  uri: z.string(),
   connectivity: ConnectivityModel,
 })
 
@@ -85,7 +120,9 @@ export const JobInfoModel = z.object({
 export type ConnectionInfo = z.infer<typeof ConnectionInfoModel>
 export const ConnectionInfoModel = z.object({
   name: z.string(),
-  label: z.string(),
+  label: z.string().nullish(),
+  description: z.string().nullish(),
+  uri: z.string(),
 })
 
 export type ParticleFieldInfo = z.infer<typeof ParticleFieldInfoModel>
@@ -99,6 +136,9 @@ export const ParticleTypeInfoModel = z.object({
   type: z.string(),
   description: z.string().nullish(),
   fields: z.array(ParticleFieldInfoModel),
+  // The connections stamped on this type's stored records, empty when unattributed. A lower
+  // bound that narrows pickers, never a set to filter queries on.
+  connections: z.array(z.string()).default([]),
 })
 
 export type ComponentInfo = {
@@ -237,6 +277,11 @@ export const useComponents = defineStore('components', () => {
     return components
   }
 
+  function getConnection(address: Address | string, name: string): ConnectionInfo | null {
+    const component = get(address)
+    return component?.connections.find((current) => current.name === name) ?? null
+  }
+
   function getProcedure(address: Address, name: string): ProcedureInfo | null {
     const component = get(address)
     return component?.procedures.find((current) => current.name === name) ?? null
@@ -266,6 +311,7 @@ export const useComponents = defineStore('components', () => {
     all: computed(() => Object.values(mapping)),
     get,
     getDescendants,
+    getConnection,
     getProcedure,
     getQuery,
     getAction,

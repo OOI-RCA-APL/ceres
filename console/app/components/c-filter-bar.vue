@@ -9,7 +9,7 @@ import {
   getFilterDefinition,
   matchDefinitions,
 } from '@/filters/definitions'
-import type { FilterDefinition, RecordKind } from '@/filters/definitions'
+import type { FilterDefinition, FilterValueInput, RecordKind } from '@/filters/definitions'
 import { filterLiftKey } from '@/filters/lift'
 import {
   createBlock,
@@ -28,10 +28,16 @@ import icons from '@/icons'
 import { moved, usePointerReorder } from '@/reorder'
 import type { SelectMode } from '@/workspace'
 
-const { recordKind, addressOptions = [] } = defineProps<{
+const {
+  recordKind,
+  addressOptions = [],
+  connectionOptions = [],
+} = defineProps<{
   recordKind: RecordKind
   /** The choices an address condition offers, from the hosting view's scope. */
   addressOptions?: readonly string[]
+  /** The connection names the hosting view's scope declares, offered the same way. */
+  connectionOptions?: readonly string[]
 }>()
 
 let query = $(defineModel<FilterQuery>({ required: true }))
@@ -84,15 +90,141 @@ const groupingOperator = $computed<'and' | 'or' | null>(() => {
   return typed === 'and' || typed === 'or' ? typed : null
 })
 
-/** Where the free text entry sits, which is after every field it is offered beneath. */
+/** An address is written with or without its leading marker, so both are matched the same. */
+function withoutMarker(value: string): string {
+  return value.startsWith('@') ? value.slice(1) : value
+}
+
+/** How much must be typed before values are offered, since a single letter is in most of them
+and the fields would be buried under the matches. */
+const minimumValueSearch = 2
+
+/** The most values offered at once, so a common substring cannot fill the list. */
+const maximumValueSuggestions = 8
+
+type ValueSuggestion = { definition: FilterDefinition; value: string }
+
+/** How a value's type reads in the list. The input types naming how a value is picked rather
+than what it is show as the string they store. */
+function typeLabel(input: FilterValueInput): string {
+  return input.type === 'address' || input.type === 'connection' ? 'str' : input.type
+}
+
+/** The values a definition can be given outright, wherever the console knows them. */
+function valuesFor(definition: FilterDefinition): readonly string[] {
+  if (definition.input.type === 'enum') {
+    return definition.input.options
+  }
+  if (definition.input.type === 'address') {
+    return addressOptions
+  }
+
+  return definition.kind === 'connection' ? connectionOptions : []
+}
+
+/** What a definition answers to, its own label included. */
+function termsFor(definition: FilterDefinition): string[] {
+  return [definition.label.toLowerCase(), ...definition.aliases]
+}
+
+/** A condition written out in full, a field named at the head and its value in the rest.
+
+`connection contains contr` says the whole thing, so it is offered whole. The longest name
+matched wins, since `connection` opens both `Connection` and `Connection Contains` and only the
+words after it say which was meant.
+*/
+function qualifiedValues(): ValueSuggestion[] {
+  const typed = search.trim()
+  const lowered = typed.toLowerCase()
+
+  const matched: { definition: FilterDefinition; value: string; named: number }[] = []
+  for (const definition of definitionsFor(recordKind)) {
+    const term = termsFor(definition)
+      .filter((candidate) => lowered.startsWith(`${candidate} `))
+      .sort((first, second) => second.length - first.length)[0]
+    if (term == null) {
+      continue
+    }
+
+    const rest = typed.slice(term.length).trim()
+    if (rest === '') {
+      continue
+    }
+
+    const known = valuesFor(definition)
+    const wanted = withoutMarker(rest.toLowerCase())
+    const found = known.filter((value) => withoutMarker(value.toLowerCase()).includes(wanted))
+    for (const value of found) {
+      matched.push({ definition, value, named: term.length })
+    }
+
+    // Taken as typed where the value is free text, so a name the engine is not carrying right
+    // now still filters. An enum accepts only what it declares, so it is left alone.
+    if (found.length === 0 && definition.input.type !== 'enum') {
+      matched.push({ definition, value: rest, named: term.length })
+    }
+  }
+
+  return matched
+    .sort((first, second) => second.named - first.named)
+    .map(({ definition, value }) => ({ definition, value }))
+}
+
+/** The known values the typed text names outright, prefix matches first. */
+function knownValues(): ValueSuggestion[] {
+  const typed = withoutMarker(search.trim().toLowerCase())
+  if (typed.length < minimumValueSearch) {
+    return []
+  }
+
+  const matched: { definition: FilterDefinition; value: string; leads: boolean }[] = []
+  for (const definition of definitionsFor(recordKind)) {
+    for (const value of valuesFor(definition)) {
+      const candidate = withoutMarker(value.toLowerCase())
+      if (candidate.includes(typed)) {
+        matched.push({ definition, value, leads: candidate.startsWith(typed) })
+      }
+    }
+  }
+
+  return [
+    ...matched.filter((match) => match.leads),
+    ...matched.filter((match) => !match.leads),
+  ].map(({ definition, value }) => ({ definition, value }))
+}
+
+/** The conditions the typed words name, offered so saying one is not two steps.
+
+A field written out with its value comes first, that being the whole condition spelled out,
+and a bare value follows.
+*/
+const valueSuggestions = $computed<ValueSuggestion[]>(() => {
+  const key = (suggestion: ValueSuggestion) => `${suggestion.definition.kind}=${suggestion.value}`
+  const qualified = qualifiedValues()
+  const named = new Set(qualified.map(key))
+
+  return [...qualified, ...knownValues().filter((suggestion) => !named.has(key(suggestion)))].slice(
+    0,
+    maximumValueSuggestions,
+  )
+})
+
 const groupingCount = $computed(() => (groupingOperator == null ? 0 : 1))
-const freeTextIndex = $computed(() =>
-  freeTextDefinition == null ? -1 : groupingCount + suggestions.length,
-)
-const suggestionCount = $computed(
-  () => groupingCount + suggestions.length + (freeTextDefinition == null ? 0 : 1),
-)
+
+/** The text search leads, being the safe reading of any words at all, with the conditions they
+name underneath and the bare fields last. */
+const freeTextIndex = $computed(() => (freeTextDefinition == null ? -1 : groupingCount))
+const valuesOffset = $computed(() => groupingCount + (freeTextDefinition == null ? 0 : 1))
+const fieldsOffset = $computed(() => valuesOffset + valueSuggestions.length)
+const suggestionCount = $computed(() => fieldsOffset + suggestions.length)
 const isSuggesting = $computed(() => isInputFocused && suggestionCount > 0)
+
+/** The row Tab takes, which is the one under a leading text search.
+
+Typing a value the console knows leaves the text search on top, that being the safer reading of
+words nothing else matched. Tab takes the reading underneath it without moving off Enter.
+*/
+const tabRow = $computed(() => (freeTextIndex === 0 && suggestionCount > 1 ? 1 : -1))
 
 /** The group conditions are being added to, set by typing its operator and left behind on the
 first click away, so `Address and Level` builds one group rather than three loose chips. */
@@ -144,6 +276,34 @@ function acceptFreeText() {
   focusId = condition.id
 }
 
+// The condition arrives with its value already, so focus stays in the bar rather than moving
+// into a picker offering the choice that was just made.
+function acceptValue(suggestion: ValueSuggestion) {
+  append(createCondition(suggestion.definition.kind, suggestion.value))
+  search = ''
+  highlighted = 0
+}
+
+/** Take the row under a leading text search, leaving Tab to move focus when there is none. */
+function onTab(event: KeyboardEvent) {
+  if (tabRow < 0) {
+    return
+  }
+
+  const suggested = valueSuggestions[tabRow - valuesOffset]
+  const definition = suggestions[tabRow - fieldsOffset]
+  if (suggested == null && definition == null) {
+    return
+  }
+
+  event.preventDefault()
+  if (suggested != null) {
+    acceptValue(suggested)
+  } else if (definition != null) {
+    accept(definition)
+  }
+}
+
 function onEnter() {
   if (search.trim() === '') {
     return
@@ -161,11 +321,24 @@ function onEnter() {
     return
   }
 
-  const definition = suggestions[highlighted - groupingCount] ?? suggestions[0]
+  const suggested = valueSuggestions[highlighted - valuesOffset]
+  if (suggested != null) {
+    acceptValue(suggested)
+    return
+  }
+
+  const definition = suggestions[highlighted - fieldsOffset]
   if (definition != null) {
     accept(definition)
-  } else {
+    return
+  }
+
+  // Nothing sits on the highlighted row, so the text search, or the ranked field match where
+  // there is no text to search for.
+  if (freeTextDefinition != null) {
     acceptFreeText()
+  } else if (suggestions[0] != null) {
+    accept(suggestions[0])
   }
 }
 
@@ -545,6 +718,7 @@ provide(filterLiftKey, {
         @keydown.down.prevent="highlighted = Math.min(highlighted + 1, suggestionCount - 1)"
         @keydown.enter.prevent="onEnter()"
         @keydown.escape="search = ''"
+        @keydown.tab="onTab"
         @keydown.up.prevent="highlighted = Math.max(highlighted - 1, 0)"
       />
       <!-- Offered while typing, mousedown so the pick lands before the input's blur. -->
@@ -557,45 +731,75 @@ provide(filterLiftKey, {
       >
         <button
           v-if="groupingOperator != null"
-          class="flex w-full cursor-pointer items-baseline gap-2 px-2 py-0.5 text-left"
+          class="flex w-full cursor-pointer items-baseline gap-0 px-2 py-0.5 text-left"
           :class="highlighted === 0 && 'bg-accented/60'"
           type="button"
           @mousedown.prevent="acceptGrouping(groupingOperator)"
           @mousemove="highlighted = 0"
         >
-          <c-text element="span" variant="mono-sm">Group</c-text>
-          <c-text class="text-muted" element="span" variant="mono-xs">
-            : {{ groupingOperator }}
-          </c-text>
-        </button>
-        <button
-          v-for="(definition, index) in suggestions"
-          :key="definition.kind"
-          class="flex w-full cursor-pointer items-baseline gap-2 px-2 py-0.5 text-left"
-          :class="index + groupingCount === highlighted && 'bg-accented/60'"
-          type="button"
-          @mousedown.prevent="accept(definition)"
-          @mousemove="highlighted = index + groupingCount"
-        >
-          <c-text element="span" variant="mono-sm">{{ definition.label }}</c-text>
-          <c-text class="text-muted" element="span" variant="mono-xs">
-            : {{ definition.input.type }}
-          </c-text>
+          <c-text inline variant="mono-sm">Group</c-text>
+          <c-text class="text-muted" inline variant="mono-xs">: {{ groupingOperator }}</c-text>
         </button>
         <button
           v-if="freeTextDefinition != null"
-          class="flex w-full cursor-pointer items-baseline gap-2 px-2 py-0.5 text-left"
+          class="flex w-full cursor-pointer items-baseline gap-0 px-2 py-0.5 text-left"
           :class="freeTextIndex === highlighted && 'bg-accented/60'"
           type="button"
           @mousedown.prevent="acceptFreeText()"
-          @mousemove="highlighted = suggestionCount - 1"
+          @mousemove="highlighted = groupingCount + 0"
         >
-          <c-text element="span" variant="mono-sm">{{ freeTextDefinition.label }}</c-text>
+          <c-text inline variant="mono-sm">{{ freeTextDefinition.label }}</c-text>
           <!-- The text as typed, shown as the value it would be given, since this row differs from
           the ones above by carrying one already. -->
-          <c-text class="text-muted truncate" element="span" variant="mono-xs">
-            : str = "{{ search.trim() }}"
-          </c-text>
+          <c-text class="text-muted truncate" inline variant="mono-xs"
+            >: str = "{{ search.trim() }}"</c-text
+          >
+        </button>
+        <button
+          v-for="(suggestion, index) in valueSuggestions"
+          :key="`${suggestion.definition.kind}=${suggestion.value}`"
+          class="flex w-full cursor-pointer items-baseline gap-0 px-2 py-0.5 text-left"
+          :class="index + valuesOffset === highlighted && 'bg-accented/60'"
+          type="button"
+          @mousedown.prevent="acceptValue(suggestion)"
+          @mousemove="highlighted = index + valuesOffset"
+        >
+          <c-text inline variant="mono-sm">{{ suggestion.definition.label }}</c-text>
+          <c-text class="text-muted truncate" inline variant="mono-xs"
+            >: {{ typeLabel(suggestion.definition.input) }} = "{{ suggestion.value }}"</c-text
+          >
+          <!-- Says which row Tab lands on, that being the only way to reach it without leaving
+          the keys the typing is already on. -->
+          <div class="grow" />
+          <c-icon
+            v-if="index + valuesOffset === tabRow"
+            class="text-muted ml-2 shrink-0 self-center"
+            :name="icons.keyboardTab"
+            size="13"
+          />
+        </button>
+        <!-- Last, a field being an unfinished condition where everything above it is a whole
+        one. -->
+        <button
+          v-for="(definition, index) in suggestions"
+          :key="definition.kind"
+          class="flex w-full cursor-pointer items-baseline gap-0 px-2 py-0.5 text-left"
+          :class="index + fieldsOffset === highlighted && 'bg-accented/60'"
+          type="button"
+          @mousedown.prevent="accept(definition)"
+          @mousemove="highlighted = index + fieldsOffset"
+        >
+          <c-text inline variant="mono-sm">{{ definition.label }}</c-text>
+          <c-text class="text-muted" inline variant="mono-xs"
+            >: {{ typeLabel(definition.input) }}</c-text
+          >
+          <div class="grow" />
+          <c-icon
+            v-if="index + fieldsOffset === tabRow"
+            class="text-muted ml-2 shrink-0 self-center"
+            :name="icons.keyboardTab"
+            size="13"
+          />
         </button>
       </div>
     </div>

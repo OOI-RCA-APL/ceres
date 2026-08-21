@@ -404,6 +404,29 @@ class TestSieveConnectionBinding:
         assert bindings["parse-alpha"].connections is not None
         assert bindings["parse-beta"].connections is not None
 
+    def test_sieve_binding_accepts_connections_several_ways(self):
+        from ceres import Bound, Component, Connection, SplitByLine
+        from ceres.component import get_sieve_bindings
+
+        class Driver(Component):
+            alpha: Bound[Connection] | None = Connection.Field(None, splitter=SplitByLine())
+            beta: Bound[Connection] | None = Connection.Field(None, splitter=SplitByLine())
+
+            @sieve_decorator(alpha, beta)
+            async def parse_separately(self, message: Message) -> SimpleParticle | None:
+                return None
+
+            @sieve_decorator([alpha, beta])
+            async def parse_sequence(self, message: Message) -> SimpleParticle | None:
+                return None
+
+        bindings = get_sieve_bindings(Driver)
+        expected = ("alpha", "beta")
+        for name in ("parse-separately", "parse-sequence"):
+            connections = bindings[name].connections
+            assert connections is not None
+            assert tuple(field.name for field in connections) == expected
+
     async def test_sieve_filters_messages_by_connection(self):
         from ceres import Bound, Component, Connection, SplitByLine
         from ceres.event import MessageReceivedEvent
@@ -524,3 +547,35 @@ class TestSieveConnectionBinding:
 
         received_data = sorted(message.data for message in all_received if message.data != b"probe")
         assert received_data == [b"a1", b"b1"]
+
+
+class TestSieveConnectionAttribution:
+    """Particles record the connection they were parsed from, when one can be attributed."""
+
+    def _config(self, connection: str | list[str] | None):
+        from ceres.config import MethodSieveConfig
+        from ceres.message import MessageFilter
+
+        return MethodSieveConfig(
+            name="parse",
+            method="parse",
+            filter=MessageFilter(connection=connection) if connection is not None else None,
+        )
+
+    def test_a_sieve_bound_to_one_connection_attributes_its_particles(self):
+        from ceres.sieves import _sole_connection
+
+        assert _sole_connection(self._config("pressure-1")) == "pressure-1"
+        assert _sole_connection(self._config(["pressure-1"])) == "pressure-1"
+
+    def test_a_sieve_reading_several_connections_attributes_nothing(self):
+        from ceres.sieves import _sole_connection
+
+        # Which of the two produced a given particle is not answerable here, and a wrong
+        # attribution is worse than none.
+        assert _sole_connection(self._config(["pressure-1", "pressure-2"])) is None
+
+    def test_a_sieve_with_no_connection_filter_attributes_nothing(self):
+        from ceres.sieves import _sole_connection
+
+        assert _sole_connection(self._config(None)) is None

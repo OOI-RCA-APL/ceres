@@ -3,6 +3,8 @@ import { fileURLToPath } from 'node:url'
 
 import { defineNuxtConfig } from 'nuxt/config'
 
+import icons from './app/icons'
+
 /**
  * Read the project version, which is the one the engine shipping this console reports.
  *
@@ -21,6 +23,10 @@ function projectVersion(): string {
 
 export default defineNuxtConfig({
   compatibilityDate: '2026-08-14',
+  // The icon bundle below is built from `icons.ts` as this file is read, and a file the
+  // configuration imports is not watched for itself, so an icon added there would draw
+  // nothing until the dev server was restarted by hand.
+  watch: ['icons.ts'],
   // The release this console ships in. Nuxt compares it to tell a running console that a
   // newer one is being served, and the default is a fresh UUID that would make the
   // committed bundle differ on every build.
@@ -32,6 +38,23 @@ export default defineNuxtConfig({
   ui: {
     // Nuxt UI components register as C* (c-button, c-modal), the console's own prefix.
     prefix: 'C',
+  },
+  // Every icon is compiled into the bundle and none is ever fetched. The dev server answers for
+  // icons out of the installed collections, which a generated build has no server to do, so
+  // anything left out reaches the public Iconify API and a console on an isolated network
+  // draws nothing at all.
+  //
+  // Scanning alone finds only the handful written literally into a template. The rest are named
+  // through `icons.ts` and reached as `:name="icons.add"`, which no static scan can follow, so
+  // that whole set is declared here. Nuxt UI adds its own through the `icon:clientBundleIcons`
+  // hook.
+  icon: {
+    provider: 'none',
+    clientBundle: {
+      scan: true,
+      icons: Object.values(icons).map((name) => name.replace(/^i-([^-]+)-/, '$1:')),
+      sizeLimitKb: 1024,
+    },
   },
   vue: {
     // Allow safe destructured assignment of component props.

@@ -223,6 +223,7 @@ fn parse_particle(source: &Source<'_, '_>) -> PyResult<Particle> {
         id: parse_id(source)?,
         address: parse_address(source)?,
         timestamp: parse_timestamp(source)?,
+        connection: source.get("connection")?.extract()?,
         kind: source.get("type")?.extract()?,
         data: parse_data(source)?,
         span: source.span()?,

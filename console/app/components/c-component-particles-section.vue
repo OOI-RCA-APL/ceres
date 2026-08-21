@@ -3,15 +3,23 @@ import type { ContextMenuItem } from '@nuxt/ui'
 
 import { type Address, AddressSelector } from '@/api/address'
 import type { ParticleFieldDetails } from '@/components/c-particle-field-details-dialog.vue'
+import { scopedQuery } from '@/filters/model'
 import icons from '@/icons'
-import { fieldRefKey, type ParticleFieldRef, toggleParticleField } from '@/particle-series'
+import {
+  fieldRefKey,
+  type ParticleFieldRef,
+  type ParticleTypeRef,
+  toggleParticleField,
+} from '@/particle-series'
 import { useParticleTypes } from '@/particle-types'
+import { clearOnOutsidePress } from '@/row-selection'
 import { toTitle } from '@/utilities'
 import {
   type ChartWidget,
   type ChartWidgetParticle,
   createWidget,
   type MeterWidget,
+  type ParticlesWidget,
   type Widget,
   type WidgetPlacement,
 } from '@/workspace'
@@ -48,34 +56,115 @@ const types = $(useParticleTypes(() => address.toString()).types)
 
 let selection = $ref<ParticleFieldRef[]>([])
 
+let section = $ref<HTMLElement | null>(null)
+let selector = $ref<{ clearTypeSelection: () => void } | null>(null)
+
+clearOnOutsidePress(
+  () => section,
+  () => {
+    selection = []
+    selector?.clearTypeSelection()
+  },
+)
+
 /** The field the open context menu was raised on. */
 let contextRef = $ref<ParticleFieldRef | null>(null)
+
+/** The selected type headers the open context menu acts on, which the field items do not
+touch. Empty whenever the menu was raised on a field. */
+let contextTypes = $ref<ParticleTypeRef[]>([])
 
 /** The field whose details dialog is showing, opened from the context menu. */
 let detailsField = $ref<ParticleFieldDetails | null>(null)
 
-const menuItems = $computed<ContextMenuItem[][]>(() => [
-  [
-    {
-      label: 'Show Details',
-      icon: icons.details,
-      disabled: contextRef == null,
-      onSelect: showDetails,
-    },
-    {
-      label: 'Create Chart',
-      icon: icons.chart,
-      disabled: selection.length === 0,
-      onSelect: createChart,
-    },
-    {
-      label: 'Create Meter',
-      icon: icons.meter,
-      disabled: selection.length === 0,
-      onSelect: createMeters,
-    },
-  ],
-])
+const menuItems = $computed<ContextMenuItem[][]>(() => {
+  if (contextTypes.length > 0) {
+    const chosen = contextTypes
+    return [
+      [
+        {
+          label: 'Create Particles View',
+          icon: icons.particles,
+          onSelect: () => emit('create', particlesViewsFor(chosen, 'combined')),
+        },
+        ...(chosen.length > 1
+          ? [
+              {
+                label: 'Create Separate Particles Views',
+                icon: icons.particles,
+                onSelect: () => emit('create', particlesViewsFor(chosen, 'separate')),
+              },
+            ]
+          : []),
+      ],
+    ]
+  }
+
+  return [
+    [
+      {
+        label: 'Show Details',
+        icon: icons.details,
+        disabled: contextRef == null,
+        onSelect: showDetails,
+      },
+      {
+        label: 'Create Chart',
+        icon: icons.chart,
+        disabled: selection.length === 0,
+        onSelect: createChart,
+      },
+      {
+        label: 'Create Meter',
+        icon: icons.meter,
+        disabled: selection.length === 0,
+        onSelect: createMeters,
+      },
+    ],
+  ]
+})
+
+// Every item here acts on a field or a type, so a right click landing elsewhere in the tree is
+// defaulted and the menu's trigger leaves it alone.
+function onTreeContext(event: MouseEvent) {
+  const target = event.target as HTMLElement
+  if (
+    target.closest('[data-particle-field]') == null &&
+    target.closest('[data-particle-type]') == null
+  ) {
+    event.preventDefault()
+  }
+}
+
+/** A view of one component's records, narrowed to the given types.
+
+A view of one type is named after it, since that name is the whole of what it shows. Several
+types keep the default, no one of them standing for the rest.
+*/
+function particlesWidget(address: string, types: string[]): ParticlesWidget {
+  const widget = createWidget('particles') as ParticlesWidget
+  if (types.length === 1) {
+    widget.name = toTitle(types[0] as string)
+  }
+
+  widget.query = scopedQuery(address, 'type', types)
+  return widget
+}
+
+/** The views the given types become, one per component that declares any of them, or one per
+type where they are wanted apart. */
+function particlesViewsFor(refs: ParticleTypeRef[], form: 'combined' | 'separate'): Widget[] {
+  if (form === 'separate') {
+    return refs.map((ref) => particlesWidget(ref.address, [ref.type]))
+  }
+
+  const byAddress = new Map<string, string[]>()
+  for (const ref of refs) {
+    byAddress.set(ref.address, [...(byAddress.get(ref.address) ?? []), ref.type])
+  }
+
+  return [...byAddress].map(([address, types]) => particlesWidget(address, types))
+}
 
 function showDetails() {
   if (contextRef == null) {
@@ -92,7 +181,11 @@ function showDetails() {
   detailsField = { address: contextRef.address, type: contextRef.type, field }
 }
 
-/** One chart plotting every given field, grouped the same way the selectors' toggles group. */
+/** One chart plotting every given field, grouped the same way the selectors' toggles group.
+
+A chart of one field is named after it, since that name is the whole of what it plots. Several
+fields keep the default, no one of them standing for the rest.
+*/
 function chartWidgetFor(refs: ParticleFieldRef[]): ChartWidget | null {
   if (refs.length === 0) {
     return null
@@ -104,6 +197,9 @@ function chartWidgetFor(refs: ParticleFieldRef[]): ChartWidget | null {
       toggleParticleField(particles, address.toString(), ref.type, ref.field, true),
     [],
   )
+  if (refs.length === 1) {
+    widget.name = toTitle(refs[0]!.field)
+  }
 
   return widget
 }
@@ -151,10 +247,6 @@ function onItemPress(event: PointerEvent, ref: ParticleFieldRef) {
     return
   }
 
-  // Named after what is in hand rather than the kind, since what the drop creates is only chosen
-  // on release.
-  widget.name = refs.length === 1 ? toTitle(refs[0]!.field) : `${refs.length} Fields`
-
   insertDrag([widget], (placement) => {
     if (placement != null) {
       pendingDrop = { placement, refs }
@@ -181,15 +273,7 @@ function dropSeparateCharts() {
     return
   }
 
-  const widgets = pendingDrop.refs.flatMap((ref) => {
-    const widget = chartWidgetFor([ref])
-    if (widget == null) {
-      return []
-    }
-
-    widget.name = toTitle(ref.field)
-    return [widget]
-  })
+  const widgets = pendingDrop.refs.flatMap((ref) => chartWidgetFor([ref]) ?? [])
   insertAt?.(widgets, pendingDrop.placement)
   pendingDrop = null
 }
@@ -202,21 +286,68 @@ function dropMeters() {
   insertAt?.(meterWidgetsFor(pendingDrop.refs), pendingDrop.placement)
   pendingDrop = null
 }
+
+// One type reads only one way, so its drop lands without asking. Several can be one view of
+// them all or a view each, which is the same question the dragged fields answer.
+function onTypePress(refs: ParticleTypeRef[]) {
+  if (insertDrag == null || insertAt == null || refs.length === 0) {
+    return
+  }
+
+  insertDrag(particlesViewsFor(refs, 'combined'), (placement) => {
+    if (placement == null) {
+      return
+    }
+
+    if (refs.length === 1) {
+      insertAt?.(particlesViewsFor(refs, 'combined'), placement)
+      return
+    }
+
+    pendingTypeDrop = { placement, refs }
+  })
+}
+
+/** A drop waiting on the one-view-or-several prompt, with the types that were dragged. */
+let pendingTypeDrop = $ref<{ placement: WidgetPlacement; refs: ParticleTypeRef[] } | null>(null)
+
+function dropTypeViews(form: 'combined' | 'separate') {
+  if (pendingTypeDrop == null) {
+    return
+  }
+
+  insertAt?.(particlesViewsFor(pendingTypeDrop.refs, form), pendingTypeDrop.placement)
+  pendingTypeDrop = null
+}
 </script>
 
 <template>
-  <div v-if="types.length > 0" class="border-default rounded-md border">
+  <div v-if="types.length > 0" ref="section" class="border-default rounded-md border">
     <c-detail-section v-model:expanded="expanded" :title="`Particles (${types.length})`">
       <c-context-menu :items="menuItems">
         <c-particle-series-selector
+          ref="selector"
           v-model:expanded-types="expandedTypes"
           v-model:selected="selection"
           :address="address.toString()"
           frameless
           item-actions
           selection-mode="highlight"
-          @item-context="(event, ref) => (contextRef = ref)"
+          @contextmenu="onTreeContext"
+          @item-context="
+            (event, ref) => {
+              contextRef = ref
+              contextTypes = []
+            }
+          "
           @item-press="onItemPress"
+          @type-context="
+            (event, refs) => {
+              contextRef = null
+              contextTypes = refs
+            }
+          "
+          @type-press="(event, refs) => onTypePress(refs)"
         />
       </c-context-menu>
     </c-detail-section>
@@ -257,6 +388,35 @@ function dropMeters() {
             :ui="{ label: 'grow text-left' }"
             variant="ghost"
             @click="dropMeters"
+          />
+        </div>
+      </template>
+    </c-modal>
+    <!-- Several dragged types are one view of them all or a view each. -->
+    <c-modal
+      :open="pendingTypeDrop != null"
+      title="Add Widgets"
+      @update:open="(value: boolean) => !value && (pendingTypeDrop = null)"
+    >
+      <template #body>
+        <div class="flex min-w-56 flex-col gap-1">
+          <c-button
+            block
+            color="neutral"
+            :icon="icons.particles"
+            label="Create Particles View"
+            :ui="{ label: 'grow text-left' }"
+            variant="ghost"
+            @click="dropTypeViews('combined')"
+          />
+          <c-button
+            block
+            color="neutral"
+            :icon="icons.particles"
+            label="Create Separate Particles Views"
+            :ui="{ label: 'grow text-left' }"
+            variant="ghost"
+            @click="dropTypeViews('separate')"
           />
         </div>
       </template>

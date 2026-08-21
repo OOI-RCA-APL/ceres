@@ -10,7 +10,7 @@ import { isWorkspaceFile, useFileDrop } from '@/filedrop'
 import icons from '@/icons'
 import { useModifiers } from '@/modifiers'
 import { moved, usePointerReorder } from '@/reorder'
-import { isStructurallyEqual } from '@/utilities'
+import { isStructurallyEqual, keepFocusWhile } from '@/utilities'
 import {
   comparableWorkspaceData,
   isWorkspaceWritable,
@@ -265,6 +265,8 @@ function hasWorkingCopy(workspace: Workspace): boolean {
 // Which tab is having its name edited in place, if any.
 let editingId = $ref<string | null>(null)
 
+const menuContent = keepFocusWhile(() => editingId != null)
+
 // Renaming a workspace changes it for everybody who can see it so it takes the same write access
 // deleting does rather than being offered to anyone who can merely look at it.
 function openRename(workspace: Workspace) {
@@ -414,11 +416,11 @@ grows and the tabs pass beneath it. -->
       ref="scrollerElement"
       class="flex min-w-0 flex-nowrap items-stretch pl-2"
       :class="strip.scroller"
-      style="--tab-grip-width: 32px"
     >
       <c-context-menu
         v-for="(workspace, index) in workspaces"
         :key="workspace.id"
+        :content="menuContent"
         :items="menuItems(workspace)"
       >
         <div
@@ -441,10 +443,13 @@ grows and the tabs pass beneath it. -->
           @keydown="onTabKeydown($event, index)"
         >
           <div class="relative flex h-full flex-nowrap items-center pl-[19px] pr-5">
-            <!-- The tab's leading edge carries the grab cursor, which is all a tab needs to say it
-            can be dragged since a strip of tabs already reads as one. The whole tab is the drag
-            target so this is a hint rather than a handle. -->
-            <span :class="strip.grip" />
+            <c-tooltip
+              v-if="hasWorkingCopy(workspace)"
+              :delay-duration="0"
+              text="This workspace has unsaved changes."
+            >
+              <span :class="strip.edited" />
+            </c-tooltip>
             <c-workspace-tab-label
               :claim="editingId === workspace.id"
               :editing="isNaming(workspace)"
@@ -454,31 +459,18 @@ grows and the tabs pass beneath it. -->
               @rename="(value: string) => rename(workspace, value)"
               @update:editing="(value: boolean) => (editingId = value ? workspace.id : null)"
             />
-            <c-dropdown-menu :items="menuItems(workspace)">
-              <c-tooltip
-                :disabled="!hasWorkingCopy(workspace)"
-                text="This workspace has unsaved changes."
+            <c-dropdown-menu :content="menuContent" :items="menuItems(workspace)">
+              <button
+                class="mx-1.5 rounded-full"
+                :class="[strip.menu, workspace.id === active && strip.menuShown]"
+                type="button"
+                @click.stop
+                @mousedown.stop
+                @pointerdown.stop
+                @touchstart.stop
               >
-                <button
-                  class="mr-2 ml-1 flex items-center rounded-full opacity-60 hover:opacity-100"
-                  type="button"
-                  @click.stop
-                  @mousedown.stop
-                  @pointerdown.stop
-                  @touchstart.stop
-                >
-                  <!-- A workspace with local changes rings its menu dots. An outline takes no
-                  space, so a tab stays exactly as wide edited as it is clean. -->
-                  <c-icon
-                    :class="
-                      hasWorkingCopy(workspace) &&
-                      'rounded-full outline-1 outline-offset-0 outline-dotted'
-                    "
-                    :name="icons.more"
-                    size="13"
-                  />
-                </button>
-              </c-tooltip>
+                <c-icon :name="icons.more" size="13" />
+              </button>
             </c-dropdown-menu>
             <c-tooltip :delay-duration="500" text="Close Workspace">
               <button

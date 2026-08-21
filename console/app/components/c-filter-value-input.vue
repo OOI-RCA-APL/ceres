@@ -38,6 +38,8 @@ const schema = $computed<SchemaObject>(() => {
       return { type: 'string', format: 'address', optional: true, examples: [...addressOptions] }
     case 'enum':
       return { type: 'string', enum: [...input.options], optional: true }
+    case 'connection':
+      return { type: 'string', format: 'connection', optional: true }
     case 'integer':
       return {
         type: 'integer',

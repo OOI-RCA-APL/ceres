@@ -27,9 +27,9 @@ let op = $ref<'and' | 'or'>('or')
     <template #body>
       <c-text class="mb-4 block" variant="body2">
         Join
-        <c-text element="span" variant="mono-xs">{{ labels[0] }}</c-text>
+        <c-text inline variant="mono-xs">{{ labels[0] }}</c-text>
         and
-        <c-text element="span" variant="mono-xs">{{ labels[1] }}</c-text>
+        <c-text inline variant="mono-xs">{{ labels[1] }}</c-text>
         into one group.
       </c-text>
       <c-radio-group

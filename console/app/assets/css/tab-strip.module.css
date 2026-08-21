@@ -42,18 +42,6 @@ carries the strip along instead. */
   color: #fff;
 }
 
-/* The leading edge of the tab, which is what says it can be dragged. A strip whose tabs carry a
-leading icon widens it with `--tab-grip-width` so the grip reaches past the icon. */
-.grip {
-  position: absolute;
-  z-index: 1;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: var(--tab-grip-width, 14px);
-  cursor: grab;
-}
-
 /* The close button holds its place whether or not it is showing, so a tab is exactly as wide
 hovered as it is at rest and the strip does not shuffle under the pointer. */
 .close {
@@ -77,6 +65,60 @@ as the thing the tab is for. */
 
 .close:hover {
   opacity: 1;
+}
+
+/* The menu button follows the close button, holding its place while hidden so the strip does not
+shuffle under the pointer. */
+.menu {
+  display: flex;
+  align-items: center;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+/* Held at rest on the selected tab, alongside its close button. */
+.tab:hover .menu,
+.menuShown {
+  opacity: 0.6;
+}
+
+/* Written against the tab's hover as well, that selector being the more specific one and
+otherwise dimming the button the moment the tab is reached. */
+.tab:hover .menu:hover,
+.menu:hover {
+  opacity: 1;
+}
+
+/* Unsaved changes, marked in the tab's corner. Positioned rather than laid out, so a tab is
+exactly as wide edited as it is clean. The element is the hover target and the mark is drawn
+inside it, a dot this small being hard to catch with a pointer, and its events reach the tab
+underneath by bubbling. */
+.edited {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 16px;
+  height: 16px;
+  opacity: 0.35;
+  transition: opacity 0.15s;
+  /* Not a control, despite sitting on a tab that is one. */
+  cursor: default;
+}
+
+/* Full strength once the pointer is on it, which is also when the tooltip names what it means. */
+.edited:hover {
+  opacity: 1;
+}
+
+.edited::before {
+  content: '';
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background-color: currentColor;
 }
 
 /* While a drag is in progress the strip must not clip the lifted tab, and hover highlighting on

@@ -369,7 +369,7 @@ impl RecordTable {
                 "direction",
                 "data",
             ],
-            Self::Particles => &["id", "address", "timestamp", "type", "data"],
+            Self::Particles => &["id", "address", "timestamp", "connection", "type", "data"],
             Self::Alerts => &["id", "address", "timestamp", "level", "type", "data"],
             Self::Logs => &["id", "address", "timestamp", "level", "content"],
         }
@@ -419,6 +419,7 @@ impl RowValues for Particle {
             id_value(self.id, dialect),
             self.address.as_str().into(),
             timestamp_value(&self.timestamp, dialect),
+            self.connection.clone().into(),
             self.kind.clone().into(),
             json_value(&self.data, dialect),
         ]

@@ -52,7 +52,9 @@ const selected = $computed<ParticleFieldRef[]>({
 
 <template>
   <c-workspace-widget-settings :widget>
-    <div class="border-default mb-4 rounded-md border p-2">
+    <!-- A fixed height, since a meter with no field reads out the whole record and the payload
+    resizes with every one that arrives, moving the fields below it out from under the pointer. -->
+    <div class="border-default mb-4 h-24 overflow-hidden rounded-md border p-2">
       <c-workspace-widget-meter :widget="widget" />
     </div>
     <div>
@@ -77,7 +79,7 @@ const selected = $computed<ParticleFieldRef[]>({
             :name="icons.chevronRight"
             size="14"
           />
-          <c-text variant="body2">Manual Entry</c-text>
+          <c-text variant="title3">Manual Entry</c-text>
         </button>
         <div v-if="isManualEntryOpen" class="flex flex-col gap-2 p-2">
           <c-workspace-address-select
@@ -98,6 +100,14 @@ const selected = $computed<ParticleFieldRef[]>({
             :model-value="widget.particleField ?? null"
             :particle-type="widget.particleType ?? null"
             @update:model-value="(value) => (widget.particleField = value)"
+          />
+          <!-- A type two connections both produce otherwise reads whichever record landed last,
+          which is two instruments taking turns in one number. -->
+          <c-particle-connection-select
+            :address="resolvedParticleAddress"
+            :model-value="widget.particleConnection ?? null"
+            :particle-type="widget.particleType ?? null"
+            @update:model-value="(value) => (widget.particleConnection = value)"
           />
         </div>
       </div>
@@ -133,6 +143,16 @@ const selected = $computed<ParticleFieldRef[]>({
             type: 'string',
             title: 'Suffix',
             optional: true,
+          }"
+        />
+        <c-schema-form-value
+          v-model="widget.decimals"
+          :schema="{
+            type: 'integer',
+            title: 'Decimals',
+            minimum: 0,
+            maximum: 10,
+            default: 2,
           }"
         />
       </div>

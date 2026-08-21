@@ -94,7 +94,7 @@ const takesArguments = $computed(() => !isEmptyObjectSchema(form.getSchema([])))
       />
       <c-schema-form-value
         v-model="button.color"
-        :schema="{ type: 'string', title: 'Color', enum: ColorModel.options, optional: true }"
+        :schema="{ type: 'string', title: 'Color', enum: ColorModel.options }"
       />
       <c-schema-form-value
         v-model="button.styling"

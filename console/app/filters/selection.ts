@@ -8,8 +8,8 @@ import {
   withoutItems,
 } from '@/filters/model'
 import type { FilterItem, FilterQuery } from '@/filters/model'
+import { createRowSelection } from '@/row-selection'
 import { deepClone } from '@/utilities'
-import type { SelectMode } from '@/workspace'
 
 /** The copied items, shared across every bar so a group pastes into another widget.
 
@@ -30,63 +30,13 @@ export function createFilterSelection(options: {
   recordKind: () => RecordKind
   onUpdate: (query: FilterQuery) => void
 }) {
-  let selectedIds = $ref<ReadonlySet<string>>(new Set())
-  let anchor = $ref<string | null>(null)
-
   // Read fresh on every use. The host's query is not always reactive, a computed here
   // would cache the first read.
   const query = () => options.query()
 
-  function isSelected(id: string): boolean {
-    return selectedIds.has(id)
-  }
-
-  function clear() {
-    selectedIds = new Set()
-    anchor = null
-  }
-
-  function select(id: string, mode: SelectMode = 'replace') {
-    if (mode === 'replace') {
-      selectedIds = new Set([id])
-      anchor = id
-      return
-    }
-
-    if (mode === 'toggle') {
-      const next = new Set(selectedIds)
-      if (next.has(id)) {
-        next.delete(id)
-      } else {
-        next.add(id)
-      }
-
-      selectedIds = next
-      anchor = id
-      return
-    }
-
-    // An extend spans the root list between the anchor and the target, falling back to a
-    // plain select when the anchor is gone.
-    const from = query().findIndex((item) => item.id === anchor)
-    const to = query().findIndex((item) => item.id === id)
-    if (from === -1 || to === -1) {
-      selectedIds = new Set([id])
-      anchor = id
-      return
-    }
-
-    const range = query().slice(Math.min(from, to), Math.max(from, to) + 1)
-    selectedIds = new Set(range.map((item) => item.id))
-  }
-
-  /** Make `id` part of the selection without disturbing one it already belongs to, the way
-  a context menu targets what is under it. */
-  function ensureSelected(id: string) {
-    if (!selectedIds.has(id)) {
-      select(id)
-    }
-  }
+  const rows = createRowSelection({ ids: () => query().map((item) => item.id) })
+  const { isSelected, select, ensureSelected, clear } = rows
+  const selectedIds = $computed(() => rows.selectedIds.value)
 
   function selectedItems(): FilterItem[] {
     return query().filter((item) => selectedIds.has(item.id))
@@ -129,8 +79,7 @@ export function createFilterSelection(options: {
 
     const pasted = withFreshIds(clipboard.items)
     options.onUpdate(withInserted(query(), pasted, index ?? pasteIndex()))
-    selectedIds = new Set(pasted.map((item) => item.id))
-    anchor = pasted[0]?.id ?? null
+    rows.replace(pasted.map((item) => item.id))
   }
 
   function canPaste(): boolean {

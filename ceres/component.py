@@ -49,7 +49,7 @@ from ceres.__internal__.protocols import ComponentSource
 from ceres.__internal__.utilities.algorithms import traverse
 from ceres.__internal__.utilities.caching import cached
 from ceres.__internal__.utilities.classes import cached_class_property
-from ceres.__internal__.utilities.collections import OrderedWeakSet, seq
+from ceres.__internal__.utilities.collections import OrderedWeakSet, flatten, seq
 from ceres.__internal__.utilities.functions import get_function_name, get_inner_function
 from ceres.__internal__.utilities.randomize import randstr
 from ceres.__internal__.utilities.text import reprify
@@ -1273,10 +1273,8 @@ def sieve[S, T: Particle](method: SieveMethod[S, T], /) -> SieveMethod[S, T]: ..
 
 @overload
 def sieve[S, T: Particle](
-    connection: MaybeSequence[ConnectionField] | None = None,
-    /,
+    *connections: MaybeSequence[ConnectionField] | None,
     direction: MaybeSequence[MessageDirectionInput] | None = "receive",
-    *,
     name: Name | None = None,
     stored: bool = True,
     retries: NonNegativeInt | None = None,
@@ -1290,10 +1288,8 @@ def sieve[S, T: Particle](
 
 
 def sieve[S, T: Particle](
-    first: SieveMethod[S, T] | MaybeSequence[ConnectionField] | None = None,
-    /,
+    *given: SieveMethod[S, T] | MaybeSequence[ConnectionField] | None,
     direction: MaybeSequence[MessageDirectionInput] | None = "receive",
-    *,
     name: Name | None = None,
     stored: bool = True,
     retries: NonNegativeInt | None = None,
@@ -1310,9 +1306,8 @@ def sieve[S, T: Particle](
     iterable of messages (yielding particles), or a `Buffer` (yielding particles).
 
     Args:
-        first: When used as `@sieve` without arguments, this is the decorated method itself.
-            When used as `@sieve(connection)`, this is a connection or sequence of connections
-            to bind the sieve to.
+        *given: Connections to bind the sieve to, each a connection or a sequence of them. When
+            used as `@sieve` without arguments, this is the decorated method itself.
         direction: Message direction(s) to accept. Defaults to receive-only.
         name: Optional override for the sieve name, defaults to the method name.
         stored: Whether produced particles should be persisted to the database.
@@ -1328,17 +1323,16 @@ def sieve[S, T: Particle](
         Either the decorated method (when used without arguments) or a decorator returning the
         decorated method.
     """
-    # The first positional may be either the decorated method or the bound connection(s),
-    # disambiguate before we build the binding.
-    if first is None:
-        method = None
-        connections = None
-    elif inspect.isfunction(first) or inspect.ismethod(first):
-        method = first
+    # A bare `@sieve` passes the decorated method here, so disambiguate before we build the
+    # binding.
+    first = given[0] if len(given) == 1 else None
+    if first is not None and (inspect.isfunction(first) or inspect.ismethod(first)):
+        method = cast("SieveMethod[S, T]", first)
         connections = None
     else:
         method = None
-        connections = tuple(cast("Sequence[ConnectionField]", seq(first)))
+        fields = tuple(flatten(cast("Sequence[ConnectionField]", given)))
+        connections = tuple(field for field in fields if field is not None) or None
 
     from ceres.message import Message
 
@@ -1478,6 +1472,13 @@ class ComponentSystem(Node, ComponentSource):
             if isinstance(instance, Connection):
                 if instance.name is None:
                     instance.name = connection.name
+
+                # A connection with no description of its own borrows the field's, which
+                # pydantic already resolved from the docstring.
+                if instance.description is None:
+                    field = type(self.component).__pydantic_fields__.get(connection.field)
+                    if field is not None:
+                        instance.description = field.description
 
                 connections[instance.name] = instance
 
@@ -2228,6 +2229,8 @@ class ComponentSystem(Node, ComponentSource):
             ConnectionStatus(
                 name=connection.name,
                 label=connection.label,
+                description=connection.description,
+                uri=connection.uri,
                 connectivity=connection.connectivity,
             )
             for connection in self.connections.all()

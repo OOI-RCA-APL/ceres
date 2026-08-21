@@ -19,11 +19,7 @@ const directionColor = $computed(() => {
 
 <template>
   <c-record-view-record :record="message">
-    <c-record-view-cell class="w-0 min-w-20" name="connection">
-      <span class="font-mono text-[10px] whitespace-nowrap">
-        {{ message.connection ?? '' }}
-      </span>
-    </c-record-view-cell>
+    <c-record-view-connection :address="message.address" :name="message.connection" />
     <c-record-view-cell class="w-0 min-w-17" name="direction">
       <div class="justify-center">
         <c-badge

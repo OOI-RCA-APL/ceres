@@ -165,6 +165,19 @@ export function roundTo(number: number, increment: number, offset: number = 0) {
   return Math.round((number - offset) / increment) * increment + offset
 }
 
+/** Render `value` to at most `decimals` places, grouped, and without trailing zeros.
+
+A reading that lands on a whole number reads as one, so a gauge sitting at 15568 does not pad
+itself out to two places nobody asked for.
+*/
+export function formatNumber(value: number, decimals: number): string {
+  if (!Number.isFinite(value)) {
+    return String(value)
+  }
+
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: decimals }).format(value)
+}
+
 // In development the engine is reached on its own port, because the dev proxy covers
 // plain HTTP but cannot upgrade websockets. Production serves same-origin.
 function originUrl(protocol: string, relative: string) {
@@ -190,6 +203,21 @@ export function toTitle(text: string): string {
 
 export async function copyText(text: string) {
   await navigator.clipboard.writeText(text)
+}
+
+/** Menu `content` props that keep a closing menu's focus restore from interrupting an edit.
+
+A closing menu moves focus back to what held it before opening, which would take it from an
+inline edit the menu itself just opened and leave the field with nothing to blur.
+*/
+export function keepFocusWhile(editing: () => boolean) {
+  return {
+    onCloseAutoFocus: (event: Event) => {
+      if (editing()) {
+        event.preventDefault()
+      }
+    },
+  }
 }
 
 /** Save `content` as a file download named `name`. */

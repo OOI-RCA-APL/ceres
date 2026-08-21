@@ -53,6 +53,13 @@ pub struct Particle {
     pub id: Uuid,
     pub address: Address,
     pub timestamp: Timestamp,
+    /// Optional name of the connection whose messages produced the particle, unset for one
+    /// a component emitted directly.
+    ///
+    /// Omitted rather than null, like `span`, so a particle with no connection serializes
+    /// as it always has. Every particle written before this field existed has none.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub connection: Option<String>,
     #[serde(rename = "type")]
     pub kind: String,
     pub data: Map<String, Value>,
@@ -478,6 +485,7 @@ mod tests {
             id: id(),
             address: address(),
             timestamp: timestamp(),
+            connection: None,
             kind: "sample".to_string(),
             data,
             span: None,
@@ -563,12 +571,13 @@ mod tests {
             id: id(),
             address: address(),
             timestamp: timestamp(),
+            connection: None,
             kind: "sample".to_string(),
             data,
             span: None,
         }];
         let rendered = to_csv_lines(&particles, true).unwrap();
-        assert!(rendered.starts_with("id,address,timestamp,type,data,span\n"));
+        assert!(rendered.starts_with("id,address,timestamp,connection,type,data,span\n"));
         // JSON cells quote for their commas, keys staying in insertion order, and an
         // absent span renders as an empty cell.
         assert!(
@@ -600,6 +609,7 @@ mod tests {
             id: id(),
             address: address(),
             timestamp: timestamp(),
+            connection: None,
             kind: "sample".to_string(),
             data,
             span: None,
@@ -639,6 +649,7 @@ mod tests {
             id: id(),
             address: address(),
             timestamp: timestamp(),
+            connection: None,
             kind: "sample".to_string(),
             data,
             span: Some((3, 17)),

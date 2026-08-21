@@ -9,6 +9,7 @@ import icons from '@/icons'
 import { useModifiers } from '@/modifiers'
 import { usePersisted } from '@/persistence'
 import { moved, usePointerReorder } from '@/reorder'
+import { keepFocusWhile } from '@/utilities'
 import { useWidgetDrop } from '@/widget-drop'
 import { convertedPagesWidget, useWorkspace, withFreshPage } from '@/workspace'
 import type { TabsWidget, WidgetPage, WidgetRow } from '@/workspace'
@@ -280,6 +281,8 @@ const { shift: shiftHeld } = useModifiers()
 let hoveredId = $ref<string | null>(null)
 let editingId = $ref<string | null>(null)
 
+const menuContent = keepFocusWhile(() => editingId != null)
+
 function setNameHovered(current: WidgetPage, hovered: boolean) {
   if (hovered) {
     hoveredId = current.id
@@ -416,6 +419,7 @@ function tabMenuItems(at: number): DropdownMenuItem[][] {
         <c-context-menu
           v-for="(current, at) in widget.tabs"
           :key="current.id"
+          :content="menuContent"
           :items="tabMenuItems(at)"
         >
           <div
@@ -447,9 +451,6 @@ function tabMenuItems(at: number): DropdownMenuItem[][] {
               @pointerenter="setNameHovered(current, true)"
               @pointerleave="setNameHovered(current, false)"
             >
-              <!-- The tab's leading edge carries the grab cursor, which is all a tab needs to say
-              it can be dragged since a strip of tabs already reads as one. -->
-              <span :class="strip.grip" />
               <c-text class="whitespace-nowrap" variant="th">
                 <c-inline-name-edit
                   :claim="editingId === current.id"
@@ -459,9 +460,10 @@ function tabMenuItems(at: number): DropdownMenuItem[][] {
                   @update:editing="(value: boolean) => (editingId = value ? current.id : null)"
                 />
               </c-text>
-              <c-dropdown-menu :items="tabMenuItems(at)">
+              <c-dropdown-menu :content="menuContent" :items="tabMenuItems(at)">
                 <button
-                  class="ml-1 flex items-center rounded-full opacity-60 hover:opacity-100"
+                  class="mx-1.5 rounded-full"
+                  :class="[strip.menu, current.id === shown?.id && strip.menuShown]"
                   type="button"
                   @click.stop
                   @mousedown.stop

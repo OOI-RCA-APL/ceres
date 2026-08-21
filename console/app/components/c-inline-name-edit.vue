@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import { onClickOutside } from '@vueuse/core'
 import { nextTick, watch } from 'vue'
 
 const {
@@ -27,11 +28,16 @@ const emit = defineEmits<{
 
 let draft = $ref(name)
 let input = $ref<HTMLInputElement | null>(null)
+let field = $ref<HTMLElement | null>(null)
 
-// When editing began. Renaming is usually reached from a menu, and a menu hands focus back to
-// whatever opened it as it closes, which lands just after this field has appeared and taken focus.
-// That blur is the menu letting go rather than the user leaving, so for a moment after opening the
-// field takes focus back instead of treating it as being done with.
+// A press outside commits on its own rather than through blur, since a closing menu can move
+// focus off the field and leave it with no blur to end the edit.
+onClickOutside($$(field), commit)
+
+// When the caret was claimed. Renaming is usually reached from a menu, and a menu hands focus back
+// to whatever opened it as it closes, which lands just after the field has taken focus. That blur
+// is the menu letting go rather than the user leaving, so for a moment after claiming the field
+// takes focus back instead of treating it as being done with.
 let openedAt = 0
 const settleWindow = 400
 
@@ -48,26 +54,48 @@ watch(
   },
 )
 
-// The draft is seeded as editing begins rather than followed continuously, so a rename landing
-// from elsewhere while the field is open does not pull the text out from under the cursor.
 watch(
-  () => editing,
-  async () => {
-    if (!editing) {
+  () => ({ editing, claim }),
+  async (now, before) => {
+    if (!now.editing) {
       return
     }
 
-    draft = name
+    // The draft is seeded as editing begins rather than followed continuously, so a rename
+    // landing from elsewhere while the field is open does not pull the text out from under the
+    // cursor.
+    if (before?.editing !== true) {
+      draft = name
+    }
+
+    // A field offered on hover is already showing when a menu turns it into a real edit, so the
+    // claim is what decides when to take the caret rather than the field appearing.
+    if (!now.claim || before?.claim === true) {
+      return
+    }
+
     openedAt = performance.now()
-
-    if (!claim) {
-      return
-    }
-
     await nextTick()
-    take()
+    claimCaret()
   },
 )
+
+// A menu closing restores focus to whatever opened it, which lands after the field has already
+// taken the caret, so the claim is retried until it holds or the settle window passes.
+function claimCaret() {
+  const attempt = () => {
+    if (!editing || !claim || input == null || document.activeElement === input) {
+      return
+    }
+
+    take()
+    if (performance.now() - openedAt < settleWindow) {
+      requestAnimationFrame(attempt)
+    }
+  }
+
+  attempt()
+}
 
 // Focus lands with the caret after the name rather than over it, so typing continues the name
 // instead of replacing it.
@@ -161,7 +189,7 @@ function onBlur() {
   // Only a field that took focus for itself has a menu to outlast. One waiting to be clicked into
   // has nothing to hold on to, and leaving it is simply leaving.
   if (claim && editing && performance.now() - openedAt < settleWindow) {
-    requestAnimationFrame(take)
+    requestAnimationFrame(claimCaret)
     return
   }
 
@@ -197,6 +225,7 @@ function cancel() {
   whatever the field is sitting in and be taken as opening it. -->
   <span
     v-if="editing"
+    ref="field"
     :class="$style.field"
     :data-value="draft"
     @click.stop

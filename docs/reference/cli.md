@@ -1035,6 +1035,10 @@ Retrieve particles.
 | `--subsample-every` `VALUE` |  | Thin the result, keeping one row per interval. |
 | `--subsample` `VALUE` |  | Thin the result, keeping one row per interval. |
 | `--subsample-select` `VALUE` |  | Thin the result, keeping one row per interval. |
+| `--connection` `VALUE` |  | Only particles with this connection. Repeat to match any of several. |
+| `--connection-contains` `VALUE` |  | Only particles whose connection contains this. |
+| `--connection-prefix` `VALUE` |  | Only particles whose connection starts with this. |
+| `--connection-suffix` `VALUE` |  | Only particles whose connection ends with this. |
 | `--type` `VALUE` |  | Only particles with this type. Repeat to match any of several. |
 | `--type-contains` `VALUE` |  | Only particles whose type contains this. |
 | `--type-prefix` `VALUE` |  | Only particles whose type starts with this. |
@@ -1071,6 +1075,10 @@ Count particles.
 | `--subsample-every` `VALUE` |  | Thin the result, keeping one row per interval. |
 | `--subsample` `VALUE` |  | Thin the result, keeping one row per interval. |
 | `--subsample-select` `VALUE` |  | Thin the result, keeping one row per interval. |
+| `--connection` `VALUE` |  | Only particles with this connection. Repeat to match any of several. |
+| `--connection-contains` `VALUE` |  | Only particles whose connection contains this. |
+| `--connection-prefix` `VALUE` |  | Only particles whose connection starts with this. |
+| `--connection-suffix` `VALUE` |  | Only particles whose connection ends with this. |
 | `--type` `VALUE` |  | Only particles with this type. Repeat to match any of several. |
 | `--type-contains` `VALUE` |  | Only particles whose type contains this. |
 | `--type-prefix` `VALUE` |  | Only particles whose type starts with this. |
@@ -1107,6 +1115,10 @@ Check whether any particles match, reporting through the exit status.
 | `--subsample-every` `VALUE` |  | Thin the result, keeping one row per interval. |
 | `--subsample` `VALUE` |  | Thin the result, keeping one row per interval. |
 | `--subsample-select` `VALUE` |  | Thin the result, keeping one row per interval. |
+| `--connection` `VALUE` |  | Only particles with this connection. Repeat to match any of several. |
+| `--connection-contains` `VALUE` |  | Only particles whose connection contains this. |
+| `--connection-prefix` `VALUE` |  | Only particles whose connection starts with this. |
+| `--connection-suffix` `VALUE` |  | Only particles whose connection ends with this. |
 | `--type` `VALUE` |  | Only particles with this type. Repeat to match any of several. |
 | `--type-contains` `VALUE` |  | Only particles whose type contains this. |
 | `--type-prefix` `VALUE` |  | Only particles whose type starts with this. |
@@ -1133,6 +1145,7 @@ Create a particle.
 | `--id` `VALUE` |  | The particle's id. |
 | `--address` `VALUE` |  | The particle's address. |
 | `--timestamp` `VALUE` |  | The particle's timestamp. |
+| `--connection` `VALUE` |  | The particle's connection. |
 | `--type` `VALUE` |  | The particle's type. |
 | `--data` `VALUE` |  | The particle's data. |
 
@@ -1166,6 +1179,10 @@ Update particles, reporting how many changed.
 | `--subsample-every` `VALUE` |  | Thin the result, keeping one row per interval. |
 | `--subsample` `VALUE` |  | Thin the result, keeping one row per interval. |
 | `--subsample-select` `VALUE` |  | Thin the result, keeping one row per interval. |
+| `--connection` `VALUE` |  | Only particles with this connection. Repeat to match any of several. |
+| `--connection-contains` `VALUE` |  | Only particles whose connection contains this. |
+| `--connection-prefix` `VALUE` |  | Only particles whose connection starts with this. |
+| `--connection-suffix` `VALUE` |  | Only particles whose connection ends with this. |
 | `--type` `VALUE` |  | Only particles with this type. Repeat to match any of several. |
 | `--type-contains` `VALUE` |  | Only particles whose type contains this. |
 | `--type-prefix` `VALUE` |  | Only particles whose type starts with this. |
@@ -1208,6 +1225,10 @@ Delete particles, reporting how many were removed.
 | `--subsample-every` `VALUE` |  | Thin the result, keeping one row per interval. |
 | `--subsample` `VALUE` |  | Thin the result, keeping one row per interval. |
 | `--subsample-select` `VALUE` |  | Thin the result, keeping one row per interval. |
+| `--connection` `VALUE` |  | Only particles with this connection. Repeat to match any of several. |
+| `--connection-contains` `VALUE` |  | Only particles whose connection contains this. |
+| `--connection-prefix` `VALUE` |  | Only particles whose connection starts with this. |
+| `--connection-suffix` `VALUE` |  | Only particles whose connection ends with this. |
 | `--type` `VALUE` |  | Only particles with this type. Repeat to match any of several. |
 | `--type-contains` `VALUE` |  | Only particles whose type contains this. |
 | `--type-prefix` `VALUE` |  | Only particles whose type starts with this. |
@@ -1258,6 +1279,10 @@ Follow new particles as they arrive.
 | `--subsample-every` `VALUE` |  | Thin the result, keeping one row per interval. |
 | `--subsample` `VALUE` |  | Thin the result, keeping one row per interval. |
 | `--subsample-select` `VALUE` |  | Thin the result, keeping one row per interval. |
+| `--connection` `VALUE` |  | Only particles with this connection. Repeat to match any of several. |
+| `--connection-contains` `VALUE` |  | Only particles whose connection contains this. |
+| `--connection-prefix` `VALUE` |  | Only particles whose connection starts with this. |
+| `--connection-suffix` `VALUE` |  | Only particles whose connection ends with this. |
 | `--type` `VALUE` |  | Only particles with this type. Repeat to match any of several. |
 | `--type-contains` `VALUE` |  | Only particles whose type contains this. |
 | `--type-prefix` `VALUE` |  | Only particles whose type starts with this. |

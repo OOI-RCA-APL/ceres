@@ -8,7 +8,7 @@ import { useAccess } from '@/api/access'
 import { Address } from '@/api/address'
 import { useEngine } from '@/api/engine'
 import { isError } from '@/api/shared'
-import { semanticColor } from '@/colors'
+import { type ColorVariant, monochromeClasses, semanticColor } from '@/colors'
 import icons from '@/icons'
 import { useModifiers } from '@/modifiers'
 import { useNotify } from '@/notify'
@@ -62,9 +62,9 @@ const canOperate = $computed(
 // A fresh button holds no action yet so pressing it opens the settings that give it one.
 const isConfigured = $computed(() => button.address != null && button.action != null)
 
-const color = $computed(() => (button.color == null ? 'neutral' : semanticColor(button.color)))
+const color = $computed(() => semanticColor(button.color))
 
-const variant = $computed(() => {
+const variant = $computed<ColorVariant>(() => {
   if (button.styling === 'flat') {
     return 'ghost'
   }
@@ -74,6 +74,8 @@ const variant = $computed(() => {
 
   return 'solid'
 })
+
+const monochrome = $computed(() => monochromeClasses(button.color, variant))
 
 let isRunning = $ref(false)
 let isShowingArguments = $ref(false)
@@ -355,6 +357,7 @@ const tooltip = $computed(() => {
       <c-popover v-model:open="isShowingArguments" :ui="{ content: 'w-[420px] max-w-[90vw]' }">
         <c-tooltip :disabled="tooltip == null" :text="tooltip ?? ''">
           <c-button
+            :class="monochrome"
             :color="color"
             :disabled="isConfigured && (!canOperate || action == null)"
             size="sm"

@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 
 import { isStructurallyEqual } from '@/utilities'
 import {
+  ChartWidgetModel,
   comparableWorkspaceData,
   type ControlsWidget,
+  createWidget,
   defaultWidgetName,
   type MeterWidget,
   pagesOf,
@@ -19,6 +21,20 @@ describe('defaultWidgetName', () => {
 
   it('tells a chosen name from an inherited one', () => {
     expect('Instrument Views').not.toBe(defaultWidgetName('tabs'))
+  })
+})
+
+describe('a chart widget', () => {
+  it('fits the series its legend leaves on, and does not reach for zero', () => {
+    expect(createWidget('chart')).toMatchObject({ fit: 'shown-data', fromZero: false })
+  })
+
+  it('reads its values out to two decimal places', () => {
+    expect(createWidget('chart')).toMatchObject({ decimals: 2 })
+  })
+
+  it('keeps the fit it was stored with', () => {
+    expect(ChartWidgetModel.parse({ type: 'chart', fit: 'all-data' }).fit).toBe('all-data')
   })
 })
 

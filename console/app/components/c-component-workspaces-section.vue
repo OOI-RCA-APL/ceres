@@ -11,6 +11,7 @@ import { useModifiers } from '@/modifiers'
 import { useNotify } from '@/notify'
 import { moved, usePointerReorder } from '@/reorder'
 import { useTabs } from '@/tabs'
+import { keepFocusWhile } from '@/utilities'
 import { inStandardOrder, isWorkspaceWritable, useWorkspaces, type Workspace } from '@/workspace'
 
 const {
@@ -293,6 +294,8 @@ async function transfer(workspace: Workspace, to: 'shared' | 'private', mode: 'c
 // name is edited where it is read.
 let editingId = $ref<string | null>(null)
 
+const menuContent = keepFocusWhile(() => editingId != null)
+
 // Renaming a workspace changes it for everybody who can see it so it takes the same write access
 // deleting does rather than being offered to anyone who can merely look at it.
 function openRename(workspace: Workspace) {
@@ -521,6 +524,7 @@ function menuItems(
             <c-context-menu
               v-for="(workspace, index) in group.items"
               :key="workspace.id"
+              :content="menuContent"
               :items="menuItems(workspace, group.reorder)"
             >
               <div
@@ -581,7 +585,10 @@ function menuItems(
                     <c-icon :name="isOpen(workspace) ? icons.tab : icons.tabUnselected" size="15" />
                   </button>
                 </c-tooltip>
-                <c-dropdown-menu :items="menuItems(workspace, group.reorder)">
+                <c-dropdown-menu
+                  :content="menuContent"
+                  :items="menuItems(workspace, group.reorder)"
+                >
                   <button
                     class="flex items-center rounded-full p-0.5 opacity-60 hover:opacity-100"
                     type="button"

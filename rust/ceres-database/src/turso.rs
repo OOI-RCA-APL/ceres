@@ -771,7 +771,7 @@ mod tests {
             "CREATE TABLE messages (id TEXT PRIMARY KEY, address TEXT, timestamp TEXT, \
              connection TEXT, direction TEXT, data BLOB)",
             "CREATE TABLE particles (id TEXT PRIMARY KEY, address TEXT, timestamp TEXT, \
-             type TEXT, data TEXT)",
+             connection TEXT, type TEXT, data TEXT)",
             "CREATE TABLE logs (id TEXT PRIMARY KEY, address TEXT, timestamp TEXT, \
              level TEXT, content TEXT)",
         ] {
@@ -787,6 +787,7 @@ mod tests {
                 Utc.with_ymd_and_hms(2026, 7, 29, 1, 2, 3).unwrap()
                     + chrono::Duration::microseconds(i64::from(micros)),
             ),
+            connection: None,
             kind: kind.to_string(),
             data: json!({"a": 1, "b": [1.5]}).as_object().unwrap().clone(),
             span: None,

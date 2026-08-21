@@ -6,6 +6,7 @@ const { widget } = defineProps<{
 }>()
 
 const columns = [
+  { label: 'Connection', name: 'connection', minWidth: 80 },
   { label: 'Type', name: 'type', minWidth: 52 },
   { label: 'Data', name: 'data' },
 ]

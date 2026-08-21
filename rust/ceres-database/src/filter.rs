@@ -3180,9 +3180,12 @@ mod tests {
 
     #[test]
     fn per_table_keys_apply_only_to_their_tables() {
+        // Both records carry the connection they came from, while alerts and logs are
+        // raised by a component rather than parsed from one.
         let connection = pairs(&[("connection", "serial")]);
         assert!(RecordFilter::parse(RecordTable::Messages, &connection).is_ok());
-        assert!(RecordFilter::parse(RecordTable::Particles, &connection).is_err());
+        assert!(RecordFilter::parse(RecordTable::Particles, &connection).is_ok());
+        assert!(RecordFilter::parse(RecordTable::Alerts, &connection).is_err());
 
         let level = pairs(&[("min_level", "warning")]);
         assert!(RecordFilter::parse(RecordTable::Alerts, &level).is_ok());

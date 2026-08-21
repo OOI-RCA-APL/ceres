@@ -28,17 +28,22 @@ const description = $computed(() => form.getDescription(path))
 </script>
 
 <template>
-  <div class="relative min-h-10 px-3 pt-2">
-    <div class="flex min-h-[22px] items-center">
-      <c-checkbox
+  <div>
+    <div class="mb-1 flex items-baseline gap-1">
+      <c-text inline variant="mono-sm">{{ label }}</c-text>
+      <c-text class="text-muted" inline variant="mono-sm">
+        <span class="mx-1">{{ '⸱' }}</span>
+        <span>bool</span>
+      </c-text>
+    </div>
+    <!-- As tall as a field of the same size, so a boolean beside one lines up with it. -->
+    <div class="flex min-h-8 items-center">
+      <c-switch
         :aria-required="isRequired"
         :model-value="resolved === true"
         size="sm"
-        :ui="{ label: 'font-mono text-[9px]' }"
         @update:model-value="(value) => (modelValue = resolve(value))"
-      >
-        <template #label>{{ label }}</template>
-      </c-checkbox>
+      />
       <div class="grow" />
       <c-schema-form-node-clear-button
         v-if="!isRequired && modelValue !== undefined"
@@ -46,7 +51,7 @@ const description = $computed(() => form.getDescription(path))
         @click="modelValue = undefined"
       />
     </div>
-    <c-text v-if="description" class="mt-1 pb-1" variant="description">
+    <c-text v-if="description && !form.embedded" class="mt-1 pb-1" variant="description">
       {{ description }}
     </c-text>
   </div>

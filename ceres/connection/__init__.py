@@ -26,7 +26,7 @@ from ceres.connection.splitter import Splitter as Splitter
 from ceres.connection.splitter import Unsplit as Unsplit
 from ceres.connectivity import Connectivity
 from ceres.constants import DEFAULT_BUFFER_DROP, DEFAULT_BUFFER_READ_SIZE, DEFAULT_BUFFER_SIZE
-from ceres.data import DataObject, Name, PositiveTimeDelta, ToBytes, validate
+from ceres.data import DataObject, Name, NonBlankStr, PositiveTimeDelta, ToBytes, validate
 from ceres.event import (
     BufferOverflowEvent,
     ConnectedEvent,
@@ -101,6 +101,8 @@ class ConnectionDefaults(TypedDict, total=False):
     """Default values that can be applied to a `Connection` when constructed via a field."""
 
     name: Name
+    label: NonBlankStr
+    description: NonBlankStr
     source: Loaded[Source]
     splitter: Loaded[Splitter] | None
     suffix: bytes | None
@@ -178,6 +180,10 @@ class Connection(DataObject, Tasklet, slots=True):
 
     name: Name | None = None
     """Optional name used to identify this connection within its component."""
+    label: NonBlankStr | None = None
+    """Human-readable name shown in place of `name`, defaulting to the field's title."""
+    description: NonBlankStr | None = None
+    """What the connection carries, defaulting to the field's docstring."""
     source: Loaded[Source]
     """Transport endpoint that provides the underlying byte stream."""
     splitter: Loaded[Splitter] | None = None
@@ -220,9 +226,9 @@ class Connection(DataObject, Tasklet, slots=True):
         self._channel = Channel()
 
     @property
-    def label(self) -> str:
-        """Return the human-readable label of the underlying `Source`."""
-        return self.source.label
+    def uri(self) -> str:
+        """Return the URI the underlying `Source` reads from."""
+        return self.source.uri
 
     @property
     def __system__(self) -> ComponentSystem:

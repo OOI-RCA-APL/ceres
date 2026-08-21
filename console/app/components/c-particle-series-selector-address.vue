@@ -6,8 +6,9 @@ import type { Address } from '@/api/address'
 import type { ParticleFieldInfo, ParticleTypeInfo } from '@/api/components'
 import type { ParticleFieldDetails } from '@/components/c-particle-field-details-dialog.vue'
 import icons from '@/icons'
-import { fieldRefKey } from '@/particle-series'
+import { fieldRefKey, typeRefKey } from '@/particle-series'
 import { describeFieldDescription, describeFieldType } from '@/particle-types'
+import { isPlainPress, selectMode } from '@/row-selection'
 import type { Schema } from '@/schema-form'
 import type { ChartWidgetParticle, SelectMode } from '@/workspace'
 
@@ -16,6 +17,7 @@ const {
   particles = [],
   selectionMode = 'toggle',
   selectedKeys = new Set<string>(),
+  selectedTypeKeys = new Set<string>(),
   itemActions = false,
   bare = false,
   defaultOpened = false,
@@ -36,6 +38,9 @@ const {
 
   /** The selection in highlight mode, as `fieldRefKey` keys spanning the whole tree. */
   selectedKeys?: Set<string>
+
+  /** The selected type headers, as `typeRefKey` keys spanning the whole tree. */
+  selectedTypeKeys?: ReadonlySet<string>
 
   /** Renders a more-actions button on each field row, sharing the `context` event with
   right clicks. */
@@ -79,7 +84,25 @@ function isTypeOpened(type: ParticleTypeInfo): boolean {
 // Toggles made by hosts that do not persist expansion still hold for this mount.
 const localOpen = $ref<Record<string, boolean>>({})
 
-function toggleType(type: ParticleTypeInfo) {
+// A plain click on a header expands it, the tree's first purpose. Held modifiers ask for the
+// header itself instead, which is the same vocabulary the field rows answer to.
+function onTypeClick(type: ParticleTypeInfo, event: MouseEvent) {
+  const mode = selectionMode === 'highlight' ? selectMode(event) : 'replace'
+  if (mode === 'replace') {
+    toggleType(type, event)
+    return
+  }
+
+  emit('typeSelect', type.type, mode)
+}
+
+function toggleType(type: ParticleTypeInfo, event: MouseEvent) {
+  // A press the pointer travelled from was a drag, and its release still reaches the header as
+  // a click, which would collapse the type the widget was just dragged out of.
+  if (travelled(event)) {
+    return
+  }
+
   const value = !isTypeOpened(type)
 
   // A toggle while a search is forcing everything open would be forgotten anyway.
@@ -105,6 +128,15 @@ const emit = defineEmits<{
 
   /** A plain press on a field row in highlight mode, which a host may turn into a drag. */
   press: [type: string, field: string, event: PointerEvent]
+
+  /** A modifier click on a type header row, which selects rather than expanding it. */
+  typeSelect: [type: string, mode: SelectMode]
+
+  /** A right click on a type header row, before the hosting menu opens on the event. */
+  typeContext: [type: string, event: MouseEvent]
+
+  /** A plain press on a type header row, which a host may turn into a drag. */
+  typePress: [type: string, event: PointerEvent]
 }>()
 
 // The type list renders inside the address expansion item, or on its own in bare mode.
@@ -168,18 +200,13 @@ function typeHasSelection(type: ParticleTypeInfo): boolean {
   return type.fields.some((field) => isFieldOn(type.type, field.name))
 }
 
+function isTypeSelected(type: ParticleTypeInfo): boolean {
+  return selectedTypeKeys.has(typeRefKey({ address: address.toString(), type: type.type }))
+}
+
 // Read against every declared type rather than the filtered view so a selection hidden by a
 // search still marks its containers.
 const addressHasSelection = $computed(() => types.some(typeHasSelection))
-
-/** The select mode a click's modifiers ask for, matching the workspace's own vocabulary. */
-function modeOf(event: MouseEvent): SelectMode {
-  if (event.shiftKey) {
-    return 'extend'
-  }
-
-  return event.metaKey || event.ctrlKey ? 'toggle' : 'replace'
-}
 
 /** The field whose details dialog is showing. */
 let detailsField = $ref<ParticleFieldDetails | null>(null)
@@ -188,7 +215,7 @@ let detailsField = $ref<ParticleFieldDetails | null>(null)
 // toggle mode the checkbox already carries the choice and a single click opens it.
 function onClick(type: string, field: ParticleFieldInfo, event: MouseEvent) {
   if (selectionMode === 'highlight') {
-    emit('select', type, field.name, modeOf(event))
+    emit('select', type, field.name, selectMode(event))
   } else {
     detailsField = { address: address.toString(), type, field }
   }
@@ -200,24 +227,61 @@ function onDoubleClick(type: string, field: ParticleFieldInfo) {
   }
 }
 
+// Never prevent the default here. A wrapping context menu opens only on an event nothing has
+// defaulted, and it suppresses the native menu itself.
 function onContext(type: string, field: string, event: MouseEvent) {
   if (selectionMode === 'highlight') {
-    event.preventDefault()
     emit('context', type, field, event)
   }
+}
+
+// A context menu opens on a context menu event alone, so the button raises one at its own
+// corner rather than the row carrying a second copy of the host's items.
+function onActions(event: MouseEvent) {
+  ;(event.target as HTMLElement).dispatchEvent(
+    new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      clientX: event.clientX,
+      clientY: event.clientY,
+    }),
+  )
 }
 
 // Only a plain press is offered as a drag. A modified press is a selection gesture, and the
 // click that follows an untravelled press still selects as it always did.
 function onPointerDown(type: string, field: string, event: PointerEvent) {
-  if (selectionMode !== 'highlight' || event.button !== 0) {
-    return
-  }
-  if (event.shiftKey || event.metaKey || event.ctrlKey) {
+  if (selectionMode !== 'highlight' || !isPlainPress(event)) {
     return
   }
 
   emit('press', type, field, event)
+}
+
+/** Where the last press landed, for telling a click apart from a drag's release. Cleared by
+every press so one gesture never answers for the next. */
+let pressPoint: { x: number; y: number } | null = null
+
+function onTypePointerDown(type: string, event: PointerEvent) {
+  pressPoint = null
+  if (selectionMode !== 'highlight' || !isPlainPress(event)) {
+    return
+  }
+
+  pressPoint = { x: event.clientX, y: event.clientY }
+  emit('typePress', type, event)
+}
+
+/** Whether the pointer moved far enough since the press for the gesture to be a drag rather
+than a click. A keyboard activation reports no press at all and is never one. */
+function travelled(event: MouseEvent): boolean {
+  const from = pressPoint
+  pressPoint = null
+  if (from == null || event.detail === 0) {
+    return false
+  }
+
+  return Math.hypot(event.clientX - from.x, event.clientY - from.y) > 4
 }
 </script>
 
@@ -225,16 +289,26 @@ function onPointerDown(type: string, field: string, event: PointerEvent) {
   <define-type-list>
     <div>
       <div v-if="shownTypes.length === 0" class="px-2 py-1">
-        <c-text class="text-muted" variant="body2">
+        <c-text variant="description">
           {{ effectiveFilter === '' ? 'No declared particle types.' : 'No matching fields.' }}
         </c-text>
       </div>
       <div v-for="type in shownTypes" :key="type.type">
         <button
-          class="hover:bg-elevated/50 flex w-full items-center gap-1 px-2 py-0.5 text-left"
-          :class="typeHasSelection(type) && 'text-primary'"
+          class="hover:bg-elevated/50 flex w-full select-none items-center gap-1 px-2 py-0.5 text-left"
+          :class="[
+            (typeHasSelection(type) || isTypeSelected(type)) && 'text-primary',
+            // Neutral rather than a semantic color, so the highlight never fights the text.
+            isTypeSelected(type) && 'bg-[#80808029]',
+          ]"
+          data-particle-type
           type="button"
-          @click="toggleType(type)"
+          @click="onTypeClick(type, $event as MouseEvent)"
+          @contextmenu="
+            selectionMode === 'highlight' && emit('typeContext', type.type, $event as MouseEvent)
+          "
+          @mousedown="(event: MouseEvent) => event.shiftKey && event.preventDefault()"
+          @pointerdown="onTypePointerDown(type.type, $event as PointerEvent)"
         >
           <c-icon
             class="text-muted shrink-0 transition-transform"
@@ -254,11 +328,15 @@ function onPointerDown(type: string, field: string, event: PointerEvent) {
             v-for="field in type.fields"
             :key="field.name"
             :class="[
-              'group hover:bg-elevated/50 flex min-h-6 cursor-pointer items-center',
+              'group hover:bg-elevated/50 flex min-h-6 items-center',
               'gap-2 rounded-sm px-1 select-none',
+              // The pointer cursor marks the toggling row, the highlighting one only selecting
+              // the field.
+              selectionMode === 'toggle' && 'cursor-pointer',
               // Neutral rather than a semantic color, so the highlight never fights the text.
               selectionMode === 'highlight' && isFieldOn(type.type, field.name) && 'bg-[#80808029]',
             ]"
+            data-particle-field
             @click="onClick(type.type, field, $event as MouseEvent)"
             @contextmenu="onContext(type.type, field.name, $event as MouseEvent)"
             @dblclick="onDoubleClick(type.type, field)"
@@ -275,12 +353,12 @@ function onPointerDown(type: string, field: string, event: PointerEvent) {
             <div class="flex min-w-0 grow items-baseline gap-2 whitespace-nowrap">
               <c-text
                 :class="isFieldOn(type.type, field.name) && 'text-primary'"
-                element="span"
+                inline
                 variant="mono-sm"
               >
                 {{ field.name }}:
               </c-text>
-              <c-text class="text-muted" element="span" variant="mono-sm">
+              <c-text class="text-muted" inline variant="mono-sm">
                 {{ describeFieldType(field.schema as Schema) }}
               </c-text>
               <span
@@ -298,7 +376,8 @@ function onPointerDown(type: string, field: string, event: PointerEvent) {
                 size="xs"
                 square
                 variant="ghost"
-                @click.stop="onContext(type.type, field.name, $event as MouseEvent)"
+                @click.stop="onActions($event as MouseEvent)"
+                @pointerdown.stop
               />
             </c-tooltip>
           </div>

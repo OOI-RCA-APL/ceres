@@ -376,8 +376,13 @@ const rowClass = 'flex min-h-[26px] items-center gap-2 px-2.5 py-0.5'
             />
           </c-tooltip>
           <div>
-            <div class="text-sm">{{ connection.name }}</div>
-            <c-text variant="description">{{ connection.label }}</c-text>
+            <div class="flex items-baseline gap-2">
+              <div class="text-sm">{{ connection.name }}</div>
+              <c-text v-if="connection.label" variant="description">
+                {{ connection.label }}
+              </c-text>
+            </div>
+            <c-text variant="description">{{ connection.uri }}</c-text>
           </div>
         </div>
       </div>

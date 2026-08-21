@@ -14,7 +14,10 @@ defineProps<{
 </script>
 
 <template>
+  <!-- Centered here rather than by each row that holds one, the button sitting beside fields of
+  several heights. -->
   <c-button
+    class="self-center"
     color="neutral"
     :icon="icons.clear"
     size="xs"

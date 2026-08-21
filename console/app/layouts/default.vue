@@ -29,7 +29,7 @@ strip pin with `position: sticky` and the scroll-memory helpers read `window.scr
         variant="ghost"
         @click="drawer.toggle()"
       />
-      <c-text class="cursor-pointer" element="span" variant="title1" @click="navigation.go('/')">
+      <c-text class="cursor-pointer" inline variant="title1" @click="navigation.go('/')">
         {{ engine.config.console.title ?? constants.defaultTitle }}
       </c-text>
       <div class="flex-1" />

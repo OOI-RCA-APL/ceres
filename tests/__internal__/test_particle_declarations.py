@@ -5,12 +5,16 @@ from collections.abc import AsyncIterable, AsyncIterator
 from enum import StrEnum
 from typing import Annotated
 
-from ceres import Component, Message, Particle, ParticleData, Unit, sieve
+from ceres import Bound, Component, Connection, Message, Particle, ParticleData, Unit, sieve
 from ceres.__internal__.app.handlers.components import (
     ParticleTypeInfo,
     _describe_particle_class,
+    _described_particle_classes,
 )
-from ceres.__internal__.particles import declared_particle_classes
+from ceres.__internal__.particles import (
+    declared_particle_classes,
+    declared_particle_connections,
+)
 from ceres.data import Number
 
 
@@ -143,6 +147,76 @@ def test_unit_marker_reaches_the_field_schema():
     # `Number` renders as a `$ref`, and the unit must survive the inlining that resolves it.
     assert by_name["flow"]["unit"] == "m/s"
     assert "$ref" not in json.dumps(by_name["flow"])
+
+
+def test_sole_connection_sieves_declare_their_connection():
+    class Sensor(Component):
+        alpha: Bound[Connection] | None = Connection.Field(None)
+        beta: Bound[Connection] | None = Connection.Field(None)
+
+        @sieve(alpha)
+        async def parse_alpha(self, message: Message) -> Temperature | None:
+            return None
+
+        @sieve(beta)
+        async def parse_beta(self, message: Message) -> Humidity | None:
+            return None
+
+    assert declared_particle_connections(_build(Sensor)) == {
+        "humidity": ["beta"],
+        "temperature": ["alpha"],
+    }
+
+
+def test_multi_connection_sieves_declare_nothing():
+    class Sensor(Component):
+        alpha: Bound[Connection] | None = Connection.Field(None)
+        beta: Bound[Connection] | None = Connection.Field(None)
+
+        @sieve(alpha, beta)
+        async def parse(self, message: Message) -> Temperature | None:
+            return None
+
+    assert declared_particle_connections(_build(Sensor)) == {"temperature": []}
+
+
+def test_two_sieves_of_one_type_union_their_connections():
+    class Sensor(Component):
+        alpha: Bound[Connection] | None = Connection.Field(None)
+        beta: Bound[Connection] | None = Connection.Field(None)
+
+        @sieve(alpha)
+        async def parse_alpha(self, message: Message) -> Temperature | None:
+            return None
+
+        @sieve(beta)
+        async def parse_beta(self, message: Message) -> Temperature | None:
+            return None
+
+    assert declared_particle_connections(_build(Sensor)) == {"temperature": ["alpha", "beta"]}
+
+
+def test_described_classes_carry_connections():
+    class Sensor(Component):
+        alpha: Bound[Connection] | None = Connection.Field(None)
+
+        @sieve(alpha)
+        async def parse(self, message: Message) -> Temperature | None:
+            return None
+
+    infos = _described_particle_classes(_build(Sensor))
+    assert [info.connections for info in infos] == [["alpha"]]
+
+    # The cached per-class description must stay untouched by the per-component copy.
+    assert _describe_particle_class(Temperature).connections == []
+
+
+def test_particles_attribute_types_declare_no_connections():
+    class Sensor(Component):
+        __particles__: tuple[type[Particle], ...] = (Humidity,)
+
+    infos = _described_particle_classes(_build(Sensor))
+    assert [info.connections for info in infos] == [[]]
 
 
 def test_duplicates_collapse():

@@ -49,7 +49,7 @@ function toggleColorMode() {
           class="flex flex-col items-center gap-1"
         >
           <div class="h-16 w-24 rounded" :class="color.classes" />
-          <c-text element="span" variant="th">{{ color.name }}</c-text>
+          <c-text inline variant="th">{{ color.name }}</c-text>
         </div>
       </div>
     </section>
@@ -63,7 +63,7 @@ function toggleColorMode() {
           class="flex flex-col items-center gap-1"
         >
           <div class="h-16 w-24 rounded border border-accented" :class="surface.classes" />
-          <c-text element="span" variant="th">{{ surface.name }}</c-text>
+          <c-text inline variant="th">{{ surface.name }}</c-text>
         </div>
       </div>
     </section>
@@ -72,10 +72,10 @@ function toggleColorMode() {
       <c-text element="h2" variant="title2">Type Ramp</c-text>
       <div class="flex flex-col gap-2">
         <div v-for="variant in typeRamp" :key="variant" class="flex items-baseline gap-4">
-          <c-text class="w-24 shrink-0 text-muted" element="span" variant="th">
+          <c-text class="w-24 shrink-0 text-muted" inline variant="th">
             {{ variant }}
           </c-text>
-          <c-text element="span" :variant="variant">
+          <c-text inline :variant="variant">
             The five boxing wizards jump quickly. 0123456789
           </c-text>
         </div>
@@ -92,7 +92,7 @@ function toggleColorMode() {
       <div class="grid grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-2">
         <div v-for="[name, icon] in iconEntries" :key="name" class="flex items-center gap-2">
           <c-icon class="size-5" :name="icon" />
-          <c-text element="span" variant="description">{{ name }}</c-text>
+          <c-text inline variant="description">{{ name }}</c-text>
         </div>
       </div>
     </section>

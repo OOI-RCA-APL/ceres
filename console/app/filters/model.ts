@@ -47,6 +47,19 @@ export function createBlock(op: 'and' | 'or', children: FilterItem[] = []): Filt
   return { id: v7(), op, children }
 }
 
+/** A query narrowed to one address and to `values` of `kind`.
+
+Several values join as alternatives to each other, so one view covers them all. No value leaves
+the address on its own.
+*/
+export function scopedQuery(address: string, kind: string, values: readonly string[]): FilterQuery {
+  const conditions = values.map((value) => createCondition(kind, value))
+  return [
+    createCondition('address', address),
+    ...(conditions.length > 1 ? [createBlock('or', conditions)] : conditions),
+  ]
+}
+
 /** Every item in the query in render order, blocks before their children. */
 export function flattenQuery(query: FilterQuery): FilterItem[] {
   return query.flatMap((item) => (isBlock(item) ? [item, ...flattenQuery(item.children)] : [item]))

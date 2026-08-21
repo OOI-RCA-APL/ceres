@@ -18,20 +18,18 @@ let details = $(defineModel<ParticleFieldDetails | null>({ required: true }))
     <template #content>
       <div v-if="details != null" class="flex min-w-80 flex-col gap-2 p-4">
         <div class="flex items-baseline gap-2">
-          <c-text class="font-medium" element="span" variant="mono-sm">
-            {{ details.field.name }}:
-          </c-text>
-          <c-text class="text-muted" element="span" variant="mono-sm">
+          <c-text class="font-medium" inline variant="mono-sm"> {{ details.field.name }}: </c-text>
+          <c-text class="text-muted" inline variant="mono-sm">
             {{ describeFieldType(details.field.schema as Schema) }}
           </c-text>
         </div>
         <c-text class="text-muted" variant="mono-sm">
           {{ details.address }}::particles::{{ details.type }}
         </c-text>
-        <c-text v-if="describeFieldDescription(details.field.schema)" variant="body2">
+        <c-text v-if="describeFieldDescription(details.field.schema)" variant="description">
           {{ describeFieldDescription(details.field.schema) }}
         </c-text>
-        <c-text v-else class="text-muted" variant="body2">No description.</c-text>
+        <c-text v-else variant="description">No description.</c-text>
       </div>
     </template>
   </c-modal>

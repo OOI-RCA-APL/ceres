@@ -32,8 +32,8 @@ function onClear() {
 <template>
   <div :class="form.embedded && 'contents'">
     <div v-if="!form.embedded" class="mb-1 flex items-baseline gap-1">
-      <c-text element="span" variant="mono-sm">{{ title }}</c-text>
-      <c-text class="text-muted" element="span" variant="mono-sm">
+      <c-text inline variant="mono-sm">{{ title }}</c-text>
+      <c-text class="text-muted" inline variant="mono-sm">
         <span class="mx-1">{{ '⸱' }}</span>
         <span>address</span>
       </c-text>
@@ -58,6 +58,11 @@ function onClear() {
         @create="(value: string) => (modelValue = value)"
         @update:model-value="(value: string | undefined) => (modelValue = value)"
       >
+        <!-- The value alone, since "Create" reads as making a component rather than as filtering
+        on an address the engine is not carrying right now. -->
+        <template #create-item-label="{ item }">
+          <span class="font-mono">"{{ item }}"</span>
+        </template>
         <template v-if="!form.embedded" #trailing>
           <c-schema-form-node-clear-button
             v-if="!isRequired && modelValue !== undefined"
