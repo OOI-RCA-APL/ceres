@@ -42,11 +42,12 @@ function toggle() {
 request to see the workspace itself. The content may still be mounting, so the scroll waits
 until the page has grown the room to take it, and goes best-effort when nothing appears.
 */
-async function scrollToPin(top: number) {
-  if (!docked) {
-    return
-  }
+/** Scroll to `top`, for a caller carrying its own reason to move.
 
+The content may still be mounting, so the scroll waits until the page has grown the room to
+take it, and goes best-effort when nothing appears.
+*/
+async function scrollTo(top: number) {
   const deadline = performance.now() + 3000
   while (document.body.scrollHeight < top + window.innerHeight && performance.now() < deadline) {
     await new Promise((resolve) => requestAnimationFrame(resolve))
@@ -55,7 +56,7 @@ async function scrollToPin(top: number) {
   window.scrollTo({ top, behavior: 'smooth' })
 }
 
-defineExpose({ docked: $$(docked), scrollToPin })
+defineExpose({ docked: $$(docked), element: $$(element), scrollTo })
 </script>
 
 <!-- Sticky at both edges so the strip never leaves the screen, and pushed to the bottom by the

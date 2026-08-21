@@ -14,7 +14,7 @@ import { useDialogs } from '@/dialogs'
 import icons from '@/icons'
 import { useNavigation } from '@/navigation'
 import { usePersisted } from '@/persistence'
-import { useScrollMemory } from '@/scroll'
+import { peekAt, useScrollMemory } from '@/scroll'
 import { resolveTabs, useLastWorkspace, useRequestedWorkspaces, useTabs } from '@/tabs'
 import { inStandardOrder, useWorkspaces, type Workspace } from '@/workspace'
 
@@ -192,7 +192,44 @@ it when the strip is stuck to the bottom edge. The fallback selections after a c
 function revealHome(id: string) {
   persisted.workspaceCollapsed = false
   showWorkspace(id)
-  void stripRef?.scrollToPin(pinnedAt())
+  if (stripRef == null) {
+    return
+  }
+
+  // Resting at the bottom edge, the workspace is still below the fold and a peek is enough to
+  // show it has opened. Anywhere else the strip is already up the page and the choice is a
+  // request to see the workspace itself.
+  const target = stripRef.docked ? peekAt(workspaceTop(), pinnedAt()) : pinnedAt()
+  if (window.scrollY < target) {
+    void stripRef.scrollTo(target)
+  }
+}
+
+/** Show a workspace picked from the list, bringing the page down to it.
+
+Only ever downwards. Past the pin the workspace is already what fills the screen, and scrolling
+back to the pin from there would carry off whatever the user had scrolled to.
+*/
+/** Where the workspace starts, which is directly under the strip.
+
+Derived from the overview rather than read off the strip, whose own box stops describing its
+place in the page the moment it sticks to either edge.
+*/
+function workspaceTop(): number {
+  if (overviewElement == null) {
+    return 0
+  }
+
+  const bottom = overviewElement.getBoundingClientRect().bottom + window.scrollY
+  return bottom + (stripRef?.element?.getBoundingClientRect().height ?? 0)
+}
+
+function openListed(id: string) {
+  persisted.workspaceCollapsed = false
+  showWorkspace(id)
+  if (!isScrollSettled()) {
+    void stripRef?.scrollTo(peekAt(workspaceTop(), pinnedAt()))
+  }
 }
 
 /** Give the address what it asked for, then take the request back out of it.
@@ -397,7 +434,7 @@ watch(
             :placement="placement"
             :workspaces="placedWorkspaces"
             @close="closeHome"
-            @open="showWorkspace"
+            @open="openListed"
             @open-beside="openBesideHome"
             @share="shareHome"
           />

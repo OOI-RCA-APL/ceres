@@ -9,7 +9,6 @@ import { Address } from '@/api/address'
 import { useAuth } from '@/api/auth'
 import { useQuery } from '@/api/client'
 import type { ConnectionInfo, ConnectionStateInfo, JobInfo, ProcedureInfo } from '@/api/components'
-import { connectionLabel } from '@/api/components'
 import { useEngine } from '@/api/engine'
 import type { ComponentAccessLevel } from '@/api/permissions'
 import type { Connectivity } from '@/api/shared'
@@ -23,7 +22,7 @@ import icons from '@/icons'
 import { usePageParameter, useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
 import { usePersisted } from '@/persistence'
-import { useScrollMemory } from '@/scroll'
+import { peekAt, useScrollMemory } from '@/scroll'
 import { resolveTabs, useLastWorkspace, useRequestedWorkspaces, useTabs } from '@/tabs'
 import { utc } from '@/time'
 import { highlight } from '@/utilities'
@@ -226,7 +225,44 @@ it when the strip is stuck at the bottom edge. The fallback selections after a c
 function revealScoped(id: string) {
   persisted.workspaceCollapsed = false
   showWorkspace(id)
-  void stripRef?.scrollToPin(pinnedAt())
+  if (stripRef == null) {
+    return
+  }
+
+  // Resting at the bottom edge, the workspace is still below the fold and a peek is enough to
+  // show it has opened. Anywhere else the strip is already up the page and the choice is a
+  // request to see the workspace itself.
+  const target = stripRef.docked ? peekAt(workspaceTop(), pinnedAt()) : pinnedAt()
+  if (window.scrollY < target) {
+    void stripRef.scrollTo(target)
+  }
+}
+
+/** Show a workspace picked from the list, bringing the page down to it.
+
+Only ever downwards. Past the pin the workspace is already what fills the screen, and scrolling
+back to the pin from there would carry off whatever the user had scrolled to.
+*/
+/** Where the workspace starts, which is directly under the strip.
+
+Derived from the overview rather than read off the strip, whose own box stops describing its
+place in the page the moment it sticks to either edge.
+*/
+function workspaceTop(): number {
+  if (overviewElement == null) {
+    return 0
+  }
+
+  const bottom = overviewElement.getBoundingClientRect().bottom + window.scrollY
+  return bottom + (stripRef?.element?.getBoundingClientRect().height ?? 0)
+}
+
+function openListed(id: string) {
+  persisted.workspaceCollapsed = false
+  showWorkspace(id)
+  if (!isScrollSettled()) {
+    void stripRef?.scrollTo(peekAt(workspaceTop(), pinnedAt()))
+  }
 }
 
 /** Give the address what it asked for, then take the request back out of it.
@@ -619,7 +655,7 @@ const configHighlighted = $computed(() =>
                 :placement="address.toString()"
                 :workspaces="placedWorkspaces"
                 @close="closeScoped"
-                @open="showWorkspace"
+                @open="openListed"
                 @open-beside="openBesideScoped"
                 @share="shareScoped"
               />
@@ -642,7 +678,7 @@ const configHighlighted = $computed(() =>
                 :placement="address.toString()"
                 :workspaces="placedWorkspaces"
                 @close="closeScoped"
-                @open="showWorkspace"
+                @open="openListed"
                 @open-beside="openBesideScoped"
                 @share="shareScoped"
               />
@@ -657,7 +693,12 @@ const configHighlighted = $computed(() =>
                   </c-text>
                   <c-list-item v-for="connection in connections" :key="connection.name">
                     <div class="grow">
-                      <c-text variant="body3">{{ connectionLabel(connection) }}</c-text>
+                      <div class="flex items-baseline gap-2">
+                        <c-text variant="body3">{{ connection.name }}</c-text>
+                        <c-text v-if="connection.label" variant="description">
+                          {{ connection.label }}
+                        </c-text>
+                      </div>
                       <c-text variant="description">{{ connection.uri }}</c-text>
                     </div>
                     <c-tooltip

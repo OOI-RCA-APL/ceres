@@ -14,6 +14,19 @@ const positionLimit = 100
 // page jumping once the user has started reading somewhere else.
 const restoreTimeout = 3000
 
+/** How much of the content below a peek is brought on screen. Enough to read as having started
+rather than as a sliver, and short enough to leave what sits above it worth looking at. */
+const peekReveal = 160
+
+/** Where a peek lands, which is the least scrolling that brings `contentTop` into view.
+
+Never past `pin`, so a peek carries the content up to meet whatever is above it rather than
+taking its place, and never above the top of the page.
+*/
+export function peekAt(contentTop: number, pin: number): number {
+  return Math.max(0, Math.min(pin, contentTop + peekReveal - window.innerHeight))
+}
+
 /** Remember the window's scroll position for each key, and restore it when a key comes back.
 
 `key` names whatever is being switched between, and a null key is nothing to remember. The
