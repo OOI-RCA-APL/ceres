@@ -43,7 +43,7 @@
       "PRIMARY KEY (id)"
     ],
     "indexes": [
-      "CREATE INDEX ix_alerts__address ON alerts USING btree (address)",
+      "CREATE INDEX ix_alerts__address__timestamp ON alerts USING btree (address, \"timestamp\")",
       "CREATE INDEX ix_alerts__timestamp ON alerts USING btree (\"timestamp\")",
       "CREATE INDEX ix_alerts__type ON alerts USING gin (type gin_trgm_ops)",
       "CREATE UNIQUE INDEX pk_alerts ON alerts USING btree (id)"
@@ -178,7 +178,8 @@
       "PRIMARY KEY (id)"
     ],
     "indexes": [
-      "CREATE INDEX ix_logs__address ON logs USING btree (address)",
+      "CREATE INDEX ix_logs__address__level__timestamp ON logs USING btree (address, level, \"timestamp\")",
+      "CREATE INDEX ix_logs__address__timestamp ON logs USING btree (address, \"timestamp\")",
       "CREATE INDEX ix_logs__content ON logs USING gin (content gin_trgm_ops)",
       "CREATE INDEX ix_logs__timestamp ON logs USING btree (\"timestamp\")",
       "CREATE UNIQUE INDEX pk_logs ON logs USING btree (id)"
@@ -228,7 +229,9 @@
       "PRIMARY KEY (id)"
     ],
     "indexes": [
-      "CREATE INDEX ix_messages__address ON messages USING btree (address)",
+      "CREATE INDEX ix_messages__address__connection__timestamp ON messages USING btree (address, connection, \"timestamp\")",
+      "CREATE INDEX ix_messages__address__direction__timestamp ON messages USING btree (address, direction, \"timestamp\")",
+      "CREATE INDEX ix_messages__address__timestamp ON messages USING btree (address, \"timestamp\")",
       "CREATE INDEX ix_messages__connection ON messages USING btree (connection)",
       "CREATE INDEX ix_messages__data ON messages USING gin (ceres_tokenize_bytes(data) gin_trgm_ops)",
       "CREATE INDEX ix_messages__timestamp ON messages USING btree (\"timestamp\")",
@@ -300,7 +303,8 @@
       "PRIMARY KEY (id)"
     ],
     "indexes": [
-      "CREATE INDEX ix_particles__address ON particles USING btree (address)",
+      "CREATE INDEX ix_particles__address__connection__timestamp ON particles USING btree (address, connection, \"timestamp\")",
+      "CREATE INDEX ix_particles__address__timestamp ON particles USING btree (address, \"timestamp\")",
       "CREATE INDEX ix_particles__timestamp ON particles USING btree (\"timestamp\")",
       "CREATE INDEX ix_particles__type ON particles USING gin (type gin_trgm_ops)",
       "CREATE UNIQUE INDEX pk_particles ON particles USING btree (id)"

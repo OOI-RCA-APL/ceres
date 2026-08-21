@@ -425,7 +425,7 @@ mod tests {
     #[test]
     fn the_embedded_registry_parses() {
         let migrations = all();
-        assert_eq!(migrations.len(), 9);
+        assert_eq!(migrations.len(), 10);
         assert_eq!(migrations[0].id(), 1);
         assert_eq!(migrations[0].name(), "init");
 
