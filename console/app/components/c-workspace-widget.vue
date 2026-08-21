@@ -5,6 +5,7 @@ import { watch } from 'vue'
 import icons from '@/icons'
 import { useNavigation } from '@/navigation'
 import { usePreferences } from '@/preferences'
+import { keepFocusWhile } from '@/utilities'
 import {
   convertedPagesWidget,
   createWidget,
@@ -37,6 +38,10 @@ let isEditingName = $ref(false)
 // offer a real edit. The rest of the header stays the widget's drag handle.
 let isNameHovered = $ref(false)
 const isNameOffered = $computed(() => isEditingName || isNameHovered)
+
+// A menu closing hands focus back to whatever opened it, which would take the caret straight out
+// of the field the menu's own rename just opened.
+const menuContent = keepFocusWhile(() => isEditingName)
 
 const info = $computed(() => getWidgetInfo(widget.type))
 const settingsComponent = $computed(() => {
@@ -263,7 +268,7 @@ const menuItems = $computed<MenuItem[][]>(() => {
 </script>
 
 <template>
-  <c-context-menu :items="menuItems">
+  <c-context-menu :content="menuContent" :items="menuItems">
     <div
       class="relative flex h-full flex-col overflow-hidden rounded-lg"
       :class="[
@@ -295,7 +300,7 @@ const menuItems = $computed<MenuItem[][]>(() => {
         @touchstart.prevent="onPress"
       >
         <c-icon :name="icons.dragVertical" size="14" />
-        <c-dropdown-menu :items="menuItems">
+        <c-dropdown-menu :content="menuContent" :items="menuItems">
           <button
             class="flex items-center rounded-full p-0.5 opacity-60 hover:opacity-100"
             type="button"
@@ -347,7 +352,7 @@ const menuItems = $computed<MenuItem[][]>(() => {
           >
             <c-icon :name="icons.settings" size="13" />
           </button>
-          <c-dropdown-menu :items="menuItems">
+          <c-dropdown-menu :content="menuContent" :items="menuItems">
             <!-- No margin after the gear, whose own padding already matches the name gap. -->
             <button
               class="flex items-center rounded-full p-0.5 opacity-60 hover:opacity-100"
