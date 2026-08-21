@@ -688,6 +688,7 @@ provide(filterLiftKey, {
         >
           <c-filter-item
             :address-options="addressOptions"
+            :connection-options="connectionOptions"
             :focus-id="focusId"
             :group-target="groupTargetId === item.id"
             :item="item"

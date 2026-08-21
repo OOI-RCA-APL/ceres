@@ -4,7 +4,7 @@ import type { SchemaForm, SchemaObject, SchemaPath } from '@/schema-form'
 
 let modelValue: unknown = $(defineModel<unknown>({ required: true }))
 
-const { form, path } = defineProps<{
+const { form, path, schema } = defineProps<{
   form: SchemaForm
   schema: SchemaObject & { type: 'string'; format: 'address' }
   path: SchemaPath
@@ -16,11 +16,17 @@ const title = $computed(() => form.getLabel(path))
 const isRequired = $computed(() => form.getRequired(path))
 const description = $computed(() => form.getDescription(path))
 
-// Every component the engine carries, which is what an address can name. Offered as a list
-// rather than typed out, an address being long and exact.
-const items = $computed(() =>
-  engine.components.all.map((component) => component.address.toString()),
-)
+// The addresses to offer, taken from the schema where whoever built it narrowed them. Without
+// such a list every component the engine carries is offered, that being what an address can
+// name. Offered as a list rather than typed out, an address being long and exact.
+const items = $computed(() => {
+  const named = schema.examples
+  if (Array.isArray(named) && named.length > 0) {
+    return named.map(String)
+  }
+
+  return engine.components.all.map((component) => component.address.toString())
+})
 
 const selected = $computed(() => (typeof modelValue === 'string' ? modelValue : undefined))
 

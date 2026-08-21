@@ -72,14 +72,25 @@ const addressFilterOptions = $computed(() =>
   ]),
 )
 
-/** Every connection name in scope, which the bar offers as a connection condition's value. */
-const connectionFilterOptions = $computed(() => [
-  ...new Set(
-    scopedComponents.flatMap((component) =>
-      component.connections.map((connection) => connection.name),
+/** Every connection name the address filter can reach, offered as a connection condition's
+value.
+ *
+ * Drawn from the filter rather than from the workspace's placement, since a workspace at the
+ * engine root places every component in scope and a view narrowed to one of them would
+ * otherwise complete connection names belonging to the others.
+ */
+const connectionFilterOptions = $computed(() => {
+  const selected = resolvedFilter.address
+  const reachable =
+    selected == null
+      ? scopedComponents
+      : scopedComponents.filter((component) => selected.selects(component.address))
+  return [
+    ...new Set(
+      reachable.flatMap((component) => component.connections.map((connection) => connection.name)),
     ),
-  ),
-])
+  ]
+})
 
 const columns = $computed(() => [
   { label: 'Timestamp', name: 'timestamp', minWidth: 88 },
