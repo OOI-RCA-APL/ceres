@@ -476,11 +476,24 @@ impl FilterCore {
             .unwrap_or(0)
             .saturating_add(self.offset.unwrap_or(0));
 
+        // Discovery reports a superset, `children` walking the descendants range among others,
+        // so the selector decides here which branches it actually admits. That is what lets its
+        // condition come off the branch scans below.
+        let admitted = branches.iter().filter(|branch| {
+            self.node
+                .address
+                .as_ref()
+                .is_some_and(|selector| selector.matches(branch, self.node.root.as_deref()))
+        });
+
         let mut merged: Option<SelectStatement> = None;
-        for branch in branches {
+        for branch in admitted {
             let mut seek = Query::select();
             seek.column(Asterisk).from(Alias::new(self.schema.name));
-            for condition in self.node.combined_conditions(self.schema, dialect, now) {
+            for condition in
+                self.node
+                    .combined_conditions_with_address(self.schema, dialect, now, false)
+            {
                 seek.and_where(condition);
             }
 
@@ -1729,7 +1742,21 @@ impl FilterNode {
         dialect: SqlDialect,
         now: NaiveDateTime,
     ) -> Vec<SimpleExpr> {
-        let mut ands = self.conditions(table, dialect, now);
+        self.combined_conditions_with_address(table, dialect, now, true)
+    }
+
+    /// [`Self::combined_conditions`], optionally without this node's own address selector.
+    ///
+    /// Only this node's is dropped. A child's selector narrows the result further and is not
+    /// implied by the branch's equality, so it stays.
+    fn combined_conditions_with_address(
+        &self,
+        table: Schema,
+        dialect: SqlDialect,
+        now: NaiveDateTime,
+        address: bool,
+    ) -> Vec<SimpleExpr> {
+        let mut ands = self.conditions_with_address(table, dialect, now, address);
         for child in &self.and_children {
             ands.extend(child.combined_conditions(table, dialect, now));
         }
@@ -1760,12 +1787,18 @@ impl FilterNode {
         ]
     }
 
-    /// The `WHERE` conditions, in the entity's field order.
-    fn conditions(
+    /// This node's conditions, optionally without the address selector's own.
+    ///
+    /// A branch scan pins the address by equality and takes only branches the selector admits,
+    /// which makes the selector's condition redundant. Leaving it in costs the plan rather than
+    /// nothing: PostgreSQL reads the `OR` against a prefix pattern as a bitmap union, which finds
+    /// the rows but abandons the index's ordering, so the branch is read whole and sorted.
+    fn conditions_with_address(
         &self,
         table: Schema,
         dialect: SqlDialect,
         now: NaiveDateTime,
+        address: bool,
     ) -> Vec<SimpleExpr> {
         let mut conditions = Vec::new();
         if self.impossible {
@@ -1807,7 +1840,8 @@ impl FilterNode {
 
             self.operation_conditions(&mut conditions, field, dialect);
 
-            if field.family == FieldFamily::Address
+            if address
+                && field.family == FieldFamily::Address
                 && let Some(selector) = &self.address
             {
                 conditions.push(selector.condition(field.key, self.root.as_deref(), dialect));
@@ -3431,6 +3465,11 @@ mod tests {
         assert!(sql.contains("\"address\" = '@driver'"), "{sql}");
         assert!(sql.contains("\"address\" = '@driver.connection'"), "{sql}");
         assert!(sql.contains("UNION ALL"), "{sql}");
+        // The selector's own prefix match is implied by the equality and must not survive it.
+        // PostgreSQL reads the `OR` against a pattern as a bitmap union, which finds the rows
+        // and loses the ordering, so the branch is read whole rather than seeked into.
+        assert!(!sql.contains("GLOB"), "{sql}");
+        assert!(!sql.contains("LIKE"), "{sql}");
         // The filter's own conditions reach every branch rather than the merged result alone.
         assert_eq!(
             sql.matches("ORDER BY \"timestamp\" DESC LIMIT 10").count(),
