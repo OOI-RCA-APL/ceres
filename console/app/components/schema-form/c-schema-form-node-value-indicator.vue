@@ -33,11 +33,13 @@ const borderColorClass = $computed(() => {
 <template>
   <c-tooltip :disabled="error == null" :text="error ?? undefined">
     <!-- Drawn as the left edge of a box rounded like the control it marks, so the mark follows
-    the corners away rather than standing straight across them. Only the left border is painted,
-    the width giving that edge the room to curve. -->
-    <div
-      class="h-full w-[calc(var(--ui-radius)*1.5)] rounded-l-[calc(var(--ui-radius)*1.5)] border-l-2"
-      :class="borderColorClass"
-    />
+    the corners away rather than standing straight across them. Clipped to a constant width, so
+    the inside stays a straight line while the outside curves. -->
+    <div class="h-full w-0.5 overflow-hidden">
+      <div
+        class="h-full w-[calc(var(--ui-radius)*1.5)] rounded-l-[calc(var(--ui-radius)*1.5)] border-l-2"
+        :class="borderColorClass"
+      />
+    </div>
   </c-tooltip>
 </template>
