@@ -102,10 +102,10 @@ function connectivityColor(connectivity: Connectivity): string {
     title="Connections"
     @create="(widgets: Widget[]) => emit('create', widgets)"
   >
-    <template #row="{ item }">
+    <template #row="{ item, selected }">
       <div class="grow">
         <div class="flex items-baseline gap-2">
-          <c-text variant="body3">{{ item.name }}</c-text>
+          <c-text :class="selected && 'text-primary'" variant="body3">{{ item.name }}</c-text>
           <c-text v-if="item.label" variant="description">{{ item.label }}</c-text>
         </div>
         <c-text variant="description">{{ item.uri }}</c-text>

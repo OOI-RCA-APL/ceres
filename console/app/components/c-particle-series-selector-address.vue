@@ -295,9 +295,9 @@ function travelled(event: MouseEvent): boolean {
       </div>
       <div v-for="type in shownTypes" :key="type.type">
         <button
-          class="hover:bg-elevated/50 flex w-full items-center gap-1 px-2 py-0.5 text-left"
+          class="hover:bg-elevated/50 flex w-full select-none items-center gap-1 px-2 py-0.5 text-left"
           :class="[
-            typeHasSelection(type) && 'text-primary',
+            (typeHasSelection(type) || isTypeSelected(type)) && 'text-primary',
             // Neutral rather than a semantic color, so the highlight never fights the text.
             isTypeSelected(type) && 'bg-[#80808029]',
           ]"

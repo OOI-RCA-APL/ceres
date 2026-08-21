@@ -28,10 +28,10 @@ let details = $(defineModel<ParticleFieldDetails | null>({ required: true }))
         <c-text class="text-muted" variant="mono-sm">
           {{ details.address }}::particles::{{ details.type }}
         </c-text>
-        <c-text v-if="describeFieldDescription(details.field.schema)" variant="body2">
+        <c-text v-if="describeFieldDescription(details.field.schema)" variant="description">
           {{ describeFieldDescription(details.field.schema) }}
         </c-text>
-        <c-text v-else class="text-muted" variant="body2">No description.</c-text>
+        <c-text v-else variant="description">No description.</c-text>
       </div>
     </template>
   </c-modal>

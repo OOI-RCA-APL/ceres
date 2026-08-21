@@ -1,7 +1,7 @@
 <script lang="ts" setup generic="T">
 import type { ContextMenuItem } from '@nuxt/ui'
 
-import { createRowSelection } from '@/row-selection'
+import { clearOnOutsidePress, createRowSelection } from '@/row-selection'
 import type { Widget, WidgetPlacement } from '@/workspace'
 
 /** One thing a selection of rows can be turned into.
@@ -10,7 +10,8 @@ import type { Widget, WidgetPlacement } from '@/workspace'
 per-row form is offered at all.
 */
 export type DetailWidgetAction<T> = {
-  label: string
+  /** Given the rows it would build from, so a label can count what it makes. */
+  label: string | ((items: T[]) => string)
   /** How the per-row form is named, required wherever `separate` is given. */
   separateLabel?: string
   icon: string
@@ -59,6 +60,13 @@ const selectable = $computed(() => items.filter((item) => disabled?.(item) !== t
 
 const rows = createRowSelection({ ids: () => selectable.map(keyOf) })
 
+let list = $ref<HTMLElement | null>(null)
+
+clearOnOutsidePress(
+  () => list,
+  () => rows.clear(),
+)
+
 function itemsFor(keys: string[]): T[] {
   const wanted = new Set(keys)
   return selectable.filter((item) => wanted.has(keyOf(item)))
@@ -70,7 +78,7 @@ function choicesFor(keys: string[]): { label: string; icon: string; widgets: () 
   const chosen = itemsFor(keys)
   return actions.flatMap((action) => {
     const combined = {
-      label: action.label,
+      label: typeof action.label === 'string' ? action.label : action.label(chosen),
       icon: action.icon,
       widgets: () => action.combined(chosen),
     }
@@ -183,21 +191,22 @@ workspace to build widgets from what they name. -->
   corners and an element between them would take that rounding instead. -->
   <c-detail-section v-model:expanded="expanded" :title="`${title} (${items.length})`">
     <c-context-menu :items="menuItems">
-      <div @contextmenu="onListContext">
+      <div ref="list" @contextmenu="onListContext">
         <c-text v-if="items.length === 0" class="px-3" variant="description">{{ empty }}</c-text>
         <c-list-item
           v-for="item in items"
           :key="keyOf(item)"
-          :class="
+          :class="[
+            disabled?.(item) !== true && 'select-none',
             // Neutral rather than a semantic color, so the highlight never fights the text.
-            rows.isSelected(keyOf(item)) && 'bg-[#80808029]'
-          "
+            rows.isSelected(keyOf(item)) && 'bg-[#80808029]',
+          ]"
           :data-detail-blocked="disabled?.(item) === true ? '' : undefined"
           data-detail-row
           :selectable="disabled?.(item) !== true"
           v-on="handlersFor(item)"
         >
-          <slot :item="item" name="row" />
+          <slot :item="item" name="row" :selected="rows.isSelected(keyOf(item))" />
         </c-list-item>
       </div>
     </c-context-menu>
