@@ -76,8 +76,7 @@ shuffle under the pointer. */
   transition: opacity 0.15s;
 }
 
-/* Shown for the selected tab, and for any tab whose ringed dots are reporting unsaved changes,
-which has to read at rest rather than only once the pointer finds it. */
+/* Held at rest on the selected tab, alongside its close button. */
 .tab:hover .menu,
 .menuShown {
   opacity: 0.6;

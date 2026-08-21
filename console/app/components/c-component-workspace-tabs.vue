@@ -443,8 +443,6 @@ grows and the tabs pass beneath it. -->
           @keydown="onTabKeydown($event, index)"
         >
           <div class="relative flex h-full flex-nowrap items-center pl-[19px] pr-5">
-            <!-- Local changes are reported in the tab's own corner rather than on the menu button,
-            which has no room to carry a mark and nothing to do with what the mark means. -->
             <c-tooltip
               v-if="hasWorkingCopy(workspace)"
               :delay-duration="0"

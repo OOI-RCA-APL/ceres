@@ -124,8 +124,8 @@ let pendingDrop = $ref<{ placement: WidgetPlacement; keys: string[] } | null>(nu
 
 const pendingChoices = $computed(() => (pendingDrop == null ? [] : choicesFor(pendingDrop.keys)))
 
-/** What a row listens for, which a blocked row is given none of, so it stays the plain
-undecorated element it was before any of this could be built from it. */
+/** What a row listens for. A blocked row is given none of it and stays a plain undecorated
+element. */
 function handlersFor(item: T) {
   if (disabled?.(item) === true) {
     return {}

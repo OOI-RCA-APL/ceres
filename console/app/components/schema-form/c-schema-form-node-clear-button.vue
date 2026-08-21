@@ -15,7 +15,7 @@ defineProps<{
 
 <template>
   <!-- Centered here rather than by each row that holds one, the button sitting beside fields of
-  several heights and having been nudged into place one call site at a time before. -->
+  several heights. -->
   <c-button
     class="self-center"
     color="neutral"
