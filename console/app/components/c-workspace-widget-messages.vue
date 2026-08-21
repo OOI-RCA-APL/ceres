@@ -3,7 +3,6 @@ import { watch } from 'vue'
 
 import { useAccess } from '@/api/access'
 import { Address } from '@/api/address'
-import { connectionLabel } from '@/api/components'
 import { useEngine } from '@/api/engine'
 import icons from '@/icons'
 import { useNotify } from '@/notify'
@@ -23,16 +22,10 @@ const resolvedCommandAddress = $computed(() => {
   return resolved == null ? null : Address.parse(resolved.toString())
 })
 
-type ConnectionOption = {
-  label: string
-  value: string
-  description: string
-}
-
 // Only connections the workspace can address and the user may operate. Sending is an operation
 // on the component addressed, and either refusal would come back from the engine anyway, so
 // offering one is a dead end dressed up as a choice.
-const connectionItems = $computed<ConnectionOption[]>(() =>
+const connectionEntries = $computed(() =>
   engine.components.all
     .filter(
       (component) =>
@@ -40,11 +33,7 @@ const connectionItems = $computed<ConnectionOption[]>(() =>
         access.canOperate(component.address.toString()),
     )
     .flatMap((component) =>
-      component.connections.map((connection) => ({
-        label: connectionLabel(connection),
-        value: `${component.address}::connections::${connection.name}`,
-        description: `${component.address} ${connection.name}`,
-      })),
+      component.connections.map((connection) => [component.address, connection.name] as const),
     ),
 )
 const connectionModelValue = $computed(() => {
@@ -54,22 +43,9 @@ const connectionModelValue = $computed(() => {
 
   return `${resolvedCommandAddress}::connections::${widget.commandConnection}`
 })
-const connectionOptions = $computed(() => connectionItems.map((item) => item.value))
-
-// A target the offered connections no longer cover still shows as the name it was stored under.
-const selectedConnectionItem = $computed(() => {
-  if (connectionModelValue == null) {
-    return undefined
-  }
-
-  return (
-    connectionItems.find((item) => item.value === connectionModelValue) ?? {
-      label: widget.commandConnection ?? '',
-      value: connectionModelValue,
-      description: resolvedCommandAddress?.toString() ?? '',
-    }
-  )
-})
+const connectionOptions = $computed(() =>
+  connectionEntries.map(([address, name]) => `${address}::connections::${name}`),
+)
 
 // A widget with no target starts on the first connection the workspace can reach, which on
 // a component-bound workspace is almost always the one meant. A target that no longer
@@ -243,15 +219,13 @@ async function submit() {
           <div class="ml-1 min-w-20 shrink-0 pr-1 pl-4">
             <c-select-menu
               class="w-full"
-              :items="connectionItems"
-              :model-value="selectedConnectionItem"
+              :items="[...connectionOptions]"
+              :model-value="connectionModelValue ?? undefined"
               placeholder="To"
               size="xs"
               :ui="{ base: 'font-mono text-[10px]' }"
               variant="ghost"
-              @update:model-value="
-                (option?: ConnectionOption) => onConnectionModelUpdate(option?.value ?? null)
-              "
+              @update:model-value="(value: string) => onConnectionModelUpdate(value ?? null)"
             />
           </div>
         </div>
