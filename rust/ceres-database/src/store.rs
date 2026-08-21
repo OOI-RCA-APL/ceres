@@ -129,7 +129,7 @@ where
     DB: sqlx::Database,
     for<'c> &'c mut DB::Connection: sqlx::Executor<'c, Database = DB>,
 {
-    use sqlx::Executor;
+    use sqlx::{AssertSqlSafe, Executor};
 
     let mut options = options;
     if !on_init.is_empty() || !on_connect.is_empty() {
@@ -144,7 +144,7 @@ where
                 started
                     .get_or_try_init(|| async {
                         for statement in initial.iter() {
-                            connection.execute(statement.as_str()).await?;
+                            connection.execute(AssertSqlSafe(statement.clone())).await?;
                         }
 
                         Ok::<(), sqlx::Error>(())
@@ -154,7 +154,7 @@ where
                 // One at a time because these are separate configured statements rather
                 // than a script, and the one that failed is the one worth naming.
                 for statement in statements.iter() {
-                    connection.execute(statement.as_str()).await?;
+                    connection.execute(AssertSqlSafe(statement.clone())).await?;
                 }
 
                 Ok(())
@@ -168,7 +168,7 @@ where
             let statements = statements.clone();
             Box::pin(async move {
                 for statement in statements.iter() {
-                    connection.execute(statement.as_str()).await?;
+                    connection.execute(AssertSqlSafe(statement.clone())).await?;
                 }
 
                 Ok(false)
