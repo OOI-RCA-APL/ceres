@@ -153,6 +153,38 @@ async def test_an_or_group_still_reaches_rows_outside_the_selector():
     assert [str(entry.address) for entry in found] == [str(entry.address) for entry in expected]
 
 
+async def test_a_subtree_wider_than_the_cap_still_answers_correctly():
+    """Past the cap the listing falls back to the range form, which must agree with the union.
+
+    The fallback is invisible from here by design, so what this holds is the only thing that
+    matters about it: the rows are the same either way. A cap that changed the answer rather than
+    the plan would show up as a page that is wrong rather than slow.
+    """
+    database = Database()
+    await database.migrate()
+    manager = LogEntry.Manager(database)
+    await manager.where().delete()
+
+    # One past `BRANCH_CAP`, which is 256.
+    written: list[LogEntry] = []
+    for index in range(257):
+        for entity in await arbitrary(
+            LogEntry,
+            {
+                "address": f"@wide.branch{index:04d}",
+                "timestamp": (_BASE + timedelta(seconds=index)).isoformat(),
+            },
+        ):
+            if isinstance(entity, LogEntry):
+                await manager._insert(entity)
+                written.append(entity)
+
+    written.sort(key=lambda entry: entry.timestamp, reverse=True)
+    found = await manager.where(address="@wide:all", order="timestamp:desc", limit=10)
+
+    assert [str(entry.address) for entry in found] == [str(entry.address) for entry in written[:10]]
+
+
 async def test_a_subtree_holding_nothing_returns_nothing():
     manager, _ = await _written()
 
