@@ -50,12 +50,15 @@ const loaded = $computed(() => engine.config.data != null)
 <template>
   <c-app>
     <c-app-boundary>
-      <div v-if="!loaded" class="flex h-screen w-screen items-center justify-center">
-        <c-icon class="size-8 animate-spin text-primary" name="i-mdi-loading" />
-      </div>
-      <nuxt-layout v-else>
+      <nuxt-layout>
         <nuxt-page />
       </nuxt-layout>
+      <!-- Over the app rather than instead of it. Swapping the page out for a spinner leaves
+      the router with nothing mounted to hand a route to, which Nuxt reports as `NuxtPage`
+      going unused. -->
+      <div v-if="!loaded" class="bg-default fixed inset-0 z-50 flex items-center justify-center">
+        <c-icon class="size-8 animate-spin text-primary" name="i-mdi-loading" />
+      </div>
     </c-app-boundary>
   </c-app>
 </template>
