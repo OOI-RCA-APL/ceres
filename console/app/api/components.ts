@@ -103,6 +103,9 @@ export const ParticleTypeInfoModel = z.object({
   type: z.string(),
   description: z.string().nullish(),
   fields: z.array(ParticleFieldInfoModel),
+  // The connections stamped on this type's stored records, empty when unattributed. A lower
+  // bound that narrows pickers, never a set to filter queries on.
+  connections: z.array(z.string()).default([]),
 })
 
 export type ComponentInfo = {

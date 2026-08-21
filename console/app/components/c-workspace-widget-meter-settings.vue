@@ -104,6 +104,7 @@ const selected = $computed<ParticleFieldRef[]>({
           <c-particle-connection-select
             :address="resolvedParticleAddress"
             :model-value="widget.particleConnection ?? null"
+            :particle-type="widget.particleType ?? null"
             @update:model-value="(value) => (widget.particleConnection = value)"
           />
         </div>

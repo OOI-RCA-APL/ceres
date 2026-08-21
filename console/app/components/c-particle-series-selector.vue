@@ -260,9 +260,21 @@ const selectedGroups = $computed<SelectedAddressGroup[]>(() => {
   }))
 })
 
-/** The connections the component at `address` declares, for narrowing a group to one. */
-function connectionsFor(address: string) {
-  return engine.components.get(address)?.connections ?? []
+/** The connections a group's type can narrow to.
+
+The type's declared connections are the ones its records carry, so they are the whole
+useful list. A type declaring none is unattributed and falls back to every connection the
+component has, which at least bounds the choice.
+*/
+function connectionsFor(group: SelectedTypeGroup, address: string): string[] {
+  const declared = declaredByAddress
+    .get(address)
+    ?.find((current) => current.type === group.type)?.connections
+  if (declared != null && declared.length > 0) {
+    return [...declared]
+  }
+
+  return (engine.components.get(address)?.connections ?? []).map((connection) => connection.name)
 }
 
 function connectionItems(group: SelectedTypeGroup, address: string): DropdownMenuItem[][] {
@@ -273,11 +285,17 @@ function connectionItems(group: SelectedTypeGroup, address: string): DropdownMen
     onSelect: () => (modelValue = withGroupConnection(modelValue, group.index, null)),
   }
 
-  const declared = connectionsFor(address).map((connection) => ({
-    label: connection.name,
+  // A stored connection the list no longer carries still shows as itself.
+  const names = connectionsFor(group, address)
+  if (group.connection != null && !names.includes(group.connection)) {
+    names.push(group.connection)
+  }
+
+  const declared = names.map((connection) => ({
+    label: connection,
     type: 'checkbox' as const,
-    checked: group.connection === connection.name,
-    onSelect: () => (modelValue = withGroupConnection(modelValue, group.index, connection.name)),
+    checked: group.connection === connection,
+    onSelect: () => (modelValue = withGroupConnection(modelValue, group.index, connection)),
   }))
 
   return [[every], declared].filter((entries) => entries.length > 0)

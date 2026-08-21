@@ -76,15 +76,30 @@ function recomputeExtent() {
   }
 }
 
-/** The connections found producing each group's type, by `address|type`.
+/** The connections found producing each undeclared group's type, by `address|type`.
 
-Nothing declares which connections produce which type, so an unfiltered load is what reveals
-it. A type one connection produces is never split and costs no extra query.
+The fallback for a type declaring no connections, where only an unfiltered load reveals
+what its records carry. A type one connection produces is never split and costs no extra
+query.
 */
 const splitConnections = $ref<Record<string, string[]>>({})
 
 function groupKey(particle: ChartWidgetParticle): string {
   return `${particle.address?.toString() ?? ''}|${particle.type ?? ''}`
+}
+
+/** The connections the group's type declares its records carry, deciding the split before
+any records load. */
+function declaredConnections(particle: ChartWidgetParticle): string[] {
+  const address = workspace.resolveAddress(particle.address)
+  if (address == null || particle.type == null) {
+    return []
+  }
+
+  return (
+    engine.components.get(address.toString())?.particles.find((type) => type.type === particle.type)
+      ?.connections ?? []
+  )
 }
 
 /** The connections a group draws a line each for, empty where it draws one line for all. */
@@ -93,7 +108,8 @@ function splitFor(particle: ChartWidgetParticle): string[] {
     return []
   }
 
-  const found = splitConnections[groupKey(particle)] ?? []
+  const declared = declaredConnections(particle)
+  const found = declared.length > 0 ? declared : (splitConnections[groupKey(particle)] ?? [])
   return found.length > 1 ? found : []
 }
 
@@ -432,17 +448,19 @@ async function load() {
         } else {
           const particles = await fetchParticles(group, group.connection ?? null)
 
-          // What the records themselves say produced this type, nothing else declaring it.
-          const found =
-            group.connection == null
-              ? [
-                  ...new Set(
-                    particles.map((particle) => particle.connection).filter((name) => name != null),
-                  ),
-                ].sort()
-              : []
+          // What the records themselves say produced this type, only for a type declaring
+          // nothing, since `splitFor` answers from the declaration otherwise and a split
+          // decided here would draw lines it does not expect.
+          const discovering = group.connection == null && declaredConnections(group).length === 0
+          const found = discovering
+            ? [
+                ...new Set(
+                  particles.map((particle) => particle.connection).filter((name) => name != null),
+                ),
+              ].sort()
+            : []
 
-          if (group.connection == null) {
+          if (discovering) {
             splitConnections[groupKey(group)] = found
           }
 
