@@ -62,13 +62,6 @@ function measure() {
   indicatorBox = { top: box.top - root.getBoundingClientRect().top, height: box.height }
 }
 
-/** The radius a control's corners are drawn with, which the bar is held inside.
-
-Taken from the token the controls round with rather than measured off one, so it cannot
-disagree with them and needs no second layout pass to find out.
-*/
-const controlRadius = 'var(--ui-radius) * 1.5'
-
 useResizeObserver($$(root), measure)
 watchEffect(() => {
   void modelValue
@@ -167,10 +160,7 @@ function isFormat(format: string) {
       :style="{
         zIndex: path.length,
         ...(indicatorBox != null
-          ? {
-              top: `calc(${indicatorBox.top}px + ${controlRadius})`,
-              height: `calc(${indicatorBox.height}px - ${controlRadius} * 2)`,
-            }
+          ? { top: `${indicatorBox.top}px`, height: `${indicatorBox.height}px` }
           : {}),
       }"
     />

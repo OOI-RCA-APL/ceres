@@ -52,7 +52,9 @@ const selected = $computed<ParticleFieldRef[]>({
 
 <template>
   <c-workspace-widget-settings :widget>
-    <div class="border-default mb-4 rounded-md border p-2">
+    <!-- A fixed height, since a meter with no field reads out the whole record and the payload
+    resizes with every one that arrives, moving the fields below it out from under the pointer. -->
+    <div class="border-default mb-4 h-24 overflow-hidden rounded-md border p-2">
       <c-workspace-widget-meter :widget="widget" />
     </div>
     <div>
