@@ -14,16 +14,31 @@ written, and the release workflow refuses a version that has no entry here.
   fills in.
 - Give a connection a `label` and a `description`, the description defaulting to the
   docstring of the component field holding it.
+- Report the connections stamped on each particle type's records alongside its fields.
 
 **Python API**
 
 - Rename `Source.label` to `Source.uri`, which every source answers as a URI.
 - Accept several connections on `@sieve`, given separately or as a sequence.
 
+**Web Console**
+
+- Show the connection a message or particle arrived on.
+- Filter a chart series group to one connection, and draw a line per connection for a type
+  several of them produce.
+- Set how many decimal places a chart or meter reads a value to.
+- Fit a chart's Y axis to the shown series or to all of them, with a separate toggle for
+  anchoring at zero.
+- Choose a connection for a meter.
+- Peek a workspace into view when it is chosen from a list or from a docked tab strip.
+
 **Fixes**
 
+- Draw every console icon from the bundle rather than fetching any from a public service,
+  which left a console on an isolated network showing none of them.
 - Host the engine on the environment's own interpreter when running from a development
   source, rather than whichever one `PATH` offers.
+- Dismiss an inline rename opened from a menu when the pointer goes elsewhere.
 
 ## [0.45.2] - 2026-08-19
 
