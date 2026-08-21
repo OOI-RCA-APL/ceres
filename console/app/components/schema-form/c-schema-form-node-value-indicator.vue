@@ -1,5 +1,4 @@
 <script lang="ts" setup>
-import { isType } from '@/schema-form'
 import type { SchemaForm, SchemaPath } from '@/schema-form'
 
 const modelValue = $(defineModel<unknown>({ required: true }))
@@ -12,15 +11,9 @@ const { form, path } = defineProps<{
 const isDefined = $computed(() => modelValue !== undefined)
 const isRequired = $computed(() => form.getRequired(path))
 
-const isContainer = $computed(() => {
-  const schema = form.getSchema(path)
-  return schema != null && (isType(schema, 'object') || isType(schema, 'array'))
-})
-
-// A bar drawn around a whole form repeats what its fields already say, and an embedded field
-// is drawn in the run of a sentence where one reads as clutter. A field standing on its own
-// is a root as much as a form is, so the depth alone does not decide this.
-const isHidden = $computed(() => form.embedded || (isRequired && path.length === 0 && isContainer))
+// The bar says whether an optional value has been set, so a field that must have one has
+// nothing to report.
+const isHidden = $computed(() => isRequired && path.length === 0)
 const error = $computed(() => form.getValidationErrorMessage(path))
 const backgroundColorClass = $computed(() => {
   if (error != null) {

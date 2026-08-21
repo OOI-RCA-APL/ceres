@@ -58,20 +58,16 @@ function measure() {
     return
   }
 
-  // Held to the straight run of the control's left edge, since a bar carried across the corners
-  // stands away from a border that has already curved off from it.
-  const style = getComputedStyle(control)
-  const radius = Math.max(
-    parseFloat(style.borderTopLeftRadius) || 0,
-    parseFloat(style.borderBottomLeftRadius) || 0,
-  )
-
   const box = control.getBoundingClientRect()
-  indicatorBox = {
-    top: box.top - root.getBoundingClientRect().top + radius,
-    height: Math.max(0, box.height - radius * 2),
-  }
+  indicatorBox = { top: box.top - root.getBoundingClientRect().top, height: box.height }
 }
+
+/** The radius a control's corners are drawn with, which the bar is held inside.
+
+Taken from the token the controls round with rather than measured off one, so it cannot
+disagree with them and needs no second layout pass to find out.
+*/
+const controlRadius = 'var(--ui-radius) * 1.5'
 
 useResizeObserver($$(root), measure)
 watchEffect(() => {
@@ -171,7 +167,10 @@ function isFormat(format: string) {
       :style="{
         zIndex: path.length,
         ...(indicatorBox != null
-          ? { top: `${indicatorBox.top}px`, height: `${indicatorBox.height}px` }
+          ? {
+              top: `calc(${indicatorBox.top}px + ${controlRadius})`,
+              height: `calc(${indicatorBox.height}px - ${controlRadius} * 2)`,
+            }
           : {}),
       }"
     />

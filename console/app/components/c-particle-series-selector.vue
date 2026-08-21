@@ -411,7 +411,7 @@ function addManualEntry() {
 
     <template v-if="showSelected">
       <div class="mt-4 pb-1">
-        <c-text variant="th">Series</c-text>
+        <c-text variant="title3">Series</c-text>
       </div>
       <div class="border-default rounded-md border pb-1">
         <div v-if="selectedGroups.length === 0" class="px-2 py-1">
@@ -503,7 +503,7 @@ function addManualEntry() {
             :name="icons.chevronRight"
             size="12"
           />
-          <c-text variant="body3">Manual Entry</c-text>
+          <c-text variant="title3">Manual Entry</c-text>
         </button>
         <div v-if="isManualEntryOpen" class="flex flex-col gap-2 p-2 pt-3">
           <c-workspace-address-select v-model="manualAddress" />

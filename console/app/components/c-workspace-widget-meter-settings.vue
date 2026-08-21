@@ -77,7 +77,7 @@ const selected = $computed<ParticleFieldRef[]>({
             :name="icons.chevronRight"
             size="14"
           />
-          <c-text variant="body2">Manual Entry</c-text>
+          <c-text variant="title3">Manual Entry</c-text>
         </button>
         <div v-if="isManualEntryOpen" class="flex flex-col gap-2 p-2">
           <c-workspace-address-select
