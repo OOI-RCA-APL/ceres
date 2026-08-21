@@ -198,6 +198,23 @@ else:
     SieveConfig = object
 
 
+def _sole_connection(config: SieveConfig) -> str | None:
+    """The connection a sieve's particles came from, when only one could have produced them.
+
+    A sieve reading several connections cannot attribute a particle to one of them, and a
+    buffered sieve may build a particle from bytes that arrived on more than one message,
+    so anything but a single bound connection is left unattributed rather than guessed.
+    """
+    named = getattr(config.filter, "connection", None) if config.filter else None
+    if isinstance(named, str):
+        return named
+
+    if isinstance(named, (list, tuple)) and len(named) == 1:
+        return str(named[0])
+
+    return None
+
+
 class SieveManager(BaseComponentTaskManager[SieveConfig]):
     """Manage the lifecycle of `Sieve` instances within a component.
 
@@ -221,23 +238,6 @@ class SieveManager(BaseComponentTaskManager[SieveConfig]):
 
         return config
 
-    @staticmethod
-    def _sole_connection(config: SieveConfig) -> str | None:
-        """The connection a sieve's particles came from, when only one could have produced them.
-
-        A sieve reading several connections cannot attribute a particle to one of them, and a
-        buffered sieve may build a particle from bytes that arrived on more than one message,
-        so anything but a single bound connection is left unattributed rather than guessed.
-        """
-        named = getattr(config.filter, "connection", None) if config.filter else None
-        if isinstance(named, str):
-            return named
-
-        if isinstance(named, (list, tuple)) and len(named) == 1:
-            return str(named[0])
-
-        return None
-
     @override
     async def process(self, config: SieveConfig) -> None:
         """Run the sieve described by `config`, restarting on failure per its retry policy.
@@ -248,7 +248,7 @@ class SieveManager(BaseComponentTaskManager[SieveConfig]):
         """
         self.__system__.events.emit(SieveStartedEvent, sieve=config.name)
         retry = 0
-        source = self._sole_connection(config)
+        source = _sole_connection(config)
 
         try:
             while True:

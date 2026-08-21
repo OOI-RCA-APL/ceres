@@ -2,12 +2,17 @@ import traceback
 from functools import cache
 from typing import TYPE_CHECKING, Any, Literal
 
+from pydantic import Field
+
 from ceres.__internal__.app.shared import (
     get_component_access,
     get_components_access,
 )
 from ceres.__internal__.interop import _self_contained
-from ceres.__internal__.particles import declared_particle_classes
+from ceres.__internal__.particles import (
+    declared_particle_classes,
+    declared_particle_connections,
+)
 from ceres.__internal__.utilities.text import strify
 from ceres.address import Address
 from ceres.component import (
@@ -19,7 +24,7 @@ from ceres.component import (
     QueryBinding,
 )
 from ceres.connectivity import Connectivity
-from ceres.data import DataModel, DataObject, DateTime, Name, to_json_schema
+from ceres.data import DataModel, DataObject, DateTime, Name, replace, to_json_schema
 from ceres.error import (
     NotConnectedError,
     NotFoundError,
@@ -62,6 +67,12 @@ class ParticleTypeInfo(DataObject):
     type: str
     description: str | None
     fields: list[ParticleFieldInfo]
+    connections: list[Name] = Field(default_factory=list)
+    """The connections stamped on this type's stored records, empty when unattributed.
+
+    A lower bound that narrows what a console offers, never a set to gate queries on,
+    since a component may emit records this listing does not mention.
+    """
 
 
 class ComponentInfo(DataObject):
@@ -351,12 +362,18 @@ def _describe_particle_class(cls: type[Particle]) -> ParticleTypeInfo:
 def _described_particle_classes(component: Component) -> list[ParticleTypeInfo]:
     """Describe the component's declared particle classes, dropping any whose schema fails
     to generate so one bad model cannot fail the whole components listing."""
+    connections = declared_particle_connections(component)
     result: list[ParticleTypeInfo] = []
     for cls in declared_particle_classes(component):
         try:
-            result.append(_describe_particle_class(cls))
+            info = _describe_particle_class(cls)
         except Exception:
             traceback.print_exc()
+            continue
+
+        # Copied rather than mutated, the described info being cached per class while the
+        # connections belong to this component instance.
+        result.append(replace(info, connections=connections.get(info.type, [])))
 
     return result
 
