@@ -200,11 +200,25 @@ function onDoubleClick(type: string, field: ParticleFieldInfo) {
   }
 }
 
+// Never prevent the default here. A wrapping context menu opens only on an event nothing has
+// defaulted, and it suppresses the native menu itself.
 function onContext(type: string, field: string, event: MouseEvent) {
   if (selectionMode === 'highlight') {
-    event.preventDefault()
     emit('context', type, field, event)
   }
+}
+
+// A context menu opens on a context menu event alone, so the button raises one at its own
+// corner rather than the row carrying a second copy of the host's items.
+function onActions(event: MouseEvent) {
+  ;(event.target as HTMLElement).dispatchEvent(
+    new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      clientX: event.clientX,
+      clientY: event.clientY,
+    }),
+  )
 }
 
 // Only a plain press is offered as a drag. A modified press is a selection gesture, and the
@@ -259,6 +273,7 @@ function onPointerDown(type: string, field: string, event: PointerEvent) {
               // Neutral rather than a semantic color, so the highlight never fights the text.
               selectionMode === 'highlight' && isFieldOn(type.type, field.name) && 'bg-[#80808029]',
             ]"
+            data-particle-field
             @click="onClick(type.type, field, $event as MouseEvent)"
             @contextmenu="onContext(type.type, field.name, $event as MouseEvent)"
             @dblclick="onDoubleClick(type.type, field)"
@@ -298,7 +313,8 @@ function onPointerDown(type: string, field: string, event: PointerEvent) {
                 size="xs"
                 square
                 variant="ghost"
-                @click.stop="onContext(type.type, field.name, $event as MouseEvent)"
+                @click.stop="onActions($event as MouseEvent)"
+                @pointerdown.stop
               />
             </c-tooltip>
           </div>

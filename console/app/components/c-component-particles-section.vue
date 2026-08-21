@@ -77,6 +77,14 @@ const menuItems = $computed<ContextMenuItem[][]>(() => [
   ],
 ])
 
+// Every item here acts on a field, so a right click landing elsewhere in the tree is defaulted
+// and the menu's trigger leaves it alone.
+function onTreeContext(event: MouseEvent) {
+  if ((event.target as HTMLElement).closest('[data-particle-field]') == null) {
+    event.preventDefault()
+  }
+}
+
 function showDetails() {
   if (contextRef == null) {
     return
@@ -92,7 +100,11 @@ function showDetails() {
   detailsField = { address: contextRef.address, type: contextRef.type, field }
 }
 
-/** One chart plotting every given field, grouped the same way the selectors' toggles group. */
+/** One chart plotting every given field, grouped the same way the selectors' toggles group.
+
+A chart of one field is named after it, since that name is the whole of what it plots. Several
+fields keep the default, no one of them standing for the rest.
+*/
 function chartWidgetFor(refs: ParticleFieldRef[]): ChartWidget | null {
   if (refs.length === 0) {
     return null
@@ -104,6 +116,9 @@ function chartWidgetFor(refs: ParticleFieldRef[]): ChartWidget | null {
       toggleParticleField(particles, address.toString(), ref.type, ref.field, true),
     [],
   )
+  if (refs.length === 1) {
+    widget.name = toTitle(refs[0]!.field)
+  }
 
   return widget
 }
@@ -151,10 +166,6 @@ function onItemPress(event: PointerEvent, ref: ParticleFieldRef) {
     return
   }
 
-  // Named after what is in hand rather than the kind, since what the drop creates is only chosen
-  // on release.
-  widget.name = refs.length === 1 ? toTitle(refs[0]!.field) : `${refs.length} Fields`
-
   insertDrag([widget], (placement) => {
     if (placement != null) {
       pendingDrop = { placement, refs }
@@ -181,15 +192,7 @@ function dropSeparateCharts() {
     return
   }
 
-  const widgets = pendingDrop.refs.flatMap((ref) => {
-    const widget = chartWidgetFor([ref])
-    if (widget == null) {
-      return []
-    }
-
-    widget.name = toTitle(ref.field)
-    return [widget]
-  })
+  const widgets = pendingDrop.refs.flatMap((ref) => chartWidgetFor([ref]) ?? [])
   insertAt?.(widgets, pendingDrop.placement)
   pendingDrop = null
 }
@@ -215,6 +218,7 @@ function dropMeters() {
           frameless
           item-actions
           selection-mode="highlight"
+          @contextmenu="onTreeContext"
           @item-context="(event, ref) => (contextRef = ref)"
           @item-press="onItemPress"
         />
