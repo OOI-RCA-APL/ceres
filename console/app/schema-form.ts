@@ -30,6 +30,10 @@ export type SchemaObject = BaseSchemaObject & {
 }
 
 export type Schema = boolean | SchemaObject
+
+/** Where a field's label and control sit across the width it is given. */
+export type SchemaFormAlign = 'start' | 'center' | 'end'
+
 export type SchemaFormOptions = {
   value?: MaybeRefOrGetter<Plain>
   initial?: Plain
@@ -41,6 +45,16 @@ export type SchemaFormOptions = {
   rest of a bar, where the field is already named by what it sits in.
   */
   embedded?: MaybeRefOrGetter<boolean>
+
+  /** Draw each field's type after its label, on unless a form reads as plain settings.
+
+  A form standing in for a schema says what each value accepts, where one holding a handful of
+  named settings would only be repeating what the label and the control already show.
+  */
+  showTypes?: MaybeRefOrGetter<boolean>
+
+  /** Where each field's label and control sit across its width. */
+  align?: MaybeRefOrGetter<SchemaFormAlign>
   /** Undefined compiles as the permissive schema, so a caller editing a schema as text can hand
   over nothing while the text is briefly invalid. */
   schema?: MaybeRefOrGetter<Schema | undefined>
@@ -79,6 +93,8 @@ export function useSchemaForm(options: SchemaFormOptions) {
   const rootSchema = $computed(() => toValue(options.schema))
   const readonly = $computed(() => toValue(options.readonly) ?? false)
   const embedded = $computed(() => toValue(options.embedded) ?? false)
+  const showTypes = $computed(() => toValue(options.showTypes) ?? true)
+  const align = $computed(() => toValue(options.align) ?? 'start')
   const onUpdate = $computed(() => options.onUpdate ?? (() => {}))
   const onSubmit = $computed(() => options.onSubmit ?? (() => {}))
   const persist = $computed(() => toValue(options.persist))
@@ -541,6 +557,8 @@ export function useSchemaForm(options: SchemaFormOptions) {
     editable: computed(() => state === 'editing'),
     readonly: computed(() => state !== 'editing'),
     embedded: computed(() => embedded),
+    showTypes: computed(() => showTypes),
+    align: computed(() => align),
     submitting: computed(() => state === 'submitting'),
     reset,
     submit,
