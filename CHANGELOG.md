@@ -8,6 +8,24 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+**Web Console**
+
+- Choose what shape each chart series is drawn in, so one chart can carry a line and a
+  scatter together. An existing chart draws every series as a line until each one is set.
+- Draw a workspace's icon on every tab, shared as well as private, and mark an edited
+  workspace beside it.
+- Show a tab's close button faintly at rest.
+
+**Fixes**
+
+- Redraw a chart series when its shape changes, which left the chart empty until it was
+  reloaded.
+- Reach zero from whichever side a chart's data leaves free when its axis is anchored there,
+  so an all-negative series hangs from a zero at the top.
+- Draw a record view's connection filter with an icon that reads as a link rather than as a
+  power plug.
+- Hold a color swatch round where the row it sits in runs out of room.
+
 ## [0.46.0] - 2026-08-21
 
 **Engine**
