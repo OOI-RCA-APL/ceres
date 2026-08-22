@@ -36,6 +36,15 @@ describe('a chart widget', () => {
   it('keeps the fit it was stored with', () => {
     expect(ChartWidgetModel.parse({ type: 'chart', fit: 'all-data' }).fit).toBe('all-data')
   })
+
+  it('draws each series in the shape it chose, falling back to a line', () => {
+    const widget = ChartWidgetModel.parse({
+      type: 'chart',
+      particles: [{ series: [{ field: 'pressure' }, { field: 'temperature', type: 'scatter' }] }],
+    })
+
+    expect(widget.particles[0]?.series.map((series) => series.type)).toEqual(['line', 'scatter'])
+  })
 })
 
 describe('a stored widget of an unknown kind', () => {

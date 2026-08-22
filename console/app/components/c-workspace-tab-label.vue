@@ -42,10 +42,16 @@ whoever is using it lands somewhere. -->
     :text="`${placement} / ${workspace.name}`"
   >
     <span class="flex min-w-0 flex-nowrap items-center">
-      <!-- Only a private workspace is marked, its icon saying who can see it. A shared one needs no
-      mark, a strip of tabs inviting reordering on its own. -->
-      <c-tooltip v-if="isPrivate" :delay-duration="1000" text="This workspace is private to you.">
-        <c-icon class="mr-[5px] shrink-0 text-[15px]" :name="icons.privateWorkspace" />
+      <!-- Every tab says who can see its workspace, which is what tells one belonging to the
+      engine from one belonging to a person. -->
+      <c-tooltip
+        :delay-duration="1000"
+        :text="isPrivate ? 'This workspace is private to you.' : 'This workspace is shared.'"
+      >
+        <c-icon
+          class="mr-[5px] shrink-0 text-[15px]"
+          :name="isPrivate ? icons.privateWorkspace : icons.workspace"
+        />
       </c-tooltip>
       <!-- The address is what tells two same-named tabs apart so it keeps its full width while the
       name truncates. It is dimmed so the eye lands on what the tab is with the context still

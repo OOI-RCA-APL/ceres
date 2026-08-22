@@ -147,18 +147,20 @@ function onInput(value: string | number) {
   <div :class="form.embedded && 'contents'">
     <!-- Embedded leaves the naming to whatever the field is sitting in, which is the only reason
     a field would be drawn without it. -->
-    <label
+    <c-schema-form-node-label
       v-if="!form.embedded"
-      class="mb-1 flex cursor-text items-baseline gap-1"
+      :align="form.align"
+      class="cursor-text"
+      element="label"
+      :label="title"
+      :schema-type="schemaType"
+      :show-type="form.showTypes"
       @click="focusInput()"
     >
-      <c-text inline variant="mono-sm">{{ title }}</c-text>
-      <c-text class="text-muted" inline variant="mono-sm">
-        <span class="mx-1">{{ '⸱' }}</span>
-        <span>{{ schemaType }}</span>
+      <template v-if="$slots['label-append']" #label-append>
         <slot name="label-append" />
-      </c-text>
-    </label>
+      </template>
+    </c-schema-form-node-label>
     <!-- The imported components, not their names, a string here resolving only against locally
     registered ones and rendering an unknown element with no field in it. -->
     <!-- Embedded lays the trailing controls out beside the field rather than over it. Nuxt UI

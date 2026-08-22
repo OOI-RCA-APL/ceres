@@ -18,17 +18,26 @@ const derivedUnit = $(useDerivedChartUnit(() => widget, workspace).unit)
     <c-text class="mb-2" variant="title2">Particles</c-text>
     <!-- The selector's own "Manual Entry" section carries the margin under it. -->
     <c-particle-series-selector v-model="widget.particles" collapse-unselected show-selected />
+    <c-text class="mb-2" variant="title2">Time Range</c-text>
+    <div class="mb-4 grid grid-cols-2 gap-x-2">
+      <c-schema-form-value
+        v-model="widget.after"
+        :schema="{ type: 'string', format: 'date-time', title: 'After', optional: true }"
+      />
+      <c-schema-form-value
+        v-model="widget.timespan"
+        :schema="{
+          type: 'string',
+          format: 'duration',
+          title: 'Timespan',
+          optional: true,
+          default: '1h',
+        }"
+      />
+    </div>
     <c-text class="mb-2" variant="title2">Display</c-text>
     <div class="flex flex-col gap-1">
       <div class="grid grid-cols-2 gap-x-2">
-        <c-schema-form-value
-          v-model="widget.display"
-          :schema="{
-            type: 'string',
-            title: 'Display',
-            enum: ['line', 'scatter', 'bar'],
-          }"
-        />
         <c-schema-form-value
           v-model="widget.unit"
           :schema="{
@@ -36,33 +45,6 @@ const derivedUnit = $(useDerivedChartUnit(() => widget, workspace).unit)
             title: 'Unit (Y Axis)',
             optional: true,
             default: derivedUnit || undefined,
-          }"
-        />
-      </div>
-      <div class="grid grid-cols-2 gap-x-2">
-        <c-schema-form-value
-          v-model="widget.after"
-          :schema="{ type: 'string', format: 'date-time', title: 'After', optional: true }"
-        />
-        <c-schema-form-value
-          v-model="widget.timespan"
-          :schema="{
-            type: 'string',
-            format: 'duration',
-            title: 'Timespan',
-            optional: true,
-            default: '1h',
-          }"
-        />
-      </div>
-      <!-- A row gap as well, this being the one block that wraps onto a second row. -->
-      <div class="grid grid-cols-2 gap-x-2 gap-y-1">
-        <c-schema-form-value
-          v-model="widget.fit"
-          :schema="{
-            type: 'string',
-            title: 'Fit To (Y Axis)',
-            enum: ChartWidgetFitModel.options,
           }"
         />
         <c-schema-form-value
@@ -75,19 +57,34 @@ const derivedUnit = $(useDerivedChartUnit(() => widget, workspace).unit)
             default: 2,
           }"
         />
+      </div>
+      <div class="grid grid-cols-4 gap-x-2">
+        <c-schema-form-value
+          v-model="widget.fit"
+          class="col-span-2"
+          :schema="{
+            type: 'string',
+            title: 'Fit To (Y Axis)',
+            enum: ChartWidgetFitModel.options,
+          }"
+        />
         <c-schema-form-value
           v-model="widget.fromZero"
+          align="center"
           :schema="{
             type: 'boolean',
             title: 'From Zero',
           }"
+          :show-type="false"
         />
         <c-schema-form-value
           v-model="widget.flipY"
+          align="center"
           :schema="{
             type: 'boolean',
             title: 'Flip Y Axis',
           }"
+          :show-type="false"
         />
       </div>
     </div>

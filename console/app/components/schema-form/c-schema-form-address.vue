@@ -37,13 +37,13 @@ function onClear() {
 
 <template>
   <div :class="form.embedded && 'contents'">
-    <div v-if="!form.embedded" class="mb-1 flex items-baseline gap-1">
-      <c-text inline variant="mono-sm">{{ title }}</c-text>
-      <c-text class="text-muted" inline variant="mono-sm">
-        <span class="mx-1">{{ '⸱' }}</span>
-        <span>address</span>
-      </c-text>
-    </div>
+    <c-schema-form-node-label
+      v-if="!form.embedded"
+      :align="form.align"
+      :label="title"
+      schema-type="address"
+      :show-type="form.showTypes"
+    />
     <!-- Embedded puts the clear beside the field rather than in the trailing slot, which is drawn
     over the field and would sit on the value it clears. -->
     <div :class="form.embedded ? 'flex min-w-0 items-center gap-0.5' : 'contents'">

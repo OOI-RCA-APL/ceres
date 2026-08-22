@@ -29,22 +29,24 @@ const description = $computed(() => form.getDescription(path))
 
 <template>
   <div>
-    <div class="mb-1 flex items-baseline gap-1">
-      <c-text inline variant="mono-sm">{{ label }}</c-text>
-      <c-text class="text-muted" inline variant="mono-sm">
-        <span class="mx-1">{{ '⸱' }}</span>
-        <span>bool</span>
-      </c-text>
-    </div>
+    <c-schema-form-node-label
+      :align="form.align"
+      :label="label"
+      schema-type="bool"
+      :show-type="form.showTypes"
+    />
     <!-- As tall as a field of the same size, so a boolean beside one lines up with it. -->
+    <!-- Spacers rather than a justification, since the clear button holds the end of the row and
+    would be carried along with the switch. -->
     <div class="flex min-h-8 items-center">
+      <div v-if="form.align !== 'start'" class="grow" />
       <c-switch
         :aria-required="isRequired"
         :model-value="resolved === true"
         size="sm"
         @update:model-value="(value) => (modelValue = resolve(value))"
       />
-      <div class="grow" />
+      <div v-if="form.align !== 'end'" class="grow" />
       <c-schema-form-node-clear-button
         v-if="!isRequired && modelValue !== undefined"
         :embedded="form.embedded"

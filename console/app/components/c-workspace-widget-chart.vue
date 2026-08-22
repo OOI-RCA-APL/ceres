@@ -7,7 +7,7 @@ import type { Stream } from '@/api/client'
 import { useEngine } from '@/api/engine'
 import { ParticleModel } from '@/api/particles'
 import type { Particle } from '@/api/particles'
-import { chartPalette } from '@/chart'
+import { anchoredAtZero, chartPalette } from '@/chart'
 import type { DataValue, Option } from '@/chart'
 import CChart from '@/components/c-chart.vue'
 import icons from '@/icons'
@@ -16,7 +16,12 @@ import { usePreferences } from '@/preferences'
 import { duration, useTime, utc, parseDuration } from '@/time'
 import { debouncedComputed, formatNumber, toTitle } from '@/utilities'
 import { useWorkspace } from '@/workspace'
-import type { ChartWidget, ChartWidgetParticle, ChartWidgetSeries } from '@/workspace'
+import type {
+  ChartWidget,
+  ChartWidgetParticle,
+  ChartWidgetSeries,
+  ChartWidgetSeriesType,
+} from '@/workspace'
 
 const { widget } = defineProps<{
   widget: ChartWidget
@@ -213,8 +218,19 @@ const smoothAnimations = {
   animationThreshold: 200000,
 } as const
 
-const animatedDisplays: (typeof widget.display)[] = ['line']
-const isAnimated = $computed(() => animatedDisplays.includes(widget.display))
+const animatedTypes: ChartWidgetSeriesType[] = ['line']
+
+function animationFor(type: ChartWidgetSeriesType) {
+  return animatedTypes.includes(type) ? smoothAnimations : { animation: false }
+}
+
+// The X axis scrolls for the chart rather than for any one series, so one animated series
+// carries it.
+const isAnimated = $computed(() =>
+  widget.particles.some((particle) =>
+    particle.series.some((series) => animatedTypes.includes(series.type)),
+  ),
+)
 const animation = $computed(() => (isAnimated ? smoothAnimations : { animation: false }))
 
 const axisOption: Option = $computed(() => {
@@ -239,11 +255,13 @@ const axisOption: Option = $computed(() => {
       min: (value: { min: number }) => {
         const base =
           widget.fit === 'all-data' ? Math.min(value.min, allExtent?.min ?? value.min) : value.min
-        // Zero extends the minimum alone, so all-negative data still spans its own extent.
-        return widget.fromZero ? Math.min(0, base) : base
+        return widget.fromZero ? anchoredAtZero(base, 'min') : base
       },
-      max: (value: { max: number }) =>
-        widget.fit === 'all-data' ? Math.max(value.max, allExtent?.max ?? value.max) : value.max,
+      max: (value: { max: number }) => {
+        const base =
+          widget.fit === 'all-data' ? Math.max(value.max, allExtent?.max ?? value.max) : value.max
+        return widget.fromZero ? anchoredAtZero(base, 'max') : base
+      },
       inverse: widget.flipY,
     },
   }
@@ -311,11 +329,11 @@ const baseOption: Option = $computed(() => {
           // in place rather than recreated.
           id: lineId(series, connection),
           name,
-          type: widget.display,
+          type: series.type,
           itemStyle: { color },
           lineStyle: { color },
           ...({ progressive: false } as any),
-          ...animation,
+          ...animationFor(series.type),
           showSymbol: false, // Disable showing dots, for performance.
           symbolSize: 3,
           emphasis: {
@@ -368,14 +386,15 @@ watch([() => instance, () => baseOption], () => {
   if (instance) {
     requestAnimationFrame(() => {
       if (instance) {
-        // Replace merge restarts every series, so it is reserved for removals, the one change
-        // the default merge mode cannot express and the cause of ghost lines otherwise.
-        const previousIds = getSeries(instance.getOption() ?? {}).map((series) => series.id)
-        const nextIds = new Set(getSeries(baseOption).map((series) => series.id))
-        const removed = previousIds.some((id) => !nextIds.has(id))
+        // Replace merge restarts every series, so it is reserved for the two changes the
+        // default merge cannot express, a series leaving and a series changing what it draws
+        // as. Merging over either leaves a ghost line or an empty one.
+        const previous = getSeries(instance.getOption() ?? {})
+        const nextTypes = new Map(getSeries(baseOption).map((series) => [series.id, series.type]))
+        const replaced = previous.some((series) => nextTypes.get(series.id) !== series.type)
         instance.setOption(baseOption, {
           withDefaults: true,
-          ...(removed ? { replaceMerge: ['series'] } : {}),
+          ...(replaced ? { replaceMerge: ['series'] } : {}),
         })
 
         isInitialized = true

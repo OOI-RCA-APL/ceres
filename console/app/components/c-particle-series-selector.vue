@@ -19,8 +19,13 @@ import {
 import type { ParticleFieldRef, ParticleTypeRef } from '@/particle-series'
 import { filterParticleTypes, useParticleTypesByAddress } from '@/particle-types'
 import { createRowSelection } from '@/row-selection'
-import { ChartWidgetSeriesModel, useWorkspace } from '@/workspace'
-import type { ChartWidgetParticle, ChartWidgetSeries, SelectMode } from '@/workspace'
+import { ChartWidgetSeriesModel, ChartWidgetSeriesTypeModel, useWorkspace } from '@/workspace'
+import type {
+  ChartWidgetParticle,
+  ChartWidgetSeries,
+  ChartWidgetSeriesType,
+  SelectMode,
+} from '@/workspace'
 
 const {
   address: pinnedAddress,
@@ -521,9 +526,9 @@ function addManualEntry() {
             <div
               v-for="series in typeGroup.series"
               :key="series.id"
-              class="flex min-h-6 items-center gap-2 py-0.5 pl-5"
+              class="flex min-h-6 items-center gap-2 py-0.5 pr-2 pl-5"
             >
-              <span class="min-w-40 font-mono text-[11px]">{{ series.field }}</span>
+              <span class="min-w-28 font-mono text-[11px]">{{ series.field }}</span>
               <input
                 v-model="series.label"
                 :class="[
@@ -534,6 +539,17 @@ function addManualEntry() {
                 spellcheck="false"
                 type="text"
               />
+              <div class="grow" />
+              <c-tooltip text="Series Type">
+                <c-select
+                  class="w-24 shrink-0"
+                  :items="[...ChartWidgetSeriesTypeModel.options]"
+                  :model-value="series.type"
+                  size="xs"
+                  variant="ghost"
+                  @update:model-value="(value: ChartWidgetSeriesType) => (series.type = value)"
+                />
+              </c-tooltip>
               <c-tooltip text="Series Color">
                 <c-color-input
                   :model-value="colorOf(series)"

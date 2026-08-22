@@ -42,22 +42,23 @@ carries the strip along instead. */
   color: #fff;
 }
 
-/* The close button holds its place whether or not it is showing, so a tab is exactly as wide
-hovered as it is at rest and the strip does not shuffle under the pointer. */
+/* Drawn on every tab, out of flow so a tab is exactly as wide hovered as it is at rest and the
+strip does not shuffle under the pointer. Faint at rest, enough to say a tab closes without
+competing with the name for the eye. */
 .close {
   position: absolute;
   top: 50%;
   right: 8px;
   display: flex;
   align-items: center;
-  opacity: 0;
+  opacity: 0.15;
   transform: translateY(-50%);
   transition: opacity 0.15s;
 }
 
-/* The selected tab keeps its close button visible since that is the one most likely to be closed
-next. Held back until the pointer is on the button itself, so it reads as available rather than
-as the thing the tab is for. */
+/* The selected tab keeps its close button up since that is the one most likely to be closed next.
+Held back until the pointer is on the button itself, so it reads as available rather than as the
+thing the tab is for. */
 .tab:hover .close,
 .closeShown {
   opacity: 0.6;
@@ -67,13 +68,24 @@ as the thing the tab is for. */
   opacity: 1;
 }
 
-/* The menu button follows the close button, holding its place while hidden so the strip does not
-shuffle under the pointer. */
+/* The menu button sits beside the close button, out of flow for the same reason and so a name
+centres on the tab rather than on itself and the buttons together. */
 .menu {
+  position: absolute;
+  top: 50%;
+  right: 26px;
   display: flex;
   align-items: center;
   opacity: 0;
+  transform: translateY(-50%);
   transition: opacity 0.15s;
+}
+
+/* The row a tab's name sits in. Both buttons are drawn over the right end, so the padding there
+keeps the name from running under them. Each strip sets its own leading padding, which depends on
+whether it marks a tab as edited. */
+.name {
+  padding-right: 44px;
 }
 
 /* Held at rest on the selected tab, alongside its close button. */
@@ -89,16 +101,17 @@ otherwise dimming the button the moment the tab is reached. */
   opacity: 1;
 }
 
-/* Unsaved changes, marked in the tab's corner. Positioned rather than laid out, so a tab is
-exactly as wide edited as it is clean. The element is the hover target and the mark is drawn
-inside it, a dot this small being hard to catch with a pointer, and its events reach the tab
+/* Unsaved changes, marked just ahead of the workspace's own icon. Positioned rather than laid out,
+so a tab is exactly as wide edited as it is clean. The element is the hover target and the mark is
+drawn inside it, a dot this small being hard to catch with a pointer, and its events reach the tab
 underneath by bubbling. */
 .edited {
   position: absolute;
-  top: 0;
-  left: 0;
+  top: 50%;
+  left: -18px;
   width: 16px;
   height: 16px;
+  transform: translateY(-50%);
   opacity: 0.35;
   transition: opacity 0.15s;
   /* Not a control, despite sitting on a tab that is one. */
@@ -113,10 +126,10 @@ underneath by bubbling. */
 .edited::before {
   content: '';
   position: absolute;
-  top: 5px;
-  left: 5px;
-  width: 5px;
-  height: 5px;
+  top: 6px;
+  left: 6px;
+  width: 4px;
+  height: 4px;
   border-radius: 50%;
   background-color: currentColor;
 }

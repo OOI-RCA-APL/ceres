@@ -12,7 +12,7 @@ const modelValue = defineModel<string>({ required: true })
   inline in a row. The picker writes hex, which is the form the value is stored and read in. -->
   <c-popover :content="{ side: 'bottom', align: 'end' }">
     <button
-      class="border-default cursor-pointer rounded-full border"
+      class="border-default shrink-0 cursor-pointer rounded-full border"
       :style="{ width: `${size}px`, height: `${size}px`, background: modelValue }"
       type="button"
     />

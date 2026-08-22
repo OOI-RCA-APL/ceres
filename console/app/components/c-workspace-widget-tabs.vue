@@ -446,8 +446,8 @@ function tabMenuItems(at: number): DropdownMenuItem[][] {
             @mouseup.middle.stop="deleteTab(at)"
           >
             <div
-              class="relative flex h-full flex-nowrap items-center pr-5 pl-[14px]"
-              :class="widget.fill && 'justify-center'"
+              class="relative flex h-full flex-nowrap items-center pl-[14px]"
+              :class="strip.name"
               @pointerenter="setNameHovered(current, true)"
               @pointerleave="setNameHovered(current, false)"
             >
@@ -462,7 +462,7 @@ function tabMenuItems(at: number): DropdownMenuItem[][] {
               </c-text>
               <c-dropdown-menu :content="menuContent" :items="tabMenuItems(at)">
                 <button
-                  class="mx-1.5 rounded-full"
+                  class="rounded-full"
                   :class="[strip.menu, current.id === shown?.id && strip.menuShown]"
                   type="button"
                   @click.stop
