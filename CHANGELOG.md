@@ -8,6 +8,8 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+## [0.47.0] - 2026-08-21
+
 **Web Console**
 
 - Choose what shape each chart series is drawn in, so one chart can carry a line and a
