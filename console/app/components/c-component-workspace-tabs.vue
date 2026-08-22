@@ -442,26 +442,31 @@ grows and the tabs pass beneath it. -->
           @dblclick.stop="openRename(workspace)"
           @keydown="onTabKeydown($event, index)"
         >
-          <div class="relative flex h-full flex-nowrap items-center pl-[19px] pr-5">
-            <c-tooltip
-              v-if="hasWorkingCopy(workspace)"
-              :delay-duration="0"
-              text="This workspace has unsaved changes."
-            >
-              <span :class="strip.edited" />
-            </c-tooltip>
-            <c-workspace-tab-label
-              :claim="editingId === workspace.id"
-              :editing="isNaming(workspace)"
-              :show-placement="showPlacement"
-              :workspace="workspace"
-              @hover-name="(value: boolean) => setNameHovered(workspace, value)"
-              @rename="(value: string) => rename(workspace, value)"
-              @update:editing="(value: boolean) => (editingId = value ? workspace.id : null)"
-            />
+          <!-- Room ahead of the icon for the edited mark, which is drawn over this padding. -->
+          <div class="relative flex h-full flex-nowrap items-center pl-[22px]" :class="strip.name">
+            <!-- The mark hangs off this box rather than the tab, so it follows the name wherever
+            the name sits. -->
+            <span class="relative flex min-w-0 items-center">
+              <c-workspace-tab-label
+                :claim="editingId === workspace.id"
+                :editing="isNaming(workspace)"
+                :show-placement="showPlacement"
+                :workspace="workspace"
+                @hover-name="(value: boolean) => setNameHovered(workspace, value)"
+                @rename="(value: string) => rename(workspace, value)"
+                @update:editing="(value: boolean) => (editingId = value ? workspace.id : null)"
+              />
+              <c-tooltip
+                v-if="hasWorkingCopy(workspace)"
+                :delay-duration="0"
+                text="This workspace has unsaved changes."
+              >
+                <span :class="strip.edited" />
+              </c-tooltip>
+            </span>
             <c-dropdown-menu :content="menuContent" :items="menuItems(workspace)">
               <button
-                class="mx-1.5 rounded-full"
+                class="rounded-full"
                 :class="[strip.menu, workspace.id === active && strip.menuShown]"
                 type="button"
                 @click.stop
