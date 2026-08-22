@@ -25,7 +25,7 @@ const icons = {
   configuration: 'i-mdi-cogs',
   confirm: 'i-mdi-check',
   confirmDialog: 'i-mdi-comment-question-outline',
-  connection: 'i-mdi-connection',
+  connection: 'i-mdi-transit-connection-variant',
   controls: 'i-mdi-gesture-tap-button',
   copy: 'i-mdi-content-copy',
   cut: 'i-mdi-content-cut',

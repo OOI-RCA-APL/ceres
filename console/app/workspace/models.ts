@@ -89,8 +89,9 @@ export const ProceduresWidgetModel = BaseWidgetModel.extend({
   procedureName: z.string().nullish(),
 })
 
-export type ChartWidgetDisplay = z.infer<typeof ChartWidgetDisplayModel>
-export const ChartWidgetDisplayModel = z.enum(['line', 'scatter', 'bar'])
+export type ChartWidgetSeriesType = z.infer<typeof ChartWidgetSeriesTypeModel>
+/** The shape a series is drawn in, chosen per series so one chart can mix them. */
+export const ChartWidgetSeriesTypeModel = z.enum(['line', 'scatter', 'bar'])
 
 export type ChartWidgetFit = z.infer<typeof ChartWidgetFitModel>
 /** Which series bound the Y axis, the ones switched on in the legend or every one of them. */
@@ -110,6 +111,7 @@ export const ChartWidgetSeriesModel = z.object({
   label: z.string().nullish(),
   /** The line's color as `#rrggbb`, written when the series is added and editable after. */
   color: z.string().nullish(),
+  type: ChartWidgetSeriesTypeModel.catch('line'),
 })
 
 export type ChartWidgetParticle = z.infer<typeof ChartWidgetParticleModel>
@@ -125,7 +127,6 @@ export type ChartWidget = z.infer<typeof ChartWidgetModel>
 export const ChartWidgetModel = BaseWidgetModel.extend({
   type: z.literal('chart'),
   name: z.string().catch('Chart'),
-  display: ChartWidgetDisplayModel.catch('line'),
   fit: ChartWidgetFitModel.catch('shown-data'),
   /** Extend the Y axis to include zero, whatever the plotted extent. */
   fromZero: z.boolean().catch(false),
