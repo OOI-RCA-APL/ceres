@@ -71,6 +71,10 @@ jobs:
           # The action keys on the lockfile and the toolchain, so a profile or flag change
           # reuses a key that already exists, and a cache entry cannot be overwritten.
           key: ${{ hashFiles('rust/Cargo.toml', '.cargo/config.toml') }}
+          # A tag is released once and never built again, and a cache is readable only from
+          # the ref that saved it and from the default branch, so an entry saved here would
+          # be read by nobody while holding several gigabytes of the repository's ten.
+          save-if: ${{ !startsWith(github.ref, 'refs/tags/') }}
       - name: Install
         run: make install
       - name: Lint
