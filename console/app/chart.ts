@@ -24,6 +24,15 @@ const seriesTokens = [
   '--console-series-7',
 ]
 
+/** One end of a value axis, pulled out to include zero.
+
+Which end moves is whichever one the data leaves free, so an all-negative series hangs from a
+zero at the top and an all-positive one rises from a zero at the bottom.
+*/
+export function anchoredAtZero(value: number, edge: 'min' | 'max'): number {
+  return edge === 'min' ? Math.min(0, value) : Math.max(0, value)
+}
+
 /** The color a series in `index` position takes when nothing has been chosen for it.
 
 Wraps rather than running out, since a chart may carry more series than the theme names colors.
