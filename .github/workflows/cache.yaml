@@ -57,7 +57,9 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
-          key: ${{ matrix.target }}
+          # Includes what the action's own key does not hash, so a profile or flag change
+          # lands under a fresh key rather than being refused as an immutable duplicate.
+          key: ${{ matrix.target }}-${{ hashFiles('rust/Cargo.toml', '.cargo/config.toml') }}
       - name: Create Wheel Data Directory
         shell: bash
         run: mkdir -p ceres.__internal__.core.data/scripts

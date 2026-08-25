@@ -3,12 +3,6 @@
 # the root when maturin builds the extension module and `rust/` for everything else, and only
 # a root copy is found from both.
 
-# Build artifacts stay inside the workspace's target/, the only directory `cargo clean`,
-# .gitignore, and CI's cache all cover. The path resolves against this file's directory, so
-# it names `rust/` rather than landing beside it.
-[build]
-build-dir = "rust/target/build"
-
 # The parallel rustc frontend, which the pinned nightly provides. This sits under a `cfg`
 # rather than under `[build]`, because `build.rustflags` is dropped entirely wherever a
 # `target` block sets its own, while `cfg` and triple blocks combine.
