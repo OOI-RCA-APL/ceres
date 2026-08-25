@@ -88,9 +88,8 @@ features = ["extension-module"]
 # and carries into the sdist too, keeping a source install's console prebuilt.
 #
 # The sdist entries make source installs equivalent to our own builds. The toolchain and
-# cargo config files pin the nightly and enable the unstable features the build relies on
-# (`bindeps`, `build-dir`) along with the SQLite math functions and the macOS linker
-# arguments. The `.keep` marker exists so extracting the sdist creates the wheel data
+# cargo config files pin the nightly and enable the unstable `bindeps` feature the build
+# relies on, along with the SQLite math functions and the macOS linker arguments. The `.keep` marker exists so extracting the sdist creates the wheel data
 # directory, which maturin requires before the build starts, and `ceres-core`'s build
 # script removes it while staging the CLI binary in its place.
 include = [
