@@ -8,6 +8,15 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+**Fixes**
+
+- Schedule a component's static pruner on Python 3.14, which failed with
+  `NameError: name 'PrunerConfig' is not defined`.
+
+**Packaging**
+
+- Require `uuid-utils` 1.0 or later, whose `uuid7` takes only a keyword `nanoseconds`.
+
 ## [0.47.0] - 2026-08-21
 
 **Web Console**
