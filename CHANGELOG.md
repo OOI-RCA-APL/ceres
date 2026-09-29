@@ -8,6 +8,8 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+## [0.47.1] - 2026-09-29
+
 **Fixes**
 
 - Schedule a component's static pruner on Python 3.14, which failed with
