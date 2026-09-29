@@ -33,19 +33,15 @@ def uuid4() -> UUID:
         return uuid4()
 
 
-def uuid7(
-    timestamp: int | None = None,
-    nanoseconds: int | None = None,
-) -> UUID:
+def uuid7(*, nanoseconds: int | None = None) -> UUID:
     """Generate a version 7 UUID using a time value and random bytes.
 
     Version 7 UUIDs encode a Unix timestamp in their high-order bits, making them sortable by
     creation time which is useful as database primary keys.
 
     Args:
-        timestamp: Optional Unix timestamp in seconds to encode into the UUID. Uses the current
-            time when `None`.
-        nanoseconds: Optional sub-second precision in nanoseconds. Uses zero when `None`.
+        nanoseconds: Optional Unix time in nanoseconds to encode into the UUID, of which the UUID
+            keeps millisecond precision. Uses the current time when `None`.
 
     Returns:
         A new version 7 UUID as a standard-library `UUID` instance.
@@ -56,4 +52,4 @@ def uuid7(
     """
     from uuid_utils import uuid7
 
-    return UUID(int=uuid7(timestamp, nanoseconds).int)
+    return UUID(int=uuid7(nanoseconds=nanoseconds).int)

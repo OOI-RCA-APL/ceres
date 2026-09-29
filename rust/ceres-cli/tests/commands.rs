@@ -167,6 +167,9 @@ impl Project {
             // A command that hands off to Python cannot find an interpreter here, so
             // delegation shows up as a failure rather than as a quiet pass.
             .env("CERES_PYTHON", self.path().join("no-such-interpreter"))
+            // Color comes from the test alone, not from the shell that runs it.
+            .env_remove("NO_COLOR")
+            .env_remove("FORCE_COLOR")
             .envs(environment.iter().copied())
             .output()
             .expect("the binary runs")
