@@ -6,6 +6,10 @@ on:
   pull_request:
     branches:
       - main
+  # GitHub evicts a cache unread for 7 days, and pull requests can restore only the one saved
+  # on `main`, so this keeps that entry alive when `main` goes quiet.
+  schedule:
+    - cron: "0 6 */5 * *"
   # The release workflow runs these same checks as its gate before building wheels, so the
   # two cannot drift apart.
   workflow_call:
@@ -75,6 +79,9 @@ jobs:
           # the ref that saved it and from the default branch, so an entry saved here would
           # be read by nobody while holding several gigabytes of the repository's ten.
           save-if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          # Compilation finishes before any check can fail, so a failed run's build is still
+          # worth restoring on the rerun.
+          cache-on-failure: true
       - name: Install
         run: make install
       - name: Lint
