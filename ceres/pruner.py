@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from ceres.__internal__.manager import BaseComponentManager
 from ceres.concurrency import sleep
+from ceres.config import PrunerConfig  # noqa: TC001 (APScheduler reads `__run` annotations)
 from ceres.entity import EntityType
 from ceres.error import trace
 from ceres.event import (
@@ -22,7 +23,6 @@ if TYPE_CHECKING:
     from apscheduler.schedulers.base import BaseScheduler
 
     from ceres.__internal__.protocols import ComponentSource
-    from ceres.config import PrunerConfig
 
 
 class PrunerManager(BaseComponentManager):
