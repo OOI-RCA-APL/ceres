@@ -7,6 +7,11 @@ use std::io::{BufReader, ErrorKind};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 
+use pkg_config::LinkInput;
+
+#[path = "src/pkg_config.rs"]
+mod pkg_config;
+
 const FFMPEG_VERSION: &str = "9.0.2";
 
 /// The OpenH264 release, vendored without its test bitstreams as `vendor/README.md` describes.
@@ -324,37 +329,24 @@ fn link(prefix: &Path, openh264: &Path) {
 
     // The system libraries a static link needs, the C++ runtime OpenH264 needs among them.
     // FFmpeg lists them under `Libs` when it builds no shared libraries, else `Libs.private`.
-    let mut system: Vec<String> = Vec::new();
+    let mut inputs = Vec::new();
+    // Linked statically above.
+    let skip: Vec<&str> = LIBRARIES.iter().copied().chain(["openh264"]).collect();
     for name in LIBRARIES {
         let pkgconfig = fs::read_to_string(prefix.join(format!("lib/pkgconfig/lib{name}.pc")))
             .expect("read an FFmpeg pkg-config file");
-        let mut tokens = pkgconfig
-            .lines()
-            .filter_map(|line| {
-                line.strip_prefix("Libs:")
-                    .or_else(|| line.strip_prefix("Libs.private:"))
-            })
-            .flat_map(str::split_whitespace);
-        while let Some(token) = tokens.next() {
-            let library = token
-                .strip_prefix("-l")
-                .or_else(|| token.strip_suffix(".lib"));
-            let kind = match library {
-                // Linked statically above.
-                Some(library) if library == "openh264" || LIBRARIES.contains(&library) => continue,
-                Some(library) => format!("dylib={library}"),
-                None if token == "-framework" => {
-                    format!("framework={}", tokens.next().expect("a framework name"))
-                }
-                None => continue,
-            };
-            if !system.contains(&kind) {
-                system.push(kind);
+        pkg_config::link_inputs(&pkgconfig, &skip, &mut inputs);
+    }
+    for input in inputs {
+        match input {
+            LinkInput::Search(directory) => {
+                println!("cargo::rustc-link-search=native={directory}");
+            }
+            LinkInput::Library(library) => println!("cargo::rustc-link-lib=dylib={library}"),
+            LinkInput::Framework(framework) => {
+                println!("cargo::rustc-link-lib=framework={framework}");
             }
         }
-    }
-    for kind in system {
-        println!("cargo::rustc-link-lib={kind}");
     }
 }
 

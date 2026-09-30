@@ -6,6 +6,8 @@ mod input;
 mod logging;
 mod options;
 mod output;
+#[cfg(test)]
+mod pkg_config;
 mod remux;
 #[cfg(any(test, feature = "server"))]
 mod server;
