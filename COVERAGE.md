@@ -1,6 +1,6 @@
 # Coverage
 
-<!-- coverage:fingerprint:e446dee3e4e1ab0f -->
+<!-- coverage:fingerprint:8f02b6e8cc76b983 -->
 
 ## Python
 
@@ -94,7 +94,7 @@
 | `ceres/pruner.py` | 58% |
 | `ceres/record.py` | 89% |
 | `ceres/reference.py` | 71% |
-| `ceres/rtsp.py` | 93% |
+| `ceres/rtsp.py` | 100% |
 | `ceres/schedule.py` | 96% |
 | `ceres/server.py` | 66% |
 | `ceres/setting.py` | 93% |
@@ -152,8 +152,9 @@
 | `rust/ceres-core/src/entities.rs` | 0% |
 | `rust/ceres-core/src/filters.rs` | 0% |
 | `rust/ceres-core/src/interop.rs` | 12% |
-| `rust/ceres-core/src/lib.rs` | 10% |
+| `rust/ceres-core/src/lib.rs` | 5% |
 | `rust/ceres-core/src/logging.rs` | 6% |
+| `rust/ceres-core/src/media.rs` | 0% |
 | `rust/ceres-core/src/migrations.rs` | 0% |
 | `rust/ceres-core/src/server.rs` | 0% |
 | `rust/ceres-core/src/store.rs` | 0% |
@@ -182,6 +183,20 @@
 | `rust/ceres-macros/src/kebab.rs` | 57% |
 | `rust/ceres-macros/src/lib.rs` | 88% |
 | `rust/ceres-macros/src/python_config.rs` | 94% |
+| `rust/ceres-media/src/error.rs` | 100% |
+| `rust/ceres-media/src/input.rs` | 97% |
+| `rust/ceres-media/src/lib.rs` | 100% |
+| `rust/ceres-media/src/logging.rs` | 100% |
+| `rust/ceres-media/src/options.rs` | 97% |
+| `rust/ceres-media/src/output.rs` | 96% |
+| `rust/ceres-media/src/pkg_config.rs` | 100% |
+| `rust/ceres-media/src/remux/mod.rs` | 94% |
+| `rust/ceres-media/src/remux/timeline.rs` | 100% |
+| `rust/ceres-media/src/server/mod.rs` | 80% |
+| `rust/ceres-media/src/server/session.rs` | 89% |
+| `rust/ceres-media/src/server/stream.rs` | 94% |
+| `rust/ceres-media/src/transcode.rs` | 92% |
+| `rust/ceres-rtsp-server/src/main.rs` | 0% |
 | `rust/ceres-server/src/api/auth.rs` | 95% |
 | `rust/ceres-server/src/api/config.rs` | 100% |
 | `rust/ceres-server/src/api/dispatch.rs` | 91% |
@@ -202,5 +217,5 @@
 | `rust/ceres-server/src/serve.rs` | 82% |
 | `rust/ceres-server/src/tls.rs` | 75% |
 | `rust/ceres-stubs/src/polish.rs` | 96% |
-| **Total** | **70%** |
+| **Total** | **71%** |
 <!-- coverage:rust:end -->
