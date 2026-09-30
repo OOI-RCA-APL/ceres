@@ -40,17 +40,17 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       # Both interpreters, because pyo3 compiles against the one it is given and a cache
       # built against another would be rebuilt rather than restored.
       - name: Install Python
         id: standard
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "3.14"
       - name: Install Free-Threaded Python
         id: freethreaded
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "3.14t"
       - name: Cache Rust

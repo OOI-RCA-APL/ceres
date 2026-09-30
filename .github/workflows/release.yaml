@@ -31,7 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ env.TAG }}
       - name: Check Tag Matches Project Version
@@ -65,17 +65,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ env.TAG }}
       - name: Install Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version-file: console/.nvmrc
       - name: Build the Console
         run: cd console && npm ci && npm run build
       - name: Upload the Console
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: console
           path: ceres/static/console
@@ -107,12 +107,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ env.TAG }}
       # The wheel serves these, and the checkout carries none, the bundle being untracked.
       - name: Download the Console
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: console
           path: ceres/static/console
@@ -121,12 +121,12 @@ jobs:
       # to whichever install came last and both wheels build against the same interpreter.
       - name: Install Python
         id: standard
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "3.14"
       - name: Install Free-Threaded Python
         id: freethreaded
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "3.14t"
       # Restores what the `cache` workflow saved on the default branch. Saving is off
@@ -187,7 +187,7 @@ jobs:
             "$python" -m ceres --version
           done
       - name: Upload Wheels
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: wheels-${{ matrix.target }}
           path: dist
@@ -201,13 +201,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ env.TAG }}
       # The sdist carries the bundle prebuilt, so a source install needs no Node at all,
       # and taking the same one the wheels take keeps every artifact's console identical.
       - name: Download the Console
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: console
           path: ceres/static/console
@@ -222,7 +222,7 @@ jobs:
           command: sdist
           args: --out dist
       - name: Upload Sdist
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sdist
           path: dist
@@ -240,14 +240,14 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.TAG }}
-      - uses: astral-sh/setup-uv@v10.0.1
+      - uses: astral-sh/setup-uv@v10.2.0
       # Named rather than taking everything, the console bundle riding alongside the
       # distributions as an artifact of its own and belonging in neither destination.
       - name: Download Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: "{wheels-*,sdist}"
           path: dist
@@ -271,7 +271,7 @@ jobs:
       # Named rather than taking everything, the console bundle riding alongside the
       # distributions as an artifact of its own and belonging in neither destination.
       - name: Download Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: "{wheels-*,sdist}"
           path: dist
