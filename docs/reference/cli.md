@@ -171,6 +171,26 @@ Generate up-to-date OpenAPI schema for the Ceres Rest API.
 | `--format` `FORMAT` |  | The output format. |
 | `--indent` `INDENT` |  | Indentation width for JSON output. |
 
+### `ceres dev`
+
+Development tools, such as servers to test against.
+
+#### `ceres dev rtsp-server`
+
+Serve test clips over RTSP, with network faults on demand, until interrupted.
+
+| Option | Required | Description |
+| --- | --- | --- |
+| `--host` `HOST` |  | Address to listen on. |
+| `--port` `PORT` |  | Port to listen on, 0 for any free port. The URL printed on startup names it. |
+| `--path` `PATH` |  | URL path clients request. |
+| `--clip` `CLIP` |  | A built-in clip, h264 or h265, or a video file path. Repeat it to give successive sessions successive clips. |
+| `--drop-after` `SECONDS` |  | Close each session this many seconds after it starts playing. |
+| `--stall-after` `SECONDS` |  | Stop sending media this many seconds after each session starts playing, keeping the connection open. |
+| `--refuse` `COUNT` |  | Close this many connections as soon as they are accepted. |
+| `--restart-after` `SECONDS` |  | Close the listener and every session each time the server has been up this many seconds. |
+| `--restart-downtime` `SECONDS` |  | Seconds the server stays down on a restart. |
+
 ### `ceres alerts`
 
 Manage alerts.

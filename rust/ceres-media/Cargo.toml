@@ -8,6 +8,7 @@ description = "Ceres media streaming over a statically linked FFmpeg"
 links = "ffmpeg"
 
 [dependencies]
+tempfile = "3"
 
 [build-dependencies]
 cc = "1.2"

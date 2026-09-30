@@ -2,6 +2,7 @@
 
 pub mod console;
 pub mod database;
+pub mod dev;
 pub mod dump;
 pub mod engine;
 pub mod entities;

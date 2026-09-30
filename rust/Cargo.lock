@@ -674,6 +674,7 @@ dependencies = [
  "ceres-config",
  "ceres-database",
  "ceres-entities",
+ "ceres-media",
  "ceres-server",
  "chrono",
  "clap",
@@ -793,6 +794,7 @@ dependencies = [
  "cc",
  "lzma-rust2",
  "tar",
+ "tempfile",
 ]
 
 [[package]]

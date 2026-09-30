@@ -10,7 +10,29 @@ pub struct MediaError {
     pub message: String,
 }
 
+/// FFmpeg's `AVERROR(EINVAL)`, the same on every platform FFmpeg supports.
+const EINVAL: i32 = -22;
+
+/// FFmpeg's `AVERROR(EIO)`, the same on every platform FFmpeg supports.
+pub(crate) const EIO: i32 = -5;
+
 impl MediaError {
+    /// A muxer call that failed because its sink failed.
+    pub(crate) fn sink(error: &std::io::Error) -> Self {
+        Self {
+            code: EIO,
+            message: format!("the output failed: {error}"),
+        }
+    }
+
+    /// An invalid argument caught before it reached FFmpeg.
+    pub(crate) fn invalid(message: impl Into<String>) -> Self {
+        Self {
+            code: EINVAL,
+            message: message.into(),
+        }
+    }
+
     pub(crate) fn from_code(code: c_int) -> Self {
         let mut buffer = [0 as c_char; 256];
         // SAFETY: The shim writes a NUL-terminated string of at most `buffer.len()` bytes.
