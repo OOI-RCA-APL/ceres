@@ -6,21 +6,28 @@ on:
     types: [published]
   # Rebuilding a tag that already published, for when a platform's wheel is missing from an
   # otherwise good release. Both destinations skip what they already hold, so a rebuild adds
-  # the missing files and leaves the rest untouched.
+  # the missing files and leaves the rest untouched. A dry run builds every artifact from
+  # the dispatched ref and publishes none of them, which proves a build change before a
+  # release depends on it.
   workflow_dispatch:
     inputs:
       tag:
-        description: The existing release tag to rebuild.
-        required: true
+        description: The existing release tag to rebuild, or empty for a dry run of the ref.
+        required: false
+      dry_run:
+        description: Build every artifact without checking the version or publishing.
+        type: boolean
+        default: false
 
 env:
-  TAG: ${{ github.event.release.tag_name || inputs.tag }}
+  TAG: ${{ github.event.release.tag_name || inputs.tag || github.ref_name }}
 
 jobs:
   # The release must agree with the repository about what version it is, and the version
   # must have a changelog entry. Failing here costs seconds, failing in the build matrix
   # costs the whole matrix.
   version:
+    if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -52,6 +59,9 @@ jobs:
   # differently per platform and one bundle per release keeps every wheel identical.
   console:
     needs: version
+    # A dry run skips the version check, and a skipped need skips its dependents unless
+    # the condition asks only that nothing failed.
+    if: ${{ !cancelled() && !failure() }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -77,6 +87,7 @@ jobs:
   # only honors it when it exists before the build starts.
   build:
     needs: [check, console]
+    if: ${{ !cancelled() && !failure() }}
     strategy:
       fail-fast: false
       matrix:
@@ -132,6 +143,8 @@ jobs:
       - name: Create Wheel Data Directory
         shell: bash
         run: mkdir -p ceres.__internal__.core.data/scripts
+      - name: Install the FFmpeg Toolchain
+        uses: ./.github/actions/ffmpeg-toolchain
       - name: Build Wheels
         uses: PyO3/maturin-action@v1
         with:
@@ -184,6 +197,7 @@ jobs:
   # use `python -m ceres`.
   sdist:
     needs: [check, console]
+    if: ${{ !cancelled() && !failure() }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -221,6 +235,7 @@ jobs:
   # alias stays off PyPI, where only `ceres-engine` publishes.
   attach:
     needs: [build, sdist]
+    if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -246,6 +261,7 @@ jobs:
 
   publish:
     needs: [build, sdist]
+    if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-latest
     environment: pypi
     permissions:

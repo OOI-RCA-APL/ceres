@@ -123,11 +123,12 @@ fn build(tarball: &Path, out_dir: &Path, prefix: &Path, arguments: &[String], co
         .current_dir(&build)
         .envs(compiler.env().iter().cloned()));
 
-    // Joining cargo's jobserver keeps make within the build's job budget.
+    // Joining cargo's jobserver keeps make within the build's job budget. MSYS2's make cannot
+    // open the Windows jobserver, so there it takes the budget as a plain job count.
     let mut make = Command::new("make");
     match env::var("CARGO_MAKEFLAGS") {
-        Ok(flags) => make.env("MAKEFLAGS", flags),
-        Err(_) => make.arg(format!(
+        Ok(flags) if !cfg!(windows) => make.env("MAKEFLAGS", flags),
+        _ => make.arg(format!(
             "-j{}",
             env::var("NUM_JOBS").as_deref().unwrap_or("1")
         )),

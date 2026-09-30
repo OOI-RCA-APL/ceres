@@ -1,0 +1,24 @@
+name: FFmpeg Toolchain
+description: The shell and make that the ceres-media build script runs FFmpeg's configure with.
+# Linux and macOS runners, and the manylinux containers, carry both already. Windows gets
+# them from MSYS2, and the MSVC compiler comes from the environment the `cc` crate finds.
+runs:
+  using: composite
+  steps:
+    - name: Install MSYS2
+      if: runner.os == 'Windows'
+      id: msys2
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: MSYS
+        install: make diffutils
+    # MSYS2's coreutils ships a `link.exe` that would shadow the MSVC linker FFmpeg's
+    # configure calls by that name, so it goes before the directory joins the path.
+    - name: Put MSYS2 on the Path
+      if: runner.os == 'Windows'
+      shell: pwsh
+      env:
+        MSYS2: ${{ steps.msys2.outputs.msys2-location }}
+      run: |
+        Remove-Item "$env:MSYS2\usr\bin\link.exe" -ErrorAction SilentlyContinue
+        Add-Content $env:GITHUB_PATH "$env:MSYS2\usr\bin"

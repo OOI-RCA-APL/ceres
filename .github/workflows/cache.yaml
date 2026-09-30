@@ -68,6 +68,8 @@ jobs:
       - name: Create the Console Directory
         shell: bash
         run: mkdir -p ceres/static/console
+      - name: Install the FFmpeg Toolchain
+        uses: ./.github/actions/ffmpeg-toolchain
       # The same build the release runs, because a cache is only restored by a compilation
       # matching the one that filled it.
       - name: Build Wheels

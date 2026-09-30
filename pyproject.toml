@@ -108,6 +108,9 @@ cache-keys = [
     { file = "rust/ceres-core/src/**/*.rs" },
     { file = "rust/ceres-config/Cargo.toml" },
     { file = "rust/ceres-config/src/**/*.rs" },
+    { file = "rust/ceres-media/Cargo.toml" },
+    { file = "rust/ceres-media/build.rs" },
+    { file = "rust/ceres-media/src/**/*" },
     { file = "ceres/__internal__/core.pyi" },
 ]
 

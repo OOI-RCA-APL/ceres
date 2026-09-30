@@ -719,6 +719,7 @@ dependencies = [
  "ceres-database",
  "ceres-entities",
  "ceres-macros",
+ "ceres-media",
  "ceres-server",
  "chrono",
  "half",
