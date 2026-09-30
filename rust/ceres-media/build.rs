@@ -5,7 +5,7 @@ use std::env;
 use std::fs::{self, File};
 use std::io::{BufReader, ErrorKind};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, ExitStatus};
 
 const FFMPEG_VERSION: &str = "9.0.2";
 
@@ -178,12 +178,19 @@ fn cpp_files(directory: &Path) -> Vec<PathBuf> {
 /// Writes a `pkg-config` stand-in describing OpenH264, so `configure` finds the library
 /// without `pkg-config` on the build machine.
 fn write_pkg_config(out_dir: &Path, openh264: &Path) -> PathBuf {
+    let msvc = env_var("CARGO_CFG_TARGET_ENV") == "msvc";
     let runtime = match env_var("CARGO_CFG_TARGET_OS").as_str() {
-        _ if env_var("CARGO_CFG_TARGET_ENV") == "msvc" => "",
+        _ if msvc => "",
         "macos" => " -lc++",
         _ => " -lstdc++ -lm -lpthread",
     };
-    let prefix = shell_path(openh264);
+    // `cl` and `link` read these flags, and MSYS2 does not convert a path inside
+    // `-libpath:`, so they carry the Windows path with forward slashes.
+    let prefix = if msvc {
+        openh264.display().to_string().replace('\\', "/")
+    } else {
+        shell_path(openh264)
+    };
     let script = format!(
         "#!/bin/sh\n\
          for argument in \"$@\"; do\n\
@@ -266,10 +273,16 @@ fn build_ffmpeg(
     let mut configure = Command::new("sh");
     configure
         .arg(shell_path(&source.join("configure")))
-        .args(arguments);
-    run(configure
+        .args(arguments)
         .current_dir(&build)
-        .envs(compiler.env().iter().cloned()));
+        .envs(compiler.env().iter().cloned());
+    if !status(&mut configure).success() {
+        // `configure` names only the failed check, its log holds the compiler's reason.
+        let log = fs::read_to_string(build.join("ffbuild/config.log")).unwrap_or_default();
+        let lines: Vec<&str> = log.lines().collect();
+        eprintln!("{}", lines[lines.len().saturating_sub(60)..].join("\n"));
+        panic!("{configure:?} failed");
+    }
 
     // Joining cargo's jobserver keeps make within the build's job budget. MSYS2's make cannot
     // open the Windows jobserver, so there it takes the budget as a plain job count.
@@ -301,25 +314,26 @@ fn link(prefix: &Path, openh264: &Path) {
         println!("cargo::rustc-link-lib=static={name}");
     }
 
-    // Each library's `Libs.private` names the system libraries a static link needs.
+    // The system libraries a static link needs, the C++ runtime OpenH264 needs among them.
+    // FFmpeg lists them under `Libs` when it builds no shared libraries, else `Libs.private`.
     let mut system: Vec<String> = Vec::new();
     for name in LIBRARIES {
         let pkgconfig = fs::read_to_string(prefix.join(format!("lib/pkgconfig/lib{name}.pc")))
             .expect("read an FFmpeg pkg-config file");
-        let Some(private) = pkgconfig
+        let mut tokens = pkgconfig
             .lines()
-            .find_map(|line| line.strip_prefix("Libs.private:"))
-        else {
-            continue;
-        };
-        let mut tokens = private.split_whitespace();
+            .filter_map(|line| {
+                line.strip_prefix("Libs:")
+                    .or_else(|| line.strip_prefix("Libs.private:"))
+            })
+            .flat_map(str::split_whitespace);
         while let Some(token) = tokens.next() {
             let library = token
                 .strip_prefix("-l")
                 .or_else(|| token.strip_suffix(".lib"));
             let kind = match library {
                 // Linked statically above.
-                Some("openh264") => continue,
+                Some(library) if library == "openh264" || LIBRARIES.contains(&library) => continue,
                 Some(library) => format!("dylib={library}"),
                 None if token == "-framework" => {
                     format!("framework={}", tokens.next().expect("a framework name"))
@@ -362,10 +376,14 @@ fn shell_path(path: &Path) -> String {
 }
 
 fn run(command: &mut Command) {
-    let status = command
-        .status()
-        .unwrap_or_else(|error| panic!("run {command:?}: {error}"));
+    let status = status(command);
     assert!(status.success(), "{command:?} failed with {status}");
+}
+
+fn status(command: &mut Command) -> ExitStatus {
+    command
+        .status()
+        .unwrap_or_else(|error| panic!("run {command:?}: {error}"))
 }
 
 fn env_var(name: &str) -> String {
