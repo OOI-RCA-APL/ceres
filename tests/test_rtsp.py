@@ -106,11 +106,10 @@ async def test_streams_h264_as_fragmented_mp4() -> None:
     assert_one_timeline(movie, 10)
 
 
-async def test_streams_h265() -> None:
+async def test_streams_h265_tagged_for_safari() -> None:
     async with rtsp_server("--clip", "h265") as url:
         movie = await watch(url, fragments=10)
-    # RTP carries no codec tag, so the MP4 muxer writes its HEVC default.
-    assert movie.codec() == b"hev1"
+    assert movie.codec() == b"hvc1"
     assert_one_timeline(movie, 10)
 
 

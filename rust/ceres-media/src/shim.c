@@ -147,6 +147,12 @@ int ceres_output_open(
         }
         error = avcodec_parameters_copy(stream->codecpar, source->codecpar);
         stream->codecpar->codec_tag = 0;
+        // Safari plays HEVC only as `hvc1`, which requires the parameter sets out of band, so
+        // the muxer default `hev1` stays only for a stream whose extradata lacks them.
+        if (stream->codecpar->codec_id == AV_CODEC_ID_HEVC
+            && stream->codecpar->extradata_size > 0) {
+            stream->codecpar->codec_tag = MKTAG('h', 'v', 'c', '1');
+        }
         stream->time_base = source->time_base;
     }
     if (error >= 0) {
