@@ -159,14 +159,27 @@ impl MediaPacket {
         }
     }
 
+    pub fn set_timing(&mut self, timing: PacketTiming) {
+        let value = |value: Option<i64>| value.unwrap_or(ffi::NOPTS);
+        // SAFETY: The packet is live, and the shim only writes its timing fields.
+        unsafe {
+            ffi::ceres_packet_set_timing(
+                self.raw.as_ptr(),
+                value(timing.pts),
+                value(timing.dts),
+                timing.duration,
+            );
+        }
+    }
+
     /// Shifts the packet's timestamps by `offset`, leaving unset ones unset.
     pub fn shift(&mut self, offset: i64) {
         let timing = self.timing();
-        let shift = |value: Option<i64>| value.map_or(ffi::NOPTS, |value| value + offset);
-        // SAFETY: The packet is live, and the shim only writes its timing fields.
-        unsafe {
-            ffi::ceres_packet_set_timing(self.raw.as_ptr(), shift(timing.pts), shift(timing.dts));
-        }
+        self.set_timing(PacketTiming {
+            pts: timing.pts.map(|pts| pts + offset),
+            dts: timing.dts.map(|dts| dts + offset),
+            duration: timing.duration,
+        });
     }
 
     pub fn is_key(&self) -> bool {

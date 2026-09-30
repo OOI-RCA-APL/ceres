@@ -55,7 +55,7 @@ unsafe extern "C" {
         dts: *mut i64,
         duration: *mut i64,
     );
-    pub fn ceres_packet_set_timing(packet: *mut AVPacket, pts: i64, dts: i64);
+    pub fn ceres_packet_set_timing(packet: *mut AVPacket, pts: i64, dts: i64, duration: i64);
     pub fn ceres_packet_is_key(packet: *const AVPacket) -> c_int;
     pub fn ceres_output_open(
         format: *const c_char,
@@ -76,6 +76,18 @@ unsafe extern "C" {
         packet: *mut AVPacket,
         num: c_int,
         den: c_int,
+    ) -> c_int;
+    pub fn ceres_output_time_base(
+        output: *const AVFormatContext,
+        stream: c_int,
+        num: *mut c_int,
+        den: *mut c_int,
+    );
+    pub fn ceres_output_matches(
+        output: *const AVFormatContext,
+        stream: c_int,
+        input: *const AVFormatContext,
+        source: c_int,
     ) -> c_int;
     pub fn ceres_output_close(output: *mut *mut AVFormatContext, abandon: c_int) -> c_int;
     pub fn ceres_output_sdp(

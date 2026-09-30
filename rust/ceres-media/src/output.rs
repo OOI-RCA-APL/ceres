@@ -93,6 +93,35 @@ impl MediaOutput {
         self.check(code)
     }
 
+    /// The time base the muxer chose for output stream `stream`.
+    pub fn time_base(&self, stream: usize) -> Result<TimeBase, MediaError> {
+        let context = self.context()?;
+        let stream = c_int::try_from(stream).expect("stream indexes fit an int");
+        let (mut num, mut den) = (0, 0);
+        // SAFETY: The muxer is live and the caller names one of its streams.
+        unsafe {
+            ffi::ceres_output_time_base(context.as_ptr(), stream, &raw mut num, &raw mut den);
+        }
+        Ok(TimeBase { num, den })
+    }
+
+    /// Whether `input`'s stream `source` has the codec, size, and parameter sets output stream
+    /// `stream` was opened with, so its packets can continue the same track.
+    pub fn matches(
+        &self,
+        stream: usize,
+        input: &MediaInput,
+        source: usize,
+    ) -> Result<bool, MediaError> {
+        let context = self.context()?;
+        let stream = c_int::try_from(stream).expect("stream indexes fit an int");
+        let source = c_int::try_from(source).expect("stream indexes fit an int");
+        // SAFETY: Both contexts are live and the caller names a stream of each.
+        let matches =
+            unsafe { ffi::ceres_output_matches(context.as_ptr(), stream, input.as_ptr(), source) };
+        Ok(matches != 0)
+    }
+
     /// The SDP describing an `rtp` muxer's stream.
     pub fn sdp(&mut self) -> Result<String, MediaError> {
         let context = self.context()?;

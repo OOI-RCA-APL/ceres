@@ -1,6 +1,8 @@
 // The only code that touches FFmpeg's structs. Rust declares these functions by hand and sees
 // every FFmpeg type as an opaque pointer, so no struct layout is mirrored on the Rust side.
 
+#include <string.h>
+
 #include <libavformat/avformat.h>
 #include <libavutil/dict.h>
 #include <libavutil/error.h>
@@ -96,9 +98,10 @@ void ceres_packet_timing(const AVPacket *packet, int64_t *pts, int64_t *dts, int
     *duration = packet->duration;
 }
 
-void ceres_packet_set_timing(AVPacket *packet, int64_t pts, int64_t dts) {
+void ceres_packet_set_timing(AVPacket *packet, int64_t pts, int64_t dts, int64_t duration) {
     packet->pts = pts;
     packet->dts = dts;
+    packet->duration = duration;
 }
 
 int ceres_packet_is_key(const AVPacket *packet) { return (packet->flags & AV_PKT_FLAG_KEY) != 0; }
@@ -158,6 +161,8 @@ int ceres_output_open(
             (*output)->pb = io;
             (*output)->flags |= AVFMT_FLAG_CUSTOM_IO;
             error = check_consumed(&dictionary, avformat_write_header(*output, &dictionary));
+            // The header is the MP4 init segment, which a player needs before any fragment.
+            avio_flush(io);
         }
     }
     av_dict_free(&dictionary);
@@ -173,6 +178,28 @@ int ceres_output_write(AVFormatContext *output, int stream, AVPacket *packet, in
     packet->stream_index = stream;
     av_packet_rescale_ts(packet, (AVRational){num, den}, output->streams[stream]->time_base);
     return av_interleaved_write_frame(output, packet);
+}
+
+// The time base the muxer chose for output stream `stream`, fixed once the header is written.
+void ceres_output_time_base(const AVFormatContext *output, int stream, int *num, int *den) {
+    AVRational time_base = output->streams[stream]->time_base;
+    *num = time_base.num;
+    *den = time_base.den;
+}
+
+// Whether input stream `source` carries the codec, size, and parameter sets output stream
+// `stream` was opened with, so its packets can continue that stream's track.
+int ceres_output_matches(
+    const AVFormatContext *output,
+    int stream,
+    const AVFormatContext *input,
+    int source
+) {
+    const AVCodecParameters *a = output->streams[stream]->codecpar;
+    const AVCodecParameters *b = input->streams[source]->codecpar;
+    return a->codec_id == b->codec_id && a->width == b->width && a->height == b->height &&
+           a->extradata_size == b->extradata_size &&
+           (a->extradata_size == 0 || memcmp(a->extradata, b->extradata, a->extradata_size) == 0);
 }
 
 // Writes the trailer unless `abandon` is set, then frees the muxer and its I/O context.

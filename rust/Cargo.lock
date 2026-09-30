@@ -792,6 +792,7 @@ name = "ceres-media"
 version = "0.0.0"
 dependencies = [
  "cc",
+ "log",
  "lzma-rust2",
  "tar",
  "tempfile",
