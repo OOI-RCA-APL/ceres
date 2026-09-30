@@ -22,6 +22,9 @@ const CHUNK_SIZE: usize = 65536;
 const TRANSCODE_TIME_BASE: TimeBase = TimeBase { num: 1, den: 90000 };
 
 /// How many chunks wait for the consumer before the session stops reading its source.
+///
+/// A chunk is about one fragment, so eight absorb a few hundred milliseconds of consumer
+/// hiccup before the camera connection backs up, and hold at most 512 KiB per client.
 const CHUNK_BACKLOG: usize = 8;
 
 /// Where a remux session gets its connections.

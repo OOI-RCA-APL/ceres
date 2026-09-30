@@ -82,6 +82,14 @@ impl RtspStream {
     }
 }
 
+/// A pending `next` holds its own reference to the stream, so a stream collected without
+/// `close` stops here, or that read waits on a silent camera forever.
+impl Drop for RtspStream {
+    fn drop(&mut self) {
+        self.stream.stop();
+    }
+}
+
 /// A duration argument in seconds, refusing a negative or non-finite value.
 fn seconds(name: &str, value: f64) -> PyResult<Duration> {
     Duration::try_from_secs_f64(value)

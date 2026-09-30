@@ -255,3 +255,19 @@ fn dropping_the_stream_interrupts_the_source() {
     drop(RemuxStream::start(Hanging(interrupted), options));
     receiver.recv_timeout(Duration::from_secs(5)).unwrap();
 }
+
+#[test]
+fn stopping_the_stream_ends_a_pending_read() {
+    let (interrupted, _receiver) = mpsc::channel();
+    let options = RemuxOptions {
+        stall_timeout: None,
+        ..options(true)
+    };
+    let stream = Arc::new(RemuxStream::start(Hanging(interrupted), options));
+    let (done, ended) = mpsc::channel();
+    let reader = Arc::clone(&stream);
+    thread::spawn(move || done.send(reader.next().is_none()).unwrap());
+    thread::sleep(Duration::from_millis(50));
+    stream.stop();
+    assert!(ended.recv_timeout(Duration::from_secs(5)).unwrap());
+}
