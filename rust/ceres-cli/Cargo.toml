@@ -16,7 +16,6 @@ path = "src/main.rs"
 ceres-config = { path = "../ceres-config" }
 ceres-database = { path = "../ceres-database" }
 ceres-entities = { path = "../ceres-entities" }
-ceres-media = { path = "../ceres-media" }
 # Only for the OpenAPI document, so `generate openapi` renders the same schema the
 # running server serves.
 ceres-server = { path = "../ceres-server" }

@@ -7,6 +7,7 @@ mod logging;
 mod options;
 mod output;
 mod remux;
+#[cfg(any(test, feature = "server"))]
 mod server;
 mod transcode;
 
@@ -16,6 +17,7 @@ pub use error::MediaError;
 pub use input::{Interrupt, MediaInput, MediaPacket, PacketTiming};
 pub use output::{MediaOutput, MediaSink, MediaTrack};
 pub use remux::{RemuxBackoff, RemuxOptions, RemuxSource, RemuxStream, RtspSource};
+#[cfg(any(test, feature = "server"))]
 pub use server::{RTSP_CLIPS, RtspServer, RtspServerOptions};
 pub use transcode::MediaTranscoder;
 

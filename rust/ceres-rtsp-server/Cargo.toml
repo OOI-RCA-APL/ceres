@@ -1,0 +1,16 @@
+# A development tool for testing `rtsp()` against, never shipped in a wheel.
+[package]
+name = "ceres-rtsp-server"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Test RTSP server serving clips with network faults on demand"
+publish = false
+
+[dependencies]
+ceres-media = { path = "../ceres-media", features = ["server"] }
+clap = { version = "4.5", features = ["derive", "wrap_help"] }
+
+[lints]
+workspace = true

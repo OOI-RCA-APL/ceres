@@ -674,7 +674,6 @@ dependencies = [
  "ceres-config",
  "ceres-database",
  "ceres-entities",
- "ceres-media",
  "ceres-server",
  "chrono",
  "clap",
@@ -805,6 +804,14 @@ dependencies = [
  "ceres-database",
  "ceres-entities",
  "serde_json",
+]
+
+[[package]]
+name = "ceres-rtsp-server"
+version = "0.0.0"
+dependencies = [
+ "ceres-media",
+ "clap",
 ]
 
 [[package]]

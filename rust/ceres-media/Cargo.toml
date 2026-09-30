@@ -7,8 +7,15 @@ repository.workspace = true
 description = "Ceres media streaming over a statically linked FFmpeg"
 links = "ffmpeg"
 
+[features]
+# The test RTSP server and its built-in clips, kept out of the Python extension.
+server = ["dep:tempfile"]
+
 [dependencies]
 log = "0.4"
+tempfile = { version = "3", optional = true }
+
+[dev-dependencies]
 tempfile = "3"
 
 [build-dependencies]

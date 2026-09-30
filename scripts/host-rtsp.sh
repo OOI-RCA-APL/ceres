@@ -17,7 +17,7 @@ DIRECTORY=$(dirname "$0")
 FILE="${1:-$DIRECTORY/host-rtsp-test-video.mp4}"
 STREAM="${2:-stream}"
 
-# The test server ships in the Ceres CLI and loops the file until stopped. `ceres dev
-# rtsp-server --help` lists the fault flags for testing reconnects.
-exec uv run --project "$DIRECTORY/.." ceres dev rtsp-server \
+# The test server loops the file until stopped. `--help` after `--` lists the fault flags
+# for testing reconnects.
+exec cargo run --quiet --manifest-path "$DIRECTORY/../rust/Cargo.toml" -p ceres-rtsp-server -- \
     --host 0.0.0.0 --port 8554 --path "$STREAM" --clip "$FILE"

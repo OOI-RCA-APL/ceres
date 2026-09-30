@@ -185,9 +185,6 @@ pub enum Command {
 
     /// Generate various project resources.
     Generate(GenerateArgs),
-
-    /// Development tools, such as servers to test against.
-    Dev(DevArgs),
     // The table command groups are not declared here. Their whole surface is
     // generated from the entity definitions at startup, which keeps the flags a
     // table accepts and the filter keys its compiler serves from ever disagreeing.
@@ -249,60 +246,6 @@ pub struct OpenapiArgs {
     /// Indentation width for JSON output.
     #[arg(long, default_value_t = 2)]
     pub indent: u64,
-}
-
-#[derive(Debug, Args)]
-pub struct DevArgs {
-    #[command(subcommand)]
-    pub command: DevCommand,
-}
-
-#[derive(Debug, Subcommand)]
-pub enum DevCommand {
-    /// Serve test clips over RTSP, with network faults on demand, until interrupted.
-    RtspServer(RtspServerArgs),
-}
-
-#[derive(Debug, Args)]
-pub struct RtspServerArgs {
-    /// Address to listen on.
-    #[arg(long, default_value = "127.0.0.1")]
-    pub host: String,
-
-    /// Port to listen on, 0 for any free port. The URL printed on startup names it.
-    #[arg(long, default_value_t = 8554)]
-    pub port: u16,
-
-    /// URL path clients request.
-    #[arg(long, default_value = "stream")]
-    pub path: String,
-
-    /// A built-in clip, h264 or h265, or a video file path. Repeat it to give successive
-    /// sessions successive clips.
-    #[arg(long = "clip", value_name = "CLIP", default_value = "h264")]
-    pub clips: Vec<String>,
-
-    /// Close each session this many seconds after it starts playing.
-    #[arg(long, value_name = "SECONDS")]
-    pub drop_after: Option<f64>,
-
-    /// Stop sending media this many seconds after each session starts playing, keeping the
-    /// connection open.
-    #[arg(long, value_name = "SECONDS")]
-    pub stall_after: Option<f64>,
-
-    /// Close this many connections as soon as they are accepted.
-    #[arg(long, value_name = "COUNT", default_value_t = 0)]
-    pub refuse: usize,
-
-    /// Close the listener and every session once, after the server has been up this many
-    /// seconds.
-    #[arg(long, value_name = "SECONDS")]
-    pub restart_after: Option<f64>,
-
-    /// Seconds the server stays down on a restart.
-    #[arg(long, value_name = "SECONDS", default_value_t = 1.0)]
-    pub restart_downtime: f64,
 }
 
 /// Supported output formats for the OpenAPI schema.

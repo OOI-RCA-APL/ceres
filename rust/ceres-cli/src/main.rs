@@ -273,10 +273,6 @@ fn run(cli: Cli, arguments: Vec<OsString>, output: &Output) -> Result<()> {
             cli::GenerateCommand::Openapi(openapi) => commands::generate::openapi(&openapi),
         },
 
-        Command::Dev(args) => match args.command {
-            cli::DevCommand::RtspServer(server) => commands::dev::rtsp_server(&server, output),
-        },
-
         Command::Reload => {
             let project = Project::discover(config)?;
             commands::engine::reload(&project)

@@ -9,6 +9,7 @@ members = [
     "ceres-macros",
     "ceres-media",
     "ceres-models",
+    "ceres-rtsp-server",
     "ceres-server",
     "ceres-stubs",
 ]
@@ -24,6 +25,7 @@ default-members = [
     "ceres-macros",
     "ceres-media",
     "ceres-models",
+    "ceres-rtsp-server",
     "ceres-server",
     "ceres-stubs",
 ]
