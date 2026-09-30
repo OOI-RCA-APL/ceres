@@ -2,9 +2,9 @@
 
 mod timeline;
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -102,12 +102,12 @@ type Chunk = Result<Vec<u8>, MediaError>;
 
 /// A fragmented MP4 stream remuxed from a source on its own thread, read in chunks.
 ///
-/// Dropping the stream stops the session, interrupting any blocking FFmpeg call.
+/// Stopping or dropping the stream ends the session, interrupting any blocking FFmpeg call.
 pub struct RemuxStream {
-    chunks: Receiver<Chunk>,
+    chunks: Mutex<Receiver<Chunk>>,
     stop: Arc<AtomicBool>,
     // Never sent on, dropping it wakes a session waiting out a backoff delay.
-    _wake: SyncSender<()>,
+    wake: Mutex<Option<SyncSender<()>>>,
 }
 
 impl RemuxStream {
@@ -129,21 +129,31 @@ impl RemuxStream {
             .spawn(move || session.run(source))
             .expect("the remux thread spawns");
         Self {
-            chunks,
+            chunks: Mutex::new(chunks),
             stop,
-            _wake: wake,
+            wake: Mutex::new(Some(wake)),
         }
     }
 
     /// Blocks for the next chunk, `None` once the stream ends.
     pub fn next(&self) -> Option<Chunk> {
-        self.chunks.recv().ok()
+        let chunks = self.chunks.lock().unwrap_or_else(PoisonError::into_inner);
+        chunks.recv().ok()
+    }
+
+    /// Ends the session, which closes the stream once any buffered chunks are read.
+    pub fn stop(&self) {
+        self.stop.store(true, Ordering::Relaxed);
+        self.wake
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
     }
 }
 
 impl Drop for RemuxStream {
     fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
+        self.stop();
     }
 }
 

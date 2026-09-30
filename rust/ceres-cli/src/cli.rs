@@ -295,7 +295,7 @@ pub struct RtspServerArgs {
     #[arg(long, value_name = "COUNT", default_value_t = 0)]
     pub refuse: usize,
 
-    /// Close the listener and every session each time the server has been up this many
+    /// Close the listener and every session once, after the server has been up this many
     /// seconds.
     #[arg(long, value_name = "SECONDS")]
     pub restart_after: Option<f64>,

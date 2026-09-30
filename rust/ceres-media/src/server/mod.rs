@@ -37,7 +37,7 @@ pub struct RtspServerOptions {
     pub stall_after: Option<Duration>,
     /// Closes this many connections as soon as they are accepted.
     pub refuse: usize,
-    /// Closes the listener and every session each time the server has been up this long.
+    /// Closes the listener and every session once, after the server has been up this long.
     pub restart_after: Option<Duration>,
     /// How long the server stays down on a restart.
     pub restart_downtime: Duration,
@@ -199,11 +199,14 @@ struct Accept {
 impl Accept {
     fn run(mut self, mut listener: TcpListener) {
         let mut sessions: Vec<JoinHandle<()>> = Vec::new();
-        let mut up_since = Instant::now();
+        let started = Instant::now();
         while !self.stopped() {
+            // The restart happens once, so a client whose backoff outgrows the uptime
+            // still reaches the server again.
             if let Some((after, downtime)) = self.restart
-                && up_since.elapsed() >= after
+                && started.elapsed() >= after
             {
+                self.restart = None;
                 drop(listener);
                 self.shared.close_sessions();
                 self.sleep(downtime);
@@ -211,7 +214,6 @@ impl Accept {
                     break;
                 };
                 listener = rebound;
-                up_since = Instant::now();
                 continue;
             }
             match listener.accept() {

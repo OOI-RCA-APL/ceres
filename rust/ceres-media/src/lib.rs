@@ -3,6 +3,7 @@
 mod error;
 mod ffi;
 mod input;
+mod logging;
 mod options;
 mod output;
 mod remux;

@@ -1,11 +1,13 @@
 // The only code that touches FFmpeg's structs. Rust declares these functions by hand and sees
 // every FFmpeg type as an opaque pointer, so no struct layout is mirrored on the Rust side.
 
+#include <stdarg.h>
 #include <string.h>
 
 #include <libavformat/avformat.h>
 #include <libavutil/dict.h>
 #include <libavutil/error.h>
+#include <libavutil/log.h>
 #include <libavutil/mem.h>
 
 // Builds a dictionary from `count` parallel keys and values.
@@ -219,4 +221,29 @@ int ceres_output_sdp(AVFormatContext *output, char *buffer, int size) {
 
 void ceres_error_describe(int error, char *buffer, size_t size) {
     av_strerror(error, buffer, size);
+}
+
+static void (*log_sink)(int level, const char *line);
+
+// Formats one message and hands it to the sink. Verbose levels are dropped before
+// formatting because the demuxer logs them per packet.
+static void route_log(void *context, int level, const char *format, va_list arguments) {
+    if (level > AV_LOG_INFO) {
+        return;
+    }
+    char line[1024];
+    int print_prefix = 1;
+    av_log_format_line2(context, level, format, arguments, line, sizeof line, &print_prefix);
+    size_t length = strlen(line);
+    while (length > 0 && (line[length - 1] == '\n' || line[length - 1] == '\r')) {
+        line[--length] = '\0';
+    }
+    if (length > 0) {
+        log_sink(level, line);
+    }
+}
+
+void ceres_log_route(void (*sink)(int level, const char *line)) {
+    log_sink = sink;
+    av_log_set_callback(route_log);
 }

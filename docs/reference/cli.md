@@ -188,7 +188,7 @@ Serve test clips over RTSP, with network faults on demand, until interrupted.
 | `--drop-after` `SECONDS` |  | Close each session this many seconds after it starts playing. |
 | `--stall-after` `SECONDS` |  | Stop sending media this many seconds after each session starts playing, keeping the connection open. |
 | `--refuse` `COUNT` |  | Close this many connections as soon as they are accepted. |
-| `--restart-after` `SECONDS` |  | Close the listener and every session each time the server has been up this many seconds. |
+| `--restart-after` `SECONDS` |  | Close the listener and every session once, after the server has been up this many seconds. |
 | `--restart-downtime` `SECONDS` |  | Seconds the server stays down on a restart. |
 
 ### `ceres alerts`

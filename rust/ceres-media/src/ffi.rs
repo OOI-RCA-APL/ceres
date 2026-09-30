@@ -26,6 +26,9 @@ pub type InterruptCallback = unsafe extern "C" fn(opaque: *mut c_void) -> c_int;
 pub type WriteCallback =
     unsafe extern "C" fn(opaque: *mut c_void, data: *const u8, size: c_int) -> c_int;
 
+/// Receives one formatted FFmpeg log line at an `AV_LOG_*` level.
+pub type LogCallback = unsafe extern "C" fn(level: c_int, line: *const c_char);
+
 unsafe extern "C" {
     pub fn ceres_input_open(
         url: *const c_char,
@@ -96,4 +99,6 @@ unsafe extern "C" {
         size: c_int,
     ) -> c_int;
     pub fn ceres_error_describe(error: c_int, buffer: *mut c_char, size: usize);
+
+    pub fn ceres_log_route(sink: LogCallback);
 }

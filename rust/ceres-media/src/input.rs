@@ -2,7 +2,7 @@ use std::ffi::{c_int, c_void};
 use std::ptr::{self, NonNull};
 
 use crate::options::{COptions, c_string};
-use crate::{MediaError, TimeBase, ffi};
+use crate::{MediaError, TimeBase, ffi, logging};
 
 /// A predicate polled while a demuxer blocks, returning `true` to abort the call.
 pub type Interrupt = Box<dyn Fn() -> bool + Send>;
@@ -28,6 +28,7 @@ impl MediaInput {
         options: &[(&str, &str)],
         interrupt: Option<Interrupt>,
     ) -> Result<Self, MediaError> {
+        logging::route();
         let url = c_string(url)?;
         let options = COptions::new(options)?;
         let interrupt = interrupt.map(Box::new);
