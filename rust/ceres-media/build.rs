@@ -231,6 +231,14 @@ fn configure_arguments(prefix: &Path, pkg_config: &Path, compiler: &cc::Tool) ->
     }
     if compiler.is_like_msvc() {
         arguments.push("--toolchain=msvc".to_owned());
+        // `cl` defaults to the static CRT, while `cc` compiles OpenH264 and the shim against the
+        // one Rust links, so FFmpeg takes the same flag to keep one CRT in every link.
+        let crt = compiler
+            .args()
+            .iter()
+            .find(|argument| *argument == "-MD" || *argument == "-MT")
+            .expect("`cc` names the MSVC runtime");
+        arguments.push(format!("--extra-cflags={}", crt.to_string_lossy()));
     } else {
         // FFmpeg splits `--cc` on spaces, which carries the target flags `cc` picked into every
         // compile and link step configure runs.
