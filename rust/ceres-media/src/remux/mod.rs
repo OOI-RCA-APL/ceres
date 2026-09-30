@@ -9,10 +9,17 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use self::timeline::Timeline;
-use crate::{Interrupt, MediaError, MediaInput, MediaOutput, MediaPacket, TimeBase};
+use crate::error::INPUT_CHANGED;
+use crate::{
+    Interrupt, MediaError, MediaInput, MediaOutput, MediaPacket, MediaTrack, MediaTranscoder,
+    TimeBase,
+};
 
 /// The most bytes one chunk of the stream carries.
 const CHUNK_SIZE: usize = 65536;
+
+/// The time base re-encoded video is timed in, RTP's video clock.
+const TRANSCODE_TIME_BASE: TimeBase = TimeBase { num: 1, den: 90000 };
 
 /// How many chunks wait for the consumer before the session stops reading its source.
 const CHUNK_BACKLOG: usize = 8;
@@ -75,6 +82,8 @@ impl RemuxBackoff {
 /// How a remux session writes its stream and treats a lost source.
 #[derive(Debug, Clone, Copy)]
 pub struct RemuxOptions {
+    /// Whether the source's packets are copied as they are, rather than re-encoded as H.264.
+    pub copy: bool,
     /// The longest a fragment may run before the muxer flushes it.
     pub fragment_duration: Duration,
     /// Whether fragments carry the DASH `sidx` index.
@@ -89,6 +98,7 @@ pub struct RemuxOptions {
 impl Default for RemuxOptions {
     fn default() -> Self {
         Self {
+            copy: true,
             fragment_duration: Duration::from_millis(50),
             dash: true,
             reconnect: true,
@@ -174,6 +184,23 @@ struct Muxer {
     timeline: Timeline,
 }
 
+impl Muxer {
+    /// Writes `packet`, timed in `time_base`, onto the stream's timeline.
+    fn write(&mut self, packet: &mut MediaPacket, time_base: TimeBase) -> Result<(), MediaError> {
+        let timing = packet.timing().rescale(time_base, self.time_base);
+        packet.set_timing(self.timeline.place(timing));
+        self.output.write(0, packet, self.time_base)
+    }
+}
+
+/// A session's re-encoding state, which outlives each connection so the encoder's output stays
+/// one track.
+struct Transcode {
+    transcoder: MediaTranscoder,
+    /// Places each connection's packets on the decoder's timeline.
+    timeline: Timeline,
+}
+
 struct Session {
     options: RemuxOptions,
     chunks: SyncSender<Chunk>,
@@ -187,6 +214,7 @@ struct Session {
 impl Session {
     fn run(self, mut source: impl RemuxSource) {
         let mut muxer = None;
+        let mut transcode = None;
         let mut delay = self.options.backoff.initial;
         loop {
             let connected = Instant::now();
@@ -195,7 +223,8 @@ impl Session {
                 // A source with nothing more to give ends the stream cleanly.
                 None => break,
                 Some(Err(error)) => RelayEnd::Disconnected(Some(error)),
-                Some(Ok(mut input)) => self.relay(&mut input, &mut muxer),
+                Some(Ok(mut input)) if self.options.copy => self.copy(&mut input, &mut muxer),
+                Some(Ok(mut input)) => self.transcode(&mut input, &mut muxer, &mut transcode),
             };
             if self.stopped() {
                 return;
@@ -235,13 +264,14 @@ impl Session {
     }
 
     /// Copies `input`'s video into the muxer until the connection ends.
-    fn relay(&self, input: &mut MediaInput, muxer: &mut Option<Muxer>) -> RelayEnd {
+    fn copy(&self, input: &mut MediaInput, muxer: &mut Option<Muxer>) -> RelayEnd {
         let video = match input.video_stream() {
             Ok(video) => video,
             Err(error) => return RelayEnd::Disconnected(Some(error)),
         };
+        let track = input.track(video);
         let muxer = match muxer {
-            Some(muxer) => match muxer.output.matches(0, input, video) {
+            Some(muxer) => match muxer.output.matches(0, &track) {
                 Ok(true) => {
                     muxer.timeline.reconnect();
                     muxer
@@ -249,40 +279,108 @@ impl Session {
                 Ok(false) => return RelayEnd::Changed,
                 Err(error) => return RelayEnd::Fatal(Some(error)),
             },
-            None => match self.open(input, video) {
+            None => match self.open(&track) {
                 Ok(opened) => muxer.insert(opened),
                 Err(error) => return self.fatal(error),
             },
         };
-        let source = input.time_base(video);
+        let time_base = track.time_base();
         let mut packet = MediaPacket::new();
         loop {
-            self.touch();
-            match input.read(&mut packet) {
-                Ok(true) => {}
-                Ok(false) => return RelayEnd::Disconnected(None),
-                Err(error) => return RelayEnd::Disconnected(Some(error)),
+            if let Err(end) = self.read(input, video, &mut packet) {
+                return end;
             }
-            if packet.stream() != video {
-                continue;
-            }
-            let timing = packet.timing();
-            let rescale = |ticks: i64| source.rescale(ticks, muxer.time_base);
-            let Some(timing) = muxer.timeline.place(crate::PacketTiming {
-                pts: timing.pts.map(rescale),
-                dts: timing.dts.map(rescale),
-                duration: rescale(timing.duration),
-            }) else {
-                continue;
-            };
-            packet.set_timing(timing);
-            if let Err(error) = muxer.output.write(0, &mut packet, muxer.time_base) {
+            if let Err(error) = muxer.write(&mut packet, time_base) {
                 return self.fatal(error);
             }
         }
     }
 
-    fn open(&self, input: &MediaInput, video: usize) -> Result<Muxer, MediaError> {
+    /// Decodes `input`'s video and re-encodes it into the muxer until the connection ends.
+    ///
+    /// The encoder lasts the session, so the muxer's track continues across connections for as
+    /// long as the source's picture keeps its size and format.
+    fn transcode(
+        &self,
+        input: &mut MediaInput,
+        muxer: &mut Option<Muxer>,
+        transcode: &mut Option<Transcode>,
+    ) -> RelayEnd {
+        let video = match input.video_stream() {
+            Ok(video) => video,
+            Err(error) => return RelayEnd::Disconnected(Some(error)),
+        };
+        let transcode = match transcode {
+            Some(transcode) => {
+                transcode.timeline.reconnect();
+                transcode
+            }
+            None => match MediaTranscoder::open(TRANSCODE_TIME_BASE) {
+                Ok(transcoder) => transcode.insert(Transcode {
+                    transcoder,
+                    timeline: Timeline::default(),
+                }),
+                Err(error) => return self.fatal(error),
+            },
+        };
+        // A source whose codec has no decoder fails the same way on every connection.
+        if let Err(error) = transcode.transcoder.connect(input, video) {
+            return self.fatal(error);
+        }
+        let source = input.time_base(video);
+        let mut packet = MediaPacket::new();
+        loop {
+            if let Err(end) = self.read(input, video, &mut packet) {
+                return end;
+            }
+            let timing = packet.timing().rescale(source, TRANSCODE_TIME_BASE);
+            packet.set_timing(transcode.timeline.place(timing));
+            if let Err(error) = transcode.transcoder.send(&mut packet) {
+                return self.fatal(error);
+            }
+            loop {
+                match transcode.transcoder.receive(&mut packet) {
+                    Ok(true) => {}
+                    Ok(false) => break,
+                    Err(error) if error.code == INPUT_CHANGED => return RelayEnd::Changed,
+                    Err(error) => return self.fatal(error),
+                }
+                let muxer = match muxer {
+                    Some(muxer) => muxer,
+                    None => {
+                        let track = transcode.transcoder.track().expect("an encoded packet");
+                        match self.open(&track) {
+                            Ok(opened) => muxer.insert(opened),
+                            Err(error) => return self.fatal(error),
+                        }
+                    }
+                };
+                if let Err(error) = muxer.write(&mut packet, TRANSCODE_TIME_BASE) {
+                    return self.fatal(error);
+                }
+            }
+        }
+    }
+
+    /// Reads `input`'s next packet of stream `video`, or how the connection ended.
+    fn read(
+        &self,
+        input: &mut MediaInput,
+        video: usize,
+        packet: &mut MediaPacket,
+    ) -> Result<(), RelayEnd> {
+        loop {
+            self.touch();
+            match input.read(packet) {
+                Ok(true) if packet.stream() == video => return Ok(()),
+                Ok(true) => {}
+                Ok(false) => return Err(RelayEnd::Disconnected(None)),
+                Err(error) => return Err(RelayEnd::Disconnected(Some(error))),
+            }
+        }
+    }
+
+    fn open(&self, track: &MediaTrack<'_>) -> Result<Muxer, MediaError> {
         let movflags = if self.options.dash {
             "+empty_moov+default_base_moof+dash"
         } else {
@@ -300,7 +398,7 @@ impl Session {
                 .send(Ok(bytes.to_vec()))
                 .map_err(|_| std::io::Error::from(std::io::ErrorKind::BrokenPipe))
         });
-        let output = MediaOutput::open("mp4", &options, input, &[video], CHUNK_SIZE, sink)?;
+        let output = MediaOutput::open("mp4", &options, &[*track], CHUNK_SIZE, sink)?;
         let time_base = output.time_base(0)?;
         Ok(Muxer {
             output,

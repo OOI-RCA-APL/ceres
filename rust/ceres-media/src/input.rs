@@ -2,7 +2,7 @@ use std::ffi::{c_int, c_void};
 use std::ptr::{self, NonNull};
 
 use crate::options::{COptions, c_string};
-use crate::{MediaError, TimeBase, ffi, logging};
+use crate::{MediaError, MediaTrack, TimeBase, ffi, logging};
 
 /// A predicate polled while a demuxer blocks, returning `true` to abort the call.
 pub type Interrupt = Box<dyn Fn() -> bool + Send>;
@@ -80,6 +80,16 @@ impl MediaInput {
         TimeBase { num, den }
     }
 
+    /// The codec and time base of `stream`, for a muxer copying its packets.
+    pub fn track(&self, stream: usize) -> MediaTrack<'_> {
+        let index = c_int::try_from(stream).expect("stream indexes fit an int");
+        // SAFETY: The context is live and owns the parameters for as long as the track borrows it.
+        unsafe {
+            let parameters = ffi::ceres_input_parameters(self.context.as_ptr(), index);
+            MediaTrack::new(parameters, self.time_base(stream))
+        }
+    }
+
     /// Reads the next packet into `packet`, returning `false` at the end of the input.
     pub fn read(&mut self, packet: &mut MediaPacket) -> Result<bool, MediaError> {
         packet.clear();
@@ -118,6 +128,18 @@ pub struct PacketTiming {
     pub dts: Option<i64>,
     /// Zero where the demuxer does not know it.
     pub duration: i64,
+}
+
+impl PacketTiming {
+    /// The same timing counted in `to` ticks rather than `from` ticks.
+    pub fn rescale(self, from: TimeBase, to: TimeBase) -> Self {
+        let rescale = |ticks: i64| from.rescale(ticks, to);
+        Self {
+            pts: self.pts.map(rescale),
+            dts: self.dts.map(rescale),
+            duration: rescale(self.duration),
+        }
+    }
 }
 
 /// A packet buffer, reused across reads.
@@ -192,7 +214,7 @@ impl MediaPacket {
         self.raw.as_ptr()
     }
 
-    fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         // SAFETY: The packet is live, and unreferencing a blank packet is a no-op.
         unsafe { ffi::ceres_packet_unref(self.raw.as_ptr()) };
     }

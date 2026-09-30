@@ -14,7 +14,12 @@ macro_rules! opaque {
     )*};
 }
 
-opaque!(AVFormatContext, AVPacket);
+opaque!(
+    AVCodecParameters,
+    AVFormatContext,
+    AVPacket,
+    CeresTranscoder
+);
 
 /// FFmpeg's `AV_NOPTS_VALUE`, a fixed constant in its public ABI.
 pub const NOPTS: i64 = i64::MIN;
@@ -60,13 +65,18 @@ unsafe extern "C" {
     );
     pub fn ceres_packet_set_timing(packet: *mut AVPacket, pts: i64, dts: i64, duration: i64);
     pub fn ceres_packet_is_key(packet: *const AVPacket) -> c_int;
+    pub fn ceres_input_parameters(
+        input: *const AVFormatContext,
+        stream: c_int,
+    ) -> *const AVCodecParameters;
     pub fn ceres_output_open(
         format: *const c_char,
         keys: *const *const c_char,
         values: *const *const c_char,
         count: c_int,
-        input: *const AVFormatContext,
-        streams: *const c_int,
+        parameters: *const *const AVCodecParameters,
+        nums: *const c_int,
+        dens: *const c_int,
         stream_count: c_int,
         packet_size: c_int,
         write: WriteCallback,
@@ -89,8 +99,7 @@ unsafe extern "C" {
     pub fn ceres_output_matches(
         output: *const AVFormatContext,
         stream: c_int,
-        input: *const AVFormatContext,
-        source: c_int,
+        parameters: *const AVCodecParameters,
     ) -> c_int;
     pub fn ceres_output_close(output: *mut *mut AVFormatContext, abandon: c_int) -> c_int;
     pub fn ceres_output_sdp(
@@ -98,6 +107,25 @@ unsafe extern "C" {
         buffer: *mut c_char,
         size: c_int,
     ) -> c_int;
+    pub fn ceres_transcoder_open(
+        num: c_int,
+        den: c_int,
+        transcoder: *mut *mut CeresTranscoder,
+    ) -> c_int;
+    pub fn ceres_transcoder_close(transcoder: *mut *mut CeresTranscoder);
+    pub fn ceres_transcoder_connect(
+        transcoder: *mut CeresTranscoder,
+        input: *mut AVFormatContext,
+        stream: c_int,
+    ) -> c_int;
+    pub fn ceres_transcoder_send(transcoder: *mut CeresTranscoder, packet: *mut AVPacket) -> c_int;
+    pub fn ceres_transcoder_receive(
+        transcoder: *mut CeresTranscoder,
+        packet: *mut AVPacket,
+    ) -> c_int;
+    pub fn ceres_transcoder_parameters(
+        transcoder: *const CeresTranscoder,
+    ) -> *const AVCodecParameters;
     pub fn ceres_error_describe(error: c_int, buffer: *mut c_char, size: usize);
 
     pub fn ceres_log_route(sink: LogCallback);

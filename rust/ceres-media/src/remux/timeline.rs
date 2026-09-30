@@ -17,24 +17,35 @@ impl Timeline {
         self.shift = None;
     }
 
-    /// Places `timing`, already in the output time base, or `None` when the packet carries no
-    /// timestamp to place.
-    pub(crate) fn place(&mut self, timing: PacketTiming) -> Option<PacketTiming> {
-        let source = timing.dts.or(timing.pts)?;
-        let shift = *self.shift.get_or_insert(self.end - source);
+    /// Places `timing`, already in the output time base.
+    pub(crate) fn place(&mut self, timing: PacketTiming) -> PacketTiming {
+        let placed = match timing.dts.or(timing.pts) {
+            Some(source) => {
+                let shift = *self.shift.get_or_insert(self.end - source);
+                (timing.pts.map(|pts| pts + shift), source + shift)
+            }
+            // RTP carries no timestamp on a connection's first frame until an RTCP report
+            // arrives, and that frame is the keyframe every later one needs, so it is placed
+            // where the stream stands and the next timestamp's shift lines up behind it.
+            None => match (self.shift, self.last_dts) {
+                (Some(_), Some(last)) => (None, last + timing.duration.max(1)),
+                _ => (None, self.end),
+            },
+        };
+        let (pts, dts) = placed;
         // The muxer rejects a decode timestamp that does not increase.
         let dts = match self.last_dts {
-            Some(last) if source + shift <= last => last + 1,
-            _ => source + shift,
+            Some(last) if dts <= last => last + 1,
+            _ => dts,
         };
-        let pts = timing.pts.map_or(dts, |pts| (pts + shift).max(dts));
+        let pts = pts.map_or(dts, |pts| pts.max(dts));
         self.last_dts = Some(dts);
         self.end = self.end.max(pts + timing.duration.max(0)).max(dts + 1);
-        Some(PacketTiming {
+        PacketTiming {
             pts: Some(pts),
             dts: Some(dts),
             duration: timing.duration,
-        })
+        }
     }
 }
 
@@ -45,7 +56,7 @@ mod tests {
     type Stamp = (Option<i64>, Option<i64>);
 
     /// Places each connection's `(pts, dts)` stamps, ten ticks long, and returns what landed.
-    fn place(connections: &[&[Stamp]]) -> Vec<Option<(i64, i64)>> {
+    fn place(connections: &[&[Stamp]]) -> Vec<(i64, i64)> {
         let mut timeline = Timeline::default();
         let mut placed = Vec::new();
         for connection in connections {
@@ -56,7 +67,7 @@ mod tests {
                     dts,
                     duration: 10,
                 });
-                placed.push(timing.map(|timing| (timing.pts.unwrap(), timing.dts.unwrap())));
+                placed.push((timing.pts.unwrap(), timing.dts.unwrap()));
             }
         }
         placed
@@ -65,7 +76,7 @@ mod tests {
     #[test]
     fn first_connection_starts_at_zero() {
         let placed = place(&[&[(Some(1000), Some(1000)), (Some(1010), Some(1010))]]);
-        assert_eq!(placed, [Some((0, 0)), Some((10, 10))]);
+        assert_eq!(placed, [(0, 0), (10, 10)]);
     }
 
     #[test]
@@ -74,7 +85,7 @@ mod tests {
             &[(Some(0), Some(0)), (Some(10), Some(10))],
             &[(Some(500), Some(500))],
         ]);
-        assert_eq!(placed, [Some((0, 0)), Some((10, 10)), Some((20, 20))]);
+        assert_eq!(placed, [(0, 0), (10, 10), (20, 20)]);
     }
 
     #[test]
@@ -83,24 +94,33 @@ mod tests {
             &[(Some(20), Some(0)), (Some(10), Some(10))],
             &[(Some(40), Some(20))],
         ]);
-        assert_eq!(placed, [Some((20, 0)), Some((10, 10)), Some((50, 30))]);
+        assert_eq!(placed, [(20, 0), (10, 10), (50, 30)]);
     }
 
     #[test]
     fn repeated_dts_is_bumped() {
         let placed = place(&[&[(Some(0), Some(0)), (Some(0), Some(0))]]);
-        assert_eq!(placed, [Some((0, 0)), Some((1, 1))]);
+        assert_eq!(placed, [(0, 0), (1, 1)]);
     }
 
     #[test]
     fn missing_dts_uses_pts() {
         let placed = place(&[&[(Some(5), None)]]);
-        assert_eq!(placed, [Some((0, 0))]);
+        assert_eq!(placed, [(0, 0)]);
     }
 
     #[test]
-    fn packet_without_timestamps_is_dropped() {
-        let placed = place(&[&[(None, None)]]);
-        assert_eq!(placed, [None]);
+    fn untimed_first_packet_leads_each_connection() {
+        let placed = place(&[
+            &[(None, None), (Some(1000), Some(1000))],
+            &[(None, None), (Some(500), Some(500))],
+        ]);
+        assert_eq!(placed, [(0, 0), (10, 10), (20, 20), (30, 30)]);
+    }
+
+    #[test]
+    fn untimed_packet_follows_the_previous_one() {
+        let placed = place(&[&[(Some(0), Some(0)), (None, None), (Some(20), Some(20))]]);
+        assert_eq!(placed, [(0, 0), (10, 10), (20, 20)]);
     }
 }

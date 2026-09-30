@@ -16,6 +16,9 @@ const EINVAL: i32 = -22;
 /// FFmpeg's `AVERROR(EIO)`, the same on every platform FFmpeg supports.
 pub(crate) const EIO: i32 = -5;
 
+/// FFmpeg's `AVERROR_INPUT_CHANGED`, `-MKTAG('\x01', 'g', 'n', 'c')`, a fixed tag in its ABI.
+pub(crate) const INPUT_CHANGED: i32 = -0x636e_6701;
+
 impl MediaError {
     /// A muxer call that failed because its sink failed.
     pub(crate) fn sink(error: &std::io::Error) -> Self {

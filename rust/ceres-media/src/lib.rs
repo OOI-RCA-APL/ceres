@@ -8,14 +8,16 @@ mod options;
 mod output;
 mod remux;
 mod server;
+mod transcode;
 
 use std::time::Duration;
 
 pub use error::MediaError;
 pub use input::{Interrupt, MediaInput, MediaPacket, PacketTiming};
-pub use output::{MediaOutput, MediaSink};
+pub use output::{MediaOutput, MediaSink, MediaTrack};
 pub use remux::{RemuxBackoff, RemuxOptions, RemuxSource, RemuxStream, RtspSource};
 pub use server::{RTSP_CLIPS, RtspServer, RtspServerOptions};
+pub use transcode::MediaTranscoder;
 
 /// The version of the FFmpeg release built into this crate.
 pub const FFMPEG_VERSION: &str = env!("CERES_FFMPEG_VERSION");

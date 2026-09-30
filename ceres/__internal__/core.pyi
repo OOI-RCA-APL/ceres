@@ -705,6 +705,7 @@ class RtspStream:
         cls,
         url: str,
         *,
+        copy: bool,
         transport: str,
         fragment_duration: float,
         dash: bool,
@@ -714,8 +715,9 @@ class RtspStream:
         r"""
         Connects to `url` and starts remuxing, reconnecting a lost camera when `reconnect`.
 
-        `transport` is `"tcp"` or `"udp"`. Durations are in seconds, and a `stall_timeout`
-        of `None` waits on a silent camera forever.
+        Without `copy` the video is re-encoded as H.264. `transport` is `"tcp"` or `"udp"`.
+        Durations are in seconds, and a `stall_timeout` of `None` waits on a silent camera
+        forever.
         """
     def next(self) -> Any:
         r"""

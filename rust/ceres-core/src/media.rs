@@ -23,12 +23,14 @@ pub struct RtspStream {
 impl RtspStream {
     /// Connects to `url` and starts remuxing, reconnecting a lost camera when `reconnect`.
     ///
-    /// `transport` is `"tcp"` or `"udp"`. Durations are in seconds, and a `stall_timeout`
-    /// of `None` waits on a silent camera forever.
+    /// Without `copy` the video is re-encoded as H.264. `transport` is `"tcp"` or `"udp"`.
+    /// Durations are in seconds, and a `stall_timeout` of `None` waits on a silent camera
+    /// forever.
     #[new]
-    #[pyo3(signature = (url, *, transport, fragment_duration, dash, reconnect, stall_timeout))]
+    #[pyo3(signature = (url, *, copy, transport, fragment_duration, dash, reconnect, stall_timeout))]
     fn new(
         url: String,
+        copy: bool,
         transport: String,
         fragment_duration: f64,
         dash: bool,
@@ -41,6 +43,7 @@ impl RtspStream {
             )));
         }
         let options = RemuxOptions {
+            copy,
             fragment_duration: seconds("fragment_duration", fragment_duration)?,
             dash,
             reconnect,

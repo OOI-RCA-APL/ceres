@@ -2,13 +2,19 @@
 // every FFmpeg type as an opaque pointer, so no struct layout is mirrored on the Rust side.
 
 #include <stdarg.h>
+#include <stdio.h>
 #include <string.h>
 
+#include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 #include <libavutil/dict.h>
 #include <libavutil/error.h>
 #include <libavutil/log.h>
 #include <libavutil/mem.h>
+#include <libavutil/pixdesc.h>
+
+// A decoded format the H.264 encoder cannot take, which re-encoding does not convert.
+#define CERES_ERROR_PIXEL_FORMAT FFERRTAG('C', 'P', 'I', 'X')
 
 // Builds a dictionary from `count` parallel keys and values.
 static int build_options(
@@ -85,6 +91,10 @@ void ceres_input_time_base(const AVFormatContext *input, int stream, int *num, i
     *den = time_base.den;
 }
 
+const AVCodecParameters *ceres_input_parameters(const AVFormatContext *input, int stream) {
+    return input->streams[stream]->codecpar;
+}
+
 AVPacket *ceres_packet_alloc(void) { return av_packet_alloc(); }
 
 void ceres_packet_free(AVPacket **packet) { av_packet_free(packet); }
@@ -118,15 +128,17 @@ static void free_output(AVFormatContext **output) {
     *output = NULL;
 }
 
-// Opens a muxer for `format` whose streams copy the input's `streams`, writing through `write`.
-// Each flush is one `write` call of at most `packet_size` bytes. Frees everything on failure.
+// Opens a muxer for `format` with one stream per `parameters` entry, timed in the parallel
+// `nums/dens` time bases, writing through `write`. Each flush is one `write` call of at most
+// `packet_size` bytes. Frees everything on failure.
 int ceres_output_open(
     const char *format,
     const char *const *keys,
     const char *const *values,
     int count,
-    const AVFormatContext *input,
-    const int *streams,
+    const AVCodecParameters *const *parameters,
+    const int *nums,
+    const int *dens,
     int stream_count,
     int packet_size,
     int (*write)(void *, const uint8_t *, int),
@@ -139,13 +151,12 @@ int ceres_output_open(
         error = avformat_alloc_output_context2(output, NULL, format, NULL);
     }
     for (int index = 0; error >= 0 && index < stream_count; index++) {
-        const AVStream *source = input->streams[streams[index]];
         AVStream *stream = avformat_new_stream(*output, NULL);
         if (stream == NULL) {
             error = AVERROR(ENOMEM);
             break;
         }
-        error = avcodec_parameters_copy(stream->codecpar, source->codecpar);
+        error = avcodec_parameters_copy(stream->codecpar, parameters[index]);
         stream->codecpar->codec_tag = 0;
         // Safari plays HEVC only as `hvc1`, which requires the parameter sets out of band, so
         // the muxer default `hev1` stays only for a stream whose extradata lacks them.
@@ -153,7 +164,7 @@ int ceres_output_open(
             && stream->codecpar->extradata_size > 0) {
             stream->codecpar->codec_tag = MKTAG('h', 'v', 'c', '1');
         }
-        stream->time_base = source->time_base;
+        stream->time_base = (AVRational){nums[index], dens[index]};
     }
     if (error >= 0) {
         // One byte of slack keeps a full packet from flushing before its own explicit flush.
@@ -195,16 +206,15 @@ void ceres_output_time_base(const AVFormatContext *output, int stream, int *num,
     *den = time_base.den;
 }
 
-// Whether input stream `source` carries the codec, size, and parameter sets output stream
-// `stream` was opened with, so its packets can continue that stream's track.
+// Whether `parameters` carry the codec, size, and parameter sets output stream `stream` was
+// opened with, so their packets can continue that stream's track.
 int ceres_output_matches(
     const AVFormatContext *output,
     int stream,
-    const AVFormatContext *input,
-    int source
+    const AVCodecParameters *parameters
 ) {
     const AVCodecParameters *a = output->streams[stream]->codecpar;
-    const AVCodecParameters *b = input->streams[source]->codecpar;
+    const AVCodecParameters *b = parameters;
     return a->codec_id == b->codec_id && a->width == b->width && a->height == b->height &&
            a->extradata_size == b->extradata_size &&
            (a->extradata_size == 0 || memcmp(a->extradata, b->extradata, a->extradata_size) == 0);
@@ -225,7 +235,187 @@ int ceres_output_sdp(AVFormatContext *output, char *buffer, int size) {
     return av_sdp_create(&output, 1, buffer, size);
 }
 
+// A decoder feeding the H.264 encoder. The encoder opens on the first decoded frame and lasts
+// the whole session so its output stays one track, while each connection opens its own decoder.
+typedef struct CeresTranscoder {
+    AVCodecContext *decoder;
+    AVCodecContext *encoder;
+    AVCodecParameters *parameters;
+    AVFrame *frame;
+    AVRational time_base;
+    AVRational frame_rate;
+} CeresTranscoder;
+
+void ceres_transcoder_close(CeresTranscoder **transcoder) {
+    CeresTranscoder *t = *transcoder;
+    if (t == NULL) {
+        return;
+    }
+    avcodec_free_context(&t->decoder);
+    avcodec_free_context(&t->encoder);
+    avcodec_parameters_free(&t->parameters);
+    av_frame_free(&t->frame);
+    av_freep(transcoder);
+}
+
+// Opens a transcoder whose packets, in and out, are timed in `num/den`.
+int ceres_transcoder_open(int num, int den, CeresTranscoder **transcoder) {
+    CeresTranscoder *t = av_mallocz(sizeof *t);
+    if (t == NULL) {
+        return AVERROR(ENOMEM);
+    }
+    t->frame = av_frame_alloc();
+    t->parameters = avcodec_parameters_alloc();
+    if (t->frame == NULL || t->parameters == NULL) {
+        ceres_transcoder_close(&t);
+        return AVERROR(ENOMEM);
+    }
+    t->time_base = (AVRational){num, den};
+    *transcoder = t;
+    return 0;
+}
+
+// Opens a decoder for input stream `stream`, replacing the previous connection's.
+int ceres_transcoder_connect(CeresTranscoder *t, AVFormatContext *input, int stream) {
+    avcodec_free_context(&t->decoder);
+    AVStream *source = input->streams[stream];
+    const AVCodec *codec = avcodec_find_decoder(source->codecpar->codec_id);
+    if (codec == NULL) {
+        return AVERROR_DECODER_NOT_FOUND;
+    }
+    if ((t->decoder = avcodec_alloc_context3(codec)) == NULL) {
+        return AVERROR(ENOMEM);
+    }
+    int error = avcodec_parameters_to_context(t->decoder, source->codecpar);
+    if (error >= 0) {
+        t->decoder->pkt_timebase = t->time_base;
+        // Frame threads hold a frame per thread, a delay a live stream feels. Slices add none.
+        t->decoder->flags |= AV_CODEC_FLAG_LOW_DELAY;
+        t->decoder->thread_type = FF_THREAD_SLICE;
+        t->decoder->thread_count = 0;
+        error = avcodec_open2(t->decoder, codec, NULL);
+    }
+    if (error < 0) {
+        avcodec_free_context(&t->decoder);
+        return error;
+    }
+    if (t->encoder == NULL) {
+        // RTP carries no frame rate, so a guess past any camera's means the estimate failed.
+        AVRational rate = av_guess_frame_rate(input, source, NULL);
+        t->frame_rate = rate.num > 0 && rate.den > 0 && av_q2d(rate) <= 120 ? rate
+                                                                             : (AVRational){30, 1};
+    }
+    return 0;
+}
+
+// Sends a packet timed in the transcoder's time base to the decoder, leaving it blank.
+int ceres_transcoder_send(CeresTranscoder *t, AVPacket *packet) {
+    int error = avcodec_send_packet(t->decoder, packet);
+    av_packet_unref(packet);
+    // A live source loses packets, and one that fails to decode costs its frames, not the
+    // session.
+    return error == AVERROR_INVALIDDATA ? 0 : error;
+}
+
+static int open_encoder(CeresTranscoder *t, const AVFrame *frame) {
+    if (frame->format != AV_PIX_FMT_YUV420P && frame->format != AV_PIX_FMT_YUVJ420P) {
+        av_log(t->decoder, AV_LOG_ERROR, "cannot re-encode %s video\n",
+               av_get_pix_fmt_name(frame->format));
+        return CERES_ERROR_PIXEL_FORMAT;
+    }
+    const AVCodec *codec = avcodec_find_encoder_by_name("libopenh264");
+    if (codec == NULL) {
+        return AVERROR_ENCODER_NOT_FOUND;
+    }
+    AVCodecContext *encoder = avcodec_alloc_context3(codec);
+    if (encoder == NULL) {
+        return AVERROR(ENOMEM);
+    }
+    double rate = av_q2d(t->frame_rate);
+    encoder->width = frame->width;
+    encoder->height = frame->height;
+    encoder->pix_fmt = frame->format;
+    encoder->sample_aspect_ratio = frame->sample_aspect_ratio;
+    encoder->time_base = t->time_base;
+    encoder->framerate = t->frame_rate;
+    // The encoder's 200 kb/s default blurs anything larger than a thumbnail, so the rate
+    // scales with the picture, 0.1 bits per pixel.
+    encoder->bit_rate = (int64_t)(0.1 * frame->width * frame->height * rate);
+    // Two seconds between keyframes. The default twelve frames spends the rate on intra frames.
+    encoder->gop_size = (int)(2 * rate + 0.5);
+    encoder->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+    encoder->thread_count = 0;
+    int error = avcodec_open2(encoder, codec, NULL);
+    if (error >= 0) {
+        error = avcodec_parameters_from_context(t->parameters, encoder);
+    }
+    if (error < 0) {
+        avcodec_free_context(&encoder);
+        return error;
+    }
+    t->encoder = encoder;
+    return 0;
+}
+
+static int encode_frame(CeresTranscoder *t) {
+    AVFrame *frame = t->frame;
+    frame->pts = frame->best_effort_timestamp;
+    if (frame->pts == AV_NOPTS_VALUE) {
+        return 0;
+    }
+    int error = 0;
+    if (t->encoder == NULL) {
+        error = open_encoder(t, frame);
+    } else if (frame->width != t->encoder->width || frame->height != t->encoder->height ||
+               frame->format != t->encoder->pix_fmt) {
+        error = AVERROR_INPUT_CHANGED;
+    }
+    if (error < 0) {
+        return error;
+    }
+    frame->pict_type = AV_PICTURE_TYPE_NONE;
+    return avcodec_send_frame(t->encoder, frame);
+}
+
+// Returns 1 with an encoded packet timed in the transcoder's time base, 0 when the decoder
+// needs another packet, and a negative error otherwise. `AVERROR_INPUT_CHANGED` means a frame's
+// size or format differs from the encoder's, which lasts the session.
+int ceres_transcoder_receive(CeresTranscoder *t, AVPacket *packet) {
+    for (;;) {
+        if (t->encoder != NULL) {
+            int error = avcodec_receive_packet(t->encoder, packet);
+            if (error != AVERROR(EAGAIN)) {
+                return error < 0 ? error : 1;
+            }
+        }
+        int error = avcodec_receive_frame(t->decoder, t->frame);
+        if (error == AVERROR(EAGAIN)) {
+            return 0;
+        }
+        if (error == AVERROR_INVALIDDATA) {
+            continue;
+        }
+        if (error < 0) {
+            return error;
+        }
+        error = encode_frame(t);
+        av_frame_unref(t->frame);
+        if (error < 0) {
+            return error;
+        }
+    }
+}
+
+// The encoder's stream parameters, null until a received frame has opened the encoder.
+const AVCodecParameters *ceres_transcoder_parameters(const CeresTranscoder *t) {
+    return t->encoder != NULL ? t->parameters : NULL;
+}
+
 void ceres_error_describe(int error, char *buffer, size_t size) {
+    if (error == CERES_ERROR_PIXEL_FORMAT) {
+        snprintf(buffer, size, "re-encoding supports only 8-bit 4:2:0 video");
+        return;
+    }
     av_strerror(error, buffer, size);
 }
 

@@ -36,16 +36,18 @@ async def rtsp(
 
     When the camera drops, the connection is reopened and its packets are placed after the
     last one sent, so clients holding open video connections keep decoding one continuous
-    stream across the gap. A camera that comes back with a different codec, resolution, or
-    parameter set ends the stream, because the MP4 already sent describes the old one.
+    stream across the gap. A camera that comes back with a picture the MP4 already sent cannot
+    describe ends the stream. When copying, that is a different codec, resolution, or parameter
+    set. When re-encoding, it is a different resolution or pixel format.
 
     FFmpeg's log goes to the Rust `log` facade at debug level, and every failure also ends
     the stream with an error.
 
     Args:
         url: URL of the RTSP stream to read from.
-        copy: If true, copy the video stream without re-encoding. Re-encoding is not
-            available yet, so false raises.
+        copy: If true, copy the video stream without re-encoding. If false, decode it and
+            re-encode it as H.264 with OpenH264, which costs CPU but plays in browsers that
+            cannot decode the camera's codec. Re-encoding accepts only 8-bit 4:2:0 video.
         transport: The RTSP transport, `"tcp"` or `"udp"`. Defaults to `"tcp"`.
         fragment_duration: Longest duration in seconds of each emitted MP4 fragment. Defaults
             to 50 ms to reduce latency.
@@ -62,18 +64,17 @@ async def rtsp(
         A `StreamingOutput` that yields `video/mp4` bytes.
 
     Raises:
-        NotImplementedError: If `copy` is false.
         ValueError: If `transport` is not `"tcp"` or `"udp"`, or a duration is negative. The
             stream raises it when first read.
         ConnectionError: From the stream, when the camera cannot be reached and `reconnect`
-            is false, or when the remux fails.
+            is false, when re-encoding meets video other than 8-bit 4:2:0, or when the remux
+            fails.
     """
-    if not copy:
-        raise NotImplementedError("rtsp(copy=False) re-encoding is not available yet.")
 
     async def stream() -> AsyncIterator[bytes]:
         session = RtspStream(
             url,
+            copy=copy,
             transport=transport,
             fragment_duration=fragment_duration,
             dash=dash,

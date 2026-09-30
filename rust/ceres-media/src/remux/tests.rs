@@ -137,6 +137,49 @@ fn lost_source_without_reconnect_ends_the_stream() {
     assert_eq!(stamps.len(), 100);
 }
 
+/// The stream's bytes and ending error, re-encoding each attempt's clip in turn.
+fn reencode<const N: usize>(attempts: [Attempt; N]) -> (Vec<u8>, Option<MediaError>) {
+    let options = RemuxOptions {
+        copy: false,
+        ..options(true)
+    };
+    drain(
+        &RemuxStream::start(Attempts(attempts.into()), options),
+        None,
+    )
+}
+
+fn contains(bytes: &[u8], tag: &[u8]) -> bool {
+    bytes.windows(tag.len()).any(|window| window == tag)
+}
+
+#[test]
+fn reencoding_writes_h264() {
+    let (bytes, error) = reencode([Clip("h265")]);
+    assert!(error.is_none(), "{error:?}");
+    assert!(contains(&bytes, b"avc1") && !contains(&bytes, b"hvc1"));
+    // The decoder holds a few frames of reordering delay that a lost source never flushes.
+    let stamps = decode_timestamps(&bytes);
+    assert!(stamps.len() > 90, "{} packets", stamps.len());
+}
+
+#[test]
+fn reencoding_continues_one_timeline_across_a_codec_change() {
+    let (bytes, error) = reencode([Clip("h264"), Clip("h265")]);
+    assert!(error.is_none(), "{error:?}");
+    let stamps = decode_timestamps(&bytes);
+    assert!(stamps.len() > 180, "{} packets", stamps.len());
+    assert!(stamps.is_sorted_by(|a, b| a < b));
+}
+
+#[test]
+fn reencoding_ten_bit_video_is_an_error() {
+    let (bytes, error) = reencode([Clip("h265-10bit"), Clip("h265-10bit")]);
+    assert!(bytes.is_empty());
+    let error = error.expect("an error");
+    assert!(error.message.contains("8-bit 4:2:0"), "{error}");
+}
+
 #[test]
 fn backoff_doubles_to_the_cap_and_resets_after_a_healthy_session() {
     let backoff = RemuxBackoff::default();
@@ -180,6 +223,24 @@ fn dropped_rtsp_session_is_reconnected() {
     assert!(error.is_none(), "{error:?}");
     let stamps = decode_timestamps(&bytes);
     // One session delivers about a second, 25 frames, so more than 50 took a reconnect.
+    assert!(stamps.len() > 50, "{} packets", stamps.len());
+    assert!(stamps.is_sorted_by(|a, b| a < b));
+}
+
+#[test]
+fn reencoded_rtsp_session_is_reconnected() {
+    let server = serve(RtspServerOptions {
+        drop_after: Some(Duration::from_secs(1)),
+        ..RtspServerOptions::default()
+    });
+    let options = RemuxOptions {
+        copy: false,
+        ..options(true)
+    };
+    let stream = RemuxStream::start(rtsp(&server), options);
+    let (bytes, error) = drain(&stream, Some(Instant::now() + Duration::from_secs(5)));
+    assert!(error.is_none(), "{error:?}");
+    let stamps = decode_timestamps(&bytes);
     assert!(stamps.len() > 50, "{} packets", stamps.len());
     assert!(stamps.is_sorted_by(|a, b| a < b));
 }

@@ -23,7 +23,7 @@ pub(super) struct PlayContext {
 pub(super) fn describe(clip: &Path) -> Result<String, MediaError> {
     let (input, video) = open(clip)?;
     let discard: MediaSink = Box::new(|_| Ok(()));
-    MediaOutput::open("rtp", &[], &input, &[video], PACKET_SIZE, discard)?.sdp()
+    MediaOutput::open("rtp", &[], &[input.track(video)], PACKET_SIZE, discard)?.sdp()
 }
 
 /// Streams `clip` in a loop at its own pace until stopped, a fault fires, or the client leaves.
@@ -37,7 +37,7 @@ fn stream(context: &PlayContext) -> Result<(), MediaError> {
     let time_base = input.time_base(video);
     let writer = Arc::clone(&context.writer);
     let sink: MediaSink = Box::new(move |data| interleave(&writer, data));
-    let mut output = MediaOutput::open("rtp", &[], &input, &[video], PACKET_SIZE, sink)?;
+    let mut output = MediaOutput::open("rtp", &[], &[input.track(video)], PACKET_SIZE, sink)?;
     let started = Instant::now();
     let mut packet = MediaPacket::new();
     // Each loop of the clip is shifted to start where the previous one ended.

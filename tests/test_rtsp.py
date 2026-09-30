@@ -70,12 +70,15 @@ async def watch(
     url: str,
     *,
     fragments: int,
+    copy: bool = True,
     reconnect: bool = True,
     stall_timeout: float | None = 10.0,
     transport: str = "tcp",
 ) -> Movie:
     """Read `rtsp(url)` until `fragments` fragments arrive or the stream ends."""
-    output = await rtsp(url, reconnect=reconnect, stall_timeout=stall_timeout, transport=transport)
+    output = await rtsp(
+        url, copy=copy, reconnect=reconnect, stall_timeout=stall_timeout, transport=transport
+    )
     assert callable(output.stream)
     stream = cast("AsyncGenerator[bytes]", output.stream())
     movie = Movie()
@@ -147,6 +150,8 @@ async def test_unknown_transport_is_an_error() -> None:
         await watch("rtsp://127.0.0.1:1/stream", fragments=1, transport="http")
 
 
-async def test_reencoding_is_not_available() -> None:
-    with pytest.raises(NotImplementedError):
-        await rtsp("rtsp://127.0.0.1:1/stream", copy=False)
+async def test_reencodes_h265_as_h264_across_a_lost_camera() -> None:
+    async with rtsp_server("--clip", "h265", "--drop-after", "1") as url:
+        movie = await watch(url, fragments=40, copy=False, stall_timeout=1.0)
+    assert movie.codec() == b"avc1"
+    assert_one_timeline(movie, 40)

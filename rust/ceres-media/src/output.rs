@@ -1,13 +1,40 @@
 use std::ffi::{CStr, c_char, c_int, c_void};
 use std::io;
+use std::marker::PhantomData;
 use std::ptr::{self, NonNull};
 
 use crate::error::EIO;
 use crate::options::{COptions, c_string};
-use crate::{MediaError, MediaInput, MediaPacket, TimeBase, ffi};
+use crate::{MediaError, MediaPacket, TimeBase, ffi};
 
 /// Receives the muxer's output, one flush per call, each at most the output's packet size.
 pub type MediaSink = Box<dyn FnMut(&[u8]) -> io::Result<()> + Send>;
+
+/// The codec and time base of one stream, borrowed from the input or transcoder producing it.
+#[derive(Clone, Copy)]
+pub struct MediaTrack<'a> {
+    parameters: NonNull<ffi::AVCodecParameters>,
+    time_base: TimeBase,
+    _owner: PhantomData<&'a ()>,
+}
+
+impl MediaTrack<'_> {
+    /// Wraps `parameters`, which the caller keeps alive and unchanged for the track's lifetime.
+    pub(crate) unsafe fn new(
+        parameters: *const ffi::AVCodecParameters,
+        time_base: TimeBase,
+    ) -> Self {
+        Self {
+            parameters: NonNull::new(parameters.cast_mut()).expect("FFmpeg returned parameters"),
+            time_base,
+            _owner: PhantomData,
+        }
+    }
+
+    pub fn time_base(&self) -> TimeBase {
+        self.time_base
+    }
+}
 
 struct SinkState {
     sink: MediaSink,
@@ -23,23 +50,30 @@ pub struct MediaOutput {
 }
 
 impl MediaOutput {
-    /// Opens a `format` muxer with FFmpeg `options` over `streams` of `input` and writes its
+    /// Opens a `format` muxer with FFmpeg `options` and one stream per track, and writes its
     /// header.
     ///
     /// An option FFmpeg does not recognize is an error.
     pub fn open(
         format: &str,
         options: &[(&str, &str)],
-        input: &MediaInput,
-        streams: &[usize],
+        tracks: &[MediaTrack<'_>],
         packet_size: usize,
         sink: MediaSink,
     ) -> Result<Self, MediaError> {
         let format = c_string(format)?;
         let options = COptions::new(options)?;
-        let streams = streams
+        let parameters = tracks
             .iter()
-            .map(|&stream| c_int::try_from(stream).expect("stream indexes fit an int"))
+            .map(|track| track.parameters.as_ptr().cast_const())
+            .collect::<Vec<_>>();
+        let nums = tracks
+            .iter()
+            .map(|track| track.time_base.num)
+            .collect::<Vec<_>>();
+        let dens = tracks
+            .iter()
+            .map(|track| track.time_base.den)
             .collect::<Vec<_>>();
         let packet_size = c_int::try_from(packet_size)
             .map_err(|_| MediaError::invalid(format!("packet size {packet_size} is too large")))?;
@@ -53,9 +87,10 @@ impl MediaOutput {
                 options.keys(),
                 options.values(),
                 options.count(),
-                input.as_ptr(),
-                streams.as_ptr(),
-                c_int::try_from(streams.len()).expect("a handful of streams"),
+                parameters.as_ptr(),
+                nums.as_ptr(),
+                dens.as_ptr(),
+                c_int::try_from(tracks.len()).expect("a handful of streams"),
                 packet_size,
                 write_sink,
                 ptr::from_mut::<SinkState>(&mut state).cast::<c_void>(),
@@ -105,20 +140,16 @@ impl MediaOutput {
         Ok(TimeBase { num, den })
     }
 
-    /// Whether `input`'s stream `source` has the codec, size, and parameter sets output stream
-    /// `stream` was opened with, so its packets can continue the same track.
-    pub fn matches(
-        &self,
-        stream: usize,
-        input: &MediaInput,
-        source: usize,
-    ) -> Result<bool, MediaError> {
+    /// Whether `track` has the codec, size, and parameter sets output stream `stream` was opened
+    /// with, so its packets can continue the same track.
+    pub fn matches(&self, stream: usize, track: &MediaTrack<'_>) -> Result<bool, MediaError> {
         let context = self.context()?;
         let stream = c_int::try_from(stream).expect("stream indexes fit an int");
-        let source = c_int::try_from(source).expect("stream indexes fit an int");
-        // SAFETY: Both contexts are live and the caller names a stream of each.
-        let matches =
-            unsafe { ffi::ceres_output_matches(context.as_ptr(), stream, input.as_ptr(), source) };
+        // SAFETY: The muxer is live, the caller names one of its streams, and the track borrows
+        // parameters that outlive the call.
+        let matches = unsafe {
+            ffi::ceres_output_matches(context.as_ptr(), stream, track.parameters.as_ptr())
+        };
         Ok(matches != 0)
     }
 
