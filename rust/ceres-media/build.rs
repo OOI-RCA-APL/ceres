@@ -137,18 +137,6 @@ fn build(tarball: &Path, out_dir: &Path, prefix: &Path, arguments: &[String], co
         .arg("install")
         .current_dir(&build)
         .envs(compiler.env().iter().cloned()));
-
-    // FFmpeg names its MSVC static libraries `libname.a`, and rustc looks for `name.lib`.
-    if compiler.is_like_msvc() {
-        let lib = prefix.join("lib");
-        for name in LIBRARIES {
-            fs::copy(
-                lib.join(format!("lib{name}.a")),
-                lib.join(format!("{name}.lib")),
-            )
-            .expect("copy an FFmpeg static library to its MSVC name");
-        }
-    }
 }
 
 fn link(prefix: &Path) {
