@@ -259,11 +259,14 @@ async function logout() {
             type="email"
           />
         </c-form-field>
-        <div v-if="engine.auth.isAdmin" class="flex gap-4">
-          <c-tooltip text="Grant full access to every component and setting.">
+        <div v-if="engine.auth.isAdmin" class="grid grid-cols-2 gap-2">
+          <c-tooltip
+            class="justify-self-center"
+            text="Grant full access to every component and setting."
+          >
             <c-switch v-model="form.data.admin" :disabled="form.readonly" label="Administrator" />
           </c-tooltip>
-          <c-tooltip text="Temporarily disable login access.">
+          <c-tooltip class="justify-self-center" text="Temporarily disable login access.">
             <c-switch
               v-model="form.data.disabled"
               color="error"
