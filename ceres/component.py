@@ -788,6 +788,7 @@ class StreamingOutput(BaseOutput):
         "media",
         "http_status",
         "http_headers",
+        "http_filename",
         "on_exit",
     )
 
@@ -798,6 +799,7 @@ class StreamingOutput(BaseOutput):
         *,
         http_status: int = 200,
         http_headers: Mapping[str, str] | None = None,
+        http_filename: str | None = None,
         on_exit: Callable[[], Awaitable[Any]] | None = None,
     ) -> None:
         """Construct a streaming output.
@@ -808,6 +810,7 @@ class StreamingOutput(BaseOutput):
             media: MIME type to advertise on the response.
             http_status: HTTP status code for the response.
             http_headers: Additional response headers.
+            http_filename: Filename hint to send via the `Content-Disposition` header.
             on_exit: Optional async callback run after the output closes.
         """
         self._stream = stream
@@ -815,6 +818,7 @@ class StreamingOutput(BaseOutput):
         self.media = media
         self.http_status = http_status
         self.http_headers = http_headers
+        self.http_filename = http_filename
         self.on_exit = on_exit
 
     async def __aenter__(self) -> Self:

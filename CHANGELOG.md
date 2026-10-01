@@ -21,6 +21,7 @@ written, and the release workflow refuses a version that has no entry here.
 
 - `StreamingOutput` is an async context manager and an async iterable, so a procedure can read
   another's stream and its cleanup still runs (#174).
+- `StreamingOutput` takes `http_filename`, sent as `Content-Disposition` like `FileOutput`.
 
 **Fixes**
 

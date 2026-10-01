@@ -228,7 +228,7 @@ class Host:
             self._releases[handle] = exit_stack.aclose
             description = {
                 "status": output.http_status,
-                "headers": _headers(output.http_headers, output.media),
+                "headers": _headers(output.http_headers, output.media, output.http_filename),
             }
         else:
             raise ProcedureInternalError(
@@ -301,12 +301,10 @@ def _file_description(output: FileOutput) -> dict[str, Any]:
     from mimetypes import guess_type
 
     status = output.path.stat()
-    headers = _headers(output.http_headers, output.media or guess_type(output.path.name)[0])
+    media = output.media or guess_type(output.path.name)[0]
+    headers = _headers(output.http_headers, media, output.http_filename)
     if not _declares(headers, "content-length"):
         headers.append(["content-length", str(status.st_size)])
-
-    if output.http_filename is not None and not _declares(headers, "content-disposition"):
-        headers.append(["content-disposition", _disposition(output.http_filename)])
 
     return {
         "status": output.http_status,
@@ -321,11 +319,16 @@ async def _streaming_chunks(output: StreamingOutput) -> AsyncIterator[bytes]:
         yield bytes(chunk)
 
 
-def _headers(declared: Mapping[str, str] | None, media: str | None) -> list[list[str]]:
-    """The response's headers, the content type added only when none is declared."""
+def _headers(
+    declared: Mapping[str, str] | None, media: str | None, filename: str | None
+) -> list[list[str]]:
+    """The response's headers, the content type and disposition added only when undeclared."""
     headers = [[name, value] for name, value in (declared or {}).items()]
     if media is not None and not _declares(headers, "content-type"):
         headers.append(["content-type", media])
+
+    if filename is not None and not _declares(headers, "content-disposition"):
+        headers.append(["content-disposition", _disposition(filename)])
 
     return headers
 

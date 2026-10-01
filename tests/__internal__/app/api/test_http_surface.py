@@ -61,7 +61,7 @@ class _Media(Component):
             for index in range(3):
                 yield f"{index},{index * 2}\n".encode()
 
-        return StreamingOutput(chunks, "text/csv", on_exit=_exit("rows"))
+        return StreamingOutput(chunks, "text/csv", http_filename="rows.csv", on_exit=_exit("rows"))
 
     @query(permit="public", media="application/octet-stream")
     async def endless(self) -> StreamingOutput:
@@ -536,6 +536,7 @@ async def test_a_streaming_output_serves_its_chunks() -> None:
         assert response.status_code == 200
         assert response.content == b"a,b\n0,0\n1,2\n2,4\n"
         assert response.headers["content-type"] == "text/csv"
+        assert response.headers["content-disposition"] == 'attachment; filename="rows.csv"'
         assert "content-length" not in response.headers
         assert await _exited("rows")
 
