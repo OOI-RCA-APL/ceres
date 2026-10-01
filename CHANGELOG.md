@@ -8,6 +8,25 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+**Breaking**
+
+- `StreamingOutput.stream` is no longer public. Read an output's bytes through
+  `async with output: async for chunk in output:`.
+- `BaseOutput.to_response()` and `OutputResponse` are removed, and Ceres no longer depends on
+  Starlette. Outputs are served by the Ceres server.
+- `rtsp()` no longer takes `ffmpeg`, `tune`, `preset`, or `loglevel`, since it streams through
+  the FFmpeg built into Ceres.
+
+**Python API**
+
+- `StreamingOutput` is an async context manager and an async iterable, so a procedure can read
+  another's stream and its cleanup still runs (#174).
+
+**Fixes**
+
+- Close a streaming output's producer as soon as the client leaves, which was left to garbage
+  collection.
+
 ## [0.47.1] - 2026-09-29
 
 **Fixes**

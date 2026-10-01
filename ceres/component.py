@@ -1,9 +1,16 @@
 import inspect
 import traceback
 import warnings
-from abc import abstractmethod
 from asyncio import CancelledError, TaskGroup
-from collections.abc import AsyncIterable, Awaitable, Callable, Iterable, Mapping, Sequence
+from collections.abc import (
+    AsyncIterable,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Iterable,
+    Mapping,
+    Sequence,
+)
 from dataclasses import InitVar, dataclass, field
 from datetime import timedelta
 from functools import cached_property
@@ -131,7 +138,6 @@ if TYPE_CHECKING:
 
     from pydantic.config import JsonDict
     from pydantic.types import Discriminator
-    from starlette.responses import FileResponse, Response, StreamingResponse
 
     from ceres.connection import Buffer, Connection, ConnectionField
     from ceres.connectivity import Connectivity
@@ -709,17 +715,11 @@ class ActionBinding(_ProcedureBinding):
 ProcedureBinding: TypeAlias = QueryBinding | ActionBinding
 
 
-type OutputResponse = Response
 type OutputMediaType = str
 
 
 class BaseOutput:
-    """Base class for procedure outputs that should be returned as raw HTTP responses."""
-
-    @abstractmethod
-    def to_response(self) -> OutputResponse:
-        """Convert this output into a Starlette response."""
-        ...
+    """Base class for procedure outputs the Ceres server sends as a raw HTTP response body."""
 
 
 class FileOutput(BaseOutput):
@@ -761,41 +761,30 @@ class FileOutput(BaseOutput):
         self.http_filename = http_filename
         self.on_exit = on_exit
 
-    @override
-    def to_response(self) -> FileResponse:
-        """Build a Starlette `FileResponse` that streams `self.path` to the client.
-
-        Returns:
-            A `FileResponse` configured with the stored media type, status code, headers, filename
-            hint, and optional background cleanup task.
-        """
-        from starlette.background import BackgroundTask
-        from starlette.responses import FileResponse
-
-        if self.on_exit is not None:
-            background = BackgroundTask(self.on_exit)
-        else:
-            background = None
-
-        return FileResponse(
-            self.path,
-            media_type=self.media,
-            status_code=self.http_status,
-            headers=self.http_headers,
-            filename=self.http_filename,
-            background=background,
-        )
-
 
 type DataStreamChunk = bytes | memoryview
 type DataStream = AsyncIterable[DataStreamChunk] | Callable[[], AsyncIterable[DataStreamChunk]]
 
 
 class StreamingOutput(BaseOutput):
-    """Procedure output that streams arbitrary bytes as the HTTP response body."""
+    """Procedure output that streams arbitrary bytes as the HTTP response body.
+
+    Outside a response, read the bytes through the output as an async context manager:
+
+    ```python
+    async with output:
+        async for chunk in output:
+            ...
+    ```
+
+    Leaving the block closes the stream, so the producer's cleanup runs even after an early
+    `break`, and then awaits `on_exit`. A factory stream opens again on the next `async with`,
+    while a plain async iterable is spent after one pass.
+    """
 
     __slots__ = (
-        "stream",
+        "_stream",
+        "_iterator",
         "media",
         "http_status",
         "http_headers",
@@ -815,49 +804,51 @@ class StreamingOutput(BaseOutput):
 
         Args:
             stream: Async iterable of byte chunks, or a zero-arg factory returning one. A factory
-                lets the response start the iterable lazily.
+                starts a fresh iterable each time the output opens.
             media: MIME type to advertise on the response.
             http_status: HTTP status code for the response.
             http_headers: Additional response headers.
-            on_exit: Optional async callback run after the response finishes streaming.
+            on_exit: Optional async callback run after the output closes.
         """
-        self.stream = stream
+        self._stream = stream
+        self._iterator: AsyncIterator[DataStreamChunk] | None = None
         self.media = media
         self.http_status = http_status
         self.http_headers = http_headers
         self.on_exit = on_exit
 
-    @override
-    def to_response(self) -> StreamingResponse:
-        """Build a Starlette `StreamingResponse` that relays `self.stream` to the client.
+    async def __aenter__(self) -> Self:
+        """Open the stream, calling a factory stream to start its iterable.
 
-        If `self.stream` is a callable factory, it is invoked to produce the async
-        iterable lazily.
-
-        Returns:
-            A `StreamingResponse` configured with the stored media type, status code,
-            headers, and optional background cleanup task.
+        Raises:
+            RuntimeError: If the output is already open.
         """
-        from starlette.background import BackgroundTask
-        from starlette.responses import StreamingResponse
+        if self._iterator is not None:
+            raise RuntimeError("The output is already open.")
+        stream = self._stream() if callable(self._stream) else self._stream
+        self._iterator = aiter(stream)
+        return self
 
-        if callable(self.stream):
-            stream = self.stream()
-        else:
-            stream = self.stream
+    async def __aexit__(self, *exc_info: object) -> None:
+        """Close the stream so its producer's cleanup runs, then await `on_exit`."""
+        iterator, self._iterator = self._iterator, None
+        try:
+            close = getattr(iterator, "aclose", None)
+            if close is not None:
+                await close()
+        finally:
+            if self.on_exit is not None:
+                await self.on_exit()
 
-        if self.on_exit is not None:
-            background = BackgroundTask(self.on_exit)
-        else:
-            background = None
+    def __aiter__(self) -> AsyncIterator[DataStreamChunk]:
+        """Return the open stream's chunks.
 
-        return StreamingResponse(
-            stream,
-            media_type=self.media,
-            status_code=self.http_status,
-            headers=self.http_headers,
-            background=background,
-        )
+        Raises:
+            RuntimeError: If the output is not open.
+        """
+        if self._iterator is None:
+            raise RuntimeError("Open the output with `async with` before iterating it.")
+        return self._iterator
 
 
 Output: TypeAlias = FileOutput | StreamingOutput

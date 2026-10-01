@@ -68,9 +68,12 @@ class _Media(Component):
         async def chunks() -> AsyncIterator[bytes]:
             import asyncio
 
-            while True:
-                yield b"x" * 4096
-                await asyncio.sleep(0.01)
+            try:
+                while True:
+                    yield b"x" * 4096
+                    await asyncio.sleep(0.01)
+            finally:
+                _media.setdefault("exited", []).append("endless producer")
 
         return StreamingOutput(chunks, "application/octet-stream", on_exit=_exit("endless"))
 
@@ -537,8 +540,8 @@ async def test_a_streaming_output_serves_its_chunks() -> None:
         assert await _exited("rows")
 
 
-async def test_a_client_leaving_mid_stream_still_runs_the_exit_hook() -> None:
-    """Releasing the body runs the hook so a download abandoned partway runs it too."""
+async def test_a_client_leaving_mid_stream_closes_the_producer_then_runs_the_exit_hook() -> None:
+    """Releasing the body closes the stream so a download abandoned partway cleans up too."""
     async with _serve(media=True) as (_, client):
         async with client.stream("GET", "/api/components/@media/queries/endless/call") as response:
             assert response.status_code == 200
@@ -546,6 +549,7 @@ async def test_a_client_leaving_mid_stream_still_runs_the_exit_hook() -> None:
             assert len(await anext(chunks)) > 0
 
         assert await _exited("endless")
+        assert _media["exited"][-2:] == ["endless producer", "endless"]
 
 
 async def test_config_routes_gate_by_admin_and_scrub_credentials() -> None:

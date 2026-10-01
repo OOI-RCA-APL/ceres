@@ -13,8 +13,10 @@ open under a handle and yield one pre-serialized message at a time.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator, Callable
+from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from itertools import count
 from typing import TYPE_CHECKING, Any
@@ -102,6 +104,7 @@ class Host:
         self._streams: dict[int, AsyncIterator[str]] = {}
         self._chunks: dict[int, AsyncIterator[bytes]] = {}
         self._releases: dict[int, Callable[[], Awaitable[Any]]] = {}
+        self._pulls: dict[int, asyncio.Task[Any]] = {}
         self._handles = count(1)
 
     @property
@@ -191,7 +194,7 @@ class Host:
             return json.dumps({"end": True})
 
         try:
-            return json.dumps({"message": await anext(iterator)})
+            return json.dumps({"message": await self._pull(handle, iterator)})
         except StopAsyncIteration:
             return json.dumps({"end": True})
         except Error as error:
@@ -199,13 +202,14 @@ class Host:
         except Exception as error:  # noqa: BLE001
             return json.dumps({"close": {"code": 1011, "reason": str(error)[:120]}})
 
-    def serve(self, output: BaseOutput) -> Served:
+    async def serve(self, output: BaseOutput) -> Served:
         """Describe a media output for the server, which produces its body itself.
 
-        A file names its path so its bytes never cross the boundary. A stream registers
-        its chunks under the description's handle for the server to pull. Either way the
-        server releases the handle once the body ends, which runs the output's
-        exit hook so a client that leaves early still triggers the cleanup.
+        A file names its path so its bytes never cross the boundary. A stream opens here
+        and registers its chunks under the description's handle for the server to pull.
+        Either way the server releases the handle once the body ends, which closes the
+        stream and runs the output's exit hook so a client that leaves early still
+        triggers the cleanup.
 
         Raises:
             ProcedureInternalError: If the output is not a kind the server can serve.
@@ -215,8 +219,13 @@ class Host:
         handle = next(self._handles)
         if isinstance(output, FileOutput):
             description = _file_description(output)
+            if output.on_exit is not None:
+                self._releases[handle] = output.on_exit
         elif isinstance(output, StreamingOutput):
+            exit_stack = AsyncExitStack()
+            await exit_stack.enter_async_context(output)
             self._chunks[handle] = _streaming_chunks(output)
+            self._releases[handle] = exit_stack.aclose
             description = {
                 "status": output.http_status,
                 "headers": _headers(output.http_headers, output.media),
@@ -225,9 +234,6 @@ class Host:
             raise ProcedureInternalError(
                 exception=trace(TypeError(f"{type(output).__name__} is not a servable output"))
             )
-
-        if output.on_exit is not None:
-            self._releases[handle] = output.on_exit
 
         return Served({**description, "handle": handle})
 
@@ -238,9 +244,23 @@ class Host:
             return None
 
         try:
-            return await anext(chunks)
+            return await self._pull(handle, chunks)
         except StopAsyncIteration:
             return None
+
+    async def _pull[T](self, handle: int, iterator: AsyncIterator[T]) -> T:
+        """Await an iterator's next item where `stream_close` can cancel the wait.
+
+        The server dropping its future leaves this coroutine running, and a busy iterator
+        refuses `aclose`, so a close has to cancel the pending pull first.
+        """
+        task = asyncio.current_task()
+        if task is not None:
+            self._pulls[handle] = task
+        try:
+            return await anext(iterator)
+        finally:
+            self._pulls.pop(handle, None)
 
     async def stream_close(self, handle: int) -> None:
         """Release whatever a handle names, a message stream, a body, or an exit hook.
@@ -248,6 +268,11 @@ class Host:
         A handle can name any combination of the three, and each releases even when
         another fails because an exit hook has to run whatever ended the body.
         """
+        pull = self._pulls.pop(handle, None)
+        if pull is not None:
+            pull.cancel()
+            await asyncio.wait([pull])
+
         iterator: AsyncIterator[Any] | None = self._streams.pop(handle, None)
         if iterator is None:
             iterator = self._chunks.pop(handle, None)
@@ -291,9 +316,8 @@ def _file_description(output: FileOutput) -> dict[str, Any]:
 
 
 async def _streaming_chunks(output: StreamingOutput) -> AsyncIterator[bytes]:
-    """Yield a streaming output's chunks, starting its stream lazily when it is a factory."""
-    stream = output.stream() if callable(output.stream) else output.stream
-    async for chunk in stream:
+    """Yield an open streaming output's chunks as bytes."""
+    async for chunk in output:
         yield bytes(chunk)
 
 

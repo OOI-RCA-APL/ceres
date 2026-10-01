@@ -4,12 +4,11 @@ import asyncio
 import json
 import struct
 import subprocess
-from collections.abc import AsyncGenerator, AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
-from typing import cast
 
 import pytest
 
@@ -100,17 +99,12 @@ async def watch(
     output = await rtsp(
         url, copy=copy, reconnect=reconnect, stall_timeout=stall_timeout, transport=transport
     )
-    assert callable(output.stream)
-    stream = cast("AsyncGenerator[bytes]", output.stream())
     movie = Movie()
-    try:
-        async with asyncio.timeout(60):
-            async for chunk in stream:
-                movie.data += chunk
-                if movie.kinds().count(b"moof") >= fragments:
-                    break
-    finally:
-        await stream.aclose()
+    async with asyncio.timeout(60), output:
+        async for chunk in output:
+            movie.data += chunk
+            if movie.kinds().count(b"moof") >= fragments:
+                break
     return movie
 
 
