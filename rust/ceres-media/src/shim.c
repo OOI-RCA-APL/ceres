@@ -30,7 +30,7 @@ static int build_options(
 }
 
 // Fails with `AVERROR_OPTION_NOT_FOUND` when FFmpeg left an option unused, so a misspelled key
-// is an error instead of a silent default.
+// is an error.
 static int check_consumed(AVDictionary **dictionary, int error) {
     if (error >= 0 && av_dict_count(*dictionary) > 0) {
         error = AVERROR_OPTION_NOT_FOUND;

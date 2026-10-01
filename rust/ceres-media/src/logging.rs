@@ -1,4 +1,4 @@
-//! FFmpeg's log output, routed to the `log` crate instead of the process's stderr.
+//! Routes FFmpeg's log output to the `log` crate.
 
 use std::ffi::{CStr, c_char, c_int};
 use std::sync::Once;

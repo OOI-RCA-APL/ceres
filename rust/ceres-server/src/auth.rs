@@ -230,7 +230,7 @@ pub fn bearer_token(headers: &HeaderMap) -> Option<String> {
     value.strip_prefix("Bearer ").map(str::to_string)
 }
 
-/// Find the `Authorization` cookie's value, unquoting it like Starlette does.
+/// Find the `Authorization` cookie's value, with surrounding quotes trimmed and `\"` unescaped.
 fn authorization_cookie(headers: &HeaderMap) -> Option<String> {
     for cookies in headers.get_all(header::COOKIE) {
         let cookies = cookies.to_str().ok()?;
