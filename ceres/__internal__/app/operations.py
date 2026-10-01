@@ -524,7 +524,7 @@ def _calls(namespace: str):
         # A procedure declaring media returns an output the server serves as a body
         # of its own, described rather than serialized into the payload.
         if isinstance(result, BaseOutput):
-            return host.serve(result)
+            return await host.serve(result)
 
         return _serialize(result)
 

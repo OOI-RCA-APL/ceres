@@ -25,6 +25,27 @@ if (resolved !== modelValue) {
 const isRequired = $computed(() => form.getRequired(path))
 const label = $computed(() => form.getLabel(path))
 const description = $computed(() => form.getDescription(path))
+const error = $computed(() => form.getValidationErrorMessage(path))
+
+// A value never set draws as neither on nor off, so an optional field is not read as false.
+// A required one draws as off until it fails validation.
+const isUnset = $computed(() => resolved === undefined && (!isRequired || error != null))
+
+// The switch marks its own state and error, since the presence bar would sit notched into the
+// track's round end.
+const ui = $computed(() => {
+  if (isUnset) {
+    return {
+      base: [
+        'border-dashed data-[state=unchecked]:bg-transparent',
+        error != null ? 'border-error' : 'border-accented opacity-60',
+      ],
+      thumb: 'invisible',
+    }
+  }
+
+  return { base: error != null ? 'ring-2 ring-error' : undefined }
+})
 </script>
 
 <template>
@@ -40,12 +61,16 @@ const description = $computed(() => form.getDescription(path))
     would be carried along with the switch. -->
     <div class="flex min-h-8 items-center">
       <div v-if="form.align !== 'start'" class="grow" />
-      <c-switch
-        :aria-required="isRequired"
-        :model-value="resolved === true"
-        size="sm"
-        @update:model-value="(value) => (modelValue = resolve(value))"
-      />
+      <c-tooltip :disabled="error == null" :text="error ?? undefined">
+        <c-switch
+          :aria-required="isRequired"
+          v-bind="isUnset ? { 'aria-checked': 'mixed' } : {}"
+          :model-value="resolved === true"
+          size="sm"
+          :ui
+          @update:model-value="(value) => (modelValue = resolve(value))"
+        />
+      </c-tooltip>
       <div v-if="form.align !== 'end'" class="grow" />
       <c-schema-form-node-clear-button
         v-if="!isRequired && modelValue !== undefined"

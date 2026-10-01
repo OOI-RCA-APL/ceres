@@ -26,6 +26,7 @@ __all__ = [
     "RecordTable",
     "RecordWriter",
     "RowChunks",
+    "RtspStream",
     "SQLiteDatabaseConfig",
     "ServerAuthenticationConfig",
     "ServerCORSConfig",
@@ -693,6 +694,40 @@ class RowChunks:
 
         Waiting for a chunk blocks a thread of its own rather than the event loop so a
         slow query leaves the caller's asyncio loop free.
+        """
+
+@final
+class RtspStream:
+    r"""
+    An RTSP camera remuxed into one fragmented MP4 stream on a thread of its own.
+    """
+    def __new__(
+        cls,
+        url: str,
+        *,
+        copy: bool,
+        transport: str,
+        fragment_duration: float,
+        dash: bool,
+        reconnect: bool,
+        stall_timeout: float | None,
+    ) -> Self:
+        r"""
+        Connects to `url` and starts remuxing, reconnecting a lost camera when `reconnect`.
+
+        Without `copy` the video is re-encoded as H.264. `transport` is `"tcp"` or `"udp"`.
+        Durations are in seconds, and a `stall_timeout` of `None` waits on a silent camera
+        forever.
+        """
+    def next(self) -> Any:
+        r"""
+        The next chunk of the MP4 stream as `bytes`, `None` once the stream ends.
+
+        Waiting blocks a thread of its own so a quiet camera leaves the event loop free.
+        """
+    def close(self) -> None:
+        r"""
+        Stops the stream, closing the connection and ending `next` after any buffered chunks.
         """
 
 class SQLiteDatabaseConfig:

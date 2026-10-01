@@ -1,0 +1,27 @@
+[package]
+name = "ceres-media"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Ceres media streaming over a statically linked FFmpeg"
+links = "ffmpeg"
+
+[features]
+# The test RTSP server and its built-in clips, kept out of the Python extension.
+server = ["dep:tempfile"]
+
+[dependencies]
+log = "0.4"
+tempfile = { version = "3", optional = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+[build-dependencies]
+cc = { version = "1.2", features = ["parallel"] }
+lzma-rust2 = { version = "0.15", default-features = false, features = ["std", "xz"] }
+tar = { version = "0.4", default-features = false }
+
+[lints]
+workspace = true

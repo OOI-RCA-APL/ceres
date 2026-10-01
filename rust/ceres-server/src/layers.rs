@@ -1,8 +1,8 @@
 //! Cross-cutting layers built from the server configuration.
 //!
-//! CORS reproduces Starlette's semantics for the same settings. A `*` in the method list
-//! expands to the full method set, a `*` header or origin list mirrors the request, and
-//! an origin passes when it appears in the list or matches the configured pattern.
+//! CORS expands a `*` in the method list to the full method set and mirrors the request for
+//! a `*` header or origin list. An origin passes when it appears in the list or matches the
+//! configured pattern.
 //! Compression negotiates zstd over brotli over gzip, each at its own configured level,
 //! by stacking one single-algorithm layer per codec with the preferred codec innermost.
 
@@ -16,7 +16,7 @@ use tower_http::compression::CompressionLayer;
 use tower_http::compression::predicate::{NotForContentType, Predicate, SizeAbove};
 use tower_http::cors::{AllowHeaders, AllowMethods, AllowOrigin, CorsLayer, ExposeHeaders};
 
-/// Every method Starlette's `*` expands to.
+/// The methods a `*` in the allowed methods expands to.
 const ALL_METHODS: [Method; 7] = [
     Method::DELETE,
     Method::GET,
@@ -70,7 +70,7 @@ pub fn apply_cors(router: Router, config: Option<&ServerCorsConfig>) -> Router {
     });
 
     // An origin passes as the `*` wildcard, by exact membership in the list, or by
-    // matching the configured pattern, mirroring Starlette's checks.
+    // matching the configured pattern.
     let (any_origin, origins) = wildcard_or_list(&config.allow_origins);
     let pattern = config
         .allow_origin_regex

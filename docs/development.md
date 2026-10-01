@@ -279,6 +279,20 @@ verified by the pipeline that releases it rather than trusting an earlier run, w
 means the checks run twice on release day, once for the push and once as the release
 gate. That redundancy is deliberate.
 
+A dry run builds every wheel and the sdist from a branch and publishes nothing, which
+proves a build change before a release depends on it:
+
+```sh
+gh workflow run release.yaml --ref <branch> -f dry_run=true
+```
+
+The extension links a static FFmpeg built from the tarball vendored in
+`rust/ceres-media/vendor/`, so a source install needs no network and no system FFmpeg,
+but it runs FFmpeg's `configure`, which needs `sh` and `make`. Linux and macOS carry
+both. A Windows source install needs MSYS2 with `make` and `diffutils`, its `usr\bin` on
+the path without the `link.exe` that shadows the MSVC linker, as the release workflow's
+`ffmpeg-toolchain` action sets up.
+
 To fix release notes after publishing, edit the changelog entry in a normal commit and
 mirror it with `gh release edit <version> --notes-file <file>`. The published release
 body is editable without touching the tag or re-triggering the pipeline.

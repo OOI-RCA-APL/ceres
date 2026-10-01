@@ -58,19 +58,25 @@ watch(
           optional: true,
         }"
       />
-      <div class="border-default grid grid-cols-3 rounded-md border text-center">
+      <div class="grid grid-cols-3 gap-x-2">
         <c-schema-form-value
           v-model="widget.autoplay"
+          align="center"
           :schema="{ type: 'boolean', title: 'Autoplay' }"
+          :show-type="false"
         />
         <c-schema-form-value
           v-model="widget.startMuted"
+          align="center"
           :schema="{ type: 'boolean', title: 'Start Muted' }"
+          :show-type="false"
           :style="widget.autoplay && { opacity: 0.6 }"
         />
         <c-schema-form-value
           v-model="widget.showControls"
+          align="center"
           :schema="{ type: 'boolean', title: 'Show Controls' }"
+          :show-type="false"
         />
       </div>
     </div>

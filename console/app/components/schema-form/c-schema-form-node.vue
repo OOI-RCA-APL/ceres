@@ -35,6 +35,11 @@ function is(type: string) {
   return isType(schema, type)
 }
 
+// A switch marks its own unset and error states, see `c-schema-form-boolean`.
+const isSwitch = $computed(
+  () => schema != null && typeof schema !== 'boolean' && schema.enum == null && is('boolean'),
+)
+
 let root = $ref<HTMLElement | null>(null)
 
 /** Where the indicator is drawn, which is against the field's own control.
@@ -165,6 +170,7 @@ function isFormat(format: string) {
       <c-schema-form-any v-bind="forward" @update:model-value="update" />
     </template>
     <c-schema-form-node-value-indicator
+      v-if="!isSwitch"
       class="absolute left-0"
       :class="indicatorBox == null && 'top-0 h-full'"
       :form

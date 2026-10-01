@@ -15,6 +15,7 @@ pub mod entities;
 pub mod filters;
 pub mod interop;
 pub mod logging;
+pub mod media;
 pub mod migrations;
 pub mod server;
 pub mod store;
@@ -177,6 +178,7 @@ fn ceres_core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<writer::RecordWriter>()?;
     module.add_class::<store::Store>()?;
     module.add_class::<store::RowChunks>()?;
+    module.add_class::<media::RtspStream>()?;
     module.add_class::<migrations::Migration>()?;
     module.add_class::<server::NativeServer>()?;
     module.add_function(pyo3::wrap_pyfunction!(server::openapi_schema, module)?)?;
