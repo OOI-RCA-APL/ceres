@@ -17,16 +17,44 @@ written, and the release workflow refuses a version that has no entry here.
 - `rtsp()` no longer takes `ffmpeg`, `tune`, `preset`, or `loglevel`, since it streams through
   the FFmpeg built into Ceres.
 
+**Engine**
+
+- Build FFmpeg 9.0.2 into Ceres and remux `rtsp()` streams in-process, so a host needs no
+  `ffmpeg` on its `PATH`.
+- Re-encode with `rtsp(copy=False)` to H.264 through OpenH264 2.6.0, for 8-bit 4:2:0 sources.
+- Carry one MP4 stream across an `rtsp()` reconnect, ending it only when the codec, frame size,
+  or codec parameters change.
+- Tag H.265 from `rtsp()` as `hvc1`, which Safari requires to play it.
+
 **Python API**
 
 - `StreamingOutput` is an async context manager and an async iterable, so a procedure can read
   another's stream and its cleanup still runs (#174).
 - `StreamingOutput` takes `http_filename`, sent as `Content-Disposition` like `FileOutput`.
 
+**Web Console**
+
+- Space the video widget's toggles in three even columns and the account page's in two.
+- Draw a boolean field without the presence bar. An unset optional boolean shows a dashed,
+  empty track, and an error outlines the switch in red.
+
+**Packaging**
+
+- Building from the sdist compiles the bundled FFmpeg and OpenH264, which needs a C and C++
+  compiler, and an MSYS2 shell on Windows.
+
+**Development**
+
+- Add `ceres-rtsp-server`, a test RTSP server that serves a built-in H.264 or H.265 clip and
+  drops, stalls, refuses, or restarts on cue.
+- Run the release workflow with `dry_run` to build every wheel without publishing.
+
 **Fixes**
 
 - Close a streaming output's producer as soon as the client leaves, which was left to garbage
   collection.
+- Stream `rtsp()` on hosts with FFmpeg older than 5, where `-timeout` opened a listening socket
+  and no video played.
 
 ## [0.47.1] - 2026-09-29
 
