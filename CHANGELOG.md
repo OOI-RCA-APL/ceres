@@ -8,6 +8,8 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+## [0.48.0] - 2026-10-01
+
 **Breaking**
 
 - `StreamingOutput.stream` is no longer public. Read an output's bytes through
