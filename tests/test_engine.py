@@ -174,6 +174,32 @@ async def test_engine_reload_drops_removed_top_level_components() -> None:
     await engine.database.dispose()
 
 
+async def test_engine_reload_keeps_top_level_components_in_configured_order() -> None:
+    engine = Engine()
+    await engine.load(
+        _config({"alpha": "ceres.component:Component", "beta": "ceres.component:Component"}),
+        checks=(),
+    )
+
+    # Changing alpha's class recreates it, and gamma is new; both register after beta.
+    await engine.load(
+        _config(
+            {
+                "alpha": "tests.test_engine:JobbedComponent",
+                "gamma": "ceres.component:Component",
+                "beta": "ceres.component:Component",
+            }
+        ),
+        checks=(),
+    )
+
+    addresses = [str(component.system.address) for component in engine.get_components()]
+    assert addresses == ["@alpha", "@gamma", "@beta"]
+    assert isinstance(engine.get_component("@alpha"), JobbedComponent)
+
+    await engine.database.dispose()
+
+
 class CrossTreeReferencer(Component):
     """A component holding a reference to a component in another top-level tree."""
 

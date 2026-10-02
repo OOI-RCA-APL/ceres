@@ -1,7 +1,7 @@
 # Ceres
 
 <!-- coverage:badge -->
-![Python Coverage: 87%](https://img.shields.io/badge/python%20coverage-87%25-yellowgreen)
+![Python Coverage: 88%](https://img.shields.io/badge/python%20coverage-88%25-yellowgreen)
 ![Rust Coverage: 71%](https://img.shields.io/badge/rust%20coverage-71%25-yellow)
 <!-- /coverage:badge -->
 
