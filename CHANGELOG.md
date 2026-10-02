@@ -8,6 +8,11 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+**Fixes**
+
+- Keep top-level components in configured order after a reload. A recreated component used to
+  move to the end, so the console listed it after the components left alone.
+
 ## [0.48.0] - 2026-10-01
 
 **Breaking**

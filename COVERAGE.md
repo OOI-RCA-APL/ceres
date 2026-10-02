@@ -1,6 +1,6 @@
 # Coverage
 
-<!-- coverage:fingerprint:ff310a0c73a03b29 -->
+<!-- coverage:fingerprint:38e6d6b49f24ce7a -->
 
 ## Python
 
@@ -55,7 +55,7 @@
 | `ceres/address.py` | 98% |
 | `ceres/alert.py` | 85% |
 | `ceres/channel.py` | 92% |
-| `ceres/component.py` | 87% |
+| `ceres/component.py` | 88% |
 | `ceres/concurrency.py` | 91% |
 | `ceres/config.py` | 80% |
 | `ceres/connection/__init__.py` | 62% |
@@ -75,7 +75,7 @@
 | `ceres/database/enums.py` | 100% |
 | `ceres/directory.py` | 93% |
 | `ceres/dispatcher.py` | 65% |
-| `ceres/engine.py` | 76% |
+| `ceres/engine.py` | 80% |
 | `ceres/entity.py` | 99% |
 | `ceres/error.py` | 97% |
 | `ceres/event.py` | 95% |
@@ -107,7 +107,7 @@
 | `ceres/variable.py` | 81% |
 | `ceres/version.py` | 92% |
 | `ceres/workspace.py` | 100% |
-| **Total** | **87%** |
+| **Total** | **88%** |
 <!-- coverage:python:end -->
 
 ## Rust

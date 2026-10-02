@@ -403,6 +403,22 @@ class Engine(Node):
             if current is system:
                 del self._components[name]
 
+    def _sync_component_order(self, config: Config) -> None:
+        """Reorder the top-level registry to match the order of the configuration.
+
+        A recreated component registers again at the end, so without this a reload would move
+        every recreated component after the ones left alone. Components the configuration names
+        come first in its order, any others follow in their existing order.
+        """
+        configured = [entry.name for entry in config.components]
+        order = {name: self._components[name] for name in configured if name in self._components}
+        for name, system in self._components.items():
+            if name not in order:
+                order[name] = system
+
+        self._components.clear()
+        self._components.update(order)
+
     async def load(
         self,
         source: ConfigSource[Config],
@@ -659,6 +675,8 @@ class Engine(Node):
                     component.system.config = component_config
 
                 component.system.sync_child_order()
+
+            self._sync_component_order(config)
 
             # Restart everything that was previously running. Newly created components that are
             # marked enabled will be started by their parent or by the top-level start cascade.
