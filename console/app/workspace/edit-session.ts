@@ -63,6 +63,11 @@ import { createWidget, getWidgetInfo, openedRowFor } from '@/workspace/registry'
 
 export type WorkspaceContext = ReturnType<typeof createWorkspaceContext>
 
+/** How long a commit or draft write waits for the server before it is reported as failed.
+Video widgets each hold one of the six HTTP/1.1 connections a browser allows per origin, and a
+write queued behind six of them never leaves the browser. */
+export const saveTimeoutMs = 15_000
+
 /** Handlers a workspace page instance exposes to its hosting page, which renders the tab
 strip the workspace is shown on. */
 export type WorkspaceHeaderActions = {
@@ -252,7 +257,9 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     () => data,
     debounce(() => {
       recordHistory()
-      void saveEdit()
+      // A failed draft write is not surfaced per edit. The working copy stays in memory and the
+      // next edit retries, while a commit reports its own failure.
+      saveEdit().catch((error: unknown) => console.warn('Failed to save workspace draft.', error))
     }, 500),
     { deep: true },
   )
@@ -268,7 +275,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
   // The save watcher is debounced, so an edit made just before the hosting page unmounts, such
   // as the workspace content being hidden, would otherwise never reach the server.
   onScopeDispose(() => {
-    void saveEdit()
+    saveEdit().catch((error: unknown) => console.warn('Failed to save workspace draft.', error))
   })
 
   const edited = $computed(() => {
@@ -1089,6 +1096,7 @@ export const useWorkspaces = defineStore('workspaces', () => {
     const result = await client.patch(`/api/workspaces/${id}`, {
       data: WorkspaceModel.partial().parse(data),
       parse: WorkspaceModel,
+      timeout: saveTimeoutMs,
     })
     await refresh()
     return result
@@ -1160,6 +1168,7 @@ export const useWorkspaces = defineStore('workspaces', () => {
         data: withoutMeta(data),
       },
       parse: WorkspaceEditModel,
+      timeout: saveTimeoutMs,
     })
   }
 

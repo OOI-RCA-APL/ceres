@@ -5,6 +5,7 @@ import { computed, nextTick, reactive, watch, watchEffect } from 'vue'
 import { appHeaderHeight, densePageHeaderHeight } from '@/components/c-full-page.vue'
 import CWorkspaceLayout from '@/components/c-workspace-layout.vue'
 import { useDialogs } from '@/dialogs'
+import { Failure } from '@/errors'
 import icons from '@/icons'
 import { useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
@@ -362,10 +363,51 @@ function promptCommit() {
         'access to see this version.',
       okLabel: 'Commit',
     })
-    .onOk(async () => {
-      await workspace.save()
-      notify.success('Workspace changes committed successfully.')
+    .onOk(commit)
+}
+
+/** Commit the working copy, reporting the outcome either way. The toast opens before the request
+so a commit the browser never sends is still visibly in progress until it times out. */
+async function commit() {
+  const toast = notify.open({
+    description: `Committing changes to workspace "${workspace.name}"...`,
+    color: 'primary',
+  })
+
+  try {
+    await workspace.save()
+    toast.update({
+      description: 'Workspace changes committed successfully.',
+      color: 'success',
+      icon: icons.confirm,
+      duration: 3000,
     })
+  } catch (error) {
+    console.error('Failed to commit workspace changes.', error)
+    toast.update({
+      description: `Failed to commit workspace changes. ${describeSaveFailure(error)}`,
+      color: 'error',
+      icon: icons.cancel,
+      duration: 8000,
+    })
+  }
+}
+
+function describeSaveFailure(error: unknown) {
+  if (error instanceof Failure) {
+    // The `type: string` fallback in `ErrorInfo` keeps the discriminant from narrowing.
+    if ('timeout' in error.error && typeof error.error.timeout === 'number') {
+      return (
+        `The server did not answer within ${Math.round(error.error.timeout / 1000)} seconds. ` +
+        'Video widgets can hold every connection the browser allows, so try again after ' +
+        'closing some.'
+      )
+    }
+
+    return `The server responded with "${error.error.type}".`
+  }
+
+  return 'The request could not be sent.'
 }
 
 function promptRevert() {
