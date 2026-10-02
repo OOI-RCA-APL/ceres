@@ -8,6 +8,8 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+## [0.48.1] - 2026-10-01
+
 **Fixes**
 
 - Keep top-level components in configured order after a reload. A recreated component used to
