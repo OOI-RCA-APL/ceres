@@ -172,11 +172,26 @@ The engine reconciles the running component tree with the new configuration, cre
 
 ### Web Console
 
-If `server.port` is configured, the web console is available at `http://<host>:<port>`. It provides a dashboard for monitoring component state, viewing logs, messages, alerts, and controlling components.
+If `server.port` is configured, the web console is available at `http://<host>:<port>` (`https://` with a `server.ssl` section). It provides a dashboard for monitoring component state, viewing logs, messages, alerts, and controlling components.
 
 ```sh
 ceres console open    # Open in browser.
 ceres console url     # Print the URL.
+```
+
+### HTTPS
+
+With a `server.ssl` section the console is served over TLS at `https://<host>:<port>`, and browsers negotiate HTTP/2, which multiplexes every console request over one connection. Over plain HTTP browsers cap a page at about six connections per host, and each live video widget holds one, so a dashboard with several videos stalls. HTTPS lifts that limit. A self-signed certificate works once the browser warning is accepted.
+
+Set `server.https-redirect` to keep the old `http://` bookmarks working after a move to HTTPS. `true` listens on port 80, an integer listens on that port, typically the port the server served plain HTTP on before, and every request there is answered with a permanent redirect to the same path and query on the HTTPS server. It needs `server.ssl` and a port different from `server.port`.
+
+```yaml
+server:
+  port: 443
+  https-redirect: true
+  ssl:
+    key: /etc/ceres/server.key
+    cert: /etc/ceres/server.crt
 ```
 
 ### CLI Queries

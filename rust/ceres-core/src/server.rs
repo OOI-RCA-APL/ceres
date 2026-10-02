@@ -16,7 +16,7 @@ use ceres_database::{RecordFilter, RecordStore, RecordTable};
 use ceres_server::axum::Router;
 use ceres_server::{
     Answer, AppConfig, AuthSettings, BoundServer, ConsolePaths, GateUser, Host, HostError, Served,
-    Stopper, StreamClose, UserRecord, apply_compression, apply_cors, build_router,
+    Stopper, StreamClose, UserRecord, apply_compression, apply_cors, build_router, redirect_router,
 };
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -370,7 +370,8 @@ pub fn openapi_schema(version: &str) -> PyResult<String> {
 ///
 /// Binds at construction so the real port is known immediately, and serves as an
 /// awaitable until stopped. The web form carries the console and terminates TLS, the
-/// CLI form binds loopback on an ephemeral port and requires its token instead.
+/// CLI form binds loopback on an ephemeral port and requires its token instead, and the
+/// redirect form answers plain HTTP with a permanent redirect to the web form.
 #[gen_stub_pyclass]
 #[pyclass(module = "ceres.__internal__.core", frozen)]
 pub struct NativeServer {
@@ -474,6 +475,26 @@ impl NativeServer {
             None,
             true,
         )
+    }
+
+    /// Bind the plain HTTP listener that redirects every request to the HTTPS server.
+    #[staticmethod]
+    fn redirect(config: &crate::ServerConfig) -> PyResult<Self> {
+        let config = &config.inner;
+        let (Some(redirect_port), Some(https_port)) = (config.https_redirect, config.port) else {
+            return Err(PyValueError::new_err(
+                "the HTTPS redirect is not configured",
+            ));
+        };
+        let server = BoundServer::bind(&config.host, redirect_port).map_err(to_value_error)?;
+        let stopper = server.stopper();
+        let port = server.port();
+        Ok(Self {
+            state: Mutex::new(Some((server, redirect_router(https_port)))),
+            stopper,
+            port,
+            locals: Arc::new(OnceLock::new()),
+        })
     }
 
     /// Bind the CLI control application on an ephemeral loopback port.

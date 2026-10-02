@@ -124,7 +124,9 @@ class RustConfigModel:
                             f"got {str(tag)!r}"
                         )
 
-                return cls(**value)
+                # A configuration file spells multi-word keys in kebab-case, as the Rust
+                # readers accept, and the constructor only takes the identifier spelling.
+                return cls(**{key.replace("-", "_"): item for key, item in value.items()})
 
             raise ValueError(f"value must be a mapping or a {cls.__name__} instance")
 

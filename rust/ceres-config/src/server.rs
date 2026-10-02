@@ -300,9 +300,30 @@ impl TryFrom<RawServerCompressionConfig> for ServerCompressionConfig {
     }
 }
 
+/// The plain HTTP listener that redirects to the HTTPS server, `true` for port 80 or the
+/// port to listen on.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum ServerHttpsRedirect {
+    Enabled(bool),
+    Port(u16),
+}
+
+impl ServerHttpsRedirect {
+    /// The port the redirect listener binds, `None` when it is off.
+    pub fn port(self) -> Option<u16> {
+        match self {
+            Self::Enabled(false) => None,
+            Self::Enabled(true) => Some(80),
+            Self::Port(port) => Some(port),
+        }
+    }
+}
+
 /// Configuration for the engine's HTTP server.
+#[kebab_aliases]
 #[derive(Debug, Clone, Default, PartialEq, Deserialize, JsonSchema)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 #[schemars(title = "ServerConfig")]
 pub struct RawServerConfig {
     /// Address the server binds to.
@@ -310,6 +331,10 @@ pub struct RawServerConfig {
 
     /// Port the server listens on, omit to disable the server.
     pub port: Option<u16>,
+
+    /// Plain HTTP listener that permanently redirects every request to the same path on the
+    /// HTTPS server. `true` listens on port 80, an integer on that port, needs `ssl`.
+    pub https_redirect: Option<ServerHttpsRedirect>,
 
     pub ssl: Option<RawServerSslConfig>,
     pub authentication: Option<RawServerAuthenticationConfig>,
@@ -322,6 +347,8 @@ pub struct RawServerConfig {
 pub struct ServerConfig {
     pub host: String,
     pub port: Option<u16>,
+    /// Port of the plain HTTP listener redirecting to the HTTPS server, `None` when off.
+    pub https_redirect: Option<u16>,
     pub ssl: Option<ServerSslConfig>,
     pub authentication: Option<ServerAuthenticationConfig>,
     pub cors: Option<ServerCorsConfig>,
@@ -333,6 +360,7 @@ impl Default for ServerConfig {
         Self {
             host: "0.0.0.0".to_string(),
             port: None,
+            https_redirect: None,
             ssl: None,
             authentication: None,
             cors: None,
@@ -379,9 +407,28 @@ impl TryFrom<RawServerConfig> for ServerConfig {
         let cors = validate_nested(raw.cors, "cors", &mut problems);
         let compression = validate_nested(raw.compression, "compression", &mut problems);
 
+        let https_redirect = raw.https_redirect.and_then(ServerHttpsRedirect::port);
+        if let Some(redirect_port) = https_redirect {
+            // A redirect to a plain HTTP origin would loop, and one to a closed port
+            // would strand every bookmark, so the HTTPS server must exist.
+            let message = if ssl.is_none() {
+                Some("needs `ssl`, the redirect target is the HTTPS server.")
+            } else if raw.port.is_none() {
+                Some("needs `port`, the redirect target is the HTTPS server.")
+            } else if raw.port == Some(redirect_port) {
+                Some("must differ from `port`.")
+            } else {
+                None
+            };
+            if let Some(message) = message {
+                problems.push(Problem::new("https_redirect", message));
+            }
+        }
+
         problems.into_result(Self {
             host,
             port: raw.port,
+            https_redirect,
             ssl,
             authentication,
             cors,
@@ -456,6 +503,60 @@ mod tests {
             locations,
             ["host", "authentication.secret", "compression.zstd_level"]
         );
+    }
+
+    /// Validate a `server` section with an HTTPS listener on 8443 and the given extra lines.
+    fn with_tls(extra: &str) -> Result<ServerConfig, Problems> {
+        let raw: RawServerConfig =
+            yaml_serde::from_str(&format!("port: 8443\nssl:\n  key: k\n  cert: c\n{extra}"))
+                .unwrap();
+        ServerConfig::try_from(raw)
+    }
+
+    #[test]
+    fn https_redirects_read_a_flag_or_a_port() {
+        assert_eq!(with_tls("").unwrap().https_redirect, None);
+        assert_eq!(
+            with_tls("https-redirect: false\n").unwrap().https_redirect,
+            None
+        );
+        assert_eq!(
+            with_tls("https-redirect: true\n").unwrap().https_redirect,
+            Some(80)
+        );
+        assert_eq!(
+            with_tls("https_redirect: 8080\n").unwrap().https_redirect,
+            Some(8080)
+        );
+    }
+
+    #[test]
+    fn https_redirects_need_a_distinct_https_server() {
+        let location = |result: Result<ServerConfig, Problems>| {
+            let problems = result.unwrap_err();
+            assert_eq!(problems.0.len(), 1);
+            problems.0[0].location.clone()
+        };
+        assert_eq!(
+            location(with_tls("https-redirect: 8443\n")),
+            "https_redirect"
+        );
+        // Zero asks for an ephemeral port, as it does for `port`.
+        assert_eq!(
+            with_tls("https-redirect: 0\n").unwrap().https_redirect,
+            Some(0)
+        );
+
+        let no_tls: RawServerConfig =
+            yaml_serde::from_str("port: 8080\nhttps-redirect: true\n").unwrap();
+        assert_eq!(location(ServerConfig::try_from(no_tls)), "https_redirect");
+
+        let no_port: RawServerConfig =
+            yaml_serde::from_str("ssl:\n  key: k\n  cert: c\nhttps-redirect: 80\n").unwrap();
+        assert_eq!(location(ServerConfig::try_from(no_port)), "https_redirect");
+
+        let too_large: Result<RawServerConfig, _> = yaml_serde::from_str("https-redirect: 70000\n");
+        assert!(too_large.is_err());
     }
 
     #[test]

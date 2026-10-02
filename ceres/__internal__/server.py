@@ -29,7 +29,8 @@ class Server(Tasklet):
     A control server is always bound on an ephemeral loopback port with token
     authentication, and when the configuration names a public port a second server serves
     the API and console there, with TLS when the `ssl` section provides it. Both reach the
-    engine through one host object.
+    engine through one host object. With `https_redirect` set a third, plain HTTP server
+    answers every request with a permanent redirect to the TLS one.
     """
 
     __slots__ = (
@@ -40,6 +41,7 @@ class Server(Tasklet):
         "_cli_token",
         "_native_cli",
         "_native_web",
+        "_native_redirect",
         "_web_port",
     )
 
@@ -52,6 +54,7 @@ class Server(Tasklet):
         self._cli_token: str | None = None
         self._native_cli: Native | None = None
         self._native_web: Native | None = None
+        self._native_redirect: Native | None = None
 
     @property
     def config(self) -> ServerConfig:
@@ -136,16 +139,24 @@ class Server(Tasklet):
             )
             self._web_port = self._native_web.port
 
+            if self._config.https_redirect is not None:
+                self._native_redirect = NativeServer.redirect(self._config)
+
         # The info file records the port the control server actually bound.
         self._project.write_cli_server_info(
             CLIServerInfo(port=self._cli_port, token=self._cli_token)
         )
 
         try:
-            await concurrently(_serve(self._native_cli), _serve(self._native_web))
+            await concurrently(
+                _serve(self._native_cli),
+                _serve(self._native_web),
+                _serve(self._native_redirect),
+            )
         finally:
             self._native_cli = None
             self._native_web = None
+            self._native_redirect = None
             try:
                 self._project.delete_cli_server_info()
             except Exception:
@@ -153,7 +164,7 @@ class Server(Tasklet):
 
     @override
     async def __stop__(self) -> None:
-        for server in (self._native_cli, self._native_web):
+        for server in (self._native_cli, self._native_web, self._native_redirect):
             if server is not None:
                 server.stop()
 

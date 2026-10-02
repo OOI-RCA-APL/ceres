@@ -479,7 +479,8 @@ class NativeServer:
 
     Binds at construction so the real port is known immediately, and serves as an
     awaitable until stopped. The web form carries the console and terminates TLS, the
-    CLI form binds loopback on an ephemeral port and requires its token instead.
+    CLI form binds loopback on an ephemeral port and requires its token instead, and the
+    redirect form answers plain HTTP with a permanent redirect to the web form.
     """
     @property
     def port(self) -> int:
@@ -498,6 +499,11 @@ class NativeServer:
     ) -> NativeServer:
         r"""
         Bind the web application, serving the console and API on the configured address.
+        """
+    @staticmethod
+    def redirect(config: ServerConfig) -> NativeServer:
+        r"""
+        Bind the plain HTTP listener that redirects every request to the HTTPS server.
         """
     @staticmethod
     def cli(
@@ -1022,6 +1028,12 @@ class ServerConfig:
         Port the server listens on, omit to disable the server.
         """
     @property
+    def https_redirect(self) -> bool | int | None:
+        r"""
+        Plain HTTP listener redirecting every request to the HTTPS server, `True` for
+        port 80 or the port to listen on. Reads back as the port, or `None` when off.
+        """
+    @property
     def ssl(self) -> ServerSSLConfig | None:
         r"""
         TLS settings, omit to serve plain HTTP.
@@ -1046,6 +1058,7 @@ class ServerConfig:
         *,
         host: str | None = None,
         port: int | None = None,
+        https_redirect: bool | int | None = None,
         ssl: ServerSSLConfig | dict[str, Any] | None = None,
         authentication: ServerAuthenticationConfig | dict[str, Any] | None = None,
         cors: ServerCORSConfig | dict[str, Any] | None = None,
