@@ -63,8 +63,7 @@ const url = $computed(() => {
   }
 
   // Absolute so the request goes straight to the engine. The dev proxy does not cancel a request
-  // when the video element unloads, which leaves an `ffmpeg` process per load running until the
-  // proxy restarts.
+  // when the video element unloads, so the engine keeps encoding for it until the proxy restarts.
   return getHttpUrl(`/api/components/${queryComponent}/queries/${queryName}/call`)
 })
 
@@ -161,8 +160,8 @@ async function syncMediaSource(url: string | null | undefined) {
       await new Promise((resolve) => buffer.addEventListener('updateend', resolve, once))
     }
   } finally {
-    // Without this the request runs until the tab closes or the server hangs up, leaving stray
-    // `ffmpeg` processes behind.
+    // Without this the request runs until the tab closes or the server hangs up, and the engine
+    // keeps encoding for a widget nobody watches.
     await reader.cancel()
   }
 }

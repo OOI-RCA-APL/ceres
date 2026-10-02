@@ -135,6 +135,33 @@ async def test_the_native_server_serves_the_engine_over_tcp(tmp_path: Path) -> N
         await engine.database.dispose()
 
 
+async def test_the_redirect_server_points_at_the_https_server() -> None:
+    from ceres.config import ServerConfig
+
+    # The redirect server never loads the certificate, so the paths only need to validate.
+    config = ServerConfig(
+        host="127.0.0.1",
+        port=8443,
+        https_redirect=0,
+        ssl={"key": "server.key", "cert": "server.crt"},
+    )
+    assert config.https_redirect == 0
+    assert ServerConfig(port=8443, https_redirect=True, ssl=config.ssl).https_redirect == 80
+
+    server = NativeServer.redirect(config)
+    serving: asyncio.Future[Any] = asyncio.ensure_future(server.serve())
+    base = f"http://127.0.0.1:{server.port}"
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{base}/console/route?tab=1")
+            assert response.status_code == 308
+            assert response.headers["location"] == "https://127.0.0.1:8443/console/route?tab=1"
+    finally:
+        server.stop(0.2)
+        await serving
+
+
 async def test_tokens_verify_across_both_implementations(tmp_path: Path) -> None:
     """Tokens must cross between the two JWT implementations in both directions.
 

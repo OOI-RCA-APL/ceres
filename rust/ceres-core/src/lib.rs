@@ -135,6 +135,10 @@ python_config! {
         host: String,
         /// Port the server listens on, omit to disable the server.
         port: Option<u16>,
+        /// Plain HTTP listener redirecting every request to the HTTPS server, `True` for
+        /// port 80 or the port to listen on. Reads back as the port, or `None` when off.
+        #[python(any = "bool | int | None")]
+        https_redirect: Option<ceres_config::ServerHttpsRedirect>,
         /// TLS settings, omit to serve plain HTTP.
         #[python(nested = ServerSSLConfig)]
         ssl: Option<ceres_config::ServerSslConfig>,

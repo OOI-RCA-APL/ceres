@@ -80,10 +80,13 @@ impl BoundServer {
         let service = router.into_make_service();
         match self.tls {
             Some(config) => {
-                axum_server::from_tcp_rustls(self.listener, RustlsConfig::from_config(config))?
-                    .handle(self.handle)
-                    .serve(service)
-                    .await?;
+                let mut server =
+                    axum_server::from_tcp_rustls(self.listener, RustlsConfig::from_config(config))?
+                        .handle(self.handle);
+                // Extended CONNECT lets a browser open its WebSockets as streams of the one
+                // HTTP/2 connection rather than spending a plain HTTP/1.1 connection each.
+                server.http_builder().http2().enable_connect_protocol();
+                server.serve(service).await?;
             }
             None => {
                 axum_server::from_tcp(self.listener)?
@@ -112,10 +115,22 @@ impl Stopper {
 
 #[cfg(test)]
 mod tests {
+    use rustls::pki_types::ServerName;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpStream;
 
     use super::*;
     use crate::{AppConfig, build_router};
+
+    fn test_router() -> Router {
+        build_router(AppConfig {
+            console: None,
+            cli_token: None,
+            auth: None,
+            host: Arc::new(crate::host::NoHost),
+            version: "0.0.0".to_string(),
+        })
+    }
 
     #[tokio::test]
     async fn servers_bind_ephemerally_and_stop_gracefully() {
@@ -124,14 +139,7 @@ mod tests {
         assert_ne!(port, 0);
 
         let stopper = server.stopper();
-        let app = build_router(AppConfig {
-            console: None,
-            cli_token: None,
-            auth: None,
-            host: std::sync::Arc::new(crate::host::NoHost),
-            version: "0.0.0".to_string(),
-        });
-        let serving = tokio::spawn(server.serve(app));
+        let serving = tokio::spawn(server.serve(test_router()));
 
         let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port))
             .await
@@ -143,6 +151,62 @@ mod tests {
         let mut response = String::new();
         stream.read_to_string(&mut response).await.unwrap();
         assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+
+        stopper.stop(Duration::from_millis(100));
+        serving.await.unwrap().unwrap();
+    }
+
+    /// A client trusting only the self-signed certificate `ssl` wrote, offering `h2` alone.
+    fn h2_client(ssl: &ceres_config::ServerSslConfig) -> tokio_rustls::TlsConnector {
+        let mut roots = rustls::RootCertStore::empty();
+        let pem = std::fs::read(ssl.cert.as_ref().unwrap()).unwrap();
+        for certificate in rustls_pemfile::certs(&mut pem.as_slice()) {
+            roots.add(certificate.unwrap()).unwrap();
+        }
+        let provider = Arc::new(rustls::crypto::ring::default_provider());
+        let mut config = rustls::ClientConfig::builder_with_provider(provider)
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+        config.alpn_protocols = vec![b"h2".to_vec()];
+        tokio_rustls::TlsConnector::from(Arc::new(config))
+    }
+
+    #[tokio::test]
+    async fn tls_servers_multiplex_requests_over_one_h2_connection() {
+        let directory = tempfile::tempdir().unwrap();
+        let ssl = crate::tls::tests::ssl(directory.path(), None, |key| key);
+        let server = BoundServer::bind("127.0.0.1", 0)
+            .unwrap()
+            .with_tls(&ssl)
+            .unwrap();
+        let port = server.port();
+        let stopper = server.stopper();
+        let serving = tokio::spawn(server.serve(test_router()));
+
+        let tcp = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        let tls = h2_client(&ssl)
+            .connect(ServerName::try_from("localhost").unwrap(), tcp)
+            .await
+            .unwrap();
+        assert_eq!(tls.get_ref().1.alpn_protocol(), Some(&b"h2"[..]));
+
+        let (mut client, connection) = h2::client::handshake(tls).await.unwrap();
+        tokio::spawn(connection);
+        let mut responses = Vec::new();
+        for _ in 0..50 {
+            client = client.ready().await.unwrap();
+            let request = axum::http::Request::get("https://localhost/api/alive")
+                .body(())
+                .unwrap();
+            responses.push(client.send_request(request, true).unwrap().0);
+        }
+        for response in responses {
+            assert_eq!(response.await.unwrap().status(), 200);
+        }
+        // The server's settings have arrived by now, WebSockets may join the connection.
+        assert!(client.is_extended_connect_protocol_enabled());
 
         stopper.stop(Duration::from_millis(100));
         serving.await.unwrap().unwrap();

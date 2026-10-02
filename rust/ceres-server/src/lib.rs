@@ -15,6 +15,7 @@ mod cookie;
 mod error;
 mod host;
 mod layers;
+mod redirect;
 mod scrub;
 mod serve;
 mod tls;
@@ -25,6 +26,7 @@ pub use auth::AuthSettings;
 pub use axum;
 pub use host::{Answer, GateUser, Host, HostError, Served, StreamClose, UserRecord};
 pub use layers::{apply_compression, apply_cors};
+pub use redirect::redirect_router;
 pub use serve::{BoundServer, Stopper};
 
 #[cfg(test)]

@@ -72,7 +72,11 @@ pub fn server_config(ssl: &ServerSslConfig) -> Result<Option<Arc<rustls::ServerC
         None => builder.with_no_client_auth(),
     };
 
-    Ok(Some(Arc::new(builder.with_single_cert(certificates, key)?)))
+    let mut config = builder.with_single_cert(certificates, key)?;
+    // Browsers only speak HTTP/2 over TLS and only when ALPN offers it. Without `h2` every
+    // video widget holds one of the six HTTP/1.1 connections a browser allows per origin.
+    config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+    Ok(Some(Arc::new(config)))
 }
 
 fn read_certificates(path: &Path) -> Result<Vec<CertificateDer<'static>>, Error> {
@@ -131,11 +135,11 @@ fn read_private_key(path: &Path, password: Option<&str>) -> Result<PrivateKeyDer
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     /// Write one self-signed identity's certificate and key, the key transformed first.
-    fn ssl(
+    pub(crate) fn ssl(
         directory: &Path,
         password: Option<&str>,
         transform_key: impl Fn(String) -> String,
@@ -171,10 +175,14 @@ mod tests {
     }
 
     #[test]
-    fn plain_keys_load() {
+    fn plain_keys_load_and_offer_h2() {
         let directory = tempfile::tempdir().unwrap();
         let config = ssl(directory.path(), None, |key| key);
-        assert!(server_config(&config).unwrap().is_some());
+        let loaded = server_config(&config).unwrap().unwrap();
+        assert_eq!(
+            loaded.alpn_protocols,
+            [b"h2".to_vec(), b"http/1.1".to_vec()]
+        );
     }
 
     #[test]
