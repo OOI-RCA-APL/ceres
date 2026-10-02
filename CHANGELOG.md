@@ -8,6 +8,14 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+**Fixes**
+
+- Report every workspace commit. The console shows a toast while the commit runs, a success toast
+  when it lands, and an error toast naming the cause when it fails. A commit or draft save the
+  browser cannot send within 15 seconds, which happens when video widgets hold every connection
+  the browser allows to the server, now fails with that message instead of hanging silently.
+- Dismissing the "Commit Changes" dialog with Escape no longer commits.
+
 ## [0.48.1] - 2026-10-01
 
 **Fixes**
