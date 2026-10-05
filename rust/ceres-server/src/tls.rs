@@ -7,17 +7,17 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use ceres_config::{DEFAULT_TLS_CERT, DEFAULT_TLS_KEY, ServerHttpsConfig, TlsVersion};
+use ceres_config::{ServerHttpsConfig, TlsVersion};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use rustls::server::WebPkiClientVerifier;
 
 /// A TLS loading failure.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// A default certificate or key path holds nothing, the state of a project that never
-    /// generated one.
+    /// A certificate or key path holds nothing. `ceres generate certificate` writes to the
+    /// configured paths, so it creates whichever is missing.
     #[error("{path} does not exist. Run `ceres generate certificate` to create it.")]
-    Ungenerated { path: String },
+    Missing { path: String },
     #[error("cannot read {path}. {source}")]
     Unreadable {
         path: String,
@@ -108,16 +108,12 @@ fn load(
     Ok((Arc::new(config), presented))
 }
 
-/// Read a file, a missing default path answering with the command that creates it.
-///
-/// A default path is one ending in `.ceres/tls/server.crt` or `.ceres/tls/server.key`,
-/// relative to the project directory or resolved against it.
+/// Read a file, a missing one answering with the command that creates it.
 fn read(path: &Path) -> Result<Vec<u8>, Error> {
     std::fs::read(path).map_err(|source| {
         let path_text = path.display().to_string();
-        let default = path.ends_with(DEFAULT_TLS_CERT) || path.ends_with(DEFAULT_TLS_KEY);
-        if default && source.kind() == std::io::ErrorKind::NotFound {
-            Error::Ungenerated { path: path_text }
+        if source.kind() == std::io::ErrorKind::NotFound {
+            Error::Missing { path: path_text }
         } else {
             Error::Unreadable {
                 path: path_text,
@@ -243,24 +239,13 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn missing_files_name_their_path() {
+    fn missing_files_name_the_command_that_creates_them() {
+        // `generate certificate` writes to the configured paths, so the hint holds for any
+        // path, not only the defaults.
         let directory = tempfile::tempdir().unwrap();
+        let cert = directory.path().join("absent.pem");
         let mut config = https(directory.path(), None, |key| key);
-        config.cert = directory.path().join("absent.pem");
-        let error = server_config(&config).unwrap_err();
-        assert!(error.to_string().contains("absent.pem"), "{error}");
-        assert!(matches!(error, Error::Unreadable { .. }), "{error}");
-    }
-
-    #[test]
-    fn missing_default_files_name_the_command_that_creates_them() {
-        let directory = tempfile::tempdir().unwrap();
-        let cert = directory.path().join(DEFAULT_TLS_CERT);
-        let config = ServerHttpsConfig {
-            cert: cert.clone(),
-            key: directory.path().join(DEFAULT_TLS_KEY),
-            ..ServerHttpsConfig::default()
-        };
+        config.cert = cert.clone();
         let error = server_config(&config).unwrap_err();
         assert_eq!(
             error.to_string(),
@@ -271,9 +256,26 @@ pub(crate) mod tests {
         );
 
         let mut config = https(directory.path(), None, |key| key);
-        config.key = directory.path().join(DEFAULT_TLS_KEY);
+        config.key = directory.path().join("absent.key");
         let error = server_config(&config).unwrap_err();
-        assert!(matches!(error, Error::Ungenerated { .. }), "{error}");
+        assert!(matches!(error, Error::Missing { .. }), "{error}");
+    }
+
+    #[test]
+    fn unreadable_files_name_their_path() {
+        // A directory where the certificate file should be fails to read without being
+        // missing.
+        let directory = tempfile::tempdir().unwrap();
+        let mut config = https(directory.path(), None, |key| key);
+        config.cert = directory.path().to_owned();
+        let error = server_config(&config).unwrap_err();
+        assert!(matches!(error, Error::Unreadable { .. }), "{error}");
+        assert!(
+            error
+                .to_string()
+                .contains(&directory.path().display().to_string()),
+            "{error}"
+        );
     }
 
     #[test]

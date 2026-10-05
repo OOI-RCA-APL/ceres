@@ -33,8 +33,8 @@ written, and the release workflow refuses a version that has no entry here.
   working after a move to HTTPS.
 - An empty `server.https` section listens on port 443 with the certificate and key at
   `.ceres/tls/server.crt` and `.ceres/tls/server.key`. `ceres check` and startup fail when the
-  certificate or key cannot be loaded, and name `ceres generate certificate` when the default
-  files are missing.
+  certificate or key cannot be loaded, and name `ceres generate certificate` when either file
+  is missing.
 - Ceres keeps machine-local state in a `.ceres` directory next to `ceres.yaml`, which carries
   its own `.gitignore`.
 

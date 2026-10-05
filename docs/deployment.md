@@ -232,7 +232,7 @@ server:
     key: /etc/ceres/server.key
 ```
 
-`ceres check` and engine startup fail when the certificate or key cannot be loaded, and name `ceres generate certificate` when the default files are missing. Both also warn once fewer than 30 days remain before the certificate expires, `ceres check` on its output and startup in the engine log.
+`ceres check` and engine startup fail when the certificate or key cannot be loaded, and name `ceres generate certificate` when either file is missing. Both also warn once fewer than 30 days remain before the certificate expires, `ceres check` on its output and startup in the engine log.
 
 ### CLI Queries
 
