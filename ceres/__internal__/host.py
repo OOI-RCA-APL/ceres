@@ -208,13 +208,11 @@ async def _run(config_path: Path, addresses: Sequence[str], server_port: int | N
         raise HostFailed(str(error))
 
     try:
+        engine = Engine()
         # A dev run serves its own plain HTTP listener from the first bind, and through any
         # reload, so it needs no certificate.
-        engine = Engine(
-            server_override=None
-            if server_port is None
-            else partial(_dev_listener, port=server_port)
-        )
+        if server_port is not None:
+            engine._override_server(partial(_dev_listener, port=server_port))
 
         try:
             await engine.load(config_path)

@@ -149,22 +149,12 @@ class Engine(Node):
         "_server_override",
     )
 
-    def __init__(
-        self,
-        *,
-        server_override: Callable[[ServerConfig], ServerConfig] | None = None,
-    ) -> None:
-        """Create an engine with nothing loaded.
-
-        Args:
-            server_override: Rewrites the server section of every configuration the engine
-                loads, before the server binds, the way a development run swaps in its own
-                listener. With one set, loading skips the server check, the configured
-                listeners not being the ones served.
-        """
+    def __init__(self) -> None:
         super().__init__()
 
-        self._server_override = server_override
+        # Rewrites the server section of every configuration applied, set through
+        # `_override_server`.
+        self._server_override: Callable[[ServerConfig], ServerConfig] | None = None
         self._loaded = False
         self._config = Config()
         self._config_path: Path | None = None
@@ -489,6 +479,15 @@ class Engine(Node):
 
         await self._apply(source if isinstance(source, Path) else None, config, silent=silent)
         return config
+
+    def _override_server(self, override: Callable[[ServerConfig], ServerConfig]) -> None:
+        """Rewrite the server section of every configuration loaded from now on, before the
+        server binds, the way a development run swaps in its own listener.
+
+        Loading then skips the server check, the configured listeners not being the ones
+        served.
+        """
+        self._server_override = override
 
     def _served_checks(self, checks: Sequence[ConfigCheckType]) -> Sequence[ConfigCheckType]:
         """Answer `checks` without the server check when the configured listeners are

@@ -152,11 +152,13 @@ async def test_an_overridden_server_binds_only_what_the_override_answers(tmp_pat
     not exist, so binding it even once, or running the server check, would fail.
     """
     failures: list[BaseException] = []
+    overridden = Engine()
+    overridden._override_server(partial(_dev_listener, port=0))
     engine = await _load(
         tmp_path,
         failures,
         server="server:\n  bind: 127.0.0.1\n  https: {}\n  http:\n    redirect: true\n",
-        engine=Engine(server_override=partial(_dev_listener, port=0)),
+        engine=overridden,
         checks=ConfigCheckType.all(),
     )
     server = engine.server
