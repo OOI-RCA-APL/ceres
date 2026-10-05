@@ -81,6 +81,14 @@ service runs from the project directory, so the file applies there the same way.
 Use it for values your drivers read from the environment, and keep it out of version
 control when it carries credentials.
 
+### The `.ceres` Directory
+
+Ceres keeps state that belongs to one machine in a `.ceres` directory next to
+`ceres.yaml`: the address the running engine's CLI server listens on, and the HTTPS
+certificate and key that `ceres generate certificate` writes. The directory carries its
+own `.gitignore`, so nothing in it reaches version control. Leave it out of copies of the
+project to other machines too.
+
 ## Validating Configuration
 
 Before starting the service, validate your configuration.
@@ -182,20 +190,49 @@ ceres console url     # Print the URL.
 
 ### HTTPS
 
-With a `server.https` listener the console is served over TLS, and browsers negotiate HTTP/2, which multiplexes every console request over one connection. Over plain HTTP browsers cap a page at about six connections per host, and each live video widget holds one, so a dashboard with several videos stalls. HTTPS lifts that limit. A self-signed certificate works once the browser warning is accepted.
+With a `server.https` listener the console is served over TLS, and browsers negotiate HTTP/2, which multiplexes every console request over one connection. Over plain HTTP browsers cap a page at about six connections per host, and each live video widget holds one, so a dashboard with several videos stalls. HTTPS lifts that limit.
+
+An empty `server.https` section listens on port 443 with the certificate and key in the project's `.ceres/tls` directory. Generate them once from the project directory:
+
+```sh
+ceres generate certificate
+```
+
+```text
+Wrote the certificate to .ceres/tls/server.crt.
+Wrote the key to .ceres/tls/server.key.
+Names: localhost, 127.0.0.1, ::1, sensor-host, 192.0.2.5
+Expires: 2029-01-07 (825 days)
+SHA-256 fingerprint: F7:65:82:76:E8:92:6A:D7:2B:21:F2:63:DD:72:1A:52:AC:E7:B3:12:A7:B4:FC:49:81:F9:2D:6B:13:2B:08:D0
+```
+
+The certificate is self-signed with an ECDSA P-256 key, and names localhost, the loopback addresses, the machine's hostname, and every address of its network interfaces other than loopback and link-local ones. Add names clients reach the server by, like a DNS alias or a NAT address, with `--ip` and `--dns`, both repeatable. `--days` sets how long it stays valid. The key file is readable by its owner alone. An existing certificate or key is only replaced with `--force`, so regenerate before the old one expires:
+
+```sh
+ceres generate certificate --dns sensors.example.org --force
+```
+
+Browsers warn about a self-signed certificate until it is accepted. Compare the fingerprint the browser shows with the one printed above before accepting it.
 
 Set `server.http.redirect` to keep the old `http://` bookmarks working after a move to HTTPS. The `server.http` listener then answers every request with a temporary redirect to the same path and query on the HTTPS listener. Its port defaults to 80, and is typically the port the server served plain HTTP on before.
 
 ```yaml
 server:
-  https:
-    port: 443
-    cert: /etc/ceres/server.crt
-    key: /etc/ceres/server.key
+  https: {}
   http:
-    port: 80
     redirect: true
 ```
+
+To serve a certificate from elsewhere, like one a certificate authority issued, name its files with `cert` and `key`, plus `key-password` for an encrypted key. Relative paths resolve against the project directory. `ceres generate certificate` writes to the configured paths too.
+
+```yaml
+server:
+  https:
+    cert: /etc/ceres/server.crt
+    key: /etc/ceres/server.key
+```
+
+`ceres check` and engine startup fail when the certificate or key cannot be loaded, and name `ceres generate certificate` when the default files are missing. `ceres check` also warns once fewer than 30 days remain before the certificate expires.
 
 ### CLI Queries
 

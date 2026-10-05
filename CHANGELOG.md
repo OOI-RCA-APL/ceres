@@ -8,15 +8,44 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+**Breaking**
+
+- The `server` section names its listeners. `server.bind` replaces `server.host`,
+  `server.https` (`port`, `cert`, `key`, `key-password`, `min-version`, `client-ca`) replaces
+  `server.ssl`, and `server.http` (`port`, `redirect`) serves plain HTTP. `server.host`,
+  `server.port`, and `server.ssl` are rejected, so rewrite them before upgrading.
+  `server.port: 8080` becomes `server.http.port: 8080`, or `server.https.port: 8080` beside a
+  former `server.ssl`, whose `ca-certs` is now `client-ca`. Its `version` gives way to
+  `min-version`, `"1.2"` by default or `"1.3"`.
+- The engine no longer creates a `local/` directory in the project. A SQLite database still
+  creates the directories leading to its file, and `ceres service` creates the directories of
+  its log files.
+- The CLI finds a running engine through `.ceres/server.json` in the project instead of a file
+  under `/tmp`, so restart a running engine after upgrading.
+
 **Engine**
 
-- The server offers HTTP/2 when `server.ssl` is configured. Browsers then multiplex every
+- The server offers HTTP/2 over a `server.https` listener. Browsers then multiplex every
   console request over one connection, which lifts the six-connection limit that stalled a
   dashboard with more than a few live video widgets.
-- New `server.https-redirect` setting runs a plain HTTP listener that temporarily redirects
-  every request to the same path and query on the HTTPS server, so `http://` bookmarks keep
-  working after a move to HTTPS. `true` listens on port 80, an integer on that port. It needs
-  `server.ssl` and a port different from `server.port`.
+- `server.http.redirect` turns the HTTP listener into one that temporarily redirects every
+  request to the same path and query on the HTTPS listener, so `http://` bookmarks keep
+  working after a move to HTTPS.
+- An empty `server.https` section listens on port 443 with the certificate and key at
+  `.ceres/tls/server.crt` and `.ceres/tls/server.key`. `ceres check` and startup fail when the
+  certificate or key cannot be loaded, and name `ceres generate certificate` when the default
+  files are missing.
+- Ceres keeps machine-local state in a `.ceres` directory next to `ceres.yaml`, which carries
+  its own `.gitignore`.
+
+**CLI**
+
+- New `ceres generate certificate` writes a self-signed ECDSA P-256 certificate and key for the
+  HTTPS listener, naming localhost, the loopback addresses, the hostname, and the machine's
+  interface addresses, plus any `--ip` and `--dns` names. It is valid for 825 days unless
+  `--days` says otherwise, refuses to replace existing files without `--force`, and prints the
+  names, expiry, and SHA-256 fingerprint.
+- `ceres check` warns when the HTTPS certificate expires within 30 days.
 
 ## [0.48.1] - 2026-10-01
 
