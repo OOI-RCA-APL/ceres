@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use ceres_macros::kebab_aliases;
 use schemars::JsonSchema;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 
 use crate::error::{Problem, Problems};
 use crate::values::{ByteSize, MaybeSequence, TimeDelta};
@@ -19,38 +19,16 @@ pub const DEFAULT_TLS_CERT: &str = ".ceres/tls/server.crt";
 pub const DEFAULT_TLS_KEY: &str = ".ceres/tls/server.key";
 
 /// The lowest TLS version the HTTPS server negotiates.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, JsonSchema)]
+///
+/// Written as the string `"1.2"` or `"1.3"`. YAML reads either unquoted as a number,
+/// which is refused.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub enum TlsVersion {
     #[default]
     #[serde(rename = "1.2")]
     Tls12,
     #[serde(rename = "1.3")]
     Tls13,
-}
-
-impl<'de> Deserialize<'de> for TlsVersion {
-    /// Read `"1.2"` or `"1.3"`, also accepting the unquoted YAML number either one reads
-    /// as.
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        #[derive(Deserialize)]
-        #[serde(untagged)]
-        enum Spelling {
-            Text(String),
-            Number(f64),
-        }
-
-        let text = match Spelling::deserialize(deserializer)? {
-            Spelling::Text(text) => text,
-            Spelling::Number(number) => number.to_string(),
-        };
-        match text.as_str() {
-            "1.2" => Ok(Self::Tls12),
-            "1.3" => Ok(Self::Tls13),
-            _ => Err(serde::de::Error::custom(format!(
-                "{text:?} is not a TLS version, expected \"1.2\" or \"1.3\""
-            ))),
-        }
-    }
 }
 
 /// The HTTPS listener of the engine's HTTP server.
@@ -628,22 +606,21 @@ mod tests {
     }
 
     #[test]
-    fn min_versions_read_quoted_or_bare() {
+    fn min_versions_are_strings() {
+        // Through a parsed document, as configuration loads, where an unquoted `1.3` is
+        // already a number.
         let version = |text: &str| {
-            server(&format!("https:\n  min-version: {text}\n"))
-                .unwrap()
-                .https
-                .unwrap()
-                .min_version
+            let document: yaml_serde::Value =
+                yaml_serde::from_str(&format!("https:\n  min-version: {text}\n")).unwrap();
+            yaml_serde::from_value::<RawServerConfig>(document)
+                .map(|raw| raw.https.unwrap().min_version.unwrap())
+                .map_err(|error| error.to_string())
         };
-        assert_eq!(version("'1.2'"), TlsVersion::Tls12);
-        assert_eq!(version("1.3"), TlsVersion::Tls13);
-        let old: Result<RawServerConfig, _> = yaml_serde::from_str("https:\n  min-version: 1.1\n");
-        assert!(
-            old.unwrap_err()
-                .to_string()
-                .contains("\"1.1\" is not a TLS version")
-        );
+        assert_eq!(version("'1.2'"), Ok(TlsVersion::Tls12));
+        assert_eq!(version("\"1.3\""), Ok(TlsVersion::Tls13));
+        for refused in ["1.3", "'1.1'"] {
+            assert!(version(refused).is_err(), "{refused}");
+        }
     }
 
     #[test]

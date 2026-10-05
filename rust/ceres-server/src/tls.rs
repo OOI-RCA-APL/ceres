@@ -25,8 +25,14 @@ pub enum Error {
     },
     #[error("{path} holds a certificate that cannot be parsed. {reason}")]
     Malformed { path: String, reason: String },
-    #[error("{path} holds no usable {expected}")]
+    #[error("{path} holds no usable PEM {expected}")]
     Empty {
+        path: String,
+        expected: &'static str,
+    },
+    /// A file that is not text, like a DER encoding, where PEM is expected.
+    #[error("{path} is not text, expected a PEM {expected}")]
+    NotPem {
         path: String,
         expected: &'static str,
     },
@@ -40,7 +46,31 @@ pub enum Error {
 
 /// Build the rustls configuration for the `https` section.
 pub fn server_config(https: &ServerHttpsConfig) -> Result<Arc<rustls::ServerConfig>, Error> {
+    load(https).map(|(config, _)| config)
+}
+
+/// Load the `https` section the way the listener does and answer when its certificate
+/// expires, in seconds since the Unix epoch.
+///
+/// The expiry is that of the first certificate in the file, the one the listener presents
+/// as its own.
+pub fn certificate_expiry(https: &ServerHttpsConfig) -> Result<i64, Error> {
+    let (_, presented) = load(https)?;
+    let (_, certificate) =
+        x509_parser::parse_x509_certificate(&presented).map_err(|error| Error::Malformed {
+            path: https.cert.display().to_string(),
+            reason: error.to_string(),
+        })?;
+    Ok(certificate.validity().not_after.timestamp())
+}
+
+/// Build the rustls configuration for the `https` section, also answering the certificate
+/// the listener presents as its own.
+fn load(
+    https: &ServerHttpsConfig,
+) -> Result<(Arc<rustls::ServerConfig>, CertificateDer<'static>), Error> {
     let certificates = read_certificates(&https.cert)?;
+    let presented = certificates[0].clone();
     let key = read_private_key(&https.key, https.key_password.as_deref())?;
 
     let versions: &[&rustls::SupportedProtocolVersion] = match https.min_version {
@@ -75,32 +105,17 @@ pub fn server_config(https: &ServerHttpsConfig) -> Result<Arc<rustls::ServerConf
     // Browsers only speak HTTP/2 over TLS and only when ALPN offers it. Without `h2` every
     // video widget holds one of the six HTTP/1.1 connections a browser allows per origin.
     config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
-    Ok(Arc::new(config))
-}
-
-/// Load the `https` section the way the listener does and answer when its certificate
-/// expires, in seconds since the Unix epoch.
-///
-/// The expiry is that of the first certificate in the file, the one the listener presents
-/// as its own.
-pub fn certificate_expiry(https: &ServerHttpsConfig) -> Result<i64, Error> {
-    server_config(https)?;
-    let certificates = read_certificates(&https.cert)?;
-    let (_, certificate) =
-        x509_parser::parse_x509_certificate(&certificates[0]).map_err(|error| {
-            Error::Malformed {
-                path: https.cert.display().to_string(),
-                reason: error.to_string(),
-            }
-        })?;
-    Ok(certificate.validity().not_after.timestamp())
+    Ok((Arc::new(config), presented))
 }
 
 /// Read a file, a missing default path answering with the command that creates it.
+///
+/// A default path is one ending in `.ceres/tls/server.crt` or `.ceres/tls/server.key`,
+/// relative to the project directory or resolved against it.
 fn read(path: &Path) -> Result<Vec<u8>, Error> {
     std::fs::read(path).map_err(|source| {
         let path_text = path.display().to_string();
-        let default = path == Path::new(DEFAULT_TLS_CERT) || path == Path::new(DEFAULT_TLS_KEY);
+        let default = path.ends_with(DEFAULT_TLS_CERT) || path.ends_with(DEFAULT_TLS_KEY);
         if default && source.kind() == std::io::ErrorKind::NotFound {
             Error::Ungenerated { path: path_text }
         } else {
@@ -131,7 +146,7 @@ fn read_certificates(path: &Path) -> Result<Vec<CertificateDer<'static>>, Error>
 }
 
 fn read_private_key(path: &Path, password: Option<&str>) -> Result<PrivateKeyDer<'static>, Error> {
-    let text = String::from_utf8(read(path)?).map_err(|_| Error::Empty {
+    let text = String::from_utf8(read(path)?).map_err(|_| Error::NotPem {
         path: path.display().to_string(),
         expected: "private key",
     })?;
@@ -239,18 +254,41 @@ pub(crate) mod tests {
 
     #[test]
     fn missing_default_files_name_the_command_that_creates_them() {
-        // The tests run from the crate directory, which holds no `.ceres` directory.
-        let error = server_config(&ServerHttpsConfig::default()).unwrap_err();
+        let directory = tempfile::tempdir().unwrap();
+        let cert = directory.path().join(DEFAULT_TLS_CERT);
+        let config = ServerHttpsConfig {
+            cert: cert.clone(),
+            key: directory.path().join(DEFAULT_TLS_KEY),
+            ..ServerHttpsConfig::default()
+        };
+        let error = server_config(&config).unwrap_err();
         assert_eq!(
             error.to_string(),
-            ".ceres/tls/server.crt does not exist. Run `ceres generate certificate` to create it."
+            format!(
+                "{} does not exist. Run `ceres generate certificate` to create it.",
+                cert.display()
+            )
         );
 
-        let directory = tempfile::tempdir().unwrap();
         let mut config = https(directory.path(), None, |key| key);
-        config.key = DEFAULT_TLS_KEY.into();
+        config.key = directory.path().join(DEFAULT_TLS_KEY);
         let error = server_config(&config).unwrap_err();
         assert!(matches!(error, Error::Ungenerated { .. }), "{error}");
+    }
+
+    #[test]
+    fn binary_keys_are_refused_as_not_pem() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = https(directory.path(), None, |key| key);
+        std::fs::write(&config.key, [0x30, 0x82, 0xff, 0xfe]).unwrap();
+        let error = server_config(&config).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "{} is not text, expected a PEM private key",
+                config.key.display()
+            )
+        );
     }
 
     #[test]
