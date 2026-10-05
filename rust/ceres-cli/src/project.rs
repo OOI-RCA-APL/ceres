@@ -1,7 +1,7 @@
 //! Project discovery and derived paths.
 //!
-//! A project is identified by its configuration file. The directory hash and the CLI server
-//! info path must match the scheme a running engine uses when it writes the server info file.
+//! A project is identified by its configuration file. The `.ceres` state directory and the
+//! CLI server info path in it must match where a running engine writes the server info file.
 
 use std::path::{Path, PathBuf};
 
@@ -10,6 +10,9 @@ use serde::Deserialize;
 use sha1::{Digest, Sha1};
 
 use crate::error::{Result, failure};
+
+/// Name of the directory in a project that holds what Ceres writes for itself.
+pub const STATE_DIRECTORY: &str = ".ceres";
 
 /// Configuration file names searched in the working directory, in priority order.
 pub const CONFIG_NAMES: [&str; 3] = ["ceres.yaml", "ceres.yml", "ceres.json"];
@@ -95,10 +98,9 @@ impl Project {
             .expect("a canonical file path has a parent")
     }
 
-    /// A short hash of the project directory, used to name per-project temporary files.
+    /// A short hash of the project directory, used to name the project's service.
     ///
-    /// The first six hex characters of the SHA-1 of the directory path string, the same
-    /// scheme the engine uses.
+    /// The first six hex characters of the SHA-1 of the directory path string.
     pub fn directory_hash(&self) -> String {
         let mut hasher = Sha1::new();
         hasher.update(self.directory().to_string_lossy().as_bytes());
@@ -112,9 +114,14 @@ impl Project {
         hash
     }
 
+    /// The `.ceres` directory beside the configuration, holding what Ceres writes for itself.
+    pub fn state_directory(&self) -> PathBuf {
+        self.directory().join(STATE_DIRECTORY)
+    }
+
     /// The path of the CLI server info file a running engine writes for this project.
     pub fn server_info_path(&self) -> PathBuf {
-        temporary_directory().join(format!("ceres-{}.server.json", self.directory_hash()))
+        self.state_directory().join("server.json")
     }
 
     /// Read and parse the CLI server info file, returning `None` on any failure.
@@ -130,15 +137,6 @@ impl Project {
     }
 }
 
-/// Return the platform temporary directory, preferring `/tmp` on Unix.
-fn temporary_directory() -> PathBuf {
-    if cfg!(unix) && Path::new("/tmp").is_dir() {
-        return PathBuf::from("/tmp");
-    }
-
-    std::env::temp_dir()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -148,6 +146,15 @@ mod tests {
         // The first six hex characters of sha1("/opt/project").
         let project = Project::at("/opt/project/ceres.yaml");
         assert_eq!(project.directory_hash(), "8d1253");
+    }
+
+    #[test]
+    fn server_info_lives_in_the_state_directory() {
+        let project = Project::at("/opt/project/ceres.yaml");
+        assert_eq!(
+            project.server_info_path(),
+            Path::new("/opt/project/.ceres/server.json")
+        );
     }
 
     #[test]

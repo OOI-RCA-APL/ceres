@@ -242,19 +242,8 @@ class Engine(Node):
 
         return Directory(self.config_path.parent)
 
-    @property
-    def local_directory(self) -> Directory | None:
-        """`local/` subdirectory beside the configuration file, used for persistent local state."""
-        if self.project_directory is None:
-            return None
-
-        return self.project_directory.subdir("local")
-
     @override
     async def __run__(self) -> None:
-        if self.local_directory is not None:
-            self.local_directory.create()
-
         await self._apply(self.config_path, self.config)
 
         await self.__node_sync__()

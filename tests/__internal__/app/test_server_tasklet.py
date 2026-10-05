@@ -54,6 +54,7 @@ async def test_the_server_tasklet_keeps_the_cli_server_running(tmp_path: Path) -
         config_path = engine.config_path
         assert config_path is not None
         info = LoadedProject(config_path, engine.config).cli_server_info_path
+        assert info == tmp_path / ".ceres" / "server.json"
         assert info.exists()
         await asyncio.sleep(0.2)
         assert info.exists()
