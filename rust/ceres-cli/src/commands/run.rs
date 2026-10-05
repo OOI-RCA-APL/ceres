@@ -57,12 +57,11 @@ pub fn run(
         .map(|source| Development::plan(project, source, args.development_console_port))
         .transpose()?;
 
-    // The engine only moves off its configured port when the dev console stands in for
-    // the built-in one, so the host is told to rebind only then.
-    let server_port = development.as_ref().and_then(|development| {
-        let addresses = &development.addresses;
-        addresses.moved.then_some(addresses.engine)
-    });
+    // The dev console proxies to the engine over plain HTTP, so a dev run always tells the
+    // host which port to serve plain HTTP on in place of the configured listeners.
+    let server_port = development
+        .as_ref()
+        .map(|development| development.addresses.engine);
     let payload = payload(project, &args.addresses, false, server_port);
 
     if !args.watch && development.is_none() {
@@ -450,8 +449,6 @@ struct Addresses {
     host: String,
     engine: u16,
     console: u16,
-    /// Whether the engine moved off its configured port, which the host must then rebind.
-    moved: bool,
 }
 
 /// Decide which port the engine and the dev console each take, moving the engine if
@@ -459,7 +456,8 @@ struct Addresses {
 ///
 /// Without a console port the dev console stands in for the built-in one, taking the
 /// configured port so the address in the browser does not change, and the engine moves
-/// to a free port behind it. With one, both consoles are served and neither moves.
+/// to a free port behind it. With one, both consoles are served and the engine keeps the
+/// configured port. Either way the engine serves plain HTTP there.
 fn assign_addresses(
     host: &str,
     configured: Option<u16>,
@@ -471,13 +469,11 @@ fn assign_addresses(
             host: host.to_owned(),
             engine: configured,
             console,
-            moved: false,
         }),
         None => Ok(Addresses {
             host: host.to_owned(),
             engine: free_port(host)?,
             console: configured,
-            moved: true,
         }),
     }
 }
@@ -549,7 +545,6 @@ mod tests {
 
         assert_eq!(addresses.console, 9000);
         assert_ne!(addresses.engine, 9000);
-        assert!(addresses.moved);
     }
 
     #[test]
@@ -564,7 +559,6 @@ mod tests {
         let addresses = assign_addresses("127.0.0.1", Some(9000), Some(9001)).unwrap();
 
         assert_eq!((addresses.engine, addresses.console), (9000, 9001));
-        assert!(!addresses.moved);
     }
 
     #[test]

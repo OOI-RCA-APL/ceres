@@ -7,8 +7,8 @@ parse:
 - `config`: absolute path of the project configuration file.
 - `addresses`: component address selector strings to start on launch.
 - `check`: when true, validate the configuration with all checks and exit.
-- `server_port`: when set, the listener serving the engine's console binds this port
-  instead of the configured one, which is how a console dev server stands in front of it.
+- `server_port`: when set, the engine serves plain HTTP on this port alone in place of
+  its configured web listeners, which is how a console dev server stands in front of it.
 """
 
 # ruff: disable[T201] # Allow print statements.
@@ -24,6 +24,7 @@ from asyncio import Event as AsyncEvent
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -133,7 +134,7 @@ async def _check(config_path: Path) -> int:
 
 
 EXPIRY_WARNING_DAYS = 30
-"""How close to expiry the HTTPS certificate draws a warning from `ceres check`."""
+"""How close to expiry the HTTPS certificate draws a warning from `ceres check` and startup."""
 
 
 def _expiry_warning(server: ServerConfig, now: datetime) -> str | None:
@@ -168,21 +169,18 @@ def _expiry_warning(server: ServerConfig, now: datetime) -> str | None:
     )
 
 
-def _move_console_listener(server: ServerConfig, port: int) -> ServerConfig:
-    """Answer `server` with the listener serving the console moved to `port`.
+def _dev_listener(server: ServerConfig, port: int) -> ServerConfig:
+    """Answer `server` with a plain HTTP listener on `port` as its only web listener.
 
-    That is the HTTPS listener when there is one, and otherwise the plain HTTP one, added
-    when the section has neither. The sections are native objects whose fields are not
-    writable, so each is replaced rather than edited.
+    A console dev server proxies to the engine over plain HTTP, so the HTTPS listener is
+    left out, and the HTTP one serves the app rather than redirecting. The sections are
+    native objects whose fields are not writable, so each is replaced rather than edited.
     """
     from ceres.config import ServerHTTPConfig
     from ceres.data import replace
 
-    if server.https is not None:
-        return replace(server, https=replace(server.https, port=port))
-
     http = server.http if server.http is not None else ServerHTTPConfig()
-    return replace(server, http=replace(http, port=port))
+    return replace(server, https=None, http=replace(http, port=port, redirect=False))
 
 
 async def _run(config_path: Path, addresses: Sequence[str], server_port: int | None) -> int:
@@ -191,7 +189,8 @@ async def _run(config_path: Path, addresses: Sequence[str], server_port: int | N
     Args:
         config_path: Path of the project configuration file.
         addresses: Component address selector strings to start on launch.
-        server_port: Port the console's listener binds instead of the configured one.
+        server_port: Port of the plain HTTP listener a dev run serves in place of the
+            configured web listeners.
 
     Returns:
         The process exit code.
@@ -209,7 +208,14 @@ async def _run(config_path: Path, addresses: Sequence[str], server_port: int | N
         raise HostFailed(str(error))
 
     try:
-        engine = Engine()
+        # A dev run serves its own plain HTTP listener from the first bind, and through any
+        # reload, so it needs no certificate.
+        engine = Engine(
+            server_override=None
+            if server_port is None
+            else partial(_dev_listener, port=server_port)
+        )
+
         try:
             await engine.load(config_path)
         except Error as error:
@@ -229,9 +235,9 @@ async def _run(config_path: Path, addresses: Sequence[str], server_port: int | N
                 f"Failed to load engine with current configuration. {to_json(error, indent=2)}"
             )
 
-        # Applied before the engine starts, since it binds the server section as loaded.
-        if server_port is not None:
-            engine.config.server = _move_console_listener(engine.config.server, server_port)
+        warning = _expiry_warning(engine.config.server, datetime.now(UTC))
+        if warning is not None:
+            engine.log.warning(warning)
 
         exiting = AsyncEvent()
 

@@ -1,6 +1,6 @@
 import asyncio
 import traceback
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Self, Unpack, final, override
@@ -39,6 +39,7 @@ if TYPE_CHECKING:
         ComponentFilterArgs,
         ComponentSystem,
     )
+    from ceres.config import ServerConfig
     from ceres.entity import Entity
 
 with __lazy_imports__(__name__):
@@ -145,11 +146,25 @@ class Engine(Node):
         "_database",
         "_components",
         "_server",
+        "_server_override",
     )
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        server_override: Callable[[ServerConfig], ServerConfig] | None = None,
+    ) -> None:
+        """Create an engine with nothing loaded.
+
+        Args:
+            server_override: Rewrites the server section of every configuration the engine
+                loads, before the server binds, the way a development run swaps in its own
+                listener. With one set, loading skips the server check, the configured
+                listeners not being the ones served.
+        """
         super().__init__()
 
+        self._server_override = server_override
         self._loaded = False
         self._config = Config()
         self._config_path: Path | None = None
@@ -426,7 +441,7 @@ class Engine(Node):
         Returns:
             The fully resolved `Config` that was applied.
         """
-        config = await Config.load(source, checks=checks)
+        config = await Config.load(source, checks=self._served_checks(checks))
 
         if not silent:
             if isinstance(source, Path):
@@ -465,7 +480,7 @@ class Engine(Node):
             source = self.config
 
         try:
-            config = await Config.load(source, checks=checks)
+            config = await Config.load(source, checks=self._served_checks(checks))
         except Error as error:
             if not isinstance(error, ConfigError):
                 raise
@@ -474,6 +489,14 @@ class Engine(Node):
 
         await self._apply(source if isinstance(source, Path) else None, config, silent=silent)
         return config
+
+    def _served_checks(self, checks: Sequence[ConfigCheckType]) -> Sequence[ConfigCheckType]:
+        """Answer `checks` without the server check when the configured listeners are
+        overridden rather than served."""
+        if self._server_override is None:
+            return checks
+
+        return tuple(check for check in checks if check != ConfigCheckType.SERVER)
 
     async def hash_password(self, password: str) -> PasswordHash:
         """Hash a plaintext password using the engine's database password hasher."""
@@ -550,6 +573,9 @@ class Engine(Node):
         # Hold the apply lock so two configuration loads can't race and leave the tree in an
         # inconsistent state.
         async with self._apply_lock:
+            if self._server_override is not None:
+                config.server = self._server_override(config.server)
+
             self._config_path = config_path
             self._config = config
 

@@ -45,7 +45,10 @@ written, and the release workflow refuses a version that has no entry here.
   interface addresses, plus any `--ip` and `--dns` names. It is valid for 825 days unless
   `--days` says otherwise, refuses to replace existing files without `--force`, and prints the
   names, expiry, and SHA-256 fingerprint.
-- `ceres check` warns when the HTTPS certificate expires within 30 days.
+- `ceres check` and engine startup warn when the HTTPS certificate expires within 30 days.
+- `ceres run --development-source` serves the engine over plain HTTP alone, leaving any
+  `server.https` listener out, so the console dev server can proxy to it and a project
+  without a certificate still runs.
 
 ## [0.48.1] - 2026-10-01
 

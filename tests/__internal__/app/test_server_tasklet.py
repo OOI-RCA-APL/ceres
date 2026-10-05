@@ -10,21 +10,28 @@ web one, and the redirect one all go through it, so all are tested here.
 from __future__ import annotations
 
 import asyncio
-import shutil
 import subprocess
-from typing import TYPE_CHECKING
+import sysconfig
+from collections.abc import Sequence
+from functools import partial
+from pathlib import Path
 
 import httpx
-import pytest
 
 from ceres import Engine
+from ceres.__internal__.host import _dev_listener
 from ceres.__internal__.project import LoadedProject
-
-if TYPE_CHECKING:
-    from pathlib import Path
+from ceres.config import ConfigCheckType
 
 
-async def _load(tmp_path: Path, failures: list[BaseException], *, server: str = "") -> Engine:
+async def _load(
+    tmp_path: Path,
+    failures: list[BaseException],
+    *,
+    server: str = "",
+    engine: Engine | None = None,
+    checks: Sequence[ConfigCheckType] = (),
+) -> Engine:
     """Load an engine from a written configuration, capturing any server failure."""
     # The database path is absolute because a relative one resolves against the working
     # directory rather than the configuration's own.
@@ -33,9 +40,9 @@ async def _load(tmp_path: Path, failures: list[BaseException], *, server: str = 
         f"database:\n  type: sqlite\n  path: {tmp_path / 'records.sqlite'}\n"
     )
 
-    engine = Engine()
+    engine = engine or Engine()
     engine._on_server_exception = lambda server, exception: failures.append(exception)  # type: ignore[method-assign]
-    await engine.load(tmp_path / "ceres.yaml", checks=())
+    await engine.load(tmp_path / "ceres.yaml", checks=checks)
     return engine
 
 
@@ -89,30 +96,26 @@ async def test_the_server_tasklet_keeps_the_web_server_answering(tmp_path: Path)
         await engine.database.dispose()
 
 
-@pytest.mark.skipif(shutil.which("openssl") is None, reason="needs openssl for a certificate")
 async def test_the_http_listener_redirects_to_the_bound_https_one(tmp_path: Path) -> None:
     """With both listeners on ephemeral ports, the redirect names the port HTTPS bound.
 
     The configured HTTPS port is `0`, so a redirect built from the configuration alone
     would point nowhere.
     """
+    (tmp_path / "ceres.yaml").touch()
+    ceres = Path(sysconfig.get_path("scripts")) / "ceres"
     subprocess.run(
-        [
-            *("openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1"),
-            *("-subj", "/CN=localhost", "-keyout", "server.key", "-out", "server.crt"),
-        ],
-        cwd=tmp_path,
-        check=True,
-        capture_output=True,
+        [ceres, "generate", "certificate"], cwd=tmp_path, check=True, capture_output=True
     )
+    tls = tmp_path / ".ceres" / "tls"
     failures: list[BaseException] = []
     engine = await _load(
         tmp_path,
         failures,
         server=(
             "server:\n  bind: 127.0.0.1\n"
-            f"  https:\n    port: 0\n    cert: {tmp_path / 'server.crt'}\n"
-            f"    key: {tmp_path / 'server.key'}\n"
+            f"  https:\n    port: 0\n    cert: {tls / 'server.crt'}\n"
+            f"    key: {tls / 'server.key'}\n"
             "  http:\n    port: 0\n    redirect: true\n"
         ),
     )
@@ -136,6 +139,42 @@ async def test_the_http_listener_redirects_to_the_bound_https_one(tmp_path: Path
             f"HTTPS web server listening on 127.0.0.1:{https_port}.",
             f"HTTP redirect server listening on 127.0.0.1:{http_port}.",
         ]
+        assert failures == []
+    finally:
+        await server.stop()
+        await engine.database.dispose()
+
+
+async def test_an_overridden_server_binds_only_what_the_override_answers(tmp_path: Path) -> None:
+    """A development run's listener is the first and only one bound, with no certificate.
+
+    The configuration asks for HTTPS on a privileged port with certificate files that do
+    not exist, so binding it even once, or running the server check, would fail.
+    """
+    failures: list[BaseException] = []
+    engine = await _load(
+        tmp_path,
+        failures,
+        server="server:\n  bind: 127.0.0.1\n  https: {}\n  http:\n    redirect: true\n",
+        engine=Engine(server_override=partial(_dev_listener, port=0)),
+        checks=ConfigCheckType.all(),
+    )
+    server = engine.server
+    assert server is not None
+
+    try:
+        assert engine.config.server.https is None
+        assert server.https_port is None
+        assert server.port is not None
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"http://127.0.0.1:{server.port}/api/alive")
+
+        assert response.status_code == 200
+        assert server.listeners == [f"HTTP web server listening on 127.0.0.1:{server.port}."]
+
+        # A reload rereads the file, and the override still applies.
+        await engine.reload()
+        assert engine.server is server
         assert failures == []
     finally:
         await server.stop()

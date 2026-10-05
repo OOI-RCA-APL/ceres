@@ -1,41 +1,34 @@
-"""The engine host's move of the console listener and its certificate expiry warning."""
+"""The engine host's dev listener and its certificate expiry warning."""
 
 from __future__ import annotations
 
-import shutil
 import subprocess
+import sysconfig
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
 
 from ceres.__internal__.core import NativeServer
-from ceres.__internal__.host import _expiry_warning, _move_console_listener
+from ceres.__internal__.host import _dev_listener, _expiry_warning
 from ceres.config import Config, ConfigCheckType, ServerConfig, ServerHTTPConfig
 from ceres.error import ConfigCombinedError, ConfigValidationError
 
-if TYPE_CHECKING:
-    from pathlib import Path
+CERES = Path(sysconfig.get_path("scripts")) / "ceres"
+"""The CLI binary installed beside the package, which writes the certificates under test."""
 
 
-def _certificate(directory: Path) -> ServerConfig:
-    subprocess.run(
-        [
-            *("openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "90"),
-            *("-subj", "/CN=localhost", "-keyout", "server.key", "-out", "server.crt"),
-        ],
-        cwd=directory,
-        check=True,
-        capture_output=True,
-    )
-    return ServerConfig(
-        https={"cert": str(directory / "server.crt"), "key": str(directory / "server.key")}
-    )
+def _generate_certificate(project: Path) -> None:
+    (project / "ceres.yaml").touch()
+    subprocess.run([CERES, "generate", "certificate"], cwd=project, check=True, capture_output=True)
 
 
-@pytest.mark.skipif(shutil.which("openssl") is None, reason="needs openssl for a certificate")
-def test_certificates_near_expiry_draw_a_warning(tmp_path: Path) -> None:
-    server = _certificate(tmp_path)
+def test_certificates_near_expiry_draw_a_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _generate_certificate(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    server = ServerConfig(https={})
     expiry = NativeServer.certificate_expiry(server)
     assert expiry is not None
     expires = datetime.fromtimestamp(expiry, UTC)
@@ -43,15 +36,15 @@ def test_certificates_near_expiry_draw_a_warning(tmp_path: Path) -> None:
 
     assert _expiry_warning(server, expires - timedelta(days=30)) is None
     assert _expiry_warning(server, expires - timedelta(days=10)) == (
-        f"The HTTPS certificate {tmp_path / 'server.crt'} expires on {expires:%Y-%m-%d}, "
+        f"The HTTPS certificate .ceres/tls/server.crt expires on {expires:%Y-%m-%d}, "
         f"in 10 days. {replace}"
     )
     assert _expiry_warning(server, expires - timedelta(hours=3)) == (
-        f"The HTTPS certificate {tmp_path / 'server.crt'} expires on {expires:%Y-%m-%d}, "
+        f"The HTTPS certificate .ceres/tls/server.crt expires on {expires:%Y-%m-%d}, "
         f"in 1 day. {replace}"
     )
     assert _expiry_warning(server, expires + timedelta(seconds=1)) == (
-        f"The HTTPS certificate {tmp_path / 'server.crt'} expired on {expires:%Y-%m-%d}. {replace}"
+        f"The HTTPS certificate .ceres/tls/server.crt expired on {expires:%Y-%m-%d}. {replace}"
     )
 
 
@@ -76,35 +69,42 @@ async def test_the_server_check_names_the_command_for_a_missing_certificate(
     )
 
 
-@pytest.mark.skipif(shutil.which("openssl") is None, reason="needs openssl for a certificate")
-async def test_the_server_check_passes_a_loadable_certificate(tmp_path: Path) -> None:
-    _certificate(tmp_path)
-    https = {"cert": str(tmp_path / "server.crt"), "key": str(tmp_path / "server.key")}
+async def test_the_server_check_passes_a_generated_certificate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _generate_certificate(tmp_path)
+    monkeypatch.chdir(tmp_path)
 
-    config = await Config.load({"server": {"https": https}}, checks=(ConfigCheckType.SERVER,))
+    config = await Config.load({"server": {"https": {}}}, checks=(ConfigCheckType.SERVER,))
 
     assert config.server.https is not None
 
 
-def test_the_https_listener_moves_when_there_is_one() -> None:
+def test_a_dev_run_serves_plain_http_in_place_of_https() -> None:
     server = ServerConfig(https={"port": 8443}, http={"port": 8080, "redirect": True})
 
-    moved = _move_console_listener(server, 9000)
+    dev = _dev_listener(server, 9000)
 
-    assert moved.https is not None
-    assert moved.https.port == 9000
-    assert moved.http == ServerHTTPConfig(port=8080, redirect=True)
-
-
-def test_the_http_listener_moves_without_https() -> None:
-    moved = _move_console_listener(ServerConfig(http={"port": 8080}), 9000)
-
-    assert moved.https is None
-    assert moved.http == ServerHTTPConfig(port=9000)
+    assert dev.https is None
+    assert dev.http == ServerHTTPConfig(port=9000)
 
 
-def test_a_section_without_listeners_gains_an_http_one() -> None:
-    moved = _move_console_listener(ServerConfig(), 9000)
+def test_a_dev_run_of_an_https_only_project_gains_an_http_listener() -> None:
+    dev = _dev_listener(ServerConfig(https={}), 9000)
 
-    assert moved.https is None
-    assert moved.http == ServerHTTPConfig(port=9000)
+    assert dev.https is None
+    assert dev.http == ServerHTTPConfig(port=9000)
+
+
+def test_a_dev_run_moves_the_http_listener() -> None:
+    dev = _dev_listener(ServerConfig(http={"port": 8080}), 9000)
+
+    assert dev.https is None
+    assert dev.http == ServerHTTPConfig(port=9000)
+
+
+def test_a_dev_run_of_a_section_without_listeners_gains_an_http_one() -> None:
+    dev = _dev_listener(ServerConfig(), 9000)
+
+    assert dev.https is None
+    assert dev.http == ServerHTTPConfig(port=9000)
