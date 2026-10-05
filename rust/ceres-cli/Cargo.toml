@@ -49,6 +49,9 @@ sha1 = "0.10"
 rcgen = "0.14"
 sha2 = "0.10"
 time = "0.3"
+# `generate certificate` writes beside the targets and renames over them, the key file
+# owner-only from creation.
+tempfile = "3"
 ureq = { version = "3", features = ["json"] }
 plist = "1"
 regex-lite = "0.1"
@@ -58,7 +61,6 @@ tungstenite = { version = "0.30.0", default-features = false, features = ["hands
 libc = "0.2"
 
 [dev-dependencies]
-tempfile = "3"
 # The end-to-end tests build a real database for the binary to work against, which is
 # the only way to see what a command actually did to the rows.
 sqlx = { version = "0.9", default-features = false, features = [

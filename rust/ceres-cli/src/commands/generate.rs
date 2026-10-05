@@ -106,7 +106,8 @@ pub fn certificate(args: &CertificateArgs, project: &Project, output: &Output) -
     let names = subject_names(args, hostname(), interface_addresses());
     let now = OffsetDateTime::now_utc();
     let expires = now + Duration::days(i64::from(args.days));
-    let (certificate_pem, key_pem, der) = sign(&names, now, expires)?;
+    // Valid from an hour back, so a client whose clock runs a little behind accepts it.
+    let (certificate_pem, key_pem, der) = sign(&names, now - Duration::hours(1), expires)?;
 
     for path in [&cert_path, &key_path] {
         if let Some(parent) = path.parent() {
@@ -114,10 +115,20 @@ pub fn certificate(args: &CertificateArgs, project: &Project, output: &Output) -
                 .map_err(|error| failure!("Failed to create {}. {error}", parent.display()))?;
         }
     }
-    std::fs::write(&cert_path, certificate_pem)
+
+    // Both files are written in full before either replaces what is there, so a failed
+    // write leaves the existing files alone. The key is renamed into place first, so a
+    // certificate never stands without its key.
+    let staged_cert = stage(&cert_path, &certificate_pem, 0o644)
         .map_err(|error| failure!("Failed to write {}. {error}", cert.display()))?;
-    write_private(&key_path, &key_pem)
+    let staged_key = stage(&key_path, &key_pem, 0o600)
         .map_err(|error| failure!("Failed to write {}. {error}", key.display()))?;
+    staged_key
+        .persist(&key_path)
+        .map_err(|error| failure!("Failed to write {}. {}", key.display(), error.error))?;
+    staged_cert
+        .persist(&cert_path)
+        .map_err(|error| failure!("Failed to write {}. {}", cert.display(), error.error))?;
 
     let names: Vec<String> = names.iter().map(ToString::to_string).collect();
     output.write(format!("Wrote the certificate to {}.", cert.display()));
@@ -221,25 +232,27 @@ fn fingerprint(der: &[u8]) -> String {
         .join(":")
 }
 
-/// Write a file only its owner can read, narrowing the mode of one already there.
-fn write_private(path: &Path, contents: &str) -> std::io::Result<()> {
+/// Write `contents` to a temporary file beside `path`, created with `mode` on Unix, ready
+/// to be renamed over it.
+fn stage(path: &Path, contents: &str, mode: u32) -> std::io::Result<tempfile::NamedTempFile> {
     use std::io::Write;
 
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
+    let directory = path.parent().unwrap_or(Path::new("."));
+    let mut builder = tempfile::Builder::new();
+    builder.prefix(".ceres-generate-");
     #[cfg(unix)]
     {
-        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        use std::os::unix::fs::PermissionsExt;
 
-        options.mode(0o600);
-        let mut file = options.open(path)?;
-        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
-        file.write_all(contents.as_bytes())
+        builder.permissions(std::fs::Permissions::from_mode(mode));
     }
     #[cfg(not(unix))]
-    {
-        options.open(path)?.write_all(contents.as_bytes())
-    }
+    let _ = mode;
+
+    let mut file = builder.tempfile_in(directory)?;
+    file.write_all(contents.as_bytes())?;
+    file.as_file().sync_all()?;
+    Ok(file)
 }
 
 /// The machine's hostname, when it is one a certificate can name.
@@ -370,6 +383,13 @@ mod tests {
             std::fs::read_to_string(state.join(".gitignore")).unwrap(),
             "*\n"
         );
+        // The staged files were renamed into place, leaving nothing else behind.
+        let mut written: Vec<_> = std::fs::read_dir(state.join("tls"))
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        written.sort();
+        assert_eq!(written, ["server.crt", "server.key"]);
         let https = ceres_config::ServerHttpsConfig {
             cert: state.join("tls/server.crt"),
             key: state.join("tls/server.key"),
