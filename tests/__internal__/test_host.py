@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
+import sys
 import sysconfig
+import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -46,6 +49,59 @@ def test_certificates_near_expiry_draw_a_warning(
     assert _expiry_warning(server, expires + timedelta(seconds=1)) == (
         f"The HTTPS certificate .ceres/tls/server.crt expired on {expires:%Y-%m-%d}. {replace}"
     )
+
+
+def test_engine_startup_logs_the_expiry_warning(tmp_path: Path) -> None:
+    """The host logs the warning once the engine loads, before it starts serving.
+
+    The host runs until a signal stops it, so it runs as its own process, stopped once the
+    engine reports having started.
+    """
+    (tmp_path / "ceres.yaml").write_text(
+        "server:\n  bind: 127.0.0.1\n  https:\n    port: 0\n"
+        f"database:\n  type: sqlite\n  path: {tmp_path / 'records.sqlite'}\n"
+    )
+    subprocess.run(
+        [CERES, "generate", "certificate", "--days", "3"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    payload = {"config": str(tmp_path / "ceres.yaml"), "addresses": [], "check": False}
+    host = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import sys; from ceres.__internal__.host import main; sys.exit(main())",
+            json.dumps(payload | {"server_port": None}),
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    # A backstop against a host that never starts, which would otherwise hang the read.
+    watchdog = threading.Timer(60, host.kill)
+    watchdog.start()
+    output: list[str] = []
+    try:
+        assert host.stdout is not None
+        for line in host.stdout:
+            output.append(line)
+            if '"type":"started"' in "".join(output).replace("\n", "").replace(" ", ""):
+                break
+    finally:
+        host.terminate()
+        host.wait()
+        watchdog.cancel()
+
+    # Log lines wrap to the terminal width, so the words are compared without the breaks.
+    logged = " ".join("".join(output).split())
+    expires = f"{datetime.now(UTC) + timedelta(days=3):%Y-%m-%d}"
+    assert (
+        f"[WARNING] [~] The HTTPS certificate .ceres/tls/server.crt expires on {expires}, "
+        "in 3 days. Run `ceres generate certificate --force` to replace it."
+    ) in logged, logged
+    assert logged.count("The HTTPS certificate") == 1
 
 
 def test_no_https_listener_draws_no_warning() -> None:
