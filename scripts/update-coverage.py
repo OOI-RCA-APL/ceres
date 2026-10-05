@@ -54,8 +54,12 @@ def _run_rust_coverage() -> dict[str, Any]:
     collected into a single report. Inline `#[cfg(test)]` modules are instrumented along
     with the code they test, so the percentages read a little higher than the source
     alone would.
+
+    The runs start from a clean slate, since `report` merges every profile left in the
+    target directory, including those of earlier runs against older source.
     """
     for arguments in (
+        ["cargo", "llvm-cov", "clean", "--workspace"],
         ["cargo", "llvm-cov", "--no-report"],
         ["cargo", "llvm-cov", "--no-report", "-p", "ceres-core"],
     ):
