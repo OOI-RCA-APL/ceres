@@ -328,7 +328,7 @@ class TestSerializedType:
 class TestToJsonSchema:
     def test_native_section_describes_its_own_keys(self) -> None:
         schema = to_json_schema(ServerConfig)
-        assert "port" in schema["properties"]
+        assert {"bind", "https", "http"} <= schema["properties"].keys()
 
     def test_multi_word_keys_are_kebab_case(self) -> None:
         cors = to_json_schema(ServerConfig)["$defs"]["RawServerCorsConfig"]

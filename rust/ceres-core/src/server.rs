@@ -369,9 +369,10 @@ pub fn openapi_schema(version: &str) -> PyResult<String> {
 /// A natively-served HTTP application.
 ///
 /// Binds at construction so the real port is known immediately, and serves as an
-/// awaitable until stopped. The web form carries the console and terminates TLS, the
-/// CLI form binds loopback on an ephemeral port and requires its token instead, and the
-/// redirect form answers plain HTTP with a temporary redirect to the web form.
+/// awaitable until stopped. The web form carries the console on either listener and
+/// terminates TLS on the HTTPS one, the CLI form binds loopback on an ephemeral port and
+/// requires its token instead, and the redirect form answers plain HTTP with a temporary
+/// redirect to the HTTPS listener.
 #[gen_stub_pyclass]
 #[pyclass(module = "ceres.__internal__.core", frozen)]
 pub struct NativeServer {
@@ -391,7 +392,7 @@ impl NativeServer {
         port: u16,
         console: Option<ConsolePaths>,
         cli_token: Option<String>,
-        with_tls: bool,
+        tls: Option<&ceres_config::ServerHttpsConfig>,
     ) -> PyResult<Self> {
         let auth = config
             .authentication
@@ -426,8 +427,8 @@ impl NativeServer {
         let router = apply_cors(router, config.cors.as_ref());
 
         let mut server = BoundServer::bind(bind, port).map_err(to_value_error)?;
-        if with_tls && let Some(ssl) = config.ssl.as_ref() {
-            server = server.with_tls(ssl).map_err(to_value_error)?;
+        if let Some(https) = tls {
+            server = server.with_tls(https).map_err(to_value_error)?;
         }
 
         let stopper = server.stopper();
@@ -444,9 +445,11 @@ impl NativeServer {
 #[gen_stub_pymethods]
 #[pymethods]
 impl NativeServer {
-    /// Bind the web application, serving the console and API on the configured address.
+    /// Bind the web application, serving the console and API on the HTTPS listener when
+    /// `tls` is true and on the plain HTTP listener otherwise.
     #[staticmethod]
-    #[pyo3(signature = (host, config, console_directory, favicon_ico, favicon_png, favicon_svg, records=None))]
+    #[pyo3(signature = (host, config, console_directory, favicon_ico, favicon_png, favicon_svg, *, tls, records=None))]
+    #[allow(clippy::too_many_arguments)]
     fn web(
         #[gen_stub(override_type(type_repr = "typing.Any"))] host: Py<PyAny>,
         config: &crate::ServerConfig,
@@ -454,17 +457,28 @@ impl NativeServer {
         favicon_ico: std::path::PathBuf,
         favicon_png: std::path::PathBuf,
         favicon_svg: std::path::PathBuf,
+        tls: bool,
         records: Option<&crate::store::Store>,
     ) -> PyResult<Self> {
         let config = &config.inner;
-        let port = config
-            .port
-            .ok_or_else(|| PyValueError::new_err("the server port is not configured"))?;
+        let (port, tls) = if tls {
+            let https = config
+                .https
+                .as_ref()
+                .ok_or_else(|| PyValueError::new_err("the HTTPS listener is not configured"))?;
+            (https.port, Some(https))
+        } else {
+            let http = config
+                .http
+                .as_ref()
+                .ok_or_else(|| PyValueError::new_err("the HTTP listener is not configured"))?;
+            (http.port, None)
+        };
         Self::build(
             host,
             records,
             config,
-            &config.host,
+            &config.bind,
             port,
             Some(ConsolePaths {
                 directory: console_directory,
@@ -473,20 +487,20 @@ impl NativeServer {
                 favicon_svg,
             }),
             None,
-            true,
+            tls,
         )
     }
 
-    /// Bind the plain HTTP listener that redirects every request to the HTTPS server.
+    /// Bind the plain HTTP listener that redirects every request to the HTTPS listener
+    /// bound on `https_port`.
     #[staticmethod]
-    fn redirect(config: &crate::ServerConfig) -> PyResult<Self> {
+    fn redirect(config: &crate::ServerConfig, https_port: u16) -> PyResult<Self> {
         let config = &config.inner;
-        let (Some(redirect_port), Some(https_port)) = (config.https_redirect, config.port) else {
-            return Err(PyValueError::new_err(
-                "the HTTPS redirect is not configured",
-            ));
-        };
-        let server = BoundServer::bind(&config.host, redirect_port).map_err(to_value_error)?;
+        let http = config
+            .http
+            .as_ref()
+            .ok_or_else(|| PyValueError::new_err("the HTTP listener is not configured"))?;
+        let server = BoundServer::bind(&config.bind, http.port).map_err(to_value_error)?;
         let stopper = server.stopper();
         let port = server.port();
         Ok(Self {
@@ -514,7 +528,7 @@ impl NativeServer {
             0,
             None,
             Some(token),
-            false,
+            None,
         )
     }
 

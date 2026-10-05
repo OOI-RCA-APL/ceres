@@ -7,8 +7,8 @@ parse:
 - `config`: absolute path of the project configuration file.
 - `addresses`: component address selector strings to start on launch.
 - `check`: when true, validate the configuration with all checks and exit.
-- `server_port`: when set, the engine's server binds this port instead of the configured
-  one, which is how a console dev server stands in front of it.
+- `server_port`: when set, the listener serving the engine's console binds this port
+  instead of the configured one, which is how a console dev server stands in front of it.
 """
 
 # ruff: disable[T201] # Allow print statements.
@@ -24,13 +24,16 @@ from asyncio import Event as AsyncEvent
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ceres.__internal__.utilities.exceptions import trace
 from ceres.address import AddressSelector
 from ceres.concurrency import el, race
 from ceres.data import to_json
 from ceres.error import ComponentCombinedError, Error
+
+if TYPE_CHECKING:
+    from ceres.config import ServerConfig
 
 
 class HostFailed(Exception):
@@ -124,13 +127,30 @@ async def _check(config_path: Path) -> int:
     return 0
 
 
+def _move_console_listener(server: ServerConfig, port: int) -> ServerConfig:
+    """Answer `server` with the listener serving the console moved to `port`.
+
+    That is the HTTPS listener when there is one, and otherwise the plain HTTP one, added
+    when the section has neither. The sections are native objects whose fields are not
+    writable, so each is replaced rather than edited.
+    """
+    from ceres.config import ServerHTTPConfig
+    from ceres.data import replace
+
+    if server.https is not None:
+        return replace(server, https=replace(server.https, port=port))
+
+    http = server.http if server.http is not None else ServerHTTPConfig()
+    return replace(server, http=replace(http, port=port))
+
+
 async def _run(config_path: Path, addresses: Sequence[str], server_port: int | None) -> int:
     """Load and run the engine until it stops or a signal asks it to.
 
     Args:
         config_path: Path of the project configuration file.
         addresses: Component address selector strings to start on launch.
-        server_port: Port the engine's server binds instead of the configured one.
+        server_port: Port the console's listener binds instead of the configured one.
 
     Returns:
         The process exit code.
@@ -169,12 +189,8 @@ async def _run(config_path: Path, addresses: Sequence[str], server_port: int | N
             )
 
         # Applied before the engine starts, since it binds the server section as loaded.
-        # The port field is not writable, the section being a native object, so the
-        # section is replaced rather than edited.
         if server_port is not None:
-            from ceres.data import replace
-
-            engine.config.server = replace(engine.config.server, port=server_port)
+            engine.config.server = _move_console_listener(engine.config.server, server_port)
 
         exiting = AsyncEvent()
 

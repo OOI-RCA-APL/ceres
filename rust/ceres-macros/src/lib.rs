@@ -69,10 +69,10 @@ pub fn filter_values(input: TokenStream) -> TokenStream {
 ///
 /// ```ignore
 /// python_config! {
-///     /// TLS configuration for the engine's HTTP server.
-///     ServerSSLConfig(ceres_config::ServerSslConfig, ceres_config::RawServerSslConfig) {
-///         /// Path to the server private key file.
-///         key: Option<PathBuf>,
+///     /// The HTTPS listener of the engine's HTTP server.
+///     ServerHTTPSConfig(ceres_config::ServerHttpsConfig, ceres_config::RawServerHttpsConfig) {
+///         /// Password for an encrypted private key.
+///         key_password: Option<String>,
 ///     }
 /// }
 /// ```

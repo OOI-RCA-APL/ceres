@@ -536,8 +536,8 @@ class Engine(Node):
 
             if self._server.cli_bind:
                 self.log.info(f"HTTP CLI server listening on {self._server.cli_bind}.")
-            if self._server.bind:
-                self.log.info(f"HTTP web server listening on {self._server.bind}.")
+            for listener in self._server.listeners:
+                self.log.info(listener)
 
         return self._server
 

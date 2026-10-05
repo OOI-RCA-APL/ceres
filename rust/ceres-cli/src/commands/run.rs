@@ -380,7 +380,11 @@ impl Development {
         let meta = project.load_meta()?;
         Ok(Self {
             console_directory,
-            addresses: assign_addresses(&meta.server.host, meta.server.port, console_port)?,
+            addresses: assign_addresses(
+                &meta.server.bind,
+                meta.server.console_listener().map(|(_, port)| port),
+                console_port,
+            )?,
         })
     }
 

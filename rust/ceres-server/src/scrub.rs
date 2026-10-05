@@ -44,16 +44,20 @@ mod tests {
     fn credentials_drop_at_every_level() {
         let scrubbed = scrub_credentials(json!({
             "secret": "s",
-            "server": {"authentication": {"secret": "s", "duration": 1800}},
+            "server": {
+                "authentication": {"secret": "s", "duration": 1800},
+                "https": {"key_password": "k", "cert": "cert.pem"},
+            },
             "components": [{"arguments": {"password": "p", "kept": true}}],
-            "ssl": {"key_password": "k", "cert": "cert.pem"},
         }));
         assert_eq!(
             scrubbed,
             json!({
-                "server": {"authentication": {"duration": 1800}},
+                "server": {
+                    "authentication": {"duration": 1800},
+                    "https": {"cert": "cert.pem"},
+                },
                 "components": [{"arguments": {"kept": true}}],
-                "ssl": {"cert": "cert.pem"},
             })
         );
     }

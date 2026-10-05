@@ -54,9 +54,9 @@ impl BoundServer {
         })
     }
 
-    /// Terminate TLS with the `ssl` section's certificate material.
-    pub fn with_tls(mut self, ssl: &ceres_config::ServerSslConfig) -> Result<Self, Error> {
-        self.tls = tls::server_config(ssl)?;
+    /// Terminate TLS with the `https` section's certificate material.
+    pub fn with_tls(mut self, https: &ceres_config::ServerHttpsConfig) -> Result<Self, Error> {
+        self.tls = Some(tls::server_config(https)?);
         Ok(self)
     }
 
@@ -156,10 +156,10 @@ mod tests {
         serving.await.unwrap().unwrap();
     }
 
-    /// A client trusting only the self-signed certificate `ssl` wrote, offering `h2` alone.
-    fn h2_client(ssl: &ceres_config::ServerSslConfig) -> tokio_rustls::TlsConnector {
+    /// A client trusting only the self-signed certificate `https` names, offering `h2` alone.
+    fn h2_client(https: &ceres_config::ServerHttpsConfig) -> tokio_rustls::TlsConnector {
         let mut roots = rustls::RootCertStore::empty();
-        let pem = std::fs::read(ssl.cert.as_ref().unwrap()).unwrap();
+        let pem = std::fs::read(&https.cert).unwrap();
         for certificate in rustls_pemfile::certs(&mut pem.as_slice()) {
             roots.add(certificate.unwrap()).unwrap();
         }
@@ -176,17 +176,17 @@ mod tests {
     #[tokio::test]
     async fn tls_servers_multiplex_requests_over_one_h2_connection() {
         let directory = tempfile::tempdir().unwrap();
-        let ssl = crate::tls::tests::ssl(directory.path(), None, |key| key);
+        let https = crate::tls::tests::https(directory.path(), None, |key| key);
         let server = BoundServer::bind("127.0.0.1", 0)
             .unwrap()
-            .with_tls(&ssl)
+            .with_tls(&https)
             .unwrap();
         let port = server.port();
         let stopper = server.stopper();
         let serving = tokio::spawn(server.serve(test_router()));
 
         let tcp = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
-        let tls = h2_client(&ssl)
+        let tls = h2_client(&https)
             .connect(ServerName::try_from("localhost").unwrap(), tcp)
             .await
             .unwrap();

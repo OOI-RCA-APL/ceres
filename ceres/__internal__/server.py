@@ -27,10 +27,10 @@ class Server(Tasklet):
     """Run the engine's native HTTP servers.
 
     A control server is always bound on an ephemeral loopback port with token
-    authentication, and when the configuration names a public port a second server serves
-    the API and console there, with TLS when the `ssl` section provides it. Both reach the
-    engine through one host object. With `https_redirect` set a third, plain HTTP server
-    answers every request with a temporary redirect to the TLS one.
+    authentication. The `https` listener serves the API and console over TLS, and the
+    `http` listener serves them over plain HTTP, or with `redirect` set answers every
+    request with a temporary redirect to the `https` one. Every server reaches the engine
+    through one host object.
     """
 
     __slots__ = (
@@ -40,9 +40,8 @@ class Server(Tasklet):
         "_cli_port",
         "_cli_token",
         "_native_cli",
-        "_native_web",
-        "_native_redirect",
-        "_web_port",
+        "_native_https",
+        "_native_http",
     )
 
     def __init__(self, engine: Engine, project: LoadedProject, config: ServerConfig) -> None:
@@ -50,11 +49,10 @@ class Server(Tasklet):
         self._project: Final = project
         self._config: Final = config
         self._cli_port: int | None = None
-        self._web_port: int | None = None
         self._cli_token: str | None = None
         self._native_cli: Native | None = None
-        self._native_web: Native | None = None
-        self._native_redirect: Native | None = None
+        self._native_https: Native | None = None
+        self._native_http: Native | None = None
 
     @property
     def config(self) -> ServerConfig:
@@ -62,26 +60,51 @@ class Server(Tasklet):
 
     @property
     def host(self) -> str:
-        return self._config.host
+        return self._config.bind
 
     @property
-    def port(self) -> int | None:
-        """The port the web server bound, falling back to the configured one.
+    def https_port(self) -> int | None:
+        """The port the HTTPS listener bound, falling back to the configured one.
 
         A configured `0` asks the operating system for a free port so the bound one is
         the only answer that means anything to a caller.
         """
-        if self._web_port is not None:
-            return self._web_port
+        if self._native_https is not None:
+            return self._native_https.port
 
-        return self._config.port
+        https = self._config.https
+        return None if https is None else https.port
 
     @property
-    def bind(self) -> str | None:
-        if self.port is None:
-            return None
+    def http_port(self) -> int | None:
+        """The port the plain HTTP listener bound, falling back to the configured one."""
+        if self._native_http is not None:
+            return self._native_http.port
 
-        return f"{self.host}:{self.port}"
+        http = self._config.http
+        return None if http is None else http.port
+
+    @property
+    def port(self) -> int | None:
+        """The port serving the console, the HTTPS listener when there is one."""
+        if self._config.https is not None:
+            return self.https_port
+
+        return self.http_port
+
+    @property
+    def listeners(self) -> list[str]:
+        """One line per public listener naming its address and role, for the startup log."""
+        lines = []
+        if self._config.https is not None:
+            lines.append(f"HTTPS web server listening on {self.host}:{self.https_port}.")
+
+        http = self._config.http
+        if http is not None:
+            role = "redirect" if http.redirect else "web"
+            lines.append(f"HTTP {role} server listening on {self.host}:{self.http_port}.")
+
+        return lines
 
     @property
     def cli_host(self) -> str:
@@ -118,7 +141,11 @@ class Server(Tasklet):
         self._native_cli = NativeServer.cli(host, self._config, self._cli_token, records)
         self._cli_port = self._native_cli.port
 
-        if self._config.port is not None:
+        https = self._config.https
+        http = self._config.http
+        serves_https = https is not None
+        serves_http = http is not None and not http.redirect
+        if serves_https or serves_http:
             console = CONSOLE
             # The bundle is a build artifact, so a source checkout has none until something
             # builds one. The server stands a placeholder page in for it either way.
@@ -128,19 +155,27 @@ class Server(Tasklet):
                     "Run `make console` in the Ceres checkout to build it."
                 )
 
-            self._native_web = NativeServer.web(
-                host,
-                self._config,
-                console,
-                _favicon(self._engine, ".ico", console),
-                _favicon(self._engine, ".png", console),
-                _favicon(self._engine, ".svg", console),
-                records,
-            )
-            self._web_port = self._native_web.port
+            def web(*, tls: bool) -> Native:
+                return NativeServer.web(
+                    host,
+                    self._config,
+                    console,
+                    _favicon(self._engine, ".ico", console),
+                    _favicon(self._engine, ".png", console),
+                    _favicon(self._engine, ".svg", console),
+                    tls=tls,
+                    records=records,
+                )
 
-            if self._config.https_redirect is not None:
-                self._native_redirect = NativeServer.redirect(self._config)
+            if serves_https:
+                self._native_https = web(tls=True)
+            if serves_http:
+                self._native_http = web(tls=False)
+
+        if self._native_https is not None and http is not None and http.redirect:
+            # The redirect targets the bound port, which differs from the configured one
+            # when that is `0`.
+            self._native_http = NativeServer.redirect(self._config, self._native_https.port)
 
         # The info file records the port the control server actually bound.
         self._project.write_cli_server_info(
@@ -150,13 +185,13 @@ class Server(Tasklet):
         try:
             await concurrently(
                 _serve(self._native_cli),
-                _serve(self._native_web),
-                _serve(self._native_redirect),
+                _serve(self._native_https),
+                _serve(self._native_http),
             )
         finally:
             self._native_cli = None
-            self._native_web = None
-            self._native_redirect = None
+            self._native_https = None
+            self._native_http = None
             try:
                 self._project.delete_cli_server_info()
             except Exception:
@@ -164,7 +199,7 @@ class Server(Tasklet):
 
     @override
     async def __stop__(self) -> None:
-        for server in (self._native_cli, self._native_web, self._native_redirect):
+        for server in (self._native_cli, self._native_https, self._native_http):
             if server is not None:
                 server.stop()
 

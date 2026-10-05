@@ -35,25 +35,34 @@ Configuration for the engine's HTTP server.
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
-| `host` | string |  | Address the server binds to. |
-| `port` | integer |  | Port the server listens on, omit to disable the server. |
-| `https-redirect` | boolean or integer |  | Plain HTTP listener that temporarily redirects every request to the same path on the HTTPS server. `true` listens on port 80, an integer on that port, needs `ssl`. |
-| `ssl` | [`ServerSslConfig`](#serversslconfig) |  |  |
+| `bind` | string |  | Address both listeners bind, `0.0.0.0` when omitted. |
+| `https` | [`ServerHttpsConfig`](#serverhttpsconfig) |  | HTTPS listener. The server is off when neither `https` nor `http` is set. |
+| `http` | [`ServerHttpConfig`](#serverhttpconfig) |  | Plain HTTP listener. The server is off when neither `https` nor `http` is set. |
 | `authentication` | [`ServerAuthenticationConfig`](#serverauthenticationconfig) |  |  |
 | `cors` | [`ServerCorsConfig`](#servercorsconfig) |  |  |
 | `compression` | [`ServerCompressionConfig`](#servercompressionconfig) |  |  |
 
-### `ServerSslConfig`
+### `ServerHttpsConfig`
 
-TLS configuration for the engine's HTTP server.
+The HTTPS listener of the engine's HTTP server.
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
-| `key` | string |  | Path to the server private key file. |
+| `port` | integer |  | Port the HTTPS listener binds, 443 when omitted. |
+| `cert` | string |  | Path to the PEM certificate chain, `.ceres/tls/server.crt` when omitted. |
+| `key` | string |  | Path to the PEM private key, `.ceres/tls/server.key` when omitted. |
 | `key-password` | string |  | Password for an encrypted private key. |
-| `cert` | string |  | Path to the server certificate file. |
-| `version` | integer |  | `ssl` protocol constant selecting the TLS version. |
-| `ca-certs` | string |  | Path to a CA bundle used when validating client certificates. |
+| `min-version` | `1.2` or `1.3` |  | Lowest TLS version offered, `"1.2"` or `"1.3"`, `"1.2"` when omitted. |
+| `client-ca` | string |  | Path to a PEM CA bundle that enables optional client certificate verification. |
+
+### `ServerHttpConfig`
+
+The plain HTTP listener of the engine's HTTP server.
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `port` | integer |  | Port the plain HTTP listener binds, 80 when omitted. |
+| `redirect` | boolean |  | Whether the listener answers every request with a temporary redirect to the same path on the HTTPS listener rather than serving it, needs `https`. |
 
 ### `ServerAuthenticationConfig`
 

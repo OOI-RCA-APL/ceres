@@ -71,7 +71,7 @@ async def _build_engine() -> tuple[Engine, User]:
             Config,
             {
                 "components": [],
-                "server": {"port": 0, "authentication": {"secret": SECRET}},
+                "server": {"http": {"port": 0}, "authentication": {"secret": SECRET}},
             },
         ),
         checks=(),
@@ -101,6 +101,7 @@ async def test_the_native_server_serves_the_engine_over_tcp(tmp_path: Path) -> N
         console / "favicon.ico",
         console / "favicon.png",
         console / "favicon.svg",
+        tls=False,
     )
     serving: asyncio.Future[Any] = asyncio.ensure_future(server.serve())
     base = f"http://127.0.0.1:{server.port}"
@@ -136,19 +137,19 @@ async def test_the_native_server_serves_the_engine_over_tcp(tmp_path: Path) -> N
 
 
 async def test_the_redirect_server_points_at_the_https_server() -> None:
-    from ceres.config import ServerConfig
+    from ceres.config import ServerConfig, ServerHTTPConfig
 
-    # The redirect server never loads the certificate, so the paths only need to validate.
+    # The redirect server never loads the certificate, so the default paths need not exist.
     config = ServerConfig(
-        host="127.0.0.1",
-        port=8443,
-        https_redirect=0,
-        ssl={"key": "server.key", "cert": "server.crt"},
+        bind="127.0.0.1", https={"port": 8443}, http={"port": 0, "redirect": True}
     )
-    assert config.https_redirect == 0
-    assert ServerConfig(port=8443, https_redirect=True, ssl=config.ssl).https_redirect == 80
+    assert config.http is not None
+    assert config.http.redirect
+    assert ServerConfig(https={}, http={"redirect": True}).http == ServerHTTPConfig(
+        port=80, redirect=True
+    )
 
-    server = NativeServer.redirect(config)
+    server = NativeServer.redirect(config, 8443)
     serving: asyncio.Future[Any] = asyncio.ensure_future(server.serve())
     base = f"http://127.0.0.1:{server.port}"
 
@@ -182,6 +183,7 @@ async def test_tokens_verify_across_both_implementations(tmp_path: Path) -> None
         console / "favicon.ico",
         console / "favicon.png",
         console / "favicon.svg",
+        tls=False,
     )
     serving: asyncio.Future[Any] = asyncio.ensure_future(server.serve())
     base = f"http://127.0.0.1:{server.port}"

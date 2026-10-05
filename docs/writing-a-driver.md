@@ -106,7 +106,8 @@ database:
   path: ./database.sqlite
 
 server:
-  port: 8080
+  http:
+    port: 8080
 
 logging:
   output: info

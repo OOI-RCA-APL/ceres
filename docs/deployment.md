@@ -36,7 +36,8 @@ service:
   name: my-project
 
 server:
-  port: 8080
+  http:
+    port: 8080
   authentication:
     secret: <generate-a-random-secret>
     duration: 30m
@@ -172,7 +173,7 @@ The engine reconciles the running component tree with the new configuration, cre
 
 ### Web Console
 
-If `server.port` is configured, the web console is available at `http://<host>:<port>` (`https://` with a `server.ssl` section). It provides a dashboard for monitoring component state, viewing logs, messages, alerts, and controlling components.
+With a `server.https` listener the web console is available at `https://<host>:<port>`, and with only a `server.http` listener at `http://<host>:<port>`. It provides a dashboard for monitoring component state, viewing logs, messages, alerts, and controlling components.
 
 ```sh
 ceres console open    # Open in browser.
@@ -181,17 +182,19 @@ ceres console url     # Print the URL.
 
 ### HTTPS
 
-With a `server.ssl` section the console is served over TLS at `https://<host>:<port>`, and browsers negotiate HTTP/2, which multiplexes every console request over one connection. Over plain HTTP browsers cap a page at about six connections per host, and each live video widget holds one, so a dashboard with several videos stalls. HTTPS lifts that limit. A self-signed certificate works once the browser warning is accepted.
+With a `server.https` listener the console is served over TLS, and browsers negotiate HTTP/2, which multiplexes every console request over one connection. Over plain HTTP browsers cap a page at about six connections per host, and each live video widget holds one, so a dashboard with several videos stalls. HTTPS lifts that limit. A self-signed certificate works once the browser warning is accepted.
 
-Set `server.https-redirect` to keep the old `http://` bookmarks working after a move to HTTPS. `true` listens on port 80, an integer listens on that port, typically the port the server served plain HTTP on before, and every request there is answered with a temporary redirect to the same path and query on the HTTPS server. It needs `server.ssl` and a port different from `server.port`.
+Set `server.http.redirect` to keep the old `http://` bookmarks working after a move to HTTPS. The `server.http` listener then answers every request with a temporary redirect to the same path and query on the HTTPS listener. Its port defaults to 80, and is typically the port the server served plain HTTP on before.
 
 ```yaml
 server:
-  port: 443
-  https-redirect: true
-  ssl:
-    key: /etc/ceres/server.key
+  https:
+    port: 443
     cert: /etc/ceres/server.crt
+    key: /etc/ceres/server.key
+  http:
+    port: 80
+    redirect: true
 ```
 
 ### CLI Queries

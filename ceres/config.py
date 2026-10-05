@@ -29,7 +29,8 @@ from ceres.__internal__.core import ServerAuthenticationConfig as _CoreServerAut
 from ceres.__internal__.core import ServerCompressionConfig as _CoreServerCompressionConfig
 from ceres.__internal__.core import ServerConfig as _CoreServerConfig
 from ceres.__internal__.core import ServerCORSConfig as _CoreServerCORSConfig
-from ceres.__internal__.core import ServerSSLConfig as _CoreServerSSLConfig
+from ceres.__internal__.core import ServerHTTPConfig as _CoreServerHTTPConfig
+from ceres.__internal__.core import ServerHTTPSConfig as _CoreServerHTTPSConfig
 from ceres.__internal__.core import ServiceConfig as _CoreServiceConfig
 from ceres.__internal__.core import SQLiteDatabaseConfig as _CoreSQLiteDatabaseConfig
 from ceres.__internal__.core import TursoDatabaseConfig as _CoreTursoDatabaseConfig
@@ -755,11 +756,20 @@ class ServiceConfig(RustConfigModel, _CoreServiceConfig):
     """
 
 
-class ServerSSLConfig(RustConfigModel, _CoreServerSSLConfig):
-    """TLS configuration for the engine's HTTP server.
+class ServerHTTPSConfig(RustConfigModel, _CoreServerHTTPSConfig):
+    """The HTTPS listener of the engine's HTTP server.
 
     The fields and their validation live in the native
-    `ceres.__internal__.core.ServerSSLConfig`, this subclass only wires the class into
+    `ceres.__internal__.core.ServerHTTPSConfig`, this subclass only wires the class into
+    Pydantic.
+    """
+
+
+class ServerHTTPConfig(RustConfigModel, _CoreServerHTTPConfig):
+    """The plain HTTP listener of the engine's HTTP server.
+
+    The fields and their validation live in the native
+    `ceres.__internal__.core.ServerHTTPConfig`, this subclass only wires the class into
     Pydantic.
     """
 

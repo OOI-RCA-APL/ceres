@@ -3,16 +3,19 @@
 The native server's `serve` answers a future rather than a coroutine, and the tasklet
 schedules it in a task group, which takes coroutines alone. Nothing else covers that
 crossing, because the other native server tests await `serve` directly, so this is where
-a server that binds its port and then dies immediately would show. Both the CLI server
-and the web one go through it, so both are tested here.
+a server that binds its port and then dies immediately would show. The CLI server, the
+web one, and the redirect one all go through it, so all are tested here.
 """
 
 from __future__ import annotations
 
 import asyncio
+import shutil
+import subprocess
 from typing import TYPE_CHECKING
 
 import httpx
+import pytest
 
 from ceres import Engine
 from ceres.__internal__.project import LoadedProject
@@ -21,11 +24,10 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-async def _load(tmp_path: Path, failures: list[BaseException], *, web: bool) -> Engine:
+async def _load(tmp_path: Path, failures: list[BaseException], *, server: str = "") -> Engine:
     """Load an engine from a written configuration, capturing any server failure."""
     # The database path is absolute because a relative one resolves against the working
     # directory rather than the configuration's own.
-    server = "server:\n  port: 0\n" if web else ""
     (tmp_path / "ceres.yaml").write_text(
         f"components: []\n{server}"
         f"database:\n  type: sqlite\n  path: {tmp_path / 'records.sqlite'}\n"
@@ -40,7 +42,7 @@ async def _load(tmp_path: Path, failures: list[BaseException], *, web: bool) -> 
 async def test_the_server_tasklet_keeps_the_cli_server_running(tmp_path: Path) -> None:
     """A loaded engine binds its CLI server, records it, and stays up."""
     failures: list[BaseException] = []
-    engine = await _load(tmp_path, failures, web=False)
+    engine = await _load(tmp_path, failures)
     server = engine.server
     assert server is not None
 
@@ -69,7 +71,7 @@ async def test_the_server_tasklet_keeps_the_web_server_answering(tmp_path: Path)
     lands is what proves it is really serving rather than only having bound a port.
     """
     failures: list[BaseException] = []
-    engine = await _load(tmp_path, failures, web=True)
+    engine = await _load(tmp_path, failures, server="server:\n  http:\n    port: 0\n")
     server = engine.server
     assert server is not None
 
@@ -80,6 +82,59 @@ async def test_the_server_tasklet_keeps_the_web_server_answering(tmp_path: Path)
 
         assert response.status_code == 200
         assert server.running
+        assert failures == []
+    finally:
+        await server.stop()
+        await engine.database.dispose()
+
+
+@pytest.mark.skipif(shutil.which("openssl") is None, reason="needs openssl for a certificate")
+async def test_the_http_listener_redirects_to_the_bound_https_one(tmp_path: Path) -> None:
+    """With both listeners on ephemeral ports, the redirect names the port HTTPS bound.
+
+    The configured HTTPS port is `0`, so a redirect built from the configuration alone
+    would point nowhere.
+    """
+    subprocess.run(
+        [
+            *("openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1"),
+            *("-subj", "/CN=localhost", "-keyout", "server.key", "-out", "server.crt"),
+        ],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    failures: list[BaseException] = []
+    engine = await _load(
+        tmp_path,
+        failures,
+        server=(
+            "server:\n  bind: 127.0.0.1\n"
+            f"  https:\n    port: 0\n    cert: {tmp_path / 'server.crt'}\n"
+            f"    key: {tmp_path / 'server.key'}\n"
+            "  http:\n    port: 0\n    redirect: true\n"
+        ),
+    )
+    server = engine.server
+    assert server is not None
+
+    try:
+        https_port, http_port = server.https_port, server.http_port
+        assert https_port and http_port and https_port != http_port
+        assert server.port == https_port
+        async with httpx.AsyncClient(verify=False) as client:
+            response = await client.get(f"https://127.0.0.1:{https_port}/api/alive")
+            assert response.status_code == 200
+
+            response = await client.get(f"http://127.0.0.1:{http_port}/console?tab=1")
+            assert response.status_code == 307
+            location = f"https://127.0.0.1:{https_port}/console?tab=1"
+            assert response.headers["location"] == location
+
+        assert server.listeners == [
+            f"HTTPS web server listening on 127.0.0.1:{https_port}.",
+            f"HTTP redirect server listening on 127.0.0.1:{http_port}.",
+        ]
         assert failures == []
     finally:
         await server.stop()

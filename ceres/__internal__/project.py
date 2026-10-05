@@ -58,10 +58,6 @@ class LoadedProject(Project):
     def cli_server_info_path(self) -> Path:
         return _get_temporary_directory() / f"ceres-{self.directory_hash}.server.json"
 
-    @property
-    def port(self) -> int | None:
-        return self._config.server.port
-
     def get_cli_server_info(self) -> CLIServerInfo | None:
         """Read and parse the CLI server info file, returning ``None`` on any failure."""
         try:
