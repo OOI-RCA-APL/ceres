@@ -7,18 +7,24 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use ceres_config::{ServerHttpsConfig, TlsVersion};
+use ceres_config::{DEFAULT_TLS_CERT, DEFAULT_TLS_KEY, ServerHttpsConfig, TlsVersion};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use rustls::server::WebPkiClientVerifier;
 
 /// A TLS loading failure.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    /// A default certificate or key path holds nothing, the state of a project that never
+    /// generated one.
+    #[error("{path} does not exist. Run `ceres generate certificate` to create it.")]
+    Ungenerated { path: String },
     #[error("cannot read {path}. {source}")]
     Unreadable {
         path: String,
         source: std::io::Error,
     },
+    #[error("{path} holds a certificate that cannot be parsed. {reason}")]
+    Malformed { path: String, reason: String },
     #[error("{path} holds no usable {expected}")]
     Empty {
         path: String,
@@ -72,11 +78,42 @@ pub fn server_config(https: &ServerHttpsConfig) -> Result<Arc<rustls::ServerConf
     Ok(Arc::new(config))
 }
 
+/// Load the `https` section the way the listener does and answer when its certificate
+/// expires, in seconds since the Unix epoch.
+///
+/// The expiry is that of the first certificate in the file, the one the listener presents
+/// as its own.
+pub fn certificate_expiry(https: &ServerHttpsConfig) -> Result<i64, Error> {
+    server_config(https)?;
+    let certificates = read_certificates(&https.cert)?;
+    let (_, certificate) =
+        x509_parser::parse_x509_certificate(&certificates[0]).map_err(|error| {
+            Error::Malformed {
+                path: https.cert.display().to_string(),
+                reason: error.to_string(),
+            }
+        })?;
+    Ok(certificate.validity().not_after.timestamp())
+}
+
+/// Read a file, a missing default path answering with the command that creates it.
+fn read(path: &Path) -> Result<Vec<u8>, Error> {
+    std::fs::read(path).map_err(|source| {
+        let path_text = path.display().to_string();
+        let default = path == Path::new(DEFAULT_TLS_CERT) || path == Path::new(DEFAULT_TLS_KEY);
+        if default && source.kind() == std::io::ErrorKind::NotFound {
+            Error::Ungenerated { path: path_text }
+        } else {
+            Error::Unreadable {
+                path: path_text,
+                source,
+            }
+        }
+    })
+}
+
 fn read_certificates(path: &Path) -> Result<Vec<CertificateDer<'static>>, Error> {
-    let text = std::fs::read(path).map_err(|source| Error::Unreadable {
-        path: path.display().to_string(),
-        source,
-    })?;
+    let text = read(path)?;
     let certificates: Vec<_> = rustls_pemfile::certs(&mut text.as_slice())
         .collect::<Result<_, _>>()
         .map_err(|source| Error::Unreadable {
@@ -94,9 +131,9 @@ fn read_certificates(path: &Path) -> Result<Vec<CertificateDer<'static>>, Error>
 }
 
 fn read_private_key(path: &Path, password: Option<&str>) -> Result<PrivateKeyDer<'static>, Error> {
-    let text = std::fs::read_to_string(path).map_err(|source| Error::Unreadable {
+    let text = String::from_utf8(read(path)?).map_err(|_| Error::Empty {
         path: path.display().to_string(),
-        source,
+        expected: "private key",
     })?;
 
     // An encrypted key marks itself in its PEM label and needs the configured password.
@@ -197,6 +234,50 @@ pub(crate) mod tests {
         config.cert = directory.path().join("absent.pem");
         let error = server_config(&config).unwrap_err();
         assert!(error.to_string().contains("absent.pem"), "{error}");
+        assert!(matches!(error, Error::Unreadable { .. }), "{error}");
+    }
+
+    #[test]
+    fn missing_default_files_name_the_command_that_creates_them() {
+        // The tests run from the crate directory, which holds no `.ceres` directory.
+        let error = server_config(&ServerHttpsConfig::default()).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            ".ceres/tls/server.crt does not exist. Run `ceres generate certificate` to create it."
+        );
+
+        let directory = tempfile::tempdir().unwrap();
+        let mut config = https(directory.path(), None, |key| key);
+        config.key = DEFAULT_TLS_KEY.into();
+        let error = server_config(&config).unwrap_err();
+        assert!(matches!(error, Error::Ungenerated { .. }), "{error}");
+    }
+
+    #[test]
+    fn expiry_is_read_from_the_presented_certificate() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut config = https(directory.path(), None, |key| key);
+
+        let key = rcgen::KeyPair::generate().unwrap();
+        let mut params = rcgen::CertificateParams::new(["localhost".to_string()]).unwrap();
+        params.not_after = rcgen::date_time_ymd(2031, 5, 4);
+        let certificate = params.self_signed(&key).unwrap();
+        std::fs::write(&config.cert, certificate.pem()).unwrap();
+        std::fs::write(&config.key, key.serialize_pem()).unwrap();
+        assert_eq!(
+            certificate_expiry(&config).unwrap(),
+            rcgen::date_time_ymd(2031, 5, 4).unix_timestamp()
+        );
+
+        // A key that does not match the certificate fails the way the listener would.
+        std::fs::write(
+            &config.key,
+            rcgen::KeyPair::generate().unwrap().serialize_pem(),
+        )
+        .unwrap();
+        assert!(certificate_expiry(&config).is_err());
+        config.cert = directory.path().join("absent.pem");
+        assert!(certificate_expiry(&config).is_err());
     }
 
     #[test]

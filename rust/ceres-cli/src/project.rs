@@ -119,6 +119,25 @@ impl Project {
         self.directory().join(STATE_DIRECTORY)
     }
 
+    /// Create the `.ceres` directory if needed, returning its path.
+    ///
+    /// It ignores itself through its own `.gitignore`, so nothing in it reaches version
+    /// control whatever the project's own ignore rules say. A `.gitignore` already there
+    /// is left as it is. The engine creates the directory the same way.
+    pub fn create_state_directory(&self) -> Result<PathBuf> {
+        let directory = self.state_directory();
+        std::fs::create_dir_all(&directory)
+            .map_err(|error| failure!("Failed to create {}. {error}", directory.display()))?;
+
+        let ignore = directory.join(".gitignore");
+        if !ignore.exists() {
+            std::fs::write(&ignore, "*\n")
+                .map_err(|error| failure!("Failed to write {}. {error}", ignore.display()))?;
+        }
+
+        Ok(directory)
+    }
+
     /// The path of the CLI server info file a running engine writes for this project.
     pub fn server_info_path(&self) -> PathBuf {
         self.state_directory().join("server.json")
@@ -155,6 +174,22 @@ mod tests {
             project.server_info_path(),
             Path::new("/opt/project/.ceres/server.json")
         );
+    }
+
+    #[test]
+    fn the_state_directory_ignores_itself() {
+        let directory = tempfile::tempdir().unwrap();
+        let project = Project::at(directory.path().join("ceres.yaml"));
+
+        let created = project.create_state_directory().unwrap();
+        assert_eq!(created, directory.path().join(".ceres"));
+        let ignore = created.join(".gitignore");
+        assert_eq!(std::fs::read_to_string(&ignore).unwrap(), "*\n");
+
+        // A `.gitignore` the user edited is left alone.
+        std::fs::write(&ignore, "*\n!keep\n").unwrap();
+        project.create_state_directory().unwrap();
+        assert_eq!(std::fs::read_to_string(&ignore).unwrap(), "*\n!keep\n");
     }
 
     #[test]

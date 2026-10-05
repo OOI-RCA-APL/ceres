@@ -983,6 +983,9 @@ class ConfigCheckType(StrEnum):
     COMPONENTS = "components"
     """Verify the component tree builds without errors."""
 
+    SERVER = "server"
+    """Verify the HTTPS listener's certificate and key load."""
+
     @classmethod
     def all(cls) -> tuple[ConfigCheckType, ...]:
         """Return every defined check, useful as the default for `Config.load`."""
@@ -1097,6 +1100,8 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
             errors.extend(await config._check_database())
         if ConfigCheckType.COMPONENTS in checks:
             errors.extend(await config._check_components())
+        if ConfigCheckType.SERVER in checks:
+            errors.extend(config._check_server())
 
         if errors:
             raise ConfigCombinedError(errors=errors)
@@ -1120,6 +1125,19 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
         return []
 
     async def _check_components(self) -> list[ComponentError]:
+        return []
+
+    def _check_server(self) -> list[ConfigValidationError]:
+        from ceres.__internal__.core import NativeServer
+
+        try:
+            NativeServer.certificate_expiry(self.server)
+        except ValueError as error:
+            problem = ValidationProblem(
+                type="value_error", location=["server", "https"], message=str(error)
+            )
+            return [ConfigValidationError(problems=[problem])]
+
         return []
 
 

@@ -51,6 +51,8 @@ tower-http = { version = "0.7", features = [
 ] }
 utoipa = "5.5.0"
 uuid = { version = "1", features = ["v4"] }
+# Reads the expiry out of the HTTPS certificate, which rustls has no public accessor for.
+x509-parser = { version = "0.18", default-features = false }
 
 [dev-dependencies]
 futures-util = "0.3.33"

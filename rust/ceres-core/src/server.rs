@@ -16,7 +16,8 @@ use ceres_database::{RecordFilter, RecordStore, RecordTable};
 use ceres_server::axum::Router;
 use ceres_server::{
     Answer, AppConfig, AuthSettings, BoundServer, ConsolePaths, GateUser, Host, HostError, Served,
-    Stopper, StreamClose, UserRecord, apply_compression, apply_cors, build_router, redirect_router,
+    Stopper, StreamClose, UserRecord, apply_compression, apply_cors, build_router,
+    certificate_expiry, redirect_router,
 };
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -509,6 +510,21 @@ impl NativeServer {
             port,
             locals: Arc::new(OnceLock::new()),
         })
+    }
+
+    /// Load the HTTPS certificate and key the way the listener does and answer when the
+    /// certificate expires, in seconds since the Unix epoch.
+    ///
+    /// Answers `None` when no HTTPS listener is configured. Raises `ValueError` naming the
+    /// file when the certificate or key cannot be loaded.
+    #[staticmethod]
+    fn certificate_expiry(config: &crate::ServerConfig) -> PyResult<Option<i64>> {
+        config
+            .inner
+            .https
+            .as_ref()
+            .map(|https| certificate_expiry(https).map_err(to_value_error))
+            .transpose()
     }
 
     /// Bind the CLI control application on an ephemeral loopback port.

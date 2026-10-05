@@ -512,6 +512,15 @@ class NativeServer:
         bound on `https_port`.
         """
     @staticmethod
+    def certificate_expiry(config: ServerConfig) -> int | None:
+        r"""
+        Load the HTTPS certificate and key the way the listener does and answer when the
+        certificate expires, in seconds since the Unix epoch.
+
+        Answers `None` when no HTTPS listener is configured. Raises `ValueError` naming the
+        file when the certificate or key cannot be loaded.
+        """
+    @staticmethod
     def cli(
         host: Any, config: ServerConfig, token: str, records: Store | None = None
     ) -> NativeServer:

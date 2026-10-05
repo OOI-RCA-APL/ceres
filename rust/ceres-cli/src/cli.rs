@@ -231,6 +231,33 @@ pub struct GenerateArgs {
 pub enum GenerateCommand {
     /// Generate up-to-date OpenAPI schema for the Ceres Rest API.
     Openapi(OpenapiArgs),
+
+    /// Generate a self-signed certificate and key for the HTTPS listener.
+    ///
+    /// Writes to the `server.https` cert and key paths, which default to
+    /// `.ceres/tls/server.crt` and `.ceres/tls/server.key`. The certificate names
+    /// localhost, 127.0.0.1, ::1, this machine's hostname, and every non-loopback address
+    /// of its network interfaces, plus any --ip and --dns given.
+    Certificate(CertificateArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct CertificateArgs {
+    /// An extra IP address for the certificate to name. Repeatable.
+    #[arg(long = "ip", value_name = "ADDRESS")]
+    pub ips: Vec<std::net::IpAddr>,
+
+    /// An extra DNS name for the certificate to name. Repeatable.
+    #[arg(long = "dns", value_name = "NAME")]
+    pub dns: Vec<String>,
+
+    /// Days the certificate stays valid, at most 36500.
+    #[arg(long, default_value_t = 825, value_parser = clap::value_parser!(u32).range(1..=36500))]
+    pub days: u32,
+
+    /// Replace an existing certificate and key.
+    #[arg(long)]
+    pub force: bool,
 }
 
 #[derive(Debug, Args)]

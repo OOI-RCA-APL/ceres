@@ -28,6 +28,7 @@ pub use host::{Answer, GateUser, Host, HostError, Served, StreamClose, UserRecor
 pub use layers::{apply_compression, apply_cors};
 pub use redirect::redirect_router;
 pub use serve::{BoundServer, Stopper};
+pub use tls::certificate_expiry;
 
 #[cfg(test)]
 mod tests {

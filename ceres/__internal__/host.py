@@ -23,6 +23,7 @@ from asyncio import CancelledError
 from asyncio import Event as AsyncEvent
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -119,12 +120,52 @@ async def _check(config_path: Path) -> int:
     from ceres.config import Config, ConfigCheckType
 
     try:
-        await Config.load(config_path, checks=ConfigCheckType.all())
+        config = await Config.load(config_path, checks=ConfigCheckType.all())
     except Error as error:
         raise HostFailed(f"Failed to load configuration. {to_json(error, indent=2)}")
 
+    warning = _expiry_warning(config.server, datetime.now(UTC))
+    if warning is not None:
+        print(warning, file=sys.stderr)
+
     print("All checks passed.", file=sys.stderr)
     return 0
+
+
+EXPIRY_WARNING_DAYS = 30
+"""How close to expiry the HTTPS certificate draws a warning from `ceres check`."""
+
+
+def _expiry_warning(server: ServerConfig, now: datetime) -> str | None:
+    """Answer a warning when the HTTPS certificate expires within `EXPIRY_WARNING_DAYS`.
+
+    The certificate has already loaded during the server check, so a failure to read its
+    expiry here cannot happen.
+    """
+    from ceres.__internal__.core import NativeServer
+
+    expiry = NativeServer.certificate_expiry(server)
+    if expiry is None or server.https is None:
+        return None
+
+    expires = datetime.fromtimestamp(expiry, UTC)
+    remaining = expires - now
+    if remaining >= timedelta(days=EXPIRY_WARNING_DAYS):
+        return None
+
+    regenerate = "Run `ceres generate certificate --force` to replace it."
+    if remaining <= timedelta(0):
+        return (
+            f"The HTTPS certificate {server.https.cert} expired on {expires:%Y-%m-%d}. {regenerate}"
+        )
+
+    # Rounded up, so the last hours before expiry still read as a day left.
+    days = -(-remaining // timedelta(days=1))
+    noun = "day" if days == 1 else "days"
+    return (
+        f"The HTTPS certificate {server.https.cert} expires on {expires:%Y-%m-%d}, "
+        f"in {days} {noun}. {regenerate}"
+    )
 
 
 def _move_console_listener(server: ServerConfig, port: int) -> ServerConfig:
