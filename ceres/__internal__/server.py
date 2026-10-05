@@ -30,7 +30,7 @@ class Server(Tasklet):
     authentication, and when the configuration names a public port a second server serves
     the API and console there, with TLS when the `ssl` section provides it. Both reach the
     engine through one host object. With `https_redirect` set a third, plain HTTP server
-    answers every request with a permanent redirect to the TLS one.
+    answers every request with a temporary redirect to the TLS one.
     """
 
     __slots__ = (

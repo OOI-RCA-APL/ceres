@@ -13,7 +13,7 @@ written, and the release workflow refuses a version that has no entry here.
 - The server offers HTTP/2 when `server.ssl` is configured. Browsers then multiplex every
   console request over one connection, which lifts the six-connection limit that stalled a
   dashboard with more than a few live video widgets.
-- New `server.https-redirect` setting runs a plain HTTP listener that permanently redirects
+- New `server.https-redirect` setting runs a plain HTTP listener that temporarily redirects
   every request to the same path and query on the HTTPS server, so `http://` bookmarks keep
   working after a move to HTTPS. `true` listens on port 80, an integer on that port. It needs
   `server.ssl` and a port different from `server.port`.

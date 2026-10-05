@@ -480,7 +480,7 @@ class NativeServer:
     Binds at construction so the real port is known immediately, and serves as an
     awaitable until stopped. The web form carries the console and terminates TLS, the
     CLI form binds loopback on an ephemeral port and requires its token instead, and the
-    redirect form answers plain HTTP with a permanent redirect to the web form.
+    redirect form answers plain HTTP with a temporary redirect to the web form.
     """
     @property
     def port(self) -> int:

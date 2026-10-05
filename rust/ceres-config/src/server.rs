@@ -332,7 +332,7 @@ pub struct RawServerConfig {
     /// Port the server listens on, omit to disable the server.
     pub port: Option<u16>,
 
-    /// Plain HTTP listener that permanently redirects every request to the same path on the
+    /// Plain HTTP listener that temporarily redirects every request to the same path on the
     /// HTTPS server. `true` listens on port 80, an integer on that port, needs `ssl`.
     pub https_redirect: Option<ServerHttpsRedirect>,
 

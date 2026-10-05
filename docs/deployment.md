@@ -183,7 +183,7 @@ ceres console url     # Print the URL.
 
 With a `server.ssl` section the console is served over TLS at `https://<host>:<port>`, and browsers negotiate HTTP/2, which multiplexes every console request over one connection. Over plain HTTP browsers cap a page at about six connections per host, and each live video widget holds one, so a dashboard with several videos stalls. HTTPS lifts that limit. A self-signed certificate works once the browser warning is accepted.
 
-Set `server.https-redirect` to keep the old `http://` bookmarks working after a move to HTTPS. `true` listens on port 80, an integer listens on that port, typically the port the server served plain HTTP on before, and every request there is answered with a permanent redirect to the same path and query on the HTTPS server. It needs `server.ssl` and a port different from `server.port`.
+Set `server.https-redirect` to keep the old `http://` bookmarks working after a move to HTTPS. `true` listens on port 80, an integer listens on that port, typically the port the server served plain HTTP on before, and every request there is answered with a temporary redirect to the same path and query on the HTTPS server. It needs `server.ssl` and a port different from `server.port`.
 
 ```yaml
 server:

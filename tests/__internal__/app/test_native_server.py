@@ -155,7 +155,7 @@ async def test_the_redirect_server_points_at_the_https_server() -> None:
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(f"{base}/console/route?tab=1")
-            assert response.status_code == 308
+            assert response.status_code == 307
             assert response.headers["location"] == "https://127.0.0.1:8443/console/route?tab=1"
     finally:
         server.stop(0.2)

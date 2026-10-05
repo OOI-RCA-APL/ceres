@@ -37,7 +37,7 @@ Configuration for the engine's HTTP server.
 | --- | --- | --- | --- |
 | `host` | string |  | Address the server binds to. |
 | `port` | integer |  | Port the server listens on, omit to disable the server. |
-| `https-redirect` | boolean or integer |  | Plain HTTP listener that permanently redirects every request to the same path on the HTTPS server. `true` listens on port 80, an integer on that port, needs `ssl`. |
+| `https-redirect` | boolean or integer |  | Plain HTTP listener that temporarily redirects every request to the same path on the HTTPS server. `true` listens on port 80, an integer on that port, needs `ssl`. |
 | `ssl` | [`ServerSslConfig`](#serversslconfig) |  |  |
 | `authentication` | [`ServerAuthenticationConfig`](#serverauthenticationconfig) |  |  |
 | `cors` | [`ServerCorsConfig`](#servercorsconfig) |  |  |

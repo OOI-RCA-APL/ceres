@@ -8,7 +8,7 @@ use axum::http::uri::Authority;
 use axum::http::{HeaderMap, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Redirect, Response};
 
-/// Builds a router answering every request with a permanent redirect to the same path and
+/// Builds a router answering every request with a temporary redirect to the same path and
 /// query on the HTTPS origin, which listens on `https_port` at the host the client named.
 pub fn redirect_router(https_port: u16) -> Router {
     Router::new().fallback(redirect).with_state(https_port)
@@ -29,7 +29,10 @@ async fn redirect(State(https_port): State<u16>, headers: HeaderMap, uri: Uri) -
         write!(target, ":{https_port}").expect("writing to a String cannot fail");
     }
     target.push_str(uri.path_and_query().map_or("/", |value| value.as_str()));
-    Redirect::permanent(&target).into_response()
+    // Temporary, since browsers cache a permanent redirect with no expiry, and turning TLS or
+    // this listener off later would leave every browser that saw it stuck on a dead address.
+    // 307 rather than 302 keeps the method and body.
+    Redirect::temporary(&target).into_response()
 }
 
 #[cfg(test)]
@@ -48,7 +51,7 @@ mod tests {
             .body(Body::empty())
             .unwrap();
         let response = redirect_router(https_port).oneshot(request).await.unwrap();
-        assert_eq!(response.status(), StatusCode::PERMANENT_REDIRECT);
+        assert_eq!(response.status(), StatusCode::TEMPORARY_REDIRECT);
         response.headers()[header::LOCATION]
             .to_str()
             .unwrap()

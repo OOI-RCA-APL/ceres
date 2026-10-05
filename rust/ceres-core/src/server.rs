@@ -371,7 +371,7 @@ pub fn openapi_schema(version: &str) -> PyResult<String> {
 /// Binds at construction so the real port is known immediately, and serves as an
 /// awaitable until stopped. The web form carries the console and terminates TLS, the
 /// CLI form binds loopback on an ephemeral port and requires its token instead, and the
-/// redirect form answers plain HTTP with a permanent redirect to the web form.
+/// redirect form answers plain HTTP with a temporary redirect to the web form.
 #[gen_stub_pyclass]
 #[pyclass(module = "ceres.__internal__.core", frozen)]
 pub struct NativeServer {
