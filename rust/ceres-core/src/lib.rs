@@ -68,8 +68,6 @@ python_config! {
         /// Lowest TLS version offered, `"1.2"` or `"1.3"`.
         #[python(any = "str")]
         min_version: ceres_config::TlsVersion,
-        /// Path to a PEM CA bundle that enables optional client certificate verification.
-        client_ca: Option<PathBuf>,
     }
 
     /// The plain HTTP listener of the engine's HTTP server.

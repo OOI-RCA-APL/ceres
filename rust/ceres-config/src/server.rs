@@ -51,9 +51,6 @@ pub struct RawServerHttpsConfig {
 
     /// Lowest TLS version offered, `"1.2"` or `"1.3"`, `"1.2"` when omitted.
     pub min_version: Option<TlsVersion>,
-
-    /// Path to a PEM CA bundle that enables optional client certificate verification.
-    pub client_ca: Option<PathBuf>,
 }
 
 /// Validated HTTPS listener of the engine's HTTP server.
@@ -64,7 +61,6 @@ pub struct ServerHttpsConfig {
     pub key: PathBuf,
     pub key_password: Option<String>,
     pub min_version: TlsVersion,
-    pub client_ca: Option<PathBuf>,
 }
 
 impl Default for ServerHttpsConfig {
@@ -75,7 +71,6 @@ impl Default for ServerHttpsConfig {
             key: DEFAULT_TLS_KEY.into(),
             key_password: None,
             min_version: TlsVersion::default(),
-            client_ca: None,
         }
     }
 }
@@ -91,7 +86,6 @@ impl TryFrom<RawServerHttpsConfig> for ServerHttpsConfig {
             key: raw.key.unwrap_or(defaults.key),
             key_password: raw.key_password,
             min_version: raw.min_version.unwrap_or(defaults.min_version),
-            client_ca: raw.client_ca,
         })
     }
 }

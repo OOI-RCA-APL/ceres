@@ -1,6 +1,6 @@
 # Coverage
 
-<!-- coverage:fingerprint:0e1577f4f604ff3d -->
+<!-- coverage:fingerprint:6826723120bda47f -->
 
 ## Python
 
@@ -216,7 +216,7 @@
 | `rust/ceres-server/src/redirect.rs` | 100% |
 | `rust/ceres-server/src/scrub.rs` | 97% |
 | `rust/ceres-server/src/serve.rs` | 96% |
-| `rust/ceres-server/src/tls.rs` | 51% |
+| `rust/ceres-server/src/tls.rs` | 52% |
 | `rust/ceres-stubs/src/polish.rs` | 96% |
 | **Total** | **67%** |
 <!-- coverage:rust:end -->

@@ -1165,11 +1165,6 @@ class ServerHTTPSConfig:
         r"""
         Lowest TLS version offered, `"1.2"` or `"1.3"`.
         """
-    @property
-    def client_ca(self) -> Path | None:
-        r"""
-        Path to a PEM CA bundle that enables optional client certificate verification.
-        """
     def __new__(
         cls,
         *,
@@ -1178,7 +1173,6 @@ class ServerHTTPSConfig:
         key: str | PathLike[str] | Path | None = None,
         key_password: str | None = None,
         min_version: str | None = None,
-        client_ca: str | PathLike[str] | Path | None = None,
     ) -> Self: ...
     def __to_dict__(self) -> dict[str, Any]:
         r"""

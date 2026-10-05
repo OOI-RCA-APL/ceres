@@ -1,15 +1,13 @@
 //! TLS configuration loading.
 //!
 //! Builds a rustls server configuration from the `server.https` config section. Encrypted
-//! private keys decrypt with `key-password`, and a `client-ca` bundle enables optional
-//! client certificate verification.
+//! private keys decrypt with `key-password`.
 
 use std::path::Path;
 use std::sync::Arc;
 
 use ceres_config::{ServerHttpsConfig, TlsVersion};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
-use rustls::server::WebPkiClientVerifier;
 
 /// A TLS loading failure.
 #[derive(Debug, thiserror::Error)]
@@ -40,8 +38,6 @@ pub enum Error {
     Decrypt(String),
     #[error(transparent)]
     Rustls(#[from] rustls::Error),
-    #[error("{0}")]
-    ClientVerifier(String),
 }
 
 /// Build the rustls configuration for the `https` section.
@@ -78,30 +74,10 @@ fn load(
         TlsVersion::Tls13 => &[&rustls::version::TLS13],
     };
     let provider = Arc::new(rustls::crypto::ring::default_provider());
-    let builder = rustls::ServerConfig::builder_with_provider(provider.clone())
-        .with_protocol_versions(versions)?;
-
-    let builder = match &https.client_ca {
-        Some(ca_path) => {
-            // A CA bundle enables client certificate verification, optional rather
-            // than required.
-            let mut roots = rustls::RootCertStore::empty();
-            for certificate in read_certificates(ca_path)? {
-                roots
-                    .add(certificate)
-                    .map_err(|error| Error::ClientVerifier(error.to_string()))?;
-            }
-
-            let verifier = WebPkiClientVerifier::builder_with_provider(Arc::new(roots), provider)
-                .allow_unauthenticated()
-                .build()
-                .map_err(|error| Error::ClientVerifier(error.to_string()))?;
-            builder.with_client_cert_verifier(verifier)
-        }
-        None => builder.with_no_client_auth(),
-    };
-
-    let mut config = builder.with_single_cert(certificates, key)?;
+    let mut config = rustls::ServerConfig::builder_with_provider(provider)
+        .with_protocol_versions(versions)?
+        .with_no_client_auth()
+        .with_single_cert(certificates, key)?;
     // Browsers only speak HTTP/2 over TLS and only when ALPN offers it. Without `h2` every
     // video widget holds one of the six HTTP/1.1 connections a browser allows per origin.
     config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];

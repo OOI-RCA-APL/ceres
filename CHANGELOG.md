@@ -11,12 +11,12 @@ written, and the release workflow refuses a version that has no entry here.
 **Breaking**
 
 - The `server` section names its listeners. `server.bind` replaces `server.host`,
-  `server.https` (`port`, `cert`, `key`, `key-password`, `min-version`, `client-ca`) replaces
-  `server.ssl`, and `server.http` (`port`, `redirect`) serves plain HTTP. `server.host`,
-  `server.port`, and `server.ssl` are rejected, so rewrite them before upgrading.
-  `server.port: 8080` becomes `server.http.port: 8080`, or `server.https.port: 8080` beside a
-  former `server.ssl`, whose `ca-certs` is now `client-ca`. Its `version` gives way to
-  `min-version`, `"1.2"` by default or `"1.3"`.
+  `server.https` (`port`, `cert`, `key`, `key-password`, `min-version`) replaces `server.ssl`,
+  and `server.http` (`port`, `redirect`) serves plain HTTP. `server.host`, `server.port`, and
+  `server.ssl` are rejected, so rewrite them before upgrading. `server.port: 8080` becomes
+  `server.http.port: 8080`, or `server.https.port: 8080` beside a former `server.ssl`. Its
+  `version` gives way to `min-version`, `"1.2"` by default or `"1.3"`, and its `ca-certs` has
+  no counterpart, so drop it.
 - The engine no longer creates a `local/` directory in the project. A SQLite database still
   creates the directories leading to its file, and `ceres service` creates the directories of
   its log files.

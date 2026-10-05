@@ -53,7 +53,6 @@ The HTTPS listener of the engine's HTTP server.
 | `key` | string |  | Path to the PEM private key, `.ceres/tls/server.key` when omitted. |
 | `key-password` | string |  | Password for an encrypted private key. |
 | `min-version` | `1.2` or `1.3` |  | Lowest TLS version offered, `"1.2"` or `"1.3"`, `"1.2"` when omitted. |
-| `client-ca` | string |  | Path to a PEM CA bundle that enables optional client certificate verification. |
 
 ### `ServerHttpConfig`
 
