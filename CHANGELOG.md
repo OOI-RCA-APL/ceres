@@ -72,6 +72,10 @@ written, and the release workflow refuses a version that has no entry here.
 
 **Web Console**
 
+- Video widgets reconnect on their own when the stream drops, ends, stands still for ten
+  seconds, or never answers, at once and then every five seconds. The last frame stays up
+  meanwhile, with a small countdown in the corner. A new "Reconnect" setting, on by default,
+  brings back the error box instead.
 - Descriptions render as Markdown and are cut to three lines with a "Show more" when longer.
 - A procedure's docstring is split into its prose, its arguments' text, shown under each
   argument's field, and what it returns and raises, shown beside the result. Google sections and

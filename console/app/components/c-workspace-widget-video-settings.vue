@@ -58,7 +58,7 @@ watch(
           optional: true,
         }"
       />
-      <div class="grid grid-cols-3 gap-x-2">
+      <div class="grid grid-cols-2 gap-x-2 gap-y-1 sm:grid-cols-4">
         <c-schema-form-value
           v-model="widget.autoplay"
           align="center"
@@ -76,6 +76,12 @@ watch(
           v-model="widget.showControls"
           align="center"
           :schema="{ type: 'boolean', title: 'Show Controls' }"
+          :show-type="false"
+        />
+        <c-schema-form-value
+          v-model="widget.reconnect"
+          align="center"
+          :schema="{ type: 'boolean', title: 'Reconnect' }"
           :show-type="false"
         />
       </div>
