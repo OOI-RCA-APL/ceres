@@ -1,13 +1,14 @@
 """How a procedure returning a file or a stream reports the end of its call."""
 
 from collections import defaultdict
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterable, AsyncIterator
 from typing import TYPE_CHECKING, override
 
 import pytest
 
-from ceres import Component, listener, query
+from ceres import Component, action, listener, query
 from ceres.component import FileOutput, StreamingOutput
+from ceres.error import ProcedureInternalError
 from ceres.event import (
     Event,
     ProcedureCalledEvent,
@@ -45,6 +46,11 @@ class Outputs(Component):
                 raise ConnectionError("lost")
 
         return StreamingOutput(stream, "text/plain")
+
+    @action
+    async def counting(self) -> AsyncIterable[int]:
+        yield 1
+        raise ValueError("abc")
 
     @query(media="text/plain")
     async def file(self, path: str) -> FileOutput:
@@ -131,3 +137,23 @@ async def test_a_returned_file_completes_the_call(component: Outputs, tmp_path: 
     output = await component.system.call("file", {"path": str(path)})
     assert isinstance(output, FileOutput)
     assert await component.ends() == [ProcedureCompletedEvent]
+
+
+async def test_a_live_action_raising_ends_its_call_once(component: Outputs) -> None:
+    try:
+        await component.system.call("counting")
+    except ProcedureInternalError:
+        pass
+
+    assert await component.ends() == [ProcedureExceptionEvent]
+
+
+async def test_a_reopened_stream_keeps_its_procedure(component: Outputs) -> None:
+    output = await call(component, "chunks")
+    for _ in range(2):
+        async with output:
+            async for _ in output:
+                pass
+
+    assert output._procedure == "chunks"  # noqa: SLF001
+    assert output._component is component.system  # noqa: SLF001

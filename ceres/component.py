@@ -810,6 +810,7 @@ class StreamingOutput(BaseOutput):
         "_stream",
         "_iterator",
         "_origin",
+        "_reported",
         "media",
         "http_status",
         "http_headers",
@@ -840,9 +841,10 @@ class StreamingOutput(BaseOutput):
         """
         self._stream = stream
         self._iterator: _TrackedStream | None = None
-        # The component system and procedure whose call returned the output, until it reports
-        # the call's end.
+        # The component system and procedure whose call returned the output, if one did.
         self._origin: tuple[ComponentSystem, str] | None = None
+        # Whether the output already reported how that call ended.
+        self._reported = False
         self.media = media
         self.http_status = http_status
         self.http_headers = http_headers
@@ -893,11 +895,11 @@ class StreamingOutput(BaseOutput):
         return None if self._origin is None else self._origin[1]
 
     def __report_end(self, iterator: _TrackedStream) -> None:
-        origin, self._origin = self._origin, None
-        if origin is None:
+        if self._origin is None or self._reported:
             return
 
-        system, procedure = origin
+        self._reported = True
+        system, procedure = self._origin
         if iterator.error is not None:
             system.events.emit(
                 ProcedureExceptionEvent, procedure=procedure, exception=trace(iterator.error)
@@ -2610,28 +2612,30 @@ class ComponentSystem(Node, ComponentSource):
             self.events.emit(ProcedureCompletedEvent, procedure=procedure)
             return output
 
+        result: object | None = None
         try:
             match binding:
-                # A live query produces an iterable of values, return the first one and let the
+                # A live query produces an iterable of values, take the first one and let the
                 # generator be garbage collected.
                 case QueryBinding():
                     async for current in output:
-                        return current
-
-                    return None
-                # A live action is run to completion so all of its side effects happen, returning
+                        result = current
+                        break
+                # A live action is run to completion so all of its side effects happen, taking
                 # the final value.
                 case ActionBinding():
-                    last: object | None = None
                     async for current in output:
-                        last = current
-                    return last
+                        result = current
+        except CancelledError:
+            self.events.emit(ProcedureCancelledEvent, procedure=procedure)
+            raise
         except Exception as exception:
             info = trace(exception)
             self.events.emit(ProcedureExceptionEvent, procedure=procedure, exception=info)
             raise ProcedureInternalError(exception=info)
-        finally:
-            self.events.emit(ProcedureCompletedEvent, procedure=procedure)
+
+        self.events.emit(ProcedureCompletedEvent, procedure=procedure)
+        return result
 
     async def subscribe(
         self,
