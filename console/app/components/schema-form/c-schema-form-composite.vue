@@ -44,9 +44,11 @@ function create() {
             :class="label != null && 'mt-1 ml-3'"
           >
             <c-text class="pt-1" variant="mono-sm">{{ label }}</c-text>
-            <c-text v-if="description" class="pb-0.5" variant="description">
-              {{ description }}
-            </c-text>
+            <c-description
+              v-if="description"
+              class="pb-0.5 text-[11px] text-muted"
+              :text="description"
+            />
             <c-text v-if="title != null" variant="th">{{ title }}</c-text>
             <div class="absolute -top-0.5 right-1.5 flex justify-end">
               <c-schema-form-node-clear-button

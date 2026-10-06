@@ -26,6 +26,9 @@ written, and the release workflow refuses a version that has no entry here.
 
 **Engine**
 
+- A procedure's docstring is parsed, Google sections and Sphinx fields alike. Its arguments' text
+  becomes their fields' descriptions in the arguments schema, the schema's description keeps only
+  the prose, and procedures in the components listing carry `returns` and `raises`.
 - The server offers HTTP/2 over a `server.https` listener. Browsers then multiplex every
   console request over one connection, which lifts the six-connection limit that stalled a
   dashboard with more than a few live video widgets.
@@ -69,6 +72,10 @@ written, and the release workflow refuses a version that has no entry here.
 
 **Web Console**
 
+- Descriptions render as Markdown and are cut to three lines with a "Show more" when longer.
+- A procedure's docstring is split into its prose, its arguments' text, shown under each
+  argument's field, and what it returns and raises, shown beside the result. Google sections and
+  Sphinx fields are both read.
 - Control buttons can call queries as well as actions, under a "Procedure" field. A query's
   result shows under the arguments form when the button asks for arguments, or otherwise in a
   popup that can run the query again. A new query button runs without asking first. Queries

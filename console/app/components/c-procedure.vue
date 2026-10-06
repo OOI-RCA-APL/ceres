@@ -74,6 +74,20 @@ if (!form.isValid) {
     >
       <c-schema-form :key="`${address}${procedure.name}`" :form />
     </div>
+    <div
+      v-if="procedure.returns != null || procedure.raises.length > 0"
+      class="text-muted mb-2 flex flex-col gap-1 text-[11px]"
+    >
+      <div v-if="procedure.returns != null" class="flex gap-1.5">
+        <span class="text-default shrink-0 font-medium">Returns</span>
+        <c-description class="min-w-0" :text="procedure.returns" />
+      </div>
+      <div v-for="(raised, index) in procedure.raises" :key="index" class="flex gap-1.5">
+        <span class="text-default shrink-0 font-medium">Raises</span>
+        <span v-if="raised.type != null" class="shrink-0 font-mono">{{ raised.type }}</span>
+        <c-description class="min-w-0" :text="raised.description" />
+      </div>
+    </div>
     <c-schema-form-controls class="mb-2" :form />
     <div v-if="resultJson === undefined" class="flex items-center justify-center p-1">
       <c-text variant="description">Results will be displayed here.</c-text>

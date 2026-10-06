@@ -57,6 +57,7 @@ from ceres.__internal__.utilities.algorithms import traverse
 from ceres.__internal__.utilities.caching import cached
 from ceres.__internal__.utilities.classes import cached_class_property
 from ceres.__internal__.utilities.collections import OrderedWeakSet, flatten, seq
+from ceres.__internal__.utilities.docstrings import parse_docstring
 from ceres.__internal__.utilities.functions import get_function_name, get_inner_function
 from ceres.__internal__.utilities.randomize import randstr
 from ceres.__internal__.utilities.text import reprify
@@ -669,6 +670,16 @@ ProcedureOutputInfo: TypeAlias = (
 )
 
 
+class ProcedureRaiseInfo(DataObject.Frozen):
+    """An exception a procedure's docstring says it raises."""
+
+    type: str | None
+    """The exception's name as the docstring writes it, or `None` when it names none."""
+
+    description: str
+    """When it is raised, as Markdown."""
+
+
 ProcedurePermissions = ComponentAccessLevel | Literal["public"]
 ProcedurePermissionsInput = ComponentAccessLevelInput | Literal["public"]
 
@@ -696,6 +707,12 @@ class _ProcedureBinding(DataObject.Frozen):
 
     output: ProcedureOutputInfo
     """Output metadata describing what the procedure returns."""
+
+    returns: str | None = None
+    """What the docstring says the procedure returns, as Markdown."""
+
+    raises: tuple[ProcedureRaiseInfo, ...] = ()
+    """The exceptions the docstring says the procedure raises."""
 
 
 class QueryBinding(_ProcedureBinding):
@@ -917,6 +934,8 @@ def query[**P, T](
                 arguments=info.arguments,
                 output=info.output,
                 live=info.live,
+                returns=info.returns,
+                raises=info.raises,
                 poll=poll if isinstance(poll, timedelta) else timedelta(seconds=poll),
             ),
         )
@@ -978,6 +997,8 @@ def action[**P, T](
                 arguments=validated.arguments,
                 output=validated.output,
                 live=validated.live,
+                returns=validated.returns,
+                raises=validated.raises,
             ),
         )
 
@@ -997,6 +1018,8 @@ class _ProcedureMethodInfo(DataObject.Frozen):
     arguments: ProcedureArgumentsInfo | None
     output: ProcedureOutputInfo
     live: bool
+    returns: str | None
+    raises: tuple[ProcedureRaiseInfo, ...]
 
 
 def _get_procedure_method_info(
@@ -1061,12 +1084,19 @@ def _get_procedure_method_info(
                 f"{exception}"
             )
 
+    docstring = parse_docstring(method.__doc__)
+
     return _ProcedureMethodInfo(
         name=_get_bound_name(method),
         method=get_function_name(method),
         arguments=arguments,
         output=output,
         live=live,
+        returns=docstring.returns,
+        raises=tuple(
+            ProcedureRaiseInfo(type=raised.type, description=raised.description)
+            for raised in docstring.raises
+        ),
     )
 
 

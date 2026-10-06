@@ -43,6 +43,12 @@ export const ProcedureOutputInfoModel = z.discriminatedUnion('type', [
   ProcedureFileOutputInfoModel,
 ])
 
+export type ProcedureRaiseInfo = z.infer<typeof ProcedureRaiseInfoModel>
+export const ProcedureRaiseInfoModel = z.object({
+  type: z.string().nullable(),
+  description: z.string(),
+})
+
 export type ProcedurePermissions = z.infer<typeof ProcedurePermissionsModel>
 export const ProcedurePermissionsModel = z.enum(['public', 'deny', 'view', 'operate', 'manage'])
 
@@ -53,6 +59,10 @@ const BaseProcedureInfoModel = z.object({
   permissions: ProcedurePermissionsModel,
   arguments: ProcedureArgumentsInfoModel,
   output: ProcedureOutputInfoModel,
+  /** What the docstring says comes back, as Markdown. */
+  returns: z.string().nullish(),
+  /** The exceptions the docstring says are raised. */
+  raises: z.array(ProcedureRaiseInfoModel).default([]),
 })
 
 export type QueryInfo = z.infer<typeof QueryInfoModel>
