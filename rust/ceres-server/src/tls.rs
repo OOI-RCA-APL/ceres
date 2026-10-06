@@ -70,6 +70,9 @@ pub enum Error {
          to create a new certificate authority, which every client then has to trust again."
     )]
     AuthorityIncomplete { present: String, missing: String },
+    /// The authority's certificate cannot sign certificates, or its key does not fit it.
+    #[error("{path} cannot sign HTTPS certificates. {reason}")]
+    AuthorityUnusable { path: String, reason: String },
     #[error("cannot issue the certificate. {0}")]
     Issue(String),
     #[error("cannot write {path}. {source}")]
@@ -194,7 +197,8 @@ struct Renewer {
 }
 
 impl Renewer {
-    /// Issue the certificate when it is due, reporting what was issued.
+    /// Issue the certificate when it is due, reporting what was issued and an authority
+    /// close to expiry.
     fn ensure(&self) -> Result<Option<Managed>, Error> {
         let auto = self
             .certificate
@@ -210,14 +214,11 @@ impl Renewer {
             OffsetDateTime::now_utc(),
             false,
         )?;
-        if managed.issued.is_none() {
-            return Ok(None);
-        }
-
         for notice in managed.notices(&self.certificate.path) {
             (self.report)(notice);
         }
-        Ok(Some(managed))
+
+        Ok(managed.issued.is_some().then_some(managed))
     }
 
     /// Renew the certificate when it is due and present the new one, keeping the current
@@ -288,6 +289,8 @@ pub struct Status {
     pub expires: Option<i64>,
     /// What startup does to a managed certificate, `None` when it keeps the current one.
     pub plan: Option<String>,
+    /// The warning a managed certificate's authority draws close to expiry or past it.
+    pub warning: Option<String>,
 }
 
 impl Status {
@@ -310,6 +313,7 @@ impl Status {
             return Ok(Self {
                 expires: Some(parsed.validity().not_after.timestamp()),
                 plan: None,
+                warning: None,
             });
         };
 
@@ -330,6 +334,7 @@ impl Status {
         Ok(Self {
             expires: inspection.expires.map(OffsetDateTime::unix_timestamp),
             plan,
+            warning: inspection.authority_warning,
         })
     }
 
@@ -606,6 +611,7 @@ pub(crate) mod tests {
             Status {
                 expires: Some(rcgen::date_time_ymd(2031, 5, 4).unix_timestamp()),
                 plan: None,
+                warning: None,
             }
         );
 
@@ -658,6 +664,7 @@ pub(crate) mod tests {
                     ca.display(),
                     fresh.certificate.path.display()
                 )),
+                warning: None,
             }
         );
         assert!(!fresh.certificate.path.exists());
@@ -684,6 +691,29 @@ pub(crate) mod tests {
         let current = Status::of(&config, localhost, now).unwrap();
         assert_eq!(current.plan, None);
         assert!(current.expires.unwrap() > now.unix_timestamp());
+        assert_eq!(current.warning, None);
+        assert_eq!(std::fs::read(&config.certificate.path).unwrap(), issued);
+
+        // An authority with 20 days left draws a warning from the check, which writes nothing.
+        let late = now + time::Duration::days(3650 - 20);
+        let warning = Status::of(&config, localhost, late)
+            .unwrap()
+            .warning
+            .unwrap();
+        assert!(
+            warning.starts_with(&format!(
+                "The certificate authority {} expires on ",
+                config
+                    .certificate
+                    .auto
+                    .as_ref()
+                    .unwrap()
+                    .authority()
+                    .path
+                    .display()
+            )),
+            "{warning}"
+        );
         assert_eq!(std::fs::read(&config.certificate.path).unwrap(), issued);
     }
 

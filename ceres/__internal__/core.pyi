@@ -517,16 +517,19 @@ class NativeServer:
         bound on `https_port`, except `/ca.crt`, which it serves in place.
         """
     @staticmethod
-    def certificate_status(config: ServerConfig) -> tuple[int | None, str | None] | None:
+    def certificate_status(
+        config: ServerConfig,
+    ) -> tuple[int | None, str | None, str | None] | None:
         r"""
         Read the HTTPS certificate the way the listener does, without writing anything, and
-        answer when it expires, in seconds since the Unix epoch, and what startup does to a
-        managed one.
+        answer when it expires, in seconds since the Unix epoch, what startup does to a
+        managed one, and the warning a managed one's authority draws close to expiry.
 
-        The expiry is `None` when startup issues the first managed certificate, and the plan
-        is `None` when startup keeps the current one. Answers `None` when no HTTPS listener
-        is configured. Raises `ValueError` naming the file when a certificate, key, or
-        authority cannot be read.
+        The expiry is `None` when startup issues the first managed certificate, the plan is
+        `None` when startup keeps the current one, and the warning is `None` while the
+        authority has more than 30 days left. Answers `None` when no HTTPS listener is
+        configured. Raises `ValueError` naming the file when a certificate, key, or authority
+        cannot be read or the authority cannot sign.
         """
     @staticmethod
     def cli(

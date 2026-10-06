@@ -13,7 +13,13 @@ from pathlib import Path
 import pytest
 
 from ceres.__internal__.core import NativeServer
-from ceres.__internal__.host import _certificate_plan, _dev_listener, _expiry_warning
+from ceres.__internal__.host import (
+    _authority_warning,
+    _certificate_plan,
+    _check,
+    _dev_listener,
+    _expiry_warning,
+)
 from ceres.config import Config, ConfigCheckType, ServerConfig, ServerHTTPConfig
 from ceres.error import ConfigCombinedError, ConfigValidationError
 
@@ -34,9 +40,10 @@ def test_certificates_near_expiry_draw_a_warning(
     server = ServerConfig(https={})
     status = NativeServer.certificate_status(server)
     assert status is not None
-    expiry, plan = status
+    expiry, plan, warning = status
     assert expiry is not None
     assert plan is None
+    assert warning is None
     expires = datetime.fromtimestamp(expiry, UTC)
     replace = "Run `ceres generate certificate --force` to replace it."
 
@@ -113,13 +120,58 @@ def test_no_https_listener_draws_no_warning() -> None:
     assert _certificate_plan(ServerConfig(http={"port": 8080})) is None
 
 
-def test_managed_certificates_renew_rather_than_warn(
+def test_managed_certificates_draw_no_expiry_warning(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
     server = ServerConfig(https={"certificate": "auto"})
 
     assert _expiry_warning(server, datetime.now(UTC) + timedelta(days=3650)) is None
+
+
+EXPIRED_AUTHORITY = """\
+-----BEGIN CERTIFICATE-----
+MIIBoDCCAUagAwIBAgIUK7PuFwbBkHMPRYodhZX0G0xnHfMwCgYIKoZIzj0EAwIw
+HDEaMBgGA1UEAwwRRXhwaXJlZCBhdXRob3JpdHkwHhcNMTkwMTAxMDAwMDAwWhcN
+MjAwMTAxMDAwMDAwWjAcMRowGAYDVQQDDBFFeHBpcmVkIGF1dGhvcml0eTBZMBMG
+ByqGSM49AgEGCCqGSM49AwEHA0IABL8KEoUrxmLpt3kX8bNAlDhmw1nVm1Lgjak/
+taQAA5VXSFRnS0XxQelet6TgN6yZIWQx6dB6fl1FHcmY/H/ujbOjZjBkMB0GA1Ud
+DgQWBBSDgXLn7VJJwjhLIrCIlDKPrNTWjDAfBgNVHSMEGDAWgBSDgXLn7VJJwjhL
+IrCIlDKPrNTWjDASBgNVHRMBAf8ECDAGAQH/AgEAMA4GA1UdDwEB/wQEAwICBDAK
+BggqhkjOPQQDAgNIADBFAiBB4IwQjZyeXto2C1q0ehHiIIartSH6r9+PXyvtX/Qc
+owIhAMD26aOSB6A2EngNFNstozgWBUFBv2NGSzZMVnlqAsP0
+-----END CERTIFICATE-----
+"""
+"""A P-256 certificate authority valid through 2019 only, so it stays expired."""
+
+EXPIRED_AUTHORITY_KEY = """\
+-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgnGB4oDzSU54YnyQe
+KyWo6/mXeoFdXLq9yMhc92AOCdShRANCAAS/ChKFK8Zi6bd5F/GzQJQ4ZsNZ1ZtS
+4I2pP7WkAAOVV0hUZ0tF8UHpXrek4DesmSFkMenQen5dRR3JmPx/7o2z
+-----END PRIVATE KEY-----
+"""
+"""The throwaway key of `EXPIRED_AUTHORITY`, which signs nothing anyone trusts."""
+
+
+async def test_the_check_warns_of_an_expired_authority(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "ca.crt").write_text(EXPIRED_AUTHORITY)
+    (tmp_path / "ca.key").write_text(EXPIRED_AUTHORITY_KEY)
+    https = {"certificate": {"auto": {"ca": {"path": "ca.crt", "key": "ca.key"}}}}
+    (tmp_path / "ceres.yaml").write_text(json.dumps({"server": {"https": https}}))
+    warning = (
+        "The certificate authority ca.crt expired on 2020-01-01, so clients no longer trust the "
+        "certificates it signs. Ceres never renews an authority. Replace it at the paths "
+        "`auto.ca` names, and trust the new one on each client."
+    )
+
+    assert _authority_warning(ServerConfig(https=https)) == warning
+    assert await _check(tmp_path / "ceres.yaml") == 0
+    assert warning in capsys.readouterr().err
+    assert not (tmp_path / ".ceres").exists()
 
 
 def test_the_check_reports_what_startup_issues_without_writing_it(

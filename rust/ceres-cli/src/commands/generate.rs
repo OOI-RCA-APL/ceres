@@ -138,6 +138,9 @@ pub fn certificate(args: &CertificateArgs, project: &Project, output: &Output) -
         "Trust the certificate authority {} on each client to trust the certificate.",
         authority.display()
     ));
+    if let Some(warning) = managed.authority_warning {
+        output.write(warning);
+    }
     Ok(())
 }
 

@@ -38,9 +38,12 @@ written, and the release workflow refuses a version that has no entry here.
   `certificate: auto` when either file is missing.
 - `server.https.certificate: auto` has Ceres issue and renew the HTTPS certificate itself,
   signed by a certificate authority it creates once in `.ceres/tls`, or by the one `auto.ca`
-  names, which has to exist. Startup and a daily check issue a new certificate when it expires
-  within 30 days, lacks a configured or detected name, or another authority signed it, and the
-  running listener presents it without a restart. `auto` takes `ip`, `dns`, and `days`, 365
+  names, which has to exist, be allowed to sign certificates, and fit its key. Startup and a
+  daily check issue a new certificate when it has less than 30 days left, or less than a third
+  of its lifetime for one valid under 90 days, lacks a configured or detected name, or another
+  authority signed it, and the running listener presents it without a restart. From 30 days
+  before the authority itself expires, they warn that it needs replacing, since Ceres never
+  renews it. `auto` takes `ip`, `dns`, and `days`, 365
   by default and at most 825.
 - Every listener serves a managed certificate's authority at `/ca.crt`, the redirecting one
   included, and the console's login page links to a page with the download, the authority's
@@ -55,11 +58,11 @@ written, and the release workflow refuses a version that has no entry here.
   and the machine's interface addresses, or the `auto` names, plus any `--ip` and `--dns`
   names. Under `certificate: auto` it runs the issuance startup runs and only writes a
   certificate that is due, otherwise it refuses to replace existing files. `--force` replaces
-  them either way and `--days` sets the lifetime. It prints the authority to trust, the names,
-  the expiry, and the SHA-256 fingerprint.
+  them either way and `--days` sets the lifetime, 365 days by default. It prints the authority
+  to trust, the names, the expiry, and the SHA-256 fingerprint.
 - `ceres check` and engine startup warn when an HTTPS certificate Ceres does not manage expires
   within 30 days. Under `certificate: auto`, `ceres check` reports what startup is about to
-  issue.
+  issue, and warns when the certificate authority expires within 30 days.
 - `ceres run --development-source` serves the engine over plain HTTP alone, leaving any
   `server.https` listener out, so the console dev server can proxy to it and a project
   without a certificate still runs.

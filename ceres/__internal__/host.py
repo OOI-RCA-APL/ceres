@@ -127,6 +127,7 @@ async def _check(config_path: Path) -> int:
 
     for notice in (
         _certificate_plan(config.server),
+        _authority_warning(config.server),
         _expiry_warning(config.server, datetime.now(UTC)),
     ):
         if notice is not None:
@@ -161,6 +162,19 @@ def _certificate_plan(server: ServerConfig) -> str | None:
 
     status = NativeServer.certificate_status(server)
     return None if status is None else status[1]
+
+
+def _authority_warning(server: ServerConfig) -> str | None:
+    """Answer a warning when a managed certificate's authority expires within 30 days.
+
+    Ceres never renews an authority, so this is the only notice before clients stop trusting
+    it. The authority has already been read during the server check, so a failure to read it
+    here cannot happen.
+    """
+    from ceres.__internal__.core import NativeServer
+
+    status = NativeServer.certificate_status(server)
+    return None if status is None else status[2]
 
 
 def _expiry_warning(server: ServerConfig, now: datetime) -> str | None:

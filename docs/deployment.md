@@ -202,11 +202,11 @@ server:
     redirect: true
 ```
 
-Startup then creates a certificate authority in the project's `.ceres/tls` directory, once, and issues the HTTPS certificate with it. The certificate names localhost, the loopback addresses, the machine's hostname, and every address of its network interfaces other than loopback and link-local ones, with an ECDSA P-256 key, valid for 365 days. Ceres checks it at startup and daily while running, and issues a new one when it expires within 30 days, lacks a name, or was signed by another authority. The new certificate replaces the old one in the running listener, with no restart and without dropping open connections.
+Startup then creates a certificate authority in the project's `.ceres/tls` directory, once, and issues the HTTPS certificate with it. The certificate names localhost, the loopback addresses, the machine's hostname, and every address of its network interfaces other than loopback and link-local ones, with an ECDSA P-256 key, valid for 365 days. Ceres checks it at startup and daily while running, and issues a new one when it has less than 30 days left, or less than a third of its lifetime for one valid under 90 days, when it lacks a name, or when another authority signed it. The new certificate replaces the old one in the running listener, with no restart and without dropping open connections.
 
-Browsers trust the certificate once they trust the authority, `.ceres/tls/ca.crt`. Every listener serves it at `/ca.crt`, the redirecting one included, and the console's login page links to a page with the download, its fingerprint, and steps for each operating system. The authority stays the same through every renewal, so each client trusts it once.
+Browsers trust the certificate once they trust the authority, `.ceres/tls/ca.crt`. Every listener serves it at `/ca.crt`, the redirecting one included, and the console's login page links to a page with the download, its fingerprint, and steps for each operating system. The authority stays the same through every renewal, so each client trusts it once. It is valid for 10 years and Ceres never renews it. From 30 days before it expires, startup, the daily check, `ceres check`, and `ceres generate certificate` warn that it needs replacing.
 
-Name the addresses and DNS names clients reach the server by under `auto`, in place of the detected ones, along with the lifetime and an authority of your own. A supplied authority has to exist, Ceres never creates one at a path the configuration names.
+Name the addresses and DNS names clients reach the server by under `auto`, in place of the detected ones, along with the lifetime and an authority of your own. A supplied authority has to exist, Ceres never creates one at a path the configuration names. Its certificate has to be a certificate authority allowed to sign certificates, and its key has to belong to it.
 
 ```yaml
 server:
@@ -249,7 +249,7 @@ server:
       key: /etc/ceres/server.key
 ```
 
-Without `auto`, `ceres generate certificate` writes the configured paths once, signed by the authority at `.ceres/tls/ca.crt`, and replaces them only with `--force`.
+Without `auto`, `ceres generate certificate` writes the configured paths once, signed by the authority at `.ceres/tls/ca.crt`, and replaces them only with `--force`. The certificate is valid for 365 days unless `--days` sets another lifetime.
 
 `ceres check` and engine startup fail when the certificate or key cannot be loaded, and name `ceres generate certificate` and `certificate: auto` when either file is missing. Without `auto`, both also warn once fewer than 30 days remain before the certificate expires, `ceres check` on its output and startup in the engine log. With `auto`, `ceres check` reports what startup is about to issue, without writing anything.
 

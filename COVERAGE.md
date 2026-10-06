@@ -1,6 +1,6 @@
 # Coverage
 
-<!-- coverage:fingerprint:7be5ea626e03916d -->
+<!-- coverage:fingerprint:16e48b83f0fc00a2 -->
 
 ## Python
 
@@ -15,7 +15,7 @@
 | `ceres/__internal__/database/writer.py` | 83% |
 | `ceres/__internal__/entity.py` | 94% |
 | `ceres/__internal__/filter.py` | 100% |
-| `ceres/__internal__/host.py` | 42% |
+| `ceres/__internal__/host.py` | 48% |
 | `ceres/__internal__/interop.py` | 90% |
 | `ceres/__internal__/lazy.py` | 82% |
 | `ceres/__internal__/manager.py` | 76% |
@@ -143,7 +143,7 @@
 | `rust/ceres-config/src/error.rs` | 95% |
 | `rust/ceres-config/src/logging.rs` | 91% |
 | `rust/ceres-config/src/meta.rs` | 88% |
-| `rust/ceres-config/src/server.rs` | 49% |
+| `rust/ceres-config/src/server.rs` | 52% |
 | `rust/ceres-config/src/state.rs` | 98% |
 | `rust/ceres-config/src/types.rs` | 100% |
 | `rust/ceres-config/src/values.rs` | 83% |
@@ -217,8 +217,8 @@
 | `rust/ceres-server/src/redirect.rs` | 75% |
 | `rust/ceres-server/src/scrub.rs` | 97% |
 | `rust/ceres-server/src/serve.rs` | 85% |
-| `rust/ceres-server/src/tls.rs` | 70% |
-| `rust/ceres-server/src/tls/managed.rs` | 95% |
+| `rust/ceres-server/src/tls.rs` | 71% |
+| `rust/ceres-server/src/tls/managed.rs` | 96% |
 | `rust/ceres-server/src/trust.rs` | 99% |
 | `rust/ceres-stubs/src/polish.rs` | 96% |
 | **Total** | **67%** |

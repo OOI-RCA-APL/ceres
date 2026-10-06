@@ -28,6 +28,10 @@ use uuid::Uuid;
 
 use crate::interop::to_value_error;
 
+/// What `NativeServer.certificate_status` answers: the expiry, startup's plan, and the
+/// authority's warning.
+type CertificateStatusTuple = (Option<i64>, Option<String>, Option<String>);
+
 /// The Python engine as the server's host.
 ///
 /// Host coroutines await on the event loop captured when serving starts, carried here
@@ -560,24 +564,25 @@ impl NativeServer {
     }
 
     /// Read the HTTPS certificate the way the listener does, without writing anything, and
-    /// answer when it expires, in seconds since the Unix epoch, and what startup does to a
-    /// managed one.
+    /// answer when it expires, in seconds since the Unix epoch, what startup does to a
+    /// managed one, and the warning a managed one's authority draws close to expiry.
     ///
-    /// The expiry is `None` when startup issues the first managed certificate, and the plan
-    /// is `None` when startup keeps the current one. Answers `None` when no HTTPS listener
-    /// is configured. Raises `ValueError` naming the file when a certificate, key, or
-    /// authority cannot be read.
+    /// The expiry is `None` when startup issues the first managed certificate, the plan is
+    /// `None` when startup keeps the current one, and the warning is `None` while the
+    /// authority has more than 30 days left. Answers `None` when no HTTPS listener is
+    /// configured. Raises `ValueError` naming the file when a certificate, key, or authority
+    /// cannot be read or the authority cannot sign.
     #[staticmethod]
     fn certificate_status(
         config: &crate::ServerConfig,
-    ) -> PyResult<Option<(Option<i64>, Option<String>)>> {
+    ) -> PyResult<Option<CertificateStatusTuple>> {
         config
             .inner
             .https
             .as_ref()
             .map(|https| {
                 CertificateStatus::current(https)
-                    .map(|status| (status.expires, status.plan))
+                    .map(|status| (status.expires, status.plan, status.warning))
                     .map_err(to_value_error)
             })
             .transpose()

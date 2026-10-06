@@ -19,8 +19,15 @@ use x509_parser::extensions::GeneralName;
 
 use super::{Error, Notice, read, read_certificates, read_private_key};
 
-/// A certificate this close to expiry is renewed.
-pub const RENEWAL_WINDOW: Duration = Duration::days(30);
+/// How close to expiry a certificate issued for `days` renews: once two thirds of its
+/// lifetime is spent, and never later than 30 days before it expires.
+pub fn renewal_window(days: u32) -> Duration {
+    (Duration::days(i64::from(days)) / 3_i32).min(Duration::days(30))
+}
+
+/// An authority this close to expiry draws a warning at every check. Ceres never renews one,
+/// since every client would have to trust the new one.
+const AUTHORITY_WARNING: Duration = Duration::days(30);
 
 /// How long an authority Ceres creates stays valid.
 const AUTHORITY_LIFETIME: Duration = Duration::days(3650);
@@ -129,7 +136,7 @@ pub enum Renewal {
     ForeignIssuer,
     /// The certificate's validity starts in the future.
     NotYetValid,
-    /// The certificate has expired or expires within [`RENEWAL_WINDOW`].
+    /// The certificate has expired or expires within its [`renewal_window`].
     Expiring(OffsetDateTime),
     /// The certificate does not name every required name.
     MissingNames(Vec<SubjectName>),
@@ -168,6 +175,7 @@ enum Authority {
     Present {
         chain: Vec<CertificateDer<'static>>,
         key: PrivateKeyDer<'static>,
+        expires: OffsetDateTime,
     },
     /// Neither default file exists yet, so Ceres creates the authority.
     Absent,
@@ -207,7 +215,100 @@ impl Authority {
 
         let chain = read_certificates(&config.path)?;
         let key = read_private_key(&config.key, config.key_password.as_deref())?;
-        Ok(Self::Present { chain, key })
+        let expires = Self::validate(config, &chain, &key)?;
+        Ok(Self::Present {
+            chain,
+            key,
+            expires,
+        })
+    }
+
+    /// Check that the authority's certificate may sign certificates and that its key belongs
+    /// to it, answering when it expires.
+    fn validate(
+        config: &ServerCertificateAuthorityConfig,
+        chain: &[CertificateDer<'static>],
+        key: &PrivateKeyDer<'static>,
+    ) -> Result<OffsetDateTime, Error> {
+        let unusable = |reason: String| Error::AuthorityUnusable {
+            path: config.path.display().to_string(),
+            reason,
+        };
+        let (_, certificate) = x509_parser::parse_x509_certificate(&chain[0])
+            .map_err(|error| malformed(&config.path, error))?;
+        if !certificate.is_ca() {
+            return Err(unusable("It is not a certificate authority.".into()));
+        }
+        // Without the extension every usage is allowed.
+        match certificate.key_usage() {
+            Ok(Some(usage)) if !usage.value.key_cert_sign() => {
+                return Err(unusable(
+                    "Its key usage does not include signing certificates.".into(),
+                ));
+            }
+            Ok(_) => {}
+            Err(error) => return Err(malformed(&config.path, error)),
+        }
+
+        let provider = rustls::crypto::ring::default_provider();
+        match rustls::sign::CertifiedKey::from_der(chain.to_vec(), key.clone_key(), &provider) {
+            Ok(_) => {}
+            Err(rustls::Error::InconsistentKeys(_)) => {
+                return Err(unusable(format!(
+                    "The key {} does not belong to it.",
+                    config.key.display()
+                )));
+            }
+            Err(error) => {
+                return Err(unusable(format!(
+                    "The key {} cannot be used. {error}",
+                    config.key.display()
+                )));
+            }
+        }
+
+        Ok(certificate.validity().not_after.to_datetime())
+    }
+
+    /// The warning an authority expiring within [`AUTHORITY_WARNING`] of `now` draws.
+    fn warning(
+        &self,
+        config: &ServerCertificateAuthorityConfig,
+        supplied: bool,
+        now: OffsetDateTime,
+    ) -> Option<String> {
+        let Self::Present { expires, .. } = self else {
+            return None;
+        };
+        if *expires - now > AUTHORITY_WARNING {
+            return None;
+        }
+
+        let path = config.path.display();
+        let state = if *expires <= now {
+            format!(
+                "The certificate authority {path} expired on {}, so clients no longer trust the \
+                 certificates it signs.",
+                expires.date()
+            )
+        } else {
+            format!(
+                "The certificate authority {path} expires on {}.",
+                expires.date()
+            )
+        };
+        let remedy = if supplied {
+            "Replace it at the paths `auto.ca` names".to_string()
+        } else {
+            format!(
+                "Remove {path} and {} for Ceres to create a new one",
+                config.key.display()
+            )
+        };
+        Some(format!(
+            "{state} Ceres never renews an authority. {remedy}, and trust the new one on each \
+             client."
+        ))
     }
 }
 
@@ -226,6 +327,7 @@ impl Leaf {
         certificate: &ServerCertificateConfig,
         authority: &Authority,
         names: &[SubjectName],
+        window: Duration,
         now: OffsetDateTime,
     ) -> Result<Self, Error> {
         let (Some(chain), Some(key)) = (read(&certificate.path)?, read(&certificate.key)?) else {
@@ -271,7 +373,7 @@ impl Leaf {
         }
 
         let not_after = validity.not_after.to_datetime();
-        if not_after - now < RENEWAL_WINDOW {
+        if not_after - now < window {
             return Ok(Self::Due(Renewal::Expiring(not_after)));
         }
 
@@ -334,6 +436,8 @@ pub struct Inspection {
     pub renewal: Option<Renewal>,
     /// Whether Ceres creates the default authority before issuing.
     pub creates_authority: bool,
+    /// The warning an authority close to expiry or past it draws.
+    pub authority_warning: Option<String>,
 }
 
 impl Inspection {
@@ -344,20 +448,28 @@ impl Inspection {
         names: &[SubjectName],
         now: OffsetDateTime,
     ) -> Result<Self, Error> {
-        let authority = Authority::read(&auto.authority(), auto.ca.is_some())?;
+        let config = auto.authority();
+        let supplied = auto.ca.is_some();
+        let authority = Authority::read(&config, supplied)?;
         let creates_authority = matches!(authority, Authority::Absent);
-        Ok(match Leaf::judge(certificate, &authority, names, now)? {
-            Leaf::Current { not_after, .. } => Self {
-                expires: Some(not_after),
-                renewal: None,
-                creates_authority,
+        let authority_warning = authority.warning(&config, supplied, now);
+        let window = renewal_window(auto.days);
+        Ok(
+            match Leaf::judge(certificate, &authority, names, window, now)? {
+                Leaf::Current { not_after, .. } => Self {
+                    expires: Some(not_after),
+                    renewal: None,
+                    creates_authority,
+                    authority_warning,
+                },
+                Leaf::Due(renewal) => Self {
+                    expires: None,
+                    renewal: Some(renewal),
+                    creates_authority,
+                    authority_warning,
+                },
             },
-            Leaf::Due(renewal) => Self {
-                expires: None,
-                renewal: Some(renewal),
-                creates_authority,
-            },
-        })
+        )
     }
 }
 
@@ -375,6 +487,8 @@ pub struct Managed {
     pub expires: OffsetDateTime,
     /// SHA-256 fingerprint of the certificate, colon-separated uppercase hex.
     pub fingerprint: String,
+    /// The warning an authority close to expiry or past it draws.
+    pub authority_warning: Option<String>,
 }
 
 impl Managed {
@@ -410,13 +524,19 @@ impl Managed {
         issuance.ensure(&certificate, names, now, force)
     }
 
-    /// What the log says about the certificate at `certificate`, nothing when it was kept.
+    /// What the log says about the certificate at `certificate`: what was created and
+    /// issued, and the authority's expiry when it is close.
     pub fn notices(&self, certificate: &Path) -> Vec<Notice> {
+        let mut notices: Vec<Notice> = self
+            .authority_warning
+            .iter()
+            .cloned()
+            .map(Notice::Warning)
+            .collect();
         let Some(renewal) = &self.issued else {
-            return Vec::new();
+            return notices;
         };
 
-        let mut notices = Vec::new();
         if self.created_authority {
             notices.push(Notice::Info(format!(
                 "Created the certificate authority {}. Trust it on each client to trust the \
@@ -454,7 +574,8 @@ impl Issuance {
     ) -> Result<Managed, Error> {
         let config = &self.authority;
         let mut authority = Authority::read(config, self.supplied)?;
-        let leaf = Leaf::judge(certificate, &authority, names, now)?;
+        let window = renewal_window(self.days);
+        let leaf = Leaf::judge(certificate, &authority, names, window, now)?;
 
         if let (
             false,
@@ -473,6 +594,7 @@ impl Issuance {
                 names: carried_names(&parsed),
                 expires: *not_after,
                 fingerprint: fingerprint(presented),
+                authority_warning: authority.warning(config, self.supplied, now),
             });
         }
 
@@ -488,9 +610,11 @@ impl Issuance {
             authority = create_authority(&config.path, &config.key, now)?;
         }
 
+        let authority_warning = authority.warning(config, self.supplied, now);
         let Authority::Present {
             chain: authority_chain,
             key: authority_key,
+            ..
         } = authority
         else {
             unreachable!("the authority exists once created");
@@ -514,6 +638,7 @@ impl Issuance {
             names: names.to_vec(),
             expires: not_after,
             fingerprint: fingerprint(&der),
+            authority_warning,
         })
     }
 }
@@ -553,6 +678,7 @@ fn create_authority(path: &Path, key: &Path, now: OffsetDateTime) -> Result<Auth
         chain: vec![certificate.der().clone()],
         key: PrivateKeyDer::try_from(signing_key.serialize_der())
             .map_err(|error| Error::Issue(error.into()))?,
+        expires: params.not_after,
     })
 }
 
@@ -770,6 +896,11 @@ mod tests {
 
     impl Project {
         fn new() -> Self {
+            Self::lasting(365)
+        }
+
+        /// A project issuing certificates valid for `days`.
+        fn lasting(days: u32) -> Self {
             let directory = tempfile::tempdir().unwrap();
             let tls = directory.path().join(".ceres/tls");
             Self {
@@ -780,7 +911,7 @@ mod tests {
                     auto: Some(ServerCertificateAutoConfig::default()),
                 },
                 issuance: Issuance {
-                    days: 365,
+                    days,
                     authority: ServerCertificateAuthorityConfig {
                         path: tls.join("ca.crt"),
                         key: tls.join("ca.key"),
@@ -992,11 +1123,10 @@ mod tests {
 
     #[test]
     fn certificates_renew_within_thirty_days_of_expiry() {
-        let project = Project::new();
+        let project = Project::lasting(365);
         let issued = project.ensure(&localhost(), now()).unwrap();
         let leaf = project.leaf();
 
-        // Spelled out rather than `RENEWAL_WINDOW`, which is what this pins.
         let window = Duration::days(30);
         let outside = issued.expires - window - Duration::SECOND;
         assert_eq!(project.ensure(&localhost(), outside).unwrap().issued, None);
@@ -1015,6 +1145,26 @@ mod tests {
             project.ensure(&localhost(), later).unwrap().issued,
             Some(Renewal::Expiring(issued.expires))
         );
+    }
+
+    #[test]
+    fn short_lived_certificates_renew_with_a_third_of_their_lifetime_left() {
+        let project = Project::lasting(30);
+        let issued = project.ensure(&localhost(), now()).unwrap();
+        let leaf = project.leaf();
+
+        // A fresh certificate is kept rather than reissued at every check.
+        assert_eq!(project.ensure(&localhost(), now()).unwrap().issued, None);
+
+        let window = Duration::days(10);
+        let outside = issued.expires - window - Duration::SECOND;
+        assert_eq!(project.ensure(&localhost(), outside).unwrap().issued, None);
+        assert_eq!(project.leaf(), leaf);
+
+        let inside = issued.expires - window + Duration::SECOND;
+        let renewed = project.ensure(&localhost(), inside).unwrap();
+        assert_eq!(renewed.issued, Some(Renewal::Expiring(issued.expires)));
+        assert_ne!(project.leaf(), leaf);
     }
 
     #[test]
@@ -1171,6 +1321,146 @@ mod tests {
             )
         );
         assert!(!authority.key.exists());
+    }
+
+    #[test]
+    fn authorities_whose_key_does_not_fit_are_refused() {
+        let project = Project::new();
+        project.ensure(&localhost(), now()).unwrap();
+        let authority = &project.issuance.authority;
+        let other = rcgen::KeyPair::generate().unwrap();
+        std::fs::write(&authority.key, other.serialize_pem()).unwrap();
+        let leaf = project.leaf();
+
+        let error = project
+            .issuance
+            .ensure(&project.certificate, &localhost(), now(), true)
+            .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "{} cannot sign HTTPS certificates. The key {} does not belong to it.",
+                authority.path.display(),
+                authority.key.display()
+            )
+        );
+        assert_eq!(project.leaf(), leaf);
+    }
+
+    #[test]
+    fn authorities_that_cannot_sign_certificates_are_refused() {
+        let project = Project::new();
+        let authority = project.issuance.authority.clone();
+
+        // A server certificate where the authority belongs.
+        let leaf = rcgen::generate_simple_self_signed(["localhost".to_string()]).unwrap();
+        write_pair(
+            &authority.path,
+            &leaf.cert.pem(),
+            &authority.key,
+            &leaf.signing_key.serialize_pem(),
+        )
+        .unwrap();
+        let error = project.ensure(&localhost(), now()).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "{} cannot sign HTTPS certificates. It is not a certificate authority.",
+                authority.path.display()
+            )
+        );
+        assert!(!project.certificate.path.exists());
+
+        // An authority whose key usage leaves out signing certificates.
+        let key = rcgen::KeyPair::generate().unwrap();
+        let mut params = rcgen::CertificateParams::default();
+        params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+        params.key_usages = vec![rcgen::KeyUsagePurpose::CrlSign];
+        let certificate = params.self_signed(&key).unwrap();
+        write_pair(
+            &authority.path,
+            &certificate.pem(),
+            &authority.key,
+            &key.serialize_pem(),
+        )
+        .unwrap();
+        let error = project.ensure(&localhost(), now()).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "{} cannot sign HTTPS certificates. Its key usage does not include signing \
+                 certificates.",
+                authority.path.display()
+            )
+        );
+        assert!(!project.certificate.path.exists());
+    }
+
+    #[test]
+    fn authorities_close_to_expiry_draw_a_warning_and_stay() {
+        let project = Project::new();
+        let authority = &project.issuance.authority;
+        // Created long enough ago that 20 days of its lifetime remain.
+        let created = now() - AUTHORITY_LIFETIME + Duration::days(20);
+        create_authority(&authority.path, &authority.key, created).unwrap();
+        let expires = parse(&project.authority())
+            .validity()
+            .not_after
+            .to_datetime();
+        let original = project.authority();
+
+        let warning = format!(
+            "The certificate authority {path} expires on {}. Ceres never renews an authority. \
+             Remove {path} and {} for Ceres to create a new one, and trust the new one on each \
+             client.",
+            expires.date(),
+            authority.key.display(),
+            path = authority.path.display(),
+        );
+        let managed = project.ensure(&localhost(), now()).unwrap();
+        assert_eq!(managed.authority_warning.as_ref(), Some(&warning));
+        assert_eq!(
+            managed.notices(&project.certificate.path)[0],
+            Notice::Warning(warning.clone())
+        );
+        assert_eq!(project.authority(), original);
+
+        // A kept certificate still reports it, and so does the check.
+        let kept = project.ensure(&localhost(), now()).unwrap();
+        assert_eq!(kept.issued, None);
+        assert_eq!(
+            kept.notices(&project.certificate.path),
+            [Notice::Warning(warning.clone())]
+        );
+        let auto = ServerCertificateAutoConfig {
+            ca: Some(authority.clone()),
+            ..ServerCertificateAutoConfig::default()
+        };
+        let inspection = Inspection::of(&project.certificate, &auto, &localhost(), now()).unwrap();
+        assert!(
+            inspection
+                .authority_warning
+                .unwrap()
+                .contains("Replace it at the paths")
+        );
+
+        // Past expiry it says so, and the authority still stays.
+        let later = expires + Duration::DAY;
+        let expired = project.ensure(&localhost(), later).unwrap();
+        assert!(expired.authority_warning.unwrap().starts_with(&format!(
+            "The certificate authority {} expired on {}, so clients no longer trust the \
+                 certificates it signs.",
+            authority.path.display(),
+            expires.date()
+        )));
+        assert_eq!(project.authority(), original);
+
+        // Further out than 30 days there is nothing to say.
+        let fresh = Project::new();
+        assert_eq!(
+            fresh.ensure(&localhost(), now()).unwrap().authority_warning,
+            None
+        );
     }
 
     #[test]
