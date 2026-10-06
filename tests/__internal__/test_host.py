@@ -106,8 +106,14 @@ def test_engine_startup_logs_the_expiry_warning(tmp_path: Path) -> None:
 
     # Log lines wrap to the terminal width, so the words are compared without the breaks.
     logged = " ".join("".join(output).split())
-    # Validity starts an hour back and spans the days asked for.
-    expires = f"{datetime.now(UTC) - timedelta(hours=1) + timedelta(days=3):%Y-%m-%d}"
+    # Read from the certificate, since its validity ends a second before a day boundary when
+    # it was issued an hour after one.
+    tls = tmp_path / ".ceres" / "tls"
+    certificate = {"path": str(tls / "server.crt"), "key": str(tls / "server.key")}
+    status = NativeServer.certificate_status(ServerConfig(https={"certificate": certificate}))
+    assert status is not None
+    assert status[0] is not None
+    expires = f"{datetime.fromtimestamp(status[0], UTC):%Y-%m-%d}"
     assert (
         f"[WARNING] [~] The HTTPS certificate .ceres/tls/server.crt expires on {expires}, "
         "in 3 days. Run `ceres generate certificate --force` to replace it."
