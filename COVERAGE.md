@@ -136,7 +136,7 @@
 | `rust/ceres-cli/src/output.rs` | 91% |
 | `rust/ceres-cli/src/project.rs` | 39% |
 | `rust/ceres-cli/src/reference.rs` | 100% |
-| `rust/ceres-cli/src/runtime.rs` | 10% |
+| `rust/ceres-cli/src/runtime.rs` | 8% |
 | `rust/ceres-cli/src/selector.rs` | 100% |
 | `rust/ceres-cli/src/service.rs` | 24% |
 | `rust/ceres-config/src/database.rs` | 89% |

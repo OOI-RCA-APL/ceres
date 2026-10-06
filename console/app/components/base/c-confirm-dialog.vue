@@ -24,7 +24,12 @@ const emit = defineEmits<{ close: [boolean] }>()
 </script>
 
 <template>
-  <c-modal :description="message" :dismissible="!persistent" :title="title">
+  <c-modal
+    :description="message"
+    :dismissible="!persistent"
+    :title="title"
+    @update:open="(value: boolean) => value || emit('close', false)"
+  >
     <template v-if="note != null" #body>
       <c-text class="italic" variant="description">{{ note }}</c-text>
     </template>

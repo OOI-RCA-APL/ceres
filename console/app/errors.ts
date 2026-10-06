@@ -66,6 +66,7 @@ export async function guard<T>(promise: Promise<T>, handling: ErrorHandling): Pr
 export type ErrorType =
   | 'non-json-response-error'
   | 'response-parse-error'
+  | 'request-timeout-error'
   | 'not-found-error'
   | 'already-exists-error'
   | 'bad-credentials-error'
@@ -81,5 +82,6 @@ export type ErrorInfo = BaseErrorInfo &
     | { type: 'already-exists-error'; field: string }
     | { type: 'non-json-response-error'; message: string }
     | { type: 'response-parse-error'; issues: z.core.$ZodIssue[] }
+    | { type: 'request-timeout-error'; timeout: number }
     | { type: string }
   )
