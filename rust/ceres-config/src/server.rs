@@ -1,7 +1,7 @@
 //! The HTTP server configuration section.
 
 use std::net::IpAddr;
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 
 use ceres_macros::kebab_aliases;
 use schemars::JsonSchema;
@@ -242,13 +242,55 @@ impl TryFrom<RawServerCertificateConfig> for ServerCertificateConfig {
             ));
         }
 
+        let path = raw.path.unwrap_or(defaults.path);
+        let key = raw.key.unwrap_or(defaults.key);
+        // Each file holds one thing, and a managed certificate would overwrite the other.
+        let authority = auto.as_ref().map(ServerCertificateAutoConfig::authority);
+        let mut files = vec![("path", &path), ("key", &key)];
+        if let Some(authority) = &authority {
+            files.extend([
+                ("auto.ca.path", &authority.path),
+                ("auto.ca.key", &authority.key),
+            ]);
+        }
+        for (index, (location, file)) in files.iter().enumerate() {
+            let earlier = files[..index]
+                .iter()
+                .find(|(_, earlier)| lexical(earlier) == lexical(file));
+            if let Some((other, _)) = earlier {
+                problems.push(Problem::new(
+                    *location,
+                    format!("is {}, the same file as `{other}`.", file.display()),
+                ));
+            }
+        }
+
         problems.into_result(Self {
-            path: raw.path.unwrap_or(defaults.path),
-            key: raw.key.unwrap_or(defaults.key),
+            path,
+            key,
             key_password: raw.key_password,
             auto,
         })
     }
+}
+
+/// `path` with `.` dropped and `..` folded into the component before it, so spellings of
+/// one file compare equal without touching the filesystem.
+fn lexical(path: &Path) -> PathBuf {
+    let mut lexical = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir
+                if matches!(lexical.components().next_back(), Some(Component::Normal(_))) =>
+            {
+                lexical.pop();
+            }
+            component => lexical.push(component),
+        }
+    }
+
+    lexical
 }
 
 /// Read `auto` as `true`, `false`, or the issuance settings.
@@ -991,6 +1033,50 @@ mod tests {
         );
         // Without `auto`, the password decrypts a key the user wrote.
         assert!(certificate("{key-password: hunter2}").is_ok());
+    }
+
+    #[test]
+    fn certificate_files_must_not_collide() {
+        let problems = |written: &str| -> Vec<(String, String)> {
+            certificate(written)
+                .unwrap_err()
+                .0
+                .into_iter()
+                .map(|problem| (problem.location, problem.message))
+                .collect()
+        };
+        assert_eq!(
+            problems("{path: tls/site.pem, key: ./tls/site.pem}"),
+            [(
+                "https.certificate.key".to_string(),
+                "is ./tls/site.pem, the same file as `path`.".to_string()
+            )]
+        );
+        // The defaults count, and so do spellings that fold to the same file.
+        assert_eq!(
+            problems("{auto: {ca: {path: .ceres/tls/server.crt}}}"),
+            [(
+                "https.certificate.auto.ca.path".to_string(),
+                "is .ceres/tls/server.crt, the same file as `path`.".to_string()
+            )]
+        );
+        assert_eq!(
+            problems("{auto: {ca: {path: ca/x/../ca.pem, key: ca/ca.pem}}}"),
+            [(
+                "https.certificate.auto.ca.key".to_string(),
+                "is ca/ca.pem, the same file as `auto.ca.path`.".to_string()
+            )]
+        );
+        assert_eq!(
+            problems("{key: .ceres/tls/ca.key, auto: true}"),
+            [(
+                "https.certificate.auto.ca.key".to_string(),
+                "is .ceres/tls/ca.key, the same file as `key`.".to_string()
+            )]
+        );
+        // The authority's paths only matter when Ceres manages the certificate.
+        assert!(certificate("{key: .ceres/tls/ca.key}").is_ok());
+        assert!(certificate("{path: a/b.crt, key: b.crt}").is_ok());
     }
 
     #[test]
