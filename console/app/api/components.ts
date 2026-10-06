@@ -91,6 +91,17 @@ export function canInvokeProcedure(
   return permissionRank[level] >= permissionRank[procedure.permissions]
 }
 
+/** The segment naming a procedure's kind in a path such as `@camera::queries::video`. */
+export function procedureNamespace(procedure: ProcedureInfo | null): 'queries' | 'actions' {
+  return procedure?.type === 'query' ? 'queries' : 'actions'
+}
+
+/** Whether a workspace button can run the procedure: any action, and a query returning a value
+rather than a file or a stream, which a button has nowhere to show. */
+export function isButtonProcedure(procedure: ProcedureInfo): boolean {
+  return procedure.type === 'action' || procedure.output.type === 'value'
+}
+
 /** The access a procedure asks for, as a sentence. */
 export function describeProcedurePermissions(procedure: ProcedureInfo): string {
   if (procedure.permissions === 'public') {

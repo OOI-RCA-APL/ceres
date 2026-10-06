@@ -69,6 +69,10 @@ written, and the release workflow refuses a version that has no entry here.
 
 **Web Console**
 
+- Control buttons can call queries as well as actions, under a "Procedure" field. A query's
+  result shows under the arguments form when the button asks for arguments, or otherwise in a
+  popup that can run the query again. A new query button runs without asking first. Queries
+  returning a file or a stream are not offered.
 - The workspaces section says "No workspaces yet." with a create button for each kind of
   workspace on one line when it is empty, and an empty group shrinks to one line naming what
   it lacks. Create buttons sit beside their group's label.

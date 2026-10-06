@@ -3,6 +3,7 @@ import { startCase } from 'lodash-es'
 import { watchEffect } from 'vue'
 
 import { Address } from '@/api/address'
+import { isButtonProcedure, procedureNamespace } from '@/api/components'
 import { useEngine } from '@/api/engine'
 import icons from '@/icons'
 import { isEmptyObjectSchema, useSchemaForm } from '@/schema-form'
@@ -27,30 +28,46 @@ const component = $computed(() =>
   resolvedAddress != null ? engine.components.get(resolvedAddress) : null,
 )
 
-const possibleActions = $computed(
+// A button shows what a query returns in a popup, which holds a value but not a file or a stream,
+// so those queries are left out.
+const possibleProcedures = $computed(
   () =>
     component?.procedures
-      .filter((procedure) => procedure.type === 'action')
+      .filter((procedure) => isButtonProcedure(procedure))
       .map((procedure) => procedure.name) ?? [],
 )
 
 watchEffect(() => {
-  if (button.action != null && !possibleActions.includes(button.action)) {
+  if (button.action != null && !possibleProcedures.includes(button.action)) {
     button.action = undefined
   }
 })
 
-const action = $computed(() => {
+const procedure = $computed(() => {
   if (resolvedAddress == null || button.action == null) {
     return null
   }
 
-  return engine.components.getAction(resolvedAddress, button.action)
+  return engine.components.getProcedure(resolvedAddress, button.action)
 })
 
 // The full path of what pressing runs, written the way an address is, the same as the popup's
-// title. Only shown once there is an action, so the parts are there to name.
-const actionPath = $computed(() => `${resolvedAddress}::actions::${button.action}`)
+// title. Only shown once there is a procedure, so the parts are there to name.
+const procedurePath = $computed(
+  () => `${resolvedAddress}::${procedureNamespace(procedure)}::${button.action}`,
+)
+
+/** Choose what the button runs, asking first by default for an action but not for a query, which
+only reads. Only a choice made here sets it, so a stored button keeps whatever it was given. */
+function chooseProcedure(name: string | null | undefined) {
+  button.action = name ?? undefined
+  if (resolvedAddress != null && name != null) {
+    const chosen = engine.components.getProcedure(resolvedAddress, name)
+    if (chosen != null) {
+      button.confirm = chosen.type === 'action'
+    }
+  }
+}
 
 // The arguments the button holds, edited where the rest of it is set up rather than only from the
 // popup a press opens. Written straight onto the button, since these are the arguments it offers
@@ -64,7 +81,7 @@ const held = {
 
 const form = useSchemaForm({
   ...held,
-  schema: () => action?.arguments.json_schema ?? { type: 'object', properties: {} },
+  schema: () => procedure?.arguments.json_schema ?? { type: 'object', properties: {} },
   title: 'Arguments',
 })
 
@@ -106,7 +123,7 @@ const takesArguments = $computed(() => !isEmptyObjectSchema(form.getSchema([])))
         }"
       />
     </div>
-    <c-text variant="th">Action</c-text>
+    <c-text variant="th">Procedure</c-text>
     <c-workspace-address-select
       :model-value="button.address?.toString() ?? null"
       @update:model-value="
@@ -114,15 +131,16 @@ const takesArguments = $computed(() => !isEmptyObjectSchema(form.getSchema([])))
       "
     />
     <c-schema-form-value
-      v-model="button.action"
-      :schema="{ type: 'string', title: 'Action', enum: possibleActions, optional: true }"
+      :model-value="button.action"
+      :schema="{ type: 'string', title: 'Procedure', enum: possibleProcedures, optional: true }"
+      @update:model-value="(value: unknown) => chooseProcedure(value as string | null | undefined)"
     />
     <div v-if="button.action != null">
-      <!-- The confirm and the lock ride the action they govern, the same controls in the same
+      <!-- The confirm and the lock ride the procedure they govern, the same controls in the same
       corner as the popup's, so the two places read as one thing. The lock only means anything
-      for an action taking arguments, so only there is it offered. -->
+      for a procedure taking arguments, so only there is it offered. -->
       <div class="flex flex-nowrap items-center gap-1">
-        <c-text class="grow" variant="mono-sm">{{ actionPath }}</c-text>
+        <c-text class="grow" variant="mono-sm">{{ procedurePath }}</c-text>
         <c-tooltip :text="button.confirm ? 'Confirm Dialog Enabled' : 'Confirm Dialog Disabled'">
           <c-button
             :color="button.confirm ? 'primary' : 'warning'"
