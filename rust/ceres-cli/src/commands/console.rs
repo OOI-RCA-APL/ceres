@@ -1,5 +1,6 @@
 //! Commands for interacting with a project's web console.
 
+use std::net::IpAddr;
 use std::process::Command;
 
 use ceres_config::ConfigMeta;
@@ -36,23 +37,18 @@ pub fn open(project: &Project) -> Result<()> {
 
 /// Build the web console URL from the project's server configuration.
 fn console_url(meta: &ConfigMeta) -> Result<String> {
-    let Some(port) = meta.server.port else {
+    let Some((scheme, port)) = meta.server.console_listener() else {
         fail!(
-            "Server is not configured. Add `server` settings to `ceres.yaml` with a defined \
-             `port` number."
+            "Server is not configured. Add a `server.https` or `server.http` listener to \
+             `ceres.yaml`."
         );
     };
 
-    let host = if meta.server.host == "0.0.0.0" {
-        "localhost"
-    } else {
-        &meta.server.host
-    };
-
-    let scheme = if meta.server.ssl.is_none() {
-        "http"
-    } else {
-        "https"
+    // Validation guarantees the bind address parses, and a wildcard is reachable locally.
+    let host = match meta.server.bind.parse::<IpAddr>() {
+        Ok(address) if address.is_unspecified() => "localhost".to_string(),
+        Ok(IpAddr::V6(address)) => format!("[{address}]"),
+        _ => meta.server.bind.clone(),
     };
 
     Ok(format!("{scheme}://{host}:{port}"))
@@ -64,13 +60,19 @@ mod tests {
 
     #[test]
     fn urls_resolve_host_and_scheme() {
-        let meta = ConfigMeta::parse("server:\n  port: 8080\n").unwrap();
+        let meta = ConfigMeta::parse("server:\n  http:\n    port: 8080\n").unwrap();
         assert_eq!(console_url(&meta).unwrap(), "http://localhost:8080");
 
-        let meta =
-            ConfigMeta::parse("server:\n  host: 10.0.0.5\n  port: 443\n  ssl:\n    cert: c\n")
-                .unwrap();
-        assert_eq!(console_url(&meta).unwrap(), "https://10.0.0.5:443");
+        let meta = ConfigMeta::parse(
+            "server:\n  bind: 10.0.0.5\n  https:\n    port: 8443\n  http:\n    redirect: true\n",
+        )
+        .unwrap();
+        assert_eq!(console_url(&meta).unwrap(), "https://10.0.0.5:8443");
+
+        let meta = ConfigMeta::parse("server:\n  bind: '::1'\n  http: {}\n").unwrap();
+        assert_eq!(console_url(&meta).unwrap(), "http://[::1]:80");
+        let meta = ConfigMeta::parse("server:\n  bind: '::'\n  http: {}\n").unwrap();
+        assert_eq!(console_url(&meta).unwrap(), "http://localhost:80");
     }
 
     #[test]

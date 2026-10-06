@@ -30,8 +30,16 @@ export const IdentityModel = z.object({
   impersonated_by: z.string().nullish(),
 })
 
+export type Authority = z.infer<typeof AuthorityModel>
+/** The certificate authority signing a managed HTTPS certificate, downloadable at `/ca.crt`. */
+export const AuthorityModel = z.object({
+  /** SHA-256 fingerprint of its certificate, colon-separated uppercase hex. */
+  fingerprint: z.string(),
+})
+
 export const AuthFeaturesModel = z.object({
   impersonate: z.boolean(),
+  authority: AuthorityModel.nullish(),
 })
 
 function getAuthorizationCookieType() {
@@ -179,6 +187,8 @@ export const useAuth = defineStore('auth', () => {
     isAdmin: computed(() => identity?.user?.admin ?? false),
     isViewer: computed(() => identity?.user),
     canImpersonate: computed(() => features?.impersonate === true),
+    /** The authority clients trust for a managed certificate, `null` without one. */
+    authority: computed(() => features?.authority ?? null),
     // Either signal is enough, because either one alone goes missing. A refreshed token comes back
     // without `impersonated_by`, and a stash can be lost with the tab. Whichever survives has to
     // still offer the way out, and stopping without a stash signs out rather than stranding anyone.

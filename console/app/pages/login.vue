@@ -1,4 +1,6 @@
 <script lang="ts" setup>
+import { onMounted } from 'vue'
+
 import { useEngine } from '@/api/engine'
 import { guard } from '@/errors'
 import { useForm } from '@/form'
@@ -11,6 +13,9 @@ const engine = useEngine()
 const navigation = useNavigation()
 const validate = useValidate()
 const notify = useNotify()
+
+// The features answer before login, and say whether there is an authority to offer.
+onMounted(() => engine.auth.loadFeatures())
 
 // Where to land after signing in, carried in the query by the guard that sent the user here.
 const redirect = $computed(() => {
@@ -92,5 +97,6 @@ const form = useForm({
         />
       </form>
     </div>
+    <c-trust-link :authority="engine.auth.authority" class="mt-3" />
   </div>
 </template>

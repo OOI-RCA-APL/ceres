@@ -97,6 +97,21 @@ impl ServiceContext {
         self.resolve(self.config.stderr.as_deref())
     }
 
+    /// Create the directories the log files go in.
+    ///
+    /// The service manager opens those files before the engine starts and creates neither
+    /// the files' directories nor anything else, so a fresh project needs them made here.
+    fn create_log_directories(&self) -> Result<()> {
+        for path in [self.stdout(), self.stderr()].into_iter().flatten() {
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|error| failure!("Failed to create {}. {error}", parent.display()))?;
+            }
+        }
+
+        Ok(())
+    }
+
     fn resolve(&self, path: Option<&Path>) -> Option<PathBuf> {
         let path = path?;
         if path.is_absolute() {
@@ -297,6 +312,7 @@ impl SystemDService {
 
     /// Create or update the unit file and register the service.
     fn create(&self) -> Result<()> {
+        self.context.create_log_directories()?;
         if write_if_changed(&self.path(), &self.generate()?)? {
             self.systemctl(&["daemon-reload", "--user"])?;
         }
@@ -458,6 +474,7 @@ impl LaunchDService {
 
     /// Create or update the plist file and register the service.
     fn create(&self) -> Result<()> {
+        self.context.create_log_directories()?;
         write_if_changed(&self.path(), &self.generate()?)?;
         self.launchctl(&["enable", &self.target()])?;
         Ok(())
@@ -607,6 +624,25 @@ mod tests {
         assert!(plist.contains("<string>worker</string>"));
         assert!(plist.contains("<string>run</string>"));
         assert!(plist.contains("<string>/opt/project</string>"));
+    }
+
+    #[test]
+    fn log_directories_exist_before_the_service_starts() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = ServiceConfig {
+            stdout: Some(PathBuf::from("local/out.log")),
+            stderr: Some(directory.path().join("logs/err.log")),
+            ..ServiceConfig::default()
+        };
+        let context = ServiceContext::new(
+            Project::at(directory.path().join("ceres.yaml")),
+            config,
+            Output::new(Some(false)),
+        );
+
+        context.create_log_directories().unwrap();
+        assert!(directory.path().join("local").is_dir());
+        assert!(directory.path().join("logs").is_dir());
     }
 
     #[test]

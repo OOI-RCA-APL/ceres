@@ -55,18 +55,26 @@ python_config! {
         favicon: Option<PathBuf>,
     }
 
-    /// TLS configuration for the engine's HTTP server.
-    ServerSSLConfig(ceres_config::ServerSslConfig, ceres_config::RawServerSslConfig) {
-        /// Path to the server private key file.
-        key: Option<PathBuf>,
-        /// Password for an encrypted private key.
-        key_password: Option<String>,
-        /// Path to the server certificate file.
-        cert: Option<PathBuf>,
-        /// `ssl` protocol constant selecting the TLS version.
-        version: Option<i64>,
-        /// Path to a CA bundle used when validating client certificates.
-        ca_certs: Option<PathBuf>,
+    /// The HTTPS listener of the engine's HTTP server.
+    ServerHTTPSConfig(ceres_config::ServerHttpsConfig, ceres_config::RawServerHttpsConfig) {
+        /// Port the HTTPS listener binds.
+        port: u16,
+        /// The certificate the listener presents, `"auto"` for one Ceres issues and renews
+        /// itself, or a mapping of `path`, `key`, `key-password`, and `auto`.
+        #[python(any = "str | dict[str, typing.Any]")]
+        certificate: ceres_config::ServerCertificateConfig,
+        /// Lowest TLS version offered, `"1.2"` or `"1.3"`.
+        #[python(any = "str")]
+        min_version: ceres_config::TlsVersion,
+    }
+
+    /// The plain HTTP listener of the engine's HTTP server.
+    ServerHTTPConfig(ceres_config::ServerHttpConfig, ceres_config::RawServerHttpConfig) {
+        /// Port the plain HTTP listener binds.
+        port: u16,
+        /// Whether the listener redirects every request to the HTTPS listener rather than
+        /// serving it.
+        redirect: bool,
     }
 
     /// Authentication settings for the engine's HTTP server.
@@ -131,13 +139,14 @@ python_config! {
 
     /// Configuration for the engine's HTTP server.
     ServerConfig(ceres_config::ServerConfig, ceres_config::RawServerConfig) {
-        /// Address the server binds to.
-        host: String,
-        /// Port the server listens on, omit to disable the server.
-        port: Option<u16>,
-        /// TLS settings, omit to serve plain HTTP.
-        #[python(nested = ServerSSLConfig)]
-        ssl: Option<ceres_config::ServerSslConfig>,
+        /// Address both listeners bind.
+        bind: String,
+        /// HTTPS listener. The server is off when neither `https` nor `http` is set.
+        #[python(nested = ServerHTTPSConfig)]
+        https: Option<ceres_config::ServerHttpsConfig>,
+        /// Plain HTTP listener. The server is off when neither `https` nor `http` is set.
+        #[python(nested = ServerHTTPConfig)]
+        http: Option<ceres_config::ServerHttpConfig>,
         /// Authentication settings, omit to disable authentication.
         #[python(nested = ServerAuthenticationConfig)]
         authentication: Option<ceres_config::ServerAuthenticationConfig>,
@@ -157,7 +166,8 @@ python_config! {
 fn ceres_core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<ServiceConfig>()?;
     module.add_class::<ConsoleConfig>()?;
-    module.add_class::<ServerSSLConfig>()?;
+    module.add_class::<ServerHTTPSConfig>()?;
+    module.add_class::<ServerHTTPConfig>()?;
     module.add_class::<ServerAuthenticationConfig>()?;
     module.add_class::<ServerCORSConfig>()?;
     module.add_class::<ServerCompressionConfig>()?;

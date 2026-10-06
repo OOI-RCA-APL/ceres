@@ -46,7 +46,9 @@ export const DatabaseConfigModel = z.discriminatedUnion('type', [
 
 export type ServerConfig = z.infer<typeof ServerConfigModel>
 export const ServerConfigModel = z.object({
-  port: z.number().nullish(),
+  bind: z.string().nullish(),
+  https: z.object({ port: z.number() }).nullish(),
+  http: z.object({ port: z.number(), redirect: z.boolean() }).nullish(),
 })
 
 export type ConsoleConfig = z.infer<typeof ConsoleConfigModel>

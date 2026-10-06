@@ -16,8 +16,8 @@ path = "src/main.rs"
 ceres-config = { path = "../ceres-config" }
 ceres-database = { path = "../ceres-database" }
 ceres-entities = { path = "../ceres-entities" }
-# Only for the OpenAPI document, so `generate openapi` renders the same schema the
-# running server serves.
+# `generate openapi` renders the same schema the running server serves, and `generate
+# certificate` runs the same issuance as its startup.
 ceres-server = { path = "../ceres-server" }
 # A dump colors the two kinds of string worth telling apart at a glance by handing them to
 # the parsers that own those formats, rather than by matching their shape.
@@ -44,6 +44,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 yaml_serde = "0.10"
 sha1 = "0.10"
+time = "0.3"
 ureq = { version = "3", features = ["json"] }
 plist = "1"
 regex-lite = "0.1"
@@ -53,7 +54,6 @@ tungstenite = { version = "0.30.0", default-features = false, features = ["hands
 libc = "0.2"
 
 [dev-dependencies]
-tempfile = "3"
 # The end-to-end tests build a real database for the binary to work against, which is
 # the only way to see what a command actually did to the rows.
 sqlx = { version = "0.9", default-features = false, features = [
@@ -61,6 +61,7 @@ sqlx = { version = "0.9", default-features = false, features = [
     "runtime-tokio",
 ] }
 tokio = { version = "1", default-features = false, features = ["macros", "rt"] }
+tempfile = "3"
 
 [lints]
 workspace = true

@@ -15,8 +15,9 @@ const navigation = useNavigation()
       <div class="pr-4">
         <div class="flex items-center">
           <!-- Parked outside the card, since the card's width is the page's measure and a control
-          that leaves the page should not eat into it. Too far out to fit on a narrow screen. -->
-          <c-tooltip text="Back">
+          that leaves the page should not eat into it. Too far out to fit on a narrow screen.
+          Shown only when going back stays in the app. -->
+          <c-tooltip v-if="navigation.canGoBack" text="Back">
             <c-button
               class="absolute top-2 -left-[46px] hidden opacity-30 transition-opacity hover:opacity-50 sm:flex"
               color="neutral"

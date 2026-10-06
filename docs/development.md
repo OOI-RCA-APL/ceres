@@ -149,15 +149,19 @@ make console
 ```
 
 For interactive console work, skip the bundle entirely and run a project with the dev
-server, which rebuilds as you edit and serves in place of the built-in console:
+server, which rebuilds as you edit and serves in place of the built-in console on the
+`server.http` port, or on 8080 when only `server.https` is configured:
 
 ```sh
 ceres run all --development-source /path/to/ceres
 ```
 
 `--development-console-port` serves the dev console on its own port instead, leaving the
-built-in one where it is. The same flag also runs the whole engine from the checkout, as
-the next section describes.
+built-in one on the `server.http` port, or on a free port when only `server.https` is
+configured. Either way the engine serves plain HTTP alone, which is what the dev server
+proxies to, so a `server.https` listener is left out of the run and needs no
+certificate. `--development-source` also runs the whole engine from the checkout, as the
+next section describes.
 
 ### Running From Source in Another Project
 

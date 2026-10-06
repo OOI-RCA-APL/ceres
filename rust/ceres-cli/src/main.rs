@@ -271,6 +271,10 @@ fn run(cli: Cli, arguments: Vec<OsString>, output: &Output) -> Result<()> {
 
         Command::Generate(args) => match args.command {
             cli::GenerateCommand::Openapi(openapi) => commands::generate::openapi(&openapi),
+            cli::GenerateCommand::Certificate(certificate) => {
+                let project = Project::discover(config)?;
+                commands::generate::certificate(&certificate, &project, output)
+            }
         },
 
         Command::Reload => {

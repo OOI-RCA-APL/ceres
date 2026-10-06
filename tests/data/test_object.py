@@ -691,29 +691,29 @@ class TestReplace:
         assert replace(original, {"a": 5}, a=9).a == 9
 
     def test_replaces_a_native_configuration_section(self) -> None:
-        from ceres.config import ServerConfig
+        from ceres.config import ServerHTTPConfig
         from ceres.data import replace
 
         # The sections are native objects rather than models, so they answer `__replace__`
         # through the macro that generates them rather than through pydantic.
-        original = ServerConfig(host="0.0.0.0", port=8080)
+        original = ServerHTTPConfig(port=8080, redirect=True)
         replaced = replace(original, port=9999)
 
         assert replaced.port == 9999
-        assert replaced.host == "0.0.0.0"
+        assert replaced.redirect
         assert original.port == 8080
 
     def test_a_native_section_refuses_a_replacement_that_does_not_validate(self) -> None:
-        from ceres.config import ServerConfig
+        from ceres.config import ServerHTTPConfig
         from ceres.data import replace
 
         # Rebuilt through the constructor, so the refusal lands where the change was made
         # rather than when the configuration is next used.
         with pytest.raises((OverflowError, ValueError, TypeError)):
-            replace(ServerConfig(host="0.0.0.0", port=8080), port=-1)
+            replace(ServerHTTPConfig(port=8080), port=-1)
 
         with pytest.raises(TypeError):
-            replace(ServerConfig(host="0.0.0.0", port=8080), not_a_field=1)
+            replace(ServerHTTPConfig(port=8080), not_a_field=1)
 
 
 class TestToItems:
@@ -752,14 +752,14 @@ class TestToItems:
         assert "doubled" not in dict(to_items(Example(a=2)))
 
     def test_reads_a_native_section_through_its_own_field_names(self) -> None:
-        from ceres.config import ServerConfig
+        from ceres.config import ServerConfig, ServerHTTPConfig
         from ceres.data import to_items
 
         # Native objects name their fields through `__to_dict__` rather than pydantic, so this
         # is the path that would silently yield nothing if that were missed.
-        items = dict(to_items(ServerConfig(host="0.0.0.0", port=8080)))
-        assert items["port"] == 8080
-        assert items["host"] == "0.0.0.0"
+        items = dict(to_items(ServerConfig(bind="0.0.0.0", http={"port": 8080})))
+        assert items["http"] == ServerHTTPConfig(port=8080)
+        assert items["bind"] == "0.0.0.0"
 
 
 class TestFieldsSetOn:

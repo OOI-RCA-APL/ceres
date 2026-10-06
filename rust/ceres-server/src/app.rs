@@ -27,6 +27,7 @@ use tower_http::services::{ServeDir, ServeFile};
 use crate::auth::{Actor, AuthSettings, Gate, Identity};
 use crate::error::ApiError;
 use crate::host::{Host, HostError, UserRecord};
+use crate::trust::Authority;
 
 /// What an application instance serves.
 pub struct AppConfig {
@@ -40,6 +41,8 @@ pub struct AppConfig {
     pub host: Arc<dyn Host>,
     /// The package version the OpenAPI document reports.
     pub version: String,
+    /// The authority signing a managed HTTPS certificate, offered at `/ca.crt`.
+    pub authority: Option<Authority>,
 }
 
 /// Where the console's assets live.
@@ -90,6 +93,7 @@ pub(crate) struct AppState {
     openapi: String,
     pub(crate) auth: Option<AuthSettings>,
     pub(crate) host: Arc<dyn Host>,
+    pub(crate) authority: Option<Authority>,
     cli: bool,
 }
 
@@ -233,6 +237,7 @@ pub fn build_router(config: AppConfig) -> Router {
             .expect("the OpenAPI document is always serializable"),
         auth: config.auth,
         host: config.host,
+        authority: config.authority,
         cli: config.cli_token.is_some(),
     });
 
@@ -258,7 +263,8 @@ pub fn build_router(config: AppConfig) -> Router {
         .route("/api/config/database", get(crate::api::config::database))
         .route("/api/config/console", get(crate::api::config::console))
         .route("/api/openapi.json", get(openapi))
-        .route("/api/{*path}", get(api_not_found));
+        .route("/api/{*path}", get(api_not_found))
+        .route("/ca.crt", get(serve_authority));
     router = record_routes(router);
     router = crate::api::dispatch::register(router);
     router = crate::api::streams::register(router);
@@ -291,6 +297,14 @@ pub fn build_router(config: AppConfig) -> Router {
 
 async fn alive() -> StatusCode {
     StatusCode::OK
+}
+
+/// Serve the managed certificate's authority, or 404 when Ceres manages no certificate.
+async fn serve_authority(State(state): State<Arc<AppState>>) -> Response {
+    match &state.authority {
+        Some(authority) => authority.download(),
+        None => ApiError::http(StatusCode::NOT_FOUND).into_response(),
+    }
 }
 
 /// Register the three routes of every record table.

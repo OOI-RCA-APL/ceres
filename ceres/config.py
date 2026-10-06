@@ -29,7 +29,8 @@ from ceres.__internal__.core import ServerAuthenticationConfig as _CoreServerAut
 from ceres.__internal__.core import ServerCompressionConfig as _CoreServerCompressionConfig
 from ceres.__internal__.core import ServerConfig as _CoreServerConfig
 from ceres.__internal__.core import ServerCORSConfig as _CoreServerCORSConfig
-from ceres.__internal__.core import ServerSSLConfig as _CoreServerSSLConfig
+from ceres.__internal__.core import ServerHTTPConfig as _CoreServerHTTPConfig
+from ceres.__internal__.core import ServerHTTPSConfig as _CoreServerHTTPSConfig
 from ceres.__internal__.core import ServiceConfig as _CoreServiceConfig
 from ceres.__internal__.core import SQLiteDatabaseConfig as _CoreSQLiteDatabaseConfig
 from ceres.__internal__.core import TursoDatabaseConfig as _CoreTursoDatabaseConfig
@@ -755,11 +756,20 @@ class ServiceConfig(RustConfigModel, _CoreServiceConfig):
     """
 
 
-class ServerSSLConfig(RustConfigModel, _CoreServerSSLConfig):
-    """TLS configuration for the engine's HTTP server.
+class ServerHTTPSConfig(RustConfigModel, _CoreServerHTTPSConfig):
+    """The HTTPS listener of the engine's HTTP server.
 
     The fields and their validation live in the native
-    `ceres.__internal__.core.ServerSSLConfig`, this subclass only wires the class into
+    `ceres.__internal__.core.ServerHTTPSConfig`, this subclass only wires the class into
+    Pydantic.
+    """
+
+
+class ServerHTTPConfig(RustConfigModel, _CoreServerHTTPConfig):
+    """The plain HTTP listener of the engine's HTTP server.
+
+    The fields and their validation live in the native
+    `ceres.__internal__.core.ServerHTTPConfig`, this subclass only wires the class into
     Pydantic.
     """
 
@@ -973,6 +983,10 @@ class ConfigCheckType(StrEnum):
     COMPONENTS = "components"
     """Verify the component tree builds without errors."""
 
+    SERVER = "server"
+    """Verify the HTTPS listener's certificate and key load, or for a managed certificate, that
+    its authority can sign one."""
+
     @classmethod
     def all(cls) -> tuple[ConfigCheckType, ...]:
         """Return every defined check, useful as the default for `Config.load`."""
@@ -1087,6 +1101,8 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
             errors.extend(await config._check_database())
         if ConfigCheckType.COMPONENTS in checks:
             errors.extend(await config._check_components())
+        if ConfigCheckType.SERVER in checks:
+            errors.extend(config._check_server())
 
         if errors:
             raise ConfigCombinedError(errors=errors)
@@ -1110,6 +1126,19 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
         return []
 
     async def _check_components(self) -> list[ComponentError]:
+        return []
+
+    def _check_server(self) -> list[ConfigValidationError]:
+        from ceres.__internal__.core import NativeServer
+
+        try:
+            NativeServer.certificate_status(self.server)
+        except ValueError as error:
+            problem = ValidationProblem(
+                type="value_error", location=["server", "https"], message=str(error)
+            )
+            return [ConfigValidationError(problems=[problem])]
+
         return []
 
 

@@ -171,6 +171,17 @@ Generate up-to-date OpenAPI schema for the Ceres Rest API.
 | `--format` `FORMAT` |  | The output format. |
 | `--indent` `INDENT` |  | Indentation width for JSON output. |
 
+#### `ceres generate certificate`
+
+Issue the HTTPS certificate and key, signed by a certificate authority.
+
+| Option | Required | Description |
+| --- | --- | --- |
+| `--ip` `ADDRESS` |  | An extra IP address for the certificate to name. Repeatable. |
+| `--dns` `NAME` |  | An extra DNS name for the certificate to name. Repeatable. |
+| `--days` `DAYS` |  | Days the certificate stays valid, at most 825. Defaults to `auto.days`, or 365. |
+| `--force` |  | Replace the certificate and key even when they are current. |
+
 ### `ceres alerts`
 
 Manage alerts.

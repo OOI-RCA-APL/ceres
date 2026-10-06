@@ -36,7 +36,8 @@ service:
   name: my-project
 
 server:
-  port: 8080
+  http:
+    port: 8080
   authentication:
     secret: <generate-a-random-secret>
     duration: 30m
@@ -79,6 +80,14 @@ service runs from the project directory, so the file applies there the same way.
 
 Use it for values your drivers read from the environment, and keep it out of version
 control when it carries credentials.
+
+### The `.ceres` Directory
+
+Ceres keeps state that belongs to one machine in a `.ceres` directory next to
+`ceres.yaml`: the address the running engine's CLI server listens on, and the HTTPS
+certificate and key that `ceres generate certificate` writes. The directory carries its
+own `.gitignore`, so nothing in it reaches version control. Leave it out of copies of the
+project to other machines too.
 
 ## Validating Configuration
 
@@ -172,12 +181,77 @@ The engine reconciles the running component tree with the new configuration, cre
 
 ### Web Console
 
-If `server.port` is configured, the web console is available at `http://<host>:<port>`. It provides a dashboard for monitoring component state, viewing logs, messages, alerts, and controlling components.
+With a `server.https` listener the web console is available at `https://<host>:<port>`, and with only a `server.http` listener at `http://<host>:<port>`. It provides a dashboard for monitoring component state, viewing logs, messages, alerts, and controlling components.
 
 ```sh
 ceres console open    # Open in browser.
 ceres console url     # Print the URL.
 ```
+
+### HTTPS
+
+With a `server.https` listener the console is served over TLS, and browsers negotiate HTTP/2, which multiplexes every console request over one connection. Over plain HTTP browsers cap a page at about six connections per host, and each live video widget holds one, so a dashboard with several videos stalls. HTTPS lifts that limit.
+
+The simplest HTTPS setup lets Ceres manage the certificate:
+
+```yaml
+server:
+  https:
+    certificate: auto
+  http:
+    redirect: true
+```
+
+Startup then creates a certificate authority in the project's `.ceres/tls` directory, once, and issues the HTTPS certificate with it. The certificate names localhost, the loopback addresses, the machine's hostname, and every address of its network interfaces other than loopback and link-local ones, with an ECDSA P-256 key, valid for 365 days. Ceres checks it at startup and daily while running, and issues a new one when it has less than 30 days left, or less than a third of its lifetime for one valid under 90 days, when it lacks a name, or when another authority signed it. The new certificate replaces the old one in the running listener, with no restart and without dropping open connections.
+
+Browsers trust the certificate once they trust the authority, `.ceres/tls/ca.crt`. Every listener serves it at `/ca.crt`, the redirecting one included, and the console's login page links to a page with the download, its fingerprint, and steps for each operating system. The authority stays the same through every renewal, so each client trusts it once. It is valid for 10 years and Ceres never renews it. From 30 days before it expires, startup, the daily check, `ceres check`, and `ceres generate certificate` warn that it needs replacing.
+
+Name the addresses and DNS names clients reach the server by under `auto`, in place of the detected ones, along with the lifetime and an authority of your own. A supplied authority has to exist, Ceres never creates one at a path the configuration names. Its certificate has to be a certificate authority allowed to sign certificates, and its key has to belong to it.
+
+```yaml
+server:
+  https:
+    certificate:
+      auto:
+        ip: [10.20.1.230]
+        dns: [sensors.example.org]
+        days: 365
+        ca:
+          path: /etc/ceres/ca.crt
+          key: /etc/ceres/ca.key
+```
+
+`days` is at most 825, the longest Apple devices accept. Run the same issuance by hand with `ceres generate certificate`, which prints the authority to trust, the names, the expiry, and the fingerprint. It only writes when a certificate is due, `--force` reissues it, and `--ip`, `--dns`, and `--days` add names and set the lifetime.
+
+```sh
+ceres generate certificate
+```
+
+```text
+Created the certificate authority .ceres/tls/ca.crt.
+Wrote the certificate to .ceres/tls/server.crt.
+Wrote the key to .ceres/tls/server.key.
+Names: localhost, 127.0.0.1, ::1, sensor-host, 192.0.2.5
+Expires: 2027-10-05
+SHA-256 fingerprint: F7:65:82:76:E8:92:6A:D7:2B:21:F2:63:DD:72:1A:52:AC:E7:B3:12:A7:B4:FC:49:81:F9:2D:6B:13:2B:08:D0
+Trust the certificate authority .ceres/tls/ca.crt on each client to trust the certificate.
+```
+
+Set `server.http.redirect` to keep the old `http://` bookmarks working after a move to HTTPS. The `server.http` listener then answers every request with a temporary redirect to the same path and query on the HTTPS listener, except `/ca.crt`, which it serves in place. Its port defaults to 80, and is typically the port the server served plain HTTP on before.
+
+To serve a certificate from elsewhere, like one a public certificate authority issued, leave `auto` out and name its files with `path` and `key`, plus `key-password` for an encrypted key. Ceres then only reads them. Relative paths resolve against the project directory, and both default to `.ceres/tls/server.crt` and `.ceres/tls/server.key`.
+
+```yaml
+server:
+  https:
+    certificate:
+      path: /etc/ceres/server.crt
+      key: /etc/ceres/server.key
+```
+
+Without `auto`, `ceres generate certificate` writes the configured paths once, signed by the authority at `.ceres/tls/ca.crt`, and replaces them only with `--force`. The certificate is valid for 365 days unless `--days` sets another lifetime.
+
+`ceres check` and engine startup fail when the certificate or key cannot be loaded, and name `ceres generate certificate` and `certificate: auto` when either file is missing. Without `auto`, both also warn once fewer than 30 days remain before the certificate expires, `ceres check` on its output and startup in the engine log. With `auto`, `ceres check` reports what startup is about to issue, without writing anything.
 
 ### CLI Queries
 

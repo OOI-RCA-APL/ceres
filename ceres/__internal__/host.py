@@ -7,8 +7,8 @@ parse:
 - `config`: absolute path of the project configuration file.
 - `addresses`: component address selector strings to start on launch.
 - `check`: when true, validate the configuration with all checks and exit.
-- `server_port`: when set, the engine's server binds this port instead of the configured
-  one, which is how a console dev server stands in front of it.
+- `server_port`: when set, the engine serves plain HTTP on this port alone in place of
+  its configured web listeners, which is how a console dev server stands in front of it.
 """
 
 # ruff: disable[T201] # Allow print statements.
@@ -23,14 +23,19 @@ from asyncio import CancelledError
 from asyncio import Event as AsyncEvent
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
+from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ceres.__internal__.utilities.exceptions import trace
 from ceres.address import AddressSelector
 from ceres.concurrency import el, race
 from ceres.data import to_json
 from ceres.error import ComponentCombinedError, Error
+
+if TYPE_CHECKING:
+    from ceres.config import ServerConfig
 
 
 class HostFailed(Exception):
@@ -116,12 +121,113 @@ async def _check(config_path: Path) -> int:
     from ceres.config import Config, ConfigCheckType
 
     try:
-        await Config.load(config_path, checks=ConfigCheckType.all())
+        config = await Config.load(config_path, checks=ConfigCheckType.all())
     except Error as error:
         raise HostFailed(f"Failed to load configuration. {to_json(error, indent=2)}")
 
+    for notice in (
+        _certificate_plan(config.server),
+        _authority_warning(config.server),
+        _expiry_warning(config.server, datetime.now(UTC)),
+    ):
+        if notice is not None:
+            print(notice, file=sys.stderr)
+
     print("All checks passed.", file=sys.stderr)
     return 0
+
+
+EXPIRY_WARNING_DAYS = 30
+"""How close to expiry the HTTPS certificate draws a warning from `ceres check` and startup."""
+
+
+def _certificate(server: ServerConfig) -> dict[str, Any] | None:
+    """Answer the HTTPS listener's certificate section, `None` without an HTTPS listener."""
+    if server.https is None:
+        return None
+
+    certificate = server.https.certificate
+    # The getter answers the validated section, which is always the full mapping.
+    assert isinstance(certificate, dict)
+    return certificate
+
+
+def _certificate_plan(server: ServerConfig) -> str | None:
+    """Answer what startup does to a managed HTTPS certificate, `None` when it keeps it.
+
+    The certificate has already been read during the server check, so a failure to read it
+    here cannot happen.
+    """
+    from ceres.__internal__.core import NativeServer
+
+    status = NativeServer.certificate_status(server)
+    return None if status is None else status[1]
+
+
+def _authority_warning(server: ServerConfig) -> str | None:
+    """Answer a warning when a managed certificate's authority expires within 30 days.
+
+    Ceres never renews an authority, so this is the only notice before clients stop trusting
+    it. The authority has already been read during the server check, so a failure to read it
+    here cannot happen.
+    """
+    from ceres.__internal__.core import NativeServer
+
+    status = NativeServer.certificate_status(server)
+    return None if status is None else status[2]
+
+
+def _expiry_warning(server: ServerConfig, now: datetime) -> str | None:
+    """Answer a warning when the HTTPS certificate expires within `EXPIRY_WARNING_DAYS`.
+
+    A managed certificate renews itself before then, so it draws none. The certificate has
+    already loaded during the server check, so a failure to read its expiry here cannot
+    happen.
+    """
+    from ceres.__internal__.core import NativeServer
+
+    certificate = _certificate(server)
+    if certificate is None or certificate["auto"] is not None:
+        return None
+
+    status = NativeServer.certificate_status(server)
+    expiry = None if status is None else status[0]
+    if expiry is None:
+        return None
+
+    expires = datetime.fromtimestamp(expiry, UTC)
+    remaining = expires - now
+    if remaining >= timedelta(days=EXPIRY_WARNING_DAYS):
+        return None
+
+    regenerate = "Run `ceres generate certificate --force` to replace it."
+    if remaining <= timedelta(0):
+        return (
+            f"The HTTPS certificate {certificate['path']} expired on {expires:%Y-%m-%d}. "
+            f"{regenerate}"
+        )
+
+    # Rounded up, so the last hours before expiry still read as a day left.
+    days = -(-remaining // timedelta(days=1))
+    noun = "day" if days == 1 else "days"
+    return (
+        f"The HTTPS certificate {certificate['path']} expires on {expires:%Y-%m-%d}, "
+        f"in {days} {noun}. {regenerate}"
+    )
+
+
+def _dev_listener(server: ServerConfig, port: int) -> ServerConfig:
+    """Answer `server` with a plain HTTP listener on `port` as its only web listener.
+
+    A console dev server proxies to the engine over plain HTTP, so the HTTPS listener is
+    left out, and the HTTP one serves the app rather than redirecting. The sections are
+    native objects whose fields are not writable, so each is replaced rather than edited.
+    """
+    from ceres.config import ServerHTTPConfig
+    from ceres.data import replace
+
+    http = server.http if server.http is not None else ServerHTTPConfig()
+    return replace(server, https=None, http=replace(http, port=port, redirect=False))
 
 
 async def _run(config_path: Path, addresses: Sequence[str], server_port: int | None) -> int:
@@ -130,7 +236,8 @@ async def _run(config_path: Path, addresses: Sequence[str], server_port: int | N
     Args:
         config_path: Path of the project configuration file.
         addresses: Component address selector strings to start on launch.
-        server_port: Port the engine's server binds instead of the configured one.
+        server_port: Port of the plain HTTP listener a dev run serves in place of the
+            configured web listeners.
 
     Returns:
         The process exit code.
@@ -149,6 +256,11 @@ async def _run(config_path: Path, addresses: Sequence[str], server_port: int | N
 
     try:
         engine = Engine()
+        # A dev run serves its own plain HTTP listener from the first bind, and through any
+        # reload, so it needs no certificate.
+        if server_port is not None:
+            engine._override_server(partial(_dev_listener, port=server_port))
+
         try:
             await engine.load(config_path)
         except Error as error:
@@ -168,13 +280,9 @@ async def _run(config_path: Path, addresses: Sequence[str], server_port: int | N
                 f"Failed to load engine with current configuration. {to_json(error, indent=2)}"
             )
 
-        # Applied before the engine starts, since it binds the server section as loaded.
-        # The port field is not writable, the section being a native object, so the
-        # section is replaced rather than edited.
-        if server_port is not None:
-            from ceres.data import replace
-
-            engine.config.server = replace(engine.config.server, port=server_port)
+        warning = _expiry_warning(engine.config.server, datetime.now(UTC))
+        if warning is not None:
+            engine.log.warning(warning)
 
         exiting = AsyncEvent()
 

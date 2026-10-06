@@ -134,21 +134,21 @@ mod tests {
     #[test]
     fn full_configurations_parse_and_validate() {
         let meta = ConfigMeta::parse(
-            "service:\n  name: probe\nconsole:\n  title: Probe\nserver:\n  port: 8080\n\
+            "service:\n  name: probe\nconsole:\n  title: Probe\nserver:\n  http:\n    port: 8080\n\
              components:\n  sensor:\n    type: Sensor\n",
         )
         .unwrap();
 
         assert_eq!(meta.service.name.unwrap().as_str(), "probe");
         assert_eq!(meta.console.title.as_deref(), Some("Probe"));
-        assert_eq!(meta.server.port, Some(8080));
+        assert_eq!(meta.server.console_listener(), Some(("http", 8080)));
     }
 
     #[test]
     fn empty_configurations_parse_as_defaults() {
         let meta = ConfigMeta::parse("").unwrap();
         assert!(meta.service.name.is_none());
-        assert_eq!(meta.server.host, "0.0.0.0");
+        assert_eq!(meta.server.bind, "0.0.0.0");
     }
 
     #[test]

@@ -15,8 +15,9 @@ use std::time::Duration;
 use ceres_database::{RecordFilter, RecordStore, RecordTable};
 use ceres_server::axum::Router;
 use ceres_server::{
-    Answer, AppConfig, AuthSettings, BoundServer, ConsolePaths, GateUser, Host, HostError, Served,
-    Stopper, StreamClose, UserRecord, apply_compression, apply_cors, build_router,
+    Answer, AppConfig, AuthSettings, Authority, BoundServer, CertificateStatus, ConsolePaths,
+    GateUser, Host, HostError, Notice, Report, Served, Stopper, StreamClose, UserRecord,
+    apply_compression, apply_cors, build_router, redirect_router,
 };
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -26,6 +27,10 @@ use serde_json::value::RawValue;
 use uuid::Uuid;
 
 use crate::interop::to_value_error;
+
+/// What `NativeServer.certificate_status` answers: the expiry, startup's plan, and the
+/// authority's warning.
+type CertificateStatusTuple = (Option<i64>, Option<String>, Option<String>);
 
 /// The Python engine as the server's host.
 ///
@@ -369,8 +374,10 @@ pub fn openapi_schema(version: &str) -> PyResult<String> {
 /// A natively-served HTTP application.
 ///
 /// Binds at construction so the real port is known immediately, and serves as an
-/// awaitable until stopped. The web form carries the console and terminates TLS, the
-/// CLI form binds loopback on an ephemeral port and requires its token instead.
+/// awaitable until stopped. The web form carries the console on either listener and
+/// terminates TLS on the HTTPS one, the CLI form binds loopback on an ephemeral port and
+/// requires its token instead, and the redirect form answers plain HTTP with a temporary
+/// redirect to the HTTPS listener.
 #[gen_stub_pyclass]
 #[pyclass(module = "ceres.__internal__.core", frozen)]
 pub struct NativeServer {
@@ -378,6 +385,40 @@ pub struct NativeServer {
     stopper: Stopper,
     port: u16,
     locals: Arc<OnceLock<pyo3_async_runtimes::TaskLocals>>,
+}
+
+/// Send a listener's certificate notices to `log`, anything with `info` and `warning`
+/// methods taking the message, dropping them without one.
+///
+/// Before serving a notice arrives on the thread that binds the listener. Once serving it
+/// arrives on a tokio thread, and goes to the event loop serving started on.
+fn reporting(
+    log: Option<Py<PyAny>>,
+    locals: Arc<OnceLock<pyo3_async_runtimes::TaskLocals>>,
+) -> Report {
+    Arc::new(move |notice| {
+        let Some(log) = &log else {
+            return;
+        };
+        let (level, message) = match notice {
+            Notice::Info(message) => ("info", message),
+            Notice::Warning(message) => ("warning", message),
+        };
+        Python::attach(|py| {
+            let logged = match locals.get() {
+                Some(locals) => log.getattr(py, level).and_then(|method| {
+                    locals
+                        .event_loop(py)
+                        .call_method1("call_soon_threadsafe", (method, message))
+                        .map(drop)
+                }),
+                None => log.bind(py).call_method1(level, (message,)).map(drop),
+            };
+            if let Err(error) = logged {
+                error.write_unraisable(py, None);
+            }
+        });
+    })
 }
 
 impl NativeServer {
@@ -390,7 +431,8 @@ impl NativeServer {
         port: u16,
         console: Option<ConsolePaths>,
         cli_token: Option<String>,
-        with_tls: bool,
+        authority: Option<Authority>,
+        tls: Option<(&ceres_config::ServerHttpsConfig, Option<Py<PyAny>>)>,
     ) -> PyResult<Self> {
         let auth = config
             .authentication
@@ -408,6 +450,7 @@ impl NativeServer {
 
         let locals = Arc::new(OnceLock::new());
         let router = build_router(AppConfig {
+            authority,
             console,
             cli_token,
             version: env!("CARGO_PKG_VERSION").to_string(),
@@ -425,8 +468,10 @@ impl NativeServer {
         let router = apply_cors(router, config.cors.as_ref());
 
         let mut server = BoundServer::bind(bind, port).map_err(to_value_error)?;
-        if with_tls && let Some(ssl) = config.ssl.as_ref() {
-            server = server.with_tls(ssl).map_err(to_value_error)?;
+        if let Some((https, log)) = tls {
+            server = server
+                .with_tls(https, reporting(log, locals.clone()))
+                .map_err(to_value_error)?;
         }
 
         let stopper = server.stopper();
@@ -443,9 +488,15 @@ impl NativeServer {
 #[gen_stub_pymethods]
 #[pymethods]
 impl NativeServer {
-    /// Bind the web application, serving the console and API on the configured address.
+    /// Bind the web application, serving the console and API on the HTTPS listener when
+    /// `tls` is true and on the plain HTTP listener otherwise.
+    ///
+    /// The HTTPS listener issues a managed certificate first when it is due and renews it
+    /// while serving, telling `log` what it issued and when renewal fails. Either listener
+    /// offers the managed certificate's authority at `/ca.crt`.
     #[staticmethod]
-    #[pyo3(signature = (host, config, console_directory, favicon_ico, favicon_png, favicon_svg, records=None))]
+    #[pyo3(signature = (host, config, console_directory, favicon_ico, favicon_png, favicon_svg, *, tls, records=None, log=None))]
+    #[allow(clippy::too_many_arguments)]
     fn web(
         #[gen_stub(override_type(type_repr = "typing.Any"))] host: Py<PyAny>,
         config: &crate::ServerConfig,
@@ -453,17 +504,29 @@ impl NativeServer {
         favicon_ico: std::path::PathBuf,
         favicon_png: std::path::PathBuf,
         favicon_svg: std::path::PathBuf,
+        tls: bool,
         records: Option<&crate::store::Store>,
+        #[gen_stub(override_type(type_repr = "typing.Any"))] log: Option<Py<PyAny>>,
     ) -> PyResult<Self> {
         let config = &config.inner;
-        let port = config
-            .port
-            .ok_or_else(|| PyValueError::new_err("the server port is not configured"))?;
+        let (port, tls) = if tls {
+            let https = config
+                .https
+                .as_ref()
+                .ok_or_else(|| PyValueError::new_err("the HTTPS listener is not configured"))?;
+            (https.port, Some((https, log)))
+        } else {
+            let http = config
+                .http
+                .as_ref()
+                .ok_or_else(|| PyValueError::new_err("the HTTP listener is not configured"))?;
+            (http.port, None)
+        };
         Self::build(
             host,
             records,
             config,
-            &config.host,
+            &config.bind,
             port,
             Some(ConsolePaths {
                 directory: console_directory,
@@ -472,8 +535,57 @@ impl NativeServer {
                 favicon_svg,
             }),
             None,
-            true,
+            config.https.as_ref().and_then(Authority::of),
+            tls,
         )
+    }
+
+    /// Bind the plain HTTP listener that redirects every request to the HTTPS listener
+    /// bound on `https_port`, except `/ca.crt`, which it serves in place.
+    #[staticmethod]
+    fn redirect(config: &crate::ServerConfig, https_port: u16) -> PyResult<Self> {
+        let config = &config.inner;
+        let http = config
+            .http
+            .as_ref()
+            .ok_or_else(|| PyValueError::new_err("the HTTP listener is not configured"))?;
+        let server = BoundServer::bind(&config.bind, http.port).map_err(to_value_error)?;
+        let stopper = server.stopper();
+        let port = server.port();
+        Ok(Self {
+            state: Mutex::new(Some((
+                server,
+                redirect_router(https_port, config.https.as_ref().and_then(Authority::of)),
+            ))),
+            stopper,
+            port,
+            locals: Arc::new(OnceLock::new()),
+        })
+    }
+
+    /// Read the HTTPS certificate the way the listener does, without writing anything, and
+    /// answer when it expires, in seconds since the Unix epoch, what startup does to a
+    /// managed one, and the warning a managed one's authority draws close to expiry.
+    ///
+    /// The expiry is `None` when startup issues the first managed certificate, the plan is
+    /// `None` when startup keeps the current one, and the warning is `None` while the
+    /// authority has more than 30 days left. Answers `None` when no HTTPS listener is
+    /// configured. Raises `ValueError` naming the file when a certificate, key, or authority
+    /// cannot be read or the authority cannot sign.
+    #[staticmethod]
+    fn certificate_status(
+        config: &crate::ServerConfig,
+    ) -> PyResult<Option<CertificateStatusTuple>> {
+        config
+            .inner
+            .https
+            .as_ref()
+            .map(|https| {
+                CertificateStatus::current(https)
+                    .map(|status| (status.expires, status.plan, status.warning))
+                    .map_err(to_value_error)
+            })
+            .transpose()
     }
 
     /// Bind the CLI control application on an ephemeral loopback port.
@@ -493,7 +605,8 @@ impl NativeServer {
             0,
             None,
             Some(token),
-            false,
+            None,
+            None,
         )
     }
 

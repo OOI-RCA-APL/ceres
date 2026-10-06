@@ -40,10 +40,15 @@ onErrorCaptured((error) => {
           message: error.message,
           persistent: true,
           okLabel: 'Ok',
-          cancelLabel: 'Go Back',
+          // Going back from a page opened directly would leave the app.
+          cancelLabel: navigation.canGoBack ? 'Go Back' : 'Close',
         })
         .onOk(() => void navigation.go('/'))
-        .onCancel(() => navigation.back())
+        .onCancel(() => {
+          if (navigation.canGoBack) {
+            navigation.back()
+          }
+        })
       return false
     }
   }

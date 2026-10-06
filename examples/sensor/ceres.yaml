@@ -4,7 +4,8 @@ service:
   name: sensor
 
 server:
-  port: 8080
+  http:
+    port: 8080
   authentication:
     secret: secret
 

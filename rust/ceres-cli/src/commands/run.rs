@@ -57,12 +57,11 @@ pub fn run(
         .map(|source| Development::plan(project, source, args.development_console_port))
         .transpose()?;
 
-    // The engine only moves off its configured port when the dev console stands in for
-    // the built-in one, so the host is told to rebind only then.
-    let server_port = development.as_ref().and_then(|development| {
-        let addresses = &development.addresses;
-        addresses.moved.then_some(addresses.engine)
-    });
+    // The dev console proxies to the engine over plain HTTP, so a dev run always tells the
+    // host which port to serve plain HTTP on in place of the configured listeners.
+    let server_port = development
+        .as_ref()
+        .map(|development| development.addresses.engine);
     let payload = payload(project, &args.addresses, false, server_port);
 
     if !args.watch && development.is_none() {
@@ -380,7 +379,11 @@ impl Development {
         let meta = project.load_meta()?;
         Ok(Self {
             console_directory,
-            addresses: assign_addresses(&meta.server.host, meta.server.port, console_port)?,
+            addresses: assign_addresses(
+                &meta.server.bind,
+                meta.server.http.as_ref().map(|http| http.port),
+                console_port,
+            )?,
         })
     }
 
@@ -446,34 +449,30 @@ struct Addresses {
     host: String,
     engine: u16,
     console: u16,
-    /// Whether the engine moved off its configured port, which the host must then rebind.
-    moved: bool,
 }
 
 /// Decide which port the engine and the dev console each take, moving the engine if
 /// needed.
 ///
 /// Without a console port the dev console stands in for the built-in one, taking the
-/// configured port so the address in the browser does not change, and the engine moves
-/// to a free port behind it. With one, both consoles are served and neither moves.
-fn assign_addresses(
-    host: &str,
-    configured: Option<u16>,
-    console_port: Option<u16>,
-) -> Result<Addresses> {
-    let configured = configured.unwrap_or(8080);
+/// configured HTTP port, `http`, or 8080 without one, and the engine moves to a free port
+/// behind it. With one, both consoles are served and the engine keeps the HTTP port, or
+/// takes a free port without one. Neither takes the HTTPS port, since both serve plain
+/// HTTP, which a privileged port and an `https://` address would not suit.
+fn assign_addresses(host: &str, http: Option<u16>, console_port: Option<u16>) -> Result<Addresses> {
     match console_port {
         Some(console) => Ok(Addresses {
             host: host.to_owned(),
-            engine: configured,
+            engine: match http {
+                Some(port) => port,
+                None => free_port(host)?,
+            },
             console,
-            moved: false,
         }),
         None => Ok(Addresses {
             host: host.to_owned(),
             engine: free_port(host)?,
-            console: configured,
-            moved: true,
+            console: http.unwrap_or(8080),
         }),
     }
 }
@@ -540,19 +539,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_dev_console_takes_the_configured_port() {
+    fn the_dev_console_takes_the_http_port() {
+        // `https` on 443 sits beside `http` on 9000, which the dev console takes.
         let addresses = assign_addresses("127.0.0.1", Some(9000), None).unwrap();
 
         assert_eq!(addresses.console, 9000);
         assert_ne!(addresses.engine, 9000);
-        assert!(addresses.moved);
     }
 
     #[test]
-    fn an_unset_port_falls_back_to_the_default() {
+    fn without_an_http_port_the_dev_console_takes_the_default() {
+        // HTTPS alone, or no listener at all, leaves the dev console on 8080, never 443.
         let addresses = assign_addresses("127.0.0.1", None, None).unwrap();
 
         assert_eq!(addresses.console, 8080);
+        assert_ne!(addresses.engine, 8080);
     }
 
     #[test]
@@ -560,7 +561,16 @@ mod tests {
         let addresses = assign_addresses("127.0.0.1", Some(9000), Some(9001)).unwrap();
 
         assert_eq!((addresses.engine, addresses.console), (9000, 9001));
-        assert!(!addresses.moved);
+    }
+
+    #[test]
+    fn a_console_port_without_an_http_port_frees_the_engine() {
+        // HTTPS alone, so the engine takes a free port rather than 443.
+        let addresses = assign_addresses("127.0.0.1", None, Some(9001)).unwrap();
+
+        assert_ne!(addresses.engine, 443);
+        assert_ne!(addresses.engine, 0);
+        assert_eq!(addresses.console, 9001);
     }
 
     #[test]

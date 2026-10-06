@@ -32,7 +32,7 @@ caller themselves against the resource they name.
 | Method | Path | Token | Description |
 | --- | --- | --- | --- |
 | `POST` | `/api/auth/change-password` | required | Change the caller's password. |
-| `GET` | `/api/auth/features` | optional | Report optional authentication behavior. |
+| `GET` | `/api/auth/features` | optional | Report optional behavior the console adapts to. |
 | `POST` | `/api/auth/impersonate` | optional | Take on another user's identity. |
 | `POST` | `/api/auth/login` | optional | Authenticate and receive an identity. |
 | `POST` | `/api/auth/logout` | optional | Delete the authorization cookie. |

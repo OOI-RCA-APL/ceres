@@ -71,7 +71,7 @@ async def _build_engine() -> tuple[Engine, User]:
             Config,
             {
                 "components": [],
-                "server": {"port": 0, "authentication": {"secret": SECRET}},
+                "server": {"http": {"port": 0}, "authentication": {"secret": SECRET}},
             },
         ),
         checks=(),
@@ -101,6 +101,7 @@ async def test_the_native_server_serves_the_engine_over_tcp(tmp_path: Path) -> N
         console / "favicon.ico",
         console / "favicon.png",
         console / "favicon.svg",
+        tls=False,
     )
     serving: asyncio.Future[Any] = asyncio.ensure_future(server.serve())
     base = f"http://127.0.0.1:{server.port}"
@@ -135,6 +136,33 @@ async def test_the_native_server_serves_the_engine_over_tcp(tmp_path: Path) -> N
         await engine.database.dispose()
 
 
+async def test_the_redirect_server_points_at_the_https_server() -> None:
+    from ceres.config import ServerConfig, ServerHTTPConfig
+
+    # The redirect server never loads the certificate, so the default paths need not exist.
+    config = ServerConfig(
+        bind="127.0.0.1", https={"port": 8443}, http={"port": 0, "redirect": True}
+    )
+    assert config.http is not None
+    assert config.http.redirect
+    assert ServerConfig(https={}, http={"redirect": True}).http == ServerHTTPConfig(
+        port=80, redirect=True
+    )
+
+    server = NativeServer.redirect(config, 8443)
+    serving: asyncio.Future[Any] = asyncio.ensure_future(server.serve())
+    base = f"http://127.0.0.1:{server.port}"
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{base}/console/route?tab=1")
+            assert response.status_code == 307
+            assert response.headers["location"] == "https://127.0.0.1:8443/console/route?tab=1"
+    finally:
+        server.stop(0.2)
+        await serving
+
+
 async def test_tokens_verify_across_both_implementations(tmp_path: Path) -> None:
     """Tokens must cross between the two JWT implementations in both directions.
 
@@ -155,6 +183,7 @@ async def test_tokens_verify_across_both_implementations(tmp_path: Path) -> None
         console / "favicon.ico",
         console / "favicon.png",
         console / "favicon.svg",
+        tls=False,
     )
     serving: asyncio.Future[Any] = asyncio.ensure_future(server.serve())
     base = f"http://127.0.0.1:{server.port}"

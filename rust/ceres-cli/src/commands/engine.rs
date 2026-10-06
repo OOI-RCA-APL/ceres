@@ -130,8 +130,8 @@ pub(crate) fn write_status(
         project.config_path().display().to_string(),
         strbool(running).to_string(),
         meta.server
-            .port
-            .map_or_else(|| "(Disabled)".to_string(), |port| port.to_string()),
+            .console_listener()
+            .map_or_else(|| "(Disabled)".to_string(), |(_, port)| port.to_string()),
         project
             .server_info()
             .map_or_else(|| "(Stopped)".to_string(), |info| info.port.to_string()),

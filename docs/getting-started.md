@@ -159,7 +159,8 @@ On Linux this is a SystemD user service, on macOS a LaunchD agent. [Deployment](
 
 ```yaml
 server:
-  port: 8080
+  http:
+    port: 8080
 ```
 
 Restart the engine and open [http://localhost:8080](http://localhost:8080). The console shows component state, logs, messages, and alerts, and can start and stop components. The same data is available over [the HTTP API](reference/http-api.md).

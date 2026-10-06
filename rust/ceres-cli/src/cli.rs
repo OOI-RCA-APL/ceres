@@ -231,6 +231,36 @@ pub struct GenerateArgs {
 pub enum GenerateCommand {
     /// Generate up-to-date OpenAPI schema for the Ceres Rest API.
     Openapi(OpenapiArgs),
+
+    /// Issue the HTTPS certificate and key, signed by a certificate authority.
+    ///
+    /// Writes to the `server.https.certificate` path and key, which default to
+    /// `.ceres/tls/server.crt` and `.ceres/tls/server.key`. With `certificate: auto` this
+    /// runs the issuance startup runs, writing only when the certificate is due. Otherwise
+    /// the default authority at `.ceres/tls/ca.crt` signs it, created when missing. The
+    /// certificate names the `auto` names, or localhost, 127.0.0.1, ::1, this machine's
+    /// hostname, and every non-loopback address of its network interfaces, plus any --ip
+    /// and --dns given.
+    Certificate(CertificateArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct CertificateArgs {
+    /// An extra IP address for the certificate to name. Repeatable.
+    #[arg(long = "ip", value_name = "ADDRESS")]
+    pub ips: Vec<std::net::IpAddr>,
+
+    /// An extra DNS name for the certificate to name. Repeatable.
+    #[arg(long = "dns", value_name = "NAME")]
+    pub dns: Vec<String>,
+
+    /// Days the certificate stays valid, at most 825. Defaults to `auto.days`, or 365.
+    #[arg(long, value_parser = clap::value_parser!(u32).range(1..=825))]
+    pub days: Option<u32>,
+
+    /// Replace the certificate and key even when they are current.
+    #[arg(long)]
+    pub force: bool,
 }
 
 #[derive(Debug, Args)]

@@ -122,7 +122,7 @@ async def _serve(
             "allow_impersonate": allow_impersonate,
         }
 
-    server["port"] = 0
+    server["http"] = {"port": 0}
     configuration: dict[str, Any] = {"components": [], "server": server}
     if database_path is not None:
         # A file-backed database carries a native record store so its record routes and
@@ -149,7 +149,8 @@ async def _serve(
             console / "favicon.ico",
             console / "favicon.png",
             console / "favicon.svg",
-            records,
+            tls=False,
+            records=records,
         )
     else:
         native = NativeServer.cli(host, engine.config.server, cli_token, records)

@@ -32,7 +32,8 @@ __all__ = [
     "ServerCORSConfig",
     "ServerCompressionConfig",
     "ServerConfig",
-    "ServerSSLConfig",
+    "ServerHTTPConfig",
+    "ServerHTTPSConfig",
     "ServiceConfig",
     "Store",
     "TursoDatabaseConfig",
@@ -478,8 +479,10 @@ class NativeServer:
     A natively-served HTTP application.
 
     Binds at construction so the real port is known immediately, and serves as an
-    awaitable until stopped. The web form carries the console and terminates TLS, the
-    CLI form binds loopback on an ephemeral port and requires its token instead.
+    awaitable until stopped. The web form carries the console on either listener and
+    terminates TLS on the HTTPS one, the CLI form binds loopback on an ephemeral port and
+    requires its token instead, and the redirect form answers plain HTTP with a temporary
+    redirect to the HTTPS listener.
     """
     @property
     def port(self) -> int:
@@ -494,10 +497,39 @@ class NativeServer:
         favicon_ico: str | PathLike[str] | Path,
         favicon_png: str | PathLike[str] | Path,
         favicon_svg: str | PathLike[str] | Path,
+        *,
+        tls: bool,
         records: Store | None = None,
+        log: Any = None,
     ) -> NativeServer:
         r"""
-        Bind the web application, serving the console and API on the configured address.
+        Bind the web application, serving the console and API on the HTTPS listener when
+        `tls` is true and on the plain HTTP listener otherwise.
+
+        The HTTPS listener issues a managed certificate first when it is due and renews it
+        while serving, telling `log` what it issued and when renewal fails. Either listener
+        offers the managed certificate's authority at `/ca.crt`.
+        """
+    @staticmethod
+    def redirect(config: ServerConfig, https_port: int) -> NativeServer:
+        r"""
+        Bind the plain HTTP listener that redirects every request to the HTTPS listener
+        bound on `https_port`, except `/ca.crt`, which it serves in place.
+        """
+    @staticmethod
+    def certificate_status(
+        config: ServerConfig,
+    ) -> tuple[int | None, str | None, str | None] | None:
+        r"""
+        Read the HTTPS certificate the way the listener does, without writing anything, and
+        answer when it expires, in seconds since the Unix epoch, what startup does to a
+        managed one, and the warning a managed one's authority draws close to expiry.
+
+        The expiry is `None` when startup issues the first managed certificate, the plan is
+        `None` when startup keeps the current one, and the warning is `None` while the
+        authority has more than 30 days left. Answers `None` when no HTTPS listener is
+        configured. Raises `ValueError` naming the file when a certificate, key, or authority
+        cannot be read or the authority cannot sign.
         """
     @staticmethod
     def cli(
@@ -1012,19 +1044,19 @@ class ServerConfig:
     Configuration for the engine's HTTP server.
     """
     @property
-    def host(self) -> str:
+    def bind(self) -> str:
         r"""
-        Address the server binds to.
+        Address both listeners bind.
         """
     @property
-    def port(self) -> int | None:
+    def https(self) -> ServerHTTPSConfig | None:
         r"""
-        Port the server listens on, omit to disable the server.
+        HTTPS listener. The server is off when neither `https` nor `http` is set.
         """
     @property
-    def ssl(self) -> ServerSSLConfig | None:
+    def http(self) -> ServerHTTPConfig | None:
         r"""
-        TLS settings, omit to serve plain HTTP.
+        Plain HTTP listener. The server is off when neither `https` nor `http` is set.
         """
     @property
     def authentication(self) -> ServerAuthenticationConfig | None:
@@ -1044,9 +1076,9 @@ class ServerConfig:
     def __new__(
         cls,
         *,
-        host: str | None = None,
-        port: int | None = None,
-        ssl: ServerSSLConfig | dict[str, Any] | None = None,
+        bind: str | None = None,
+        https: ServerHTTPSConfig | dict[str, Any] | None = None,
+        http: ServerHTTPConfig | dict[str, Any] | None = None,
         authentication: ServerAuthenticationConfig | dict[str, Any] | None = None,
         cors: ServerCORSConfig | dict[str, Any] | None = None,
         compression: ServerCompressionConfig | dict[str, Any] | None = None,
@@ -1075,43 +1107,72 @@ class ServerConfig:
     def __eq__(self, other: Any) -> bool: ...
     def __repr__(self) -> str: ...
 
-class ServerSSLConfig:
+class ServerHTTPConfig:
     r"""
-    TLS configuration for the engine's HTTP server.
+    The plain HTTP listener of the engine's HTTP server.
     """
     @property
-    def key(self) -> Path | None:
+    def port(self) -> int:
         r"""
-        Path to the server private key file.
+        Port the plain HTTP listener binds.
         """
     @property
-    def key_password(self) -> str | None:
+    def redirect(self) -> bool:
         r"""
-        Password for an encrypted private key.
+        Whether the listener redirects every request to the HTTPS listener rather than
+        serving it.
+        """
+    def __new__(cls, *, port: int | None = None, redirect: bool | None = None) -> Self: ...
+    def __to_dict__(self) -> dict[str, Any]:
+        r"""
+        Return the configuration as a plain dictionary of JSON-compatible values.
+
+        Called through `ceres.data.to_dict` rather than directly.
+        """
+    def __replace__(self, **changes: Any) -> Self:
+        r"""
+        Return a copy of this configuration with the given fields replaced.
+
+        Called through `copy.replace` and `ceres.data.replace` rather than
+        directly. The replacement is built through the constructor, so a change
+        that does not validate is refused here rather than later.
+        """
+    @staticmethod
+    def __json_schema__() -> dict[str, Any]:
+        r"""
+        Return the JSON Schema describing this configuration section.
+
+        Called through `ceres.data.to_json_schema` rather than directly.
+        """
+    def __eq__(self, other: Any) -> bool: ...
+    def __repr__(self) -> str: ...
+
+class ServerHTTPSConfig:
+    r"""
+    The HTTPS listener of the engine's HTTP server.
+    """
+    @property
+    def port(self) -> int:
+        r"""
+        Port the HTTPS listener binds.
         """
     @property
-    def cert(self) -> Path | None:
+    def certificate(self) -> str | dict[str, Any]:
         r"""
-        Path to the server certificate file.
+        The certificate the listener presents, `"auto"` for one Ceres issues and renews
+        itself, or a mapping of `path`, `key`, `key-password`, and `auto`.
         """
     @property
-    def version(self) -> int | None:
+    def min_version(self) -> str:
         r"""
-        `ssl` protocol constant selecting the TLS version.
-        """
-    @property
-    def ca_certs(self) -> Path | None:
-        r"""
-        Path to a CA bundle used when validating client certificates.
+        Lowest TLS version offered, `"1.2"` or `"1.3"`.
         """
     def __new__(
         cls,
         *,
-        key: str | PathLike[str] | Path | None = None,
-        key_password: str | None = None,
-        cert: str | PathLike[str] | Path | None = None,
-        version: int | None = None,
-        ca_certs: str | PathLike[str] | Path | None = None,
+        port: int | None = None,
+        certificate: str | dict[str, Any] | None = None,
+        min_version: str | None = None,
     ) -> Self: ...
     def __to_dict__(self) -> dict[str, Any]:
         r"""
