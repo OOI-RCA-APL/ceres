@@ -128,6 +128,17 @@ export const useNavigation = defineStore('navigation', () => {
       return router.resolve(to, currentLocation)
     },
 
+    /** Whether the previous history entry is a page of this app, so going back stays in it.
+
+    The router records the previous entry in `history.state.back`, which is null on the first
+    entry it made, like a direct link, a bookmark, or a new tab. The router writes the state
+    before the route changes, so following the route rereads it on every navigation.
+    */
+    canGoBack: computed(() => {
+      void route.fullPath
+      return typeof window !== 'undefined' && window.history.state?.back != null
+    }),
+
     back() {
       router.back()
     },
