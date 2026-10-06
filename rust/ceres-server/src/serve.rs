@@ -286,22 +286,27 @@ mod tests {
 
         let (open, before) = h2_connect(&authority, port).await;
         std::fs::remove_file(&https.certificate.path).unwrap();
+
+        // New connections see the renewed certificate once it is presented, which follows
+        // writing it, the open one carries on unaffected.
         let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-        while !https.certificate.path.exists() {
+        let fresh = loop {
+            let (fresh, after) = h2_connect(&authority, port).await;
+            if after != before {
+                break fresh;
+            }
             assert!(tokio::time::Instant::now() < deadline, "no renewal");
             tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-
-        // New connections see the renewed certificate, the open one carries on unaffected.
-        let (fresh, after) = h2_connect(&authority, port).await;
-        assert_ne!(after, before);
+        };
         assert_eq!(alive(fresh).await, 200);
         assert_eq!(alive(open).await, 200);
 
         stopper.stop(Duration::from_millis(100));
         serving.await.unwrap().unwrap();
 
-        // Renewal stopped with the server.
+        // Renewal stopped with the server. One already on the blocking pool runs to its end,
+        // and finds the certificate current.
+        tokio::time::sleep(Duration::from_millis(200)).await;
         std::fs::remove_file(&https.certificate.path).unwrap();
         tokio::time::sleep(Duration::from_millis(200)).await;
         assert!(!https.certificate.path.exists());
