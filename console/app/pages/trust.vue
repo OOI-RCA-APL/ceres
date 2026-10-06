@@ -55,7 +55,7 @@ const steps = [
         download
         external
         :icon="icons.export"
-        label="Download CA Certificate"
+        label="Download Certificate"
         to="/ca.crt"
       />
       <div class="flex flex-col gap-1">
