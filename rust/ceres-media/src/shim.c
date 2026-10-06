@@ -95,13 +95,35 @@ const AVCodecParameters *ceres_input_parameters(const AVFormatContext *input, in
     return input->streams[stream]->codecpar;
 }
 
+// Copies `parameters` into a new allocation the caller frees with `ceres_parameters_free`.
+int ceres_parameters_copy(const AVCodecParameters *parameters, AVCodecParameters **copy) {
+    AVCodecParameters *made = avcodec_parameters_alloc();
+    if (!made) return AVERROR(ENOMEM);
+    int error = avcodec_parameters_copy(made, parameters);
+    if (error < 0) {
+        avcodec_parameters_free(&made);
+        return error;
+    }
+    *copy = made;
+    return 0;
+}
+
+void ceres_parameters_free(AVCodecParameters **parameters) { avcodec_parameters_free(parameters); }
+
 AVPacket *ceres_packet_alloc(void) { return av_packet_alloc(); }
+
+// Makes `packet`, which must be blank, another reference to `source`'s data and properties.
+int ceres_packet_ref(AVPacket *packet, const AVPacket *source) {
+    return av_packet_ref(packet, source);
+}
 
 void ceres_packet_free(AVPacket **packet) { av_packet_free(packet); }
 
 void ceres_packet_unref(AVPacket *packet) { av_packet_unref(packet); }
 
 int ceres_packet_stream(const AVPacket *packet) { return packet->stream_index; }
+
+int ceres_packet_size(const AVPacket *packet) { return packet->size; }
 
 // Reads the packet's timing in its stream's time base, `AV_NOPTS_VALUE` where unset.
 void ceres_packet_timing(const AVPacket *packet, int64_t *pts, int64_t *dts, int64_t *duration) {

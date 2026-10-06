@@ -53,7 +53,14 @@ unsafe extern "C" {
         num: *mut c_int,
         den: *mut c_int,
     );
+    pub fn ceres_parameters_copy(
+        parameters: *const AVCodecParameters,
+        copy: *mut *mut AVCodecParameters,
+    ) -> c_int;
+    pub fn ceres_parameters_free(parameters: *mut *mut AVCodecParameters);
     pub fn ceres_packet_alloc() -> *mut AVPacket;
+    pub fn ceres_packet_size(packet: *const AVPacket) -> c_int;
+    pub fn ceres_packet_ref(packet: *mut AVPacket, source: *const AVPacket) -> c_int;
     pub fn ceres_packet_free(packet: *mut *mut AVPacket);
     pub fn ceres_packet_unref(packet: *mut AVPacket);
     pub fn ceres_packet_stream(packet: *const AVPacket) -> c_int;

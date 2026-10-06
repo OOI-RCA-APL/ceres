@@ -41,6 +41,10 @@ struct Arguments {
     #[arg(long, value_name = "COUNT", default_value_t = 0)]
     refuse: usize,
 
+    /// Close each connection accepted while this many are already open.
+    #[arg(long, value_name = "COUNT")]
+    max_sessions: Option<usize>,
+
     /// Close the listener and every session once, after the server has been up this many
     /// seconds.
     #[arg(long, value_name = "SECONDS")]
@@ -73,6 +77,7 @@ fn serve(arguments: &Arguments) -> Result<(), String> {
         drop_after: seconds("--drop-after", arguments.drop_after)?,
         stall_after: seconds("--stall-after", arguments.stall_after)?,
         refuse: arguments.refuse,
+        max_sessions: arguments.max_sessions,
         restart_after: seconds("--restart-after", arguments.restart_after)?,
         restart_downtime: seconds("--restart-downtime", Some(arguments.restart_downtime))?
             .unwrap_or_default(),

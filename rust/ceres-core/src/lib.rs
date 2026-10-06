@@ -188,6 +188,7 @@ fn ceres_core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<writer::RecordWriter>()?;
     module.add_class::<store::Store>()?;
     module.add_class::<store::RowChunks>()?;
+    module.add_class::<media::RtspNotice>()?;
     module.add_class::<media::RtspStream>()?;
     module.add_class::<migrations::Migration>()?;
     module.add_class::<server::NativeServer>()?;

@@ -210,6 +210,22 @@ impl MediaPacket {
         unsafe { ffi::ceres_packet_is_key(self.raw.as_ptr()) != 0 }
     }
 
+    /// How many bytes of data the packet carries.
+    pub fn size(&self) -> usize {
+        // SAFETY: The packet is live, and the shim only reads its size.
+        let size = unsafe { ffi::ceres_packet_size(self.raw.as_ptr()) };
+        usize::try_from(size).unwrap_or(0)
+    }
+
+    /// Another packet referencing this one's data, which FFmpeg counts rather than copies.
+    pub fn try_clone(&self) -> Result<Self, MediaError> {
+        let clone = Self::new();
+        // SAFETY: Both packets are live, the new one blank as FFmpeg requires.
+        let code = unsafe { ffi::ceres_packet_ref(clone.raw.as_ptr(), self.raw.as_ptr()) };
+        MediaError::check(code)?;
+        Ok(clone)
+    }
+
     pub(crate) fn as_ptr(&mut self) -> *mut ffi::AVPacket {
         self.raw.as_ptr()
     }

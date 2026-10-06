@@ -2,7 +2,7 @@
 
 <!-- coverage:badge -->
 ![Python Coverage: 88%](https://img.shields.io/badge/python%20coverage-88%25-yellowgreen)
-![Rust Coverage: 67%](https://img.shields.io/badge/rust%20coverage-67%25-yellow)
+![Rust Coverage: 74%](https://img.shields.io/badge/rust%20coverage-74%25-yellow)
 <!-- /coverage:badge -->
 
 Ceres is a Python framework for building data collection, monitoring, and device control systems. It takes ideas from service management tools like Docker and SystemD, scales them down, and applies them to Python objects called _components_.

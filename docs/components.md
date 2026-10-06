@@ -221,6 +221,8 @@ Ceres emits these events automatically:
 
 **Procedure events:** `ProcedureCalledEvent`, `ProcedureCompletedEvent`, `ProcedureCancelledEvent`, `ProcedureExceptionEvent`. A procedure returning a `StreamingOutput` ends its call when the output first closes, completed when the stream ran out, an exception when reading it raised, and cancelled when it closed early. A returned `FileOutput` completes the call at once.
 
+**Stream events:** `StreamLostEvent`, `StreamReconnectScheduledEvent`, `StreamReconnectedEvent`, `StreamEndedEvent`, emitted by `rtsp()` streams on the component whose procedure returned them, or on the `component=` they were given.
+
 **Message events:** `MessageReceivedEvent`, `MessageSentEvent`
 
 **Other events:** `AlertEvent`, `LogEvent`, `ConnectedEvent`, `DisconnectedEvent`, `ConnectionLostEvent`

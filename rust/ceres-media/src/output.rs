@@ -34,7 +34,46 @@ impl MediaTrack<'_> {
     pub fn time_base(&self) -> TimeBase {
         self.time_base
     }
+
+    /// A copy of the track that owns its parameters, so it outlives the input or transcoder.
+    pub fn to_owned(&self) -> Result<OwnedTrack, MediaError> {
+        let mut copy = ptr::null_mut();
+        // SAFETY: The track's parameters are live, and the shim sets `copy` only on success.
+        let code = unsafe { ffi::ceres_parameters_copy(self.parameters.as_ptr(), &raw mut copy) };
+        MediaError::check(code)?;
+        Ok(OwnedTrack {
+            parameters: NonNull::new(copy).expect("the shim set the copy"),
+            time_base: self.time_base,
+        })
+    }
 }
+
+/// The codec and time base of one stream, copied out of whatever produced it.
+pub struct OwnedTrack {
+    parameters: NonNull<ffi::AVCodecParameters>,
+    time_base: TimeBase,
+}
+
+impl OwnedTrack {
+    /// The track borrowed for an output to open or match against.
+    pub fn track(&self) -> MediaTrack<'_> {
+        // SAFETY: The parameters live and stay unchanged as long as `self`.
+        unsafe { MediaTrack::new(self.parameters.as_ptr(), self.time_base) }
+    }
+}
+
+impl Drop for OwnedTrack {
+    fn drop(&mut self) {
+        let mut parameters = self.parameters.as_ptr();
+        // SAFETY: The parameters came from `ceres_parameters_copy` and are freed only here.
+        unsafe { ffi::ceres_parameters_free(&raw mut parameters) };
+    }
+}
+
+// SAFETY: Nothing mutates the parameters after the copy, so any thread may read them.
+unsafe impl Send for OwnedTrack {}
+// SAFETY: As above, shared access only reads.
+unsafe impl Sync for OwnedTrack {}
 
 struct SinkState {
     sink: MediaSink,

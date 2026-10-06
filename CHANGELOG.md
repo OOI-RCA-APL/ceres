@@ -53,6 +53,17 @@ written, and the release workflow refuses a version that has no entry here.
   fingerprint, and steps for trusting it on each operating system.
 - Ceres keeps machine-local state in a `.ceres` directory next to `ceres.yaml`, which carries
   its own `.gitignore`.
+- `rtsp()` streams of one camera share one connection to it when they use the same `copy`,
+  `transport`, and `stall_timeout`, so a camera allowing few sessions serves any number of
+  viewers. A viewer joining starts from the latest keyframe, a viewer reading too slowly skips
+  to the next keyframe instead of holding up the others, and the connection stays open three
+  seconds after its last viewer leaves so a reloaded page finds it open. A stream without
+  `reconnect` ends on a lost camera while the others reconnect.
+- `rtsp()` streams report what happens to the camera as events: `StreamLostEvent` once per
+  outage, `StreamReconnectScheduledEvent` for its first reconnect attempt,
+  `StreamReconnectedEvent` with the attempts and length of the outage, and `StreamEndedEvent`
+  when the stream ends on its own. A stream returned from a procedure reports on that
+  procedure's component. Code reading `rtsp()` itself passes `component=` to get them.
 
 **CLI**
 

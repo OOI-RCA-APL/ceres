@@ -26,6 +26,7 @@ __all__ = [
     "RecordTable",
     "RecordWriter",
     "RowChunks",
+    "RtspNotice",
     "RtspStream",
     "SQLiteDatabaseConfig",
     "ServerAuthenticationConfig",
@@ -729,9 +730,43 @@ class RowChunks:
         """
 
 @final
+class RtspNotice:
+    r"""
+    Something an `RtspStream` reports besides its bytes.
+    """
+    @property
+    def kind(self) -> str:
+        r"""
+        `"lost"`, `"retrying"`, `"reconnected"`, or `"ended"`.
+        """
+    @property
+    def reason(self) -> str | None:
+        r"""
+        Why the camera was lost or the stream ended, if known.
+        """
+    @property
+    def delay(self) -> float | None:
+        r"""
+        Seconds until the first attempt to reach a lost camera again, for `"retrying"`.
+        """
+    @property
+    def attempts(self) -> int | None:
+        r"""
+        How many connections the outage took, for `"reconnected"`.
+        """
+    @property
+    def outage(self) -> float | None:
+        r"""
+        Seconds the outage lasted, for `"reconnected"`.
+        """
+
+@final
 class RtspStream:
     r"""
-    An RTSP camera remuxed into one fragmented MP4 stream on a thread of its own.
+    An RTSP camera remuxed into a fragmented MP4 stream.
+
+    Streams of one camera with the same `transport`, `copy`, and `stall_timeout` share its
+    connection, so a camera allowing few sessions serves any number of them.
     """
     def __new__(
         cls,
@@ -753,7 +788,8 @@ class RtspStream:
         """
     def next(self) -> Any:
         r"""
-        The next chunk of the MP4 stream as `bytes`, `None` once the stream ends.
+        The next chunk of the MP4 stream as `bytes`, or an `RtspNotice`, `None` once the stream
+        ends.
 
         Waiting blocks a thread of its own so a quiet camera leaves the event loop free.
         """
