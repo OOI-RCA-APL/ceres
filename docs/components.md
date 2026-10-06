@@ -219,7 +219,7 @@ Ceres emits these events automatically:
 
 **Job events:** `JobStartedEvent`, `JobCompletedEvent`, `JobExceptionEvent`, `JobRetryEvent`
 
-**Procedure events:** `ProcedureCalledEvent`, `ProcedureCompletedEvent`, `ProcedureExceptionEvent`
+**Procedure events:** `ProcedureCalledEvent`, `ProcedureCompletedEvent`, `ProcedureCancelledEvent`, `ProcedureExceptionEvent`. A procedure returning a `StreamingOutput` ends its call when the output first closes, completed when the stream ran out, an exception when reading it raised, and cancelled when it closed early. A returned `FileOutput` completes the call at once.
 
 **Message events:** `MessageReceivedEvent`, `MessageSentEvent`
 

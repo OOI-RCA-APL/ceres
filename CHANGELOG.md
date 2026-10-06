@@ -95,6 +95,11 @@ written, and the release workflow refuses a version that has no entry here.
   browser cannot send within 15 seconds, which happens when video widgets hold every connection
   the browser allows to the server, now fails with that message instead of hanging silently.
 - Dismissing the "Commit Changes" dialog with Escape no longer commits.
+- A procedure returning a stream or a file now reports how its call ended. A returned file
+  completes the call. A returned stream ends it when it closes, with `ProcedureCompletedEvent`
+  when it ran out, `ProcedureExceptionEvent` when reading it raised, and
+  `ProcedureCancelledEvent` when it closed early, such as a client leaving a live video view.
+  Before, such a call reported `ProcedureCalledEvent` and nothing after it.
 
 ## [0.48.1] - 2026-10-01
 
