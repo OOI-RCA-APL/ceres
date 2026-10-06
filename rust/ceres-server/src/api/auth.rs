@@ -64,13 +64,21 @@ pub(crate) async fn me(
     }
 }
 
-/// Report the optional authentication behavior the console adapts itself to.
+/// Report the optional behavior the console adapts itself to before and after login.
+///
+/// `authority` carries the fingerprint of the authority `/ca.crt` serves, null unless Ceres
+/// manages the HTTPS certificate.
 pub(crate) async fn features(State(state): State<Arc<AppState>>) -> Response {
     let impersonate = state
         .auth
         .as_ref()
         .is_some_and(|settings| settings.allow_impersonate);
-    Json(json!({"impersonate": impersonate})).into_response()
+    let authority = state
+        .authority
+        .as_ref()
+        .and_then(|authority| authority.fingerprint())
+        .map(|fingerprint| json!({"fingerprint": fingerprint}));
+    Json(json!({"impersonate": impersonate, "authority": authority})).into_response()
 }
 
 /// Authenticate a username and password, answering with a fresh identity.

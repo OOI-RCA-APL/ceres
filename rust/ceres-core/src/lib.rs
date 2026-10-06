@@ -59,12 +59,10 @@ python_config! {
     ServerHTTPSConfig(ceres_config::ServerHttpsConfig, ceres_config::RawServerHttpsConfig) {
         /// Port the HTTPS listener binds.
         port: u16,
-        /// Path to the PEM certificate chain.
-        cert: PathBuf,
-        /// Path to the PEM private key.
-        key: PathBuf,
-        /// Password for an encrypted private key.
-        key_password: Option<String>,
+        /// The certificate the listener presents, `"auto"` for one Ceres issues and renews
+        /// itself, or a mapping of `path`, `key`, `key-password`, and `auto`.
+        #[python(any = "str | dict[str, typing.Any]")]
+        certificate: ceres_config::ServerCertificateConfig,
         /// Lowest TLS version offered, `"1.2"` or `"1.3"`.
         #[python(any = "str")]
         min_version: ceres_config::TlsVersion,

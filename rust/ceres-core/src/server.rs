@@ -15,9 +15,9 @@ use std::time::Duration;
 use ceres_database::{RecordFilter, RecordStore, RecordTable};
 use ceres_server::axum::Router;
 use ceres_server::{
-    Answer, AppConfig, AuthSettings, BoundServer, ConsolePaths, GateUser, Host, HostError, Served,
-    Stopper, StreamClose, UserRecord, apply_compression, apply_cors, build_router,
-    certificate_expiry, redirect_router,
+    Answer, AppConfig, AuthSettings, Authority, BoundServer, CertificateStatus, ConsolePaths,
+    GateUser, Host, HostError, Notice, Report, Served, Stopper, StreamClose, UserRecord,
+    apply_compression, apply_cors, build_router, redirect_router,
 };
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -383,6 +383,40 @@ pub struct NativeServer {
     locals: Arc<OnceLock<pyo3_async_runtimes::TaskLocals>>,
 }
 
+/// Send a listener's certificate notices to `log`, anything with `info` and `warning`
+/// methods taking the message, dropping them without one.
+///
+/// Before serving a notice arrives on the thread that binds the listener. Once serving it
+/// arrives on a tokio thread, and goes to the event loop serving started on.
+fn reporting(
+    log: Option<Py<PyAny>>,
+    locals: Arc<OnceLock<pyo3_async_runtimes::TaskLocals>>,
+) -> Report {
+    Arc::new(move |notice| {
+        let Some(log) = &log else {
+            return;
+        };
+        let (level, message) = match notice {
+            Notice::Info(message) => ("info", message),
+            Notice::Warning(message) => ("warning", message),
+        };
+        Python::attach(|py| {
+            let logged = match locals.get() {
+                Some(locals) => log.getattr(py, level).and_then(|method| {
+                    locals
+                        .event_loop(py)
+                        .call_method1("call_soon_threadsafe", (method, message))
+                        .map(drop)
+                }),
+                None => log.bind(py).call_method1(level, (message,)).map(drop),
+            };
+            if let Err(error) = logged {
+                error.write_unraisable(py, None);
+            }
+        });
+    })
+}
+
 impl NativeServer {
     #[allow(clippy::too_many_arguments)]
     fn build(
@@ -393,7 +427,8 @@ impl NativeServer {
         port: u16,
         console: Option<ConsolePaths>,
         cli_token: Option<String>,
-        tls: Option<&ceres_config::ServerHttpsConfig>,
+        authority: Option<Authority>,
+        tls: Option<(&ceres_config::ServerHttpsConfig, Option<Py<PyAny>>)>,
     ) -> PyResult<Self> {
         let auth = config
             .authentication
@@ -411,6 +446,7 @@ impl NativeServer {
 
         let locals = Arc::new(OnceLock::new());
         let router = build_router(AppConfig {
+            authority,
             console,
             cli_token,
             version: env!("CARGO_PKG_VERSION").to_string(),
@@ -428,8 +464,10 @@ impl NativeServer {
         let router = apply_cors(router, config.cors.as_ref());
 
         let mut server = BoundServer::bind(bind, port).map_err(to_value_error)?;
-        if let Some(https) = tls {
-            server = server.with_tls(https).map_err(to_value_error)?;
+        if let Some((https, log)) = tls {
+            server = server
+                .with_tls(https, reporting(log, locals.clone()))
+                .map_err(to_value_error)?;
         }
 
         let stopper = server.stopper();
@@ -448,8 +486,12 @@ impl NativeServer {
 impl NativeServer {
     /// Bind the web application, serving the console and API on the HTTPS listener when
     /// `tls` is true and on the plain HTTP listener otherwise.
+    ///
+    /// The HTTPS listener issues a managed certificate first when it is due and renews it
+    /// while serving, telling `log` what it issued and when renewal fails. Either listener
+    /// offers the managed certificate's authority at `/ca.crt`.
     #[staticmethod]
-    #[pyo3(signature = (host, config, console_directory, favicon_ico, favicon_png, favicon_svg, *, tls, records=None))]
+    #[pyo3(signature = (host, config, console_directory, favicon_ico, favicon_png, favicon_svg, *, tls, records=None, log=None))]
     #[allow(clippy::too_many_arguments)]
     fn web(
         #[gen_stub(override_type(type_repr = "typing.Any"))] host: Py<PyAny>,
@@ -460,6 +502,7 @@ impl NativeServer {
         favicon_svg: std::path::PathBuf,
         tls: bool,
         records: Option<&crate::store::Store>,
+        #[gen_stub(override_type(type_repr = "typing.Any"))] log: Option<Py<PyAny>>,
     ) -> PyResult<Self> {
         let config = &config.inner;
         let (port, tls) = if tls {
@@ -467,7 +510,7 @@ impl NativeServer {
                 .https
                 .as_ref()
                 .ok_or_else(|| PyValueError::new_err("the HTTPS listener is not configured"))?;
-            (https.port, Some(https))
+            (https.port, Some((https, log)))
         } else {
             let http = config
                 .http
@@ -488,12 +531,13 @@ impl NativeServer {
                 favicon_svg,
             }),
             None,
+            config.https.as_ref().and_then(Authority::of),
             tls,
         )
     }
 
     /// Bind the plain HTTP listener that redirects every request to the HTTPS listener
-    /// bound on `https_port`.
+    /// bound on `https_port`, except `/ca.crt`, which it serves in place.
     #[staticmethod]
     fn redirect(config: &crate::ServerConfig, https_port: u16) -> PyResult<Self> {
         let config = &config.inner;
@@ -505,25 +549,37 @@ impl NativeServer {
         let stopper = server.stopper();
         let port = server.port();
         Ok(Self {
-            state: Mutex::new(Some((server, redirect_router(https_port)))),
+            state: Mutex::new(Some((
+                server,
+                redirect_router(https_port, config.https.as_ref().and_then(Authority::of)),
+            ))),
             stopper,
             port,
             locals: Arc::new(OnceLock::new()),
         })
     }
 
-    /// Load the HTTPS certificate and key the way the listener does and answer when the
-    /// certificate expires, in seconds since the Unix epoch.
+    /// Read the HTTPS certificate the way the listener does, without writing anything, and
+    /// answer when it expires, in seconds since the Unix epoch, and what startup does to a
+    /// managed one.
     ///
-    /// Answers `None` when no HTTPS listener is configured. Raises `ValueError` naming the
-    /// file when the certificate or key cannot be loaded.
+    /// The expiry is `None` when startup issues the first managed certificate, and the plan
+    /// is `None` when startup keeps the current one. Answers `None` when no HTTPS listener
+    /// is configured. Raises `ValueError` naming the file when a certificate, key, or
+    /// authority cannot be read.
     #[staticmethod]
-    fn certificate_expiry(config: &crate::ServerConfig) -> PyResult<Option<i64>> {
+    fn certificate_status(
+        config: &crate::ServerConfig,
+    ) -> PyResult<Option<(Option<i64>, Option<String>)>> {
         config
             .inner
             .https
             .as_ref()
-            .map(|https| certificate_expiry(https).map_err(to_value_error))
+            .map(|https| {
+                CertificateStatus::current(https)
+                    .map(|status| (status.expires, status.plan))
+                    .map_err(to_value_error)
+            })
             .transpose()
     }
 
@@ -544,6 +600,7 @@ impl NativeServer {
             0,
             None,
             Some(token),
+            None,
             None,
         )
     }

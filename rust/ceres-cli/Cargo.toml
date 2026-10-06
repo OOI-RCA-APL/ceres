@@ -16,8 +16,8 @@ path = "src/main.rs"
 ceres-config = { path = "../ceres-config" }
 ceres-database = { path = "../ceres-database" }
 ceres-entities = { path = "../ceres-entities" }
-# Only for the OpenAPI document, so `generate openapi` renders the same schema the
-# running server serves.
+# `generate openapi` renders the same schema the running server serves, and `generate
+# certificate` runs the same issuance as its startup.
 ceres-server = { path = "../ceres-server" }
 # A dump colors the two kinds of string worth telling apart at a glance by handing them to
 # the parsers that own those formats, rather than by matching their shape.
@@ -44,14 +44,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 yaml_serde = "0.10"
 sha1 = "0.10"
-# `generate certificate` signs with an ECDSA P-256 key and prints the SHA-256
-# fingerprint of what it wrote.
-rcgen = "0.14"
-sha2 = "0.10"
 time = "0.3"
-# `generate certificate` writes beside the targets and renames over them, the key file
-# owner-only from creation.
-tempfile = "3"
 ureq = { version = "3", features = ["json"] }
 plist = "1"
 regex-lite = "0.1"
@@ -68,6 +61,7 @@ sqlx = { version = "0.9", default-features = false, features = [
     "runtime-tokio",
 ] }
 tokio = { version = "1", default-features = false, features = ["macros", "rt"] }
+tempfile = "3"
 
 [lints]
 workspace = true

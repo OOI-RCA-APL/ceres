@@ -165,7 +165,7 @@
           },
           {}
         ],
-        "summary": "Report optional authentication behavior.",
+        "summary": "Report optional behavior the console adapts to.",
         "tags": [
           "auth"
         ]

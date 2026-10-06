@@ -500,25 +500,33 @@ class NativeServer:
         *,
         tls: bool,
         records: Store | None = None,
+        log: Any = None,
     ) -> NativeServer:
         r"""
         Bind the web application, serving the console and API on the HTTPS listener when
         `tls` is true and on the plain HTTP listener otherwise.
+
+        The HTTPS listener issues a managed certificate first when it is due and renews it
+        while serving, telling `log` what it issued and when renewal fails. Either listener
+        offers the managed certificate's authority at `/ca.crt`.
         """
     @staticmethod
     def redirect(config: ServerConfig, https_port: int) -> NativeServer:
         r"""
         Bind the plain HTTP listener that redirects every request to the HTTPS listener
-        bound on `https_port`.
+        bound on `https_port`, except `/ca.crt`, which it serves in place.
         """
     @staticmethod
-    def certificate_expiry(config: ServerConfig) -> int | None:
+    def certificate_status(config: ServerConfig) -> tuple[int | None, str | None] | None:
         r"""
-        Load the HTTPS certificate and key the way the listener does and answer when the
-        certificate expires, in seconds since the Unix epoch.
+        Read the HTTPS certificate the way the listener does, without writing anything, and
+        answer when it expires, in seconds since the Unix epoch, and what startup does to a
+        managed one.
 
-        Answers `None` when no HTTPS listener is configured. Raises `ValueError` naming the
-        file when the certificate or key cannot be loaded.
+        The expiry is `None` when startup issues the first managed certificate, and the plan
+        is `None` when startup keeps the current one. Answers `None` when no HTTPS listener
+        is configured. Raises `ValueError` naming the file when a certificate, key, or
+        authority cannot be read.
         """
     @staticmethod
     def cli(
@@ -1146,19 +1154,10 @@ class ServerHTTPSConfig:
         Port the HTTPS listener binds.
         """
     @property
-    def cert(self) -> Path:
+    def certificate(self) -> str | dict[str, Any]:
         r"""
-        Path to the PEM certificate chain.
-        """
-    @property
-    def key(self) -> Path:
-        r"""
-        Path to the PEM private key.
-        """
-    @property
-    def key_password(self) -> str | None:
-        r"""
-        Password for an encrypted private key.
+        The certificate the listener presents, `"auto"` for one Ceres issues and renews
+        itself, or a mapping of `path`, `key`, `key-password`, and `auto`.
         """
     @property
     def min_version(self) -> str:
@@ -1169,9 +1168,7 @@ class ServerHTTPSConfig:
         cls,
         *,
         port: int | None = None,
-        cert: str | PathLike[str] | Path | None = None,
-        key: str | PathLike[str] | Path | None = None,
-        key_password: str | None = None,
+        certificate: str | dict[str, Any] | None = None,
         min_version: str | None = None,
     ) -> Self: ...
     def __to_dict__(self) -> dict[str, Any]:

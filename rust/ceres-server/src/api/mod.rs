@@ -54,7 +54,7 @@ pub(crate) fn documented_routes() -> Vec<schema::Documented> {
         Post "/api/auth/impersonate" => "Take on another user's identity.", "auth", open: true;
         Post "/api/auth/change-password" => "Change the caller's password.", "auth";
         Get "/api/auth/me" => "Return the caller's identity.", "auth", open: true;
-        Get "/api/auth/features" => "Report optional authentication behavior.", "auth", open: true;
+        Get "/api/auth/features" => "Report optional behavior the console adapts to.", "auth", open: true;
         Get "/api/config" => "Serve the whole configuration.", "config";
         Get "/api/config/service" => "Serve the service configuration.", "config";
         Get "/api/config/server" => "Serve the server configuration.", "config";

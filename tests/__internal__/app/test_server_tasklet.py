@@ -10,11 +10,14 @@ web one, and the redirect one all go through it, so all are tested here.
 from __future__ import annotations
 
 import asyncio
+import logging
+import ssl
 import subprocess
 import sysconfig
 from collections.abc import Sequence
 from functools import partial
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import httpx
 
@@ -22,6 +25,9 @@ from ceres import Engine
 from ceres.__internal__.host import _dev_listener
 from ceres.__internal__.project import LoadedProject
 from ceres.config import ConfigCheckType
+
+if TYPE_CHECKING:
+    import pytest
 
 
 async def _load(
@@ -114,8 +120,8 @@ async def test_the_http_listener_redirects_to_the_bound_https_one(tmp_path: Path
         failures,
         server=(
             "server:\n  bind: 127.0.0.1\n"
-            f"  https:\n    port: 0\n    cert: {tls / 'server.crt'}\n"
-            f"    key: {tls / 'server.key'}\n"
+            f"  https:\n    port: 0\n    certificate:\n      path: {tls / 'server.crt'}\n"
+            f"      key: {tls / 'server.key'}\n"
             "  http:\n    port: 0\n    redirect: true\n"
         ),
     )
@@ -139,6 +145,65 @@ async def test_the_http_listener_redirects_to_the_bound_https_one(tmp_path: Path
             f"HTTPS web server listening on 127.0.0.1:{https_port}.",
             f"HTTP redirect server listening on 127.0.0.1:{http_port}.",
         ]
+        assert failures == []
+    finally:
+        await server.stop()
+        await engine.database.dispose()
+
+
+async def test_startup_issues_a_managed_certificate_clients_can_trust(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A fresh project under `certificate: auto` gains an authority and a certificate it signs.
+
+    A client trusting only the downloaded authority completes the handshake, which proves the
+    chain and the names, and the redirecting listener hands the authority out in place.
+    """
+    monkeypatch.chdir(tmp_path)
+    caplog.set_level(logging.INFO)
+    failures: list[BaseException] = []
+    engine = await _load(
+        tmp_path,
+        failures,
+        server=(
+            "server:\n  bind: 127.0.0.1\n"
+            "  https:\n    port: 0\n    certificate: auto\n"
+            "  http:\n    port: 0\n    redirect: true\n"
+        ),
+        checks=(ConfigCheckType.SERVER,),
+    )
+    server = engine.server
+    assert server is not None
+
+    try:
+        https_port, http_port = server.https_port, server.http_port
+        assert https_port and http_port
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"http://127.0.0.1:{http_port}/ca.crt")
+            assert response.status_code == 200
+            assert response.headers["content-type"] == "application/x-x509-ca-cert"
+            authority = tmp_path / "downloaded.crt"
+            authority.write_bytes(response.content)
+            assert response.text == (tmp_path / ".ceres" / "tls" / "ca.crt").read_text()
+
+            response = await client.get(f"http://127.0.0.1:{http_port}/console")
+            assert response.status_code == 307
+
+        trusting = ssl.create_default_context(cafile=authority)
+        async with httpx.AsyncClient(verify=trusting) as client:
+            response = await client.get(f"https://127.0.0.1:{https_port}/api/auth/features")
+            assert response.status_code == 200
+            assert response.json()["authority"]["fingerprint"].count(":") == 31
+
+        logged = [record.getMessage() for record in caplog.records]
+        assert (
+            "Created the certificate authority .ceres/tls/ca.crt. Trust it on each client to "
+            "trust the HTTPS certificate it signs."
+        ) in logged
+        assert any(
+            message.startswith("Issued the HTTPS certificate .ceres/tls/server.crt for ")
+            for message in logged
+        ), logged
         assert failures == []
     finally:
         await server.stop()

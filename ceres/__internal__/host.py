@@ -125,9 +125,12 @@ async def _check(config_path: Path) -> int:
     except Error as error:
         raise HostFailed(f"Failed to load configuration. {to_json(error, indent=2)}")
 
-    warning = _expiry_warning(config.server, datetime.now(UTC))
-    if warning is not None:
-        print(warning, file=sys.stderr)
+    for notice in (
+        _certificate_plan(config.server),
+        _expiry_warning(config.server, datetime.now(UTC)),
+    ):
+        if notice is not None:
+            print(notice, file=sys.stderr)
 
     print("All checks passed.", file=sys.stderr)
     return 0
@@ -137,16 +140,45 @@ EXPIRY_WARNING_DAYS = 30
 """How close to expiry the HTTPS certificate draws a warning from `ceres check` and startup."""
 
 
-def _expiry_warning(server: ServerConfig, now: datetime) -> str | None:
-    """Answer a warning when the HTTPS certificate expires within `EXPIRY_WARNING_DAYS`.
+def _certificate(server: ServerConfig) -> dict[str, Any] | None:
+    """Answer the HTTPS listener's certificate section, `None` without an HTTPS listener."""
+    if server.https is None:
+        return None
 
-    The certificate has already loaded during the server check, so a failure to read its
-    expiry here cannot happen.
+    certificate = server.https.certificate
+    # The getter answers the validated section, which is always the full mapping.
+    assert isinstance(certificate, dict)
+    return certificate
+
+
+def _certificate_plan(server: ServerConfig) -> str | None:
+    """Answer what startup does to a managed HTTPS certificate, `None` when it keeps it.
+
+    The certificate has already been read during the server check, so a failure to read it
+    here cannot happen.
     """
     from ceres.__internal__.core import NativeServer
 
-    expiry = NativeServer.certificate_expiry(server)
-    if expiry is None or server.https is None:
+    status = NativeServer.certificate_status(server)
+    return None if status is None else status[1]
+
+
+def _expiry_warning(server: ServerConfig, now: datetime) -> str | None:
+    """Answer a warning when the HTTPS certificate expires within `EXPIRY_WARNING_DAYS`.
+
+    A managed certificate renews itself before then, so it draws none. The certificate has
+    already loaded during the server check, so a failure to read its expiry here cannot
+    happen.
+    """
+    from ceres.__internal__.core import NativeServer
+
+    certificate = _certificate(server)
+    if certificate is None or certificate["auto"] is not None:
+        return None
+
+    status = NativeServer.certificate_status(server)
+    expiry = None if status is None else status[0]
+    if expiry is None:
         return None
 
     expires = datetime.fromtimestamp(expiry, UTC)
@@ -157,14 +189,15 @@ def _expiry_warning(server: ServerConfig, now: datetime) -> str | None:
     regenerate = "Run `ceres generate certificate --force` to replace it."
     if remaining <= timedelta(0):
         return (
-            f"The HTTPS certificate {server.https.cert} expired on {expires:%Y-%m-%d}. {regenerate}"
+            f"The HTTPS certificate {certificate['path']} expired on {expires:%Y-%m-%d}. "
+            f"{regenerate}"
         )
 
     # Rounded up, so the last hours before expiry still read as a day left.
     days = -(-remaining // timedelta(days=1))
     noun = "day" if days == 1 else "days"
     return (
-        f"The HTTPS certificate {server.https.cert} expires on {expires:%Y-%m-%d}, "
+        f"The HTTPS certificate {certificate['path']} expires on {expires:%Y-%m-%d}, "
         f"in {days} {noun}. {regenerate}"
     )
 

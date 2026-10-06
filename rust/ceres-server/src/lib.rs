@@ -19,6 +19,7 @@ mod redirect;
 mod scrub;
 mod serve;
 mod tls;
+mod trust;
 
 pub use api::schema::document as openapi_document;
 pub use app::{AppConfig, ConsolePaths, build_router};
@@ -28,7 +29,11 @@ pub use host::{Answer, GateUser, Host, HostError, Served, StreamClose, UserRecor
 pub use layers::{apply_compression, apply_cors};
 pub use redirect::redirect_router;
 pub use serve::{BoundServer, Stopper};
-pub use tls::certificate_expiry;
+pub use tls::{
+    Error as TlsError, Managed, Notice, RENEWAL_INTERVAL, Renewal, Report,
+    Status as CertificateStatus, SubjectName, fingerprint, hostname, write_pair,
+};
+pub use trust::Authority;
 
 #[cfg(test)]
 mod tests {
@@ -71,6 +76,7 @@ mod tests {
         std::fs::write(directory.join("app.js"), b"application code").unwrap();
         std::fs::write(directory.join("favicon.ico"), b"icon bytes").unwrap();
         build_router(AppConfig {
+            authority: None,
             console: Some(ConsolePaths {
                 directory: directory.to_path_buf(),
                 favicon_ico: directory.join("favicon.ico"),
@@ -145,6 +151,7 @@ mod tests {
         // An empty directory, as a source checkout has before anything builds the bundle.
         let directory = tempfile::tempdir().unwrap();
         let app = build_router(AppConfig {
+            authority: None,
             console: Some(ConsolePaths {
                 directory: directory.path().to_path_buf(),
                 favicon_ico: directory.path().join("favicon.ico"),
@@ -304,6 +311,7 @@ mod tests {
         allow_impersonate: bool,
     ) -> axum::Router {
         build_router(AppConfig {
+            authority: None,
             console: None,
             cli_token: None,
             auth: Some(settings(allow_impersonate)),
@@ -317,6 +325,7 @@ mod tests {
 
     fn authenticated_app(user: uuid::Uuid, allow_impersonate: bool) -> axum::Router {
         build_router(AppConfig {
+            authority: None,
             console: None,
             cli_token: None,
             auth: Some(settings(allow_impersonate)),
@@ -408,6 +417,7 @@ mod tests {
 
         // Login with authentication unconfigured refuses as disabled.
         let disabled = build_router(AppConfig {
+            authority: None,
             console: None,
             cli_token: None,
             auth: None,
@@ -579,6 +589,7 @@ mod tests {
 
         // An unrestricted caller with no concrete user gets the bare envelope instead.
         let unrestricted = build_router(AppConfig {
+            authority: None,
             console: None,
             cli_token: None,
             auth: None,
@@ -888,18 +899,19 @@ mod tests {
         assert_response!(
             request!(authenticated_app(user, true), get "/api/auth/features"),
             OK,
-            br#"{"impersonate":true}"#
+            br#"{"impersonate":true,"authority":null}"#
         );
         assert_response!(
             request!(authenticated_app(user, false), get "/api/auth/features"),
             OK,
-            br#"{"impersonate":false}"#
+            br#"{"impersonate":false,"authority":null}"#
         );
     }
 
     #[tokio::test]
     async fn the_cli_app_requires_its_token_and_carries_no_console() {
         let app = build_router(AppConfig {
+            authority: None,
             console: None,
             cli_token: Some("cli-test-token".to_string()),
             auth: None,

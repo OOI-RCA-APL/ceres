@@ -192,47 +192,66 @@ ceres console url     # Print the URL.
 
 With a `server.https` listener the console is served over TLS, and browsers negotiate HTTP/2, which multiplexes every console request over one connection. Over plain HTTP browsers cap a page at about six connections per host, and each live video widget holds one, so a dashboard with several videos stalls. HTTPS lifts that limit.
 
-An empty `server.https` section listens on port 443 with the certificate and key in the project's `.ceres/tls` directory. Generate them once from the project directory:
+The simplest HTTPS setup lets Ceres manage the certificate:
+
+```yaml
+server:
+  https:
+    certificate: auto
+  http:
+    redirect: true
+```
+
+Startup then creates a certificate authority in the project's `.ceres/tls` directory, once, and issues the HTTPS certificate with it. The certificate names localhost, the loopback addresses, the machine's hostname, and every address of its network interfaces other than loopback and link-local ones, with an ECDSA P-256 key, valid for 365 days. Ceres checks it at startup and daily while running, and issues a new one when it expires within 30 days, lacks a name, or was signed by another authority. The new certificate replaces the old one in the running listener, with no restart and without dropping open connections.
+
+Browsers trust the certificate once they trust the authority, `.ceres/tls/ca.crt`. Every listener serves it at `/ca.crt`, the redirecting one included, and the console's login page links to a page with the download, its fingerprint, and steps for each operating system. The authority stays the same through every renewal, so each client trusts it once.
+
+Name the addresses and DNS names clients reach the server by under `auto`, in place of the detected ones, along with the lifetime and an authority of your own. A supplied authority has to exist, Ceres never creates one at a path the configuration names.
+
+```yaml
+server:
+  https:
+    certificate:
+      auto:
+        ip: [10.20.1.230]
+        dns: [sensors.example.org]
+        days: 365
+        ca:
+          path: /etc/ceres/ca.crt
+          key: /etc/ceres/ca.key
+```
+
+`days` is at most 825, the longest Apple devices accept. Run the same issuance by hand with `ceres generate certificate`, which prints the authority to trust, the names, the expiry, and the fingerprint. It only writes when a certificate is due, `--force` reissues it, and `--ip`, `--dns`, and `--days` add names and set the lifetime.
 
 ```sh
 ceres generate certificate
 ```
 
 ```text
+Created the certificate authority .ceres/tls/ca.crt.
 Wrote the certificate to .ceres/tls/server.crt.
 Wrote the key to .ceres/tls/server.key.
 Names: localhost, 127.0.0.1, ::1, sensor-host, 192.0.2.5
-Expires: 2029-01-07 (825 days)
+Expires: 2027-10-05
 SHA-256 fingerprint: F7:65:82:76:E8:92:6A:D7:2B:21:F2:63:DD:72:1A:52:AC:E7:B3:12:A7:B4:FC:49:81:F9:2D:6B:13:2B:08:D0
+Trust the certificate authority .ceres/tls/ca.crt on each client to trust the certificate.
 ```
 
-The certificate is self-signed with an ECDSA P-256 key, and names localhost, the loopback addresses, the machine's hostname, and every address of its network interfaces other than loopback and link-local ones. Add names clients reach the server by, like a DNS alias or a NAT address, with `--ip` and `--dns`, both repeatable. `--days` sets how long it stays valid. The key file is readable by its owner alone. An existing certificate or key is only replaced with `--force`, so regenerate before the old one expires:
+Set `server.http.redirect` to keep the old `http://` bookmarks working after a move to HTTPS. The `server.http` listener then answers every request with a temporary redirect to the same path and query on the HTTPS listener, except `/ca.crt`, which it serves in place. Its port defaults to 80, and is typically the port the server served plain HTTP on before.
 
-```sh
-ceres generate certificate --dns sensors.example.org --force
-```
-
-Browsers warn about a self-signed certificate until it is accepted. Compare the fingerprint the browser shows with the one printed above before accepting it.
-
-Set `server.http.redirect` to keep the old `http://` bookmarks working after a move to HTTPS. The `server.http` listener then answers every request with a temporary redirect to the same path and query on the HTTPS listener. Its port defaults to 80, and is typically the port the server served plain HTTP on before.
-
-```yaml
-server:
-  https: {}
-  http:
-    redirect: true
-```
-
-To serve a certificate from elsewhere, like one a certificate authority issued, name its files with `cert` and `key`, plus `key-password` for an encrypted key. Relative paths resolve against the project directory. `ceres generate certificate` writes to the configured paths too.
+To serve a certificate from elsewhere, like one a public certificate authority issued, leave `auto` out and name its files with `path` and `key`, plus `key-password` for an encrypted key. Ceres then only reads them. Relative paths resolve against the project directory, and both default to `.ceres/tls/server.crt` and `.ceres/tls/server.key`.
 
 ```yaml
 server:
   https:
-    cert: /etc/ceres/server.crt
-    key: /etc/ceres/server.key
+    certificate:
+      path: /etc/ceres/server.crt
+      key: /etc/ceres/server.key
 ```
 
-`ceres check` and engine startup fail when the certificate or key cannot be loaded, and name `ceres generate certificate` when either file is missing. Both also warn once fewer than 30 days remain before the certificate expires, `ceres check` on its output and startup in the engine log.
+Without `auto`, `ceres generate certificate` writes the configured paths once, signed by the authority at `.ceres/tls/ca.crt`, and replaces them only with `--force`.
+
+`ceres check` and engine startup fail when the certificate or key cannot be loaded, and name `ceres generate certificate` and `certificate: auto` when either file is missing. Without `auto`, both also warn once fewer than 30 days remain before the certificate expires, `ceres check` on its output and startup in the engine log. With `auto`, `ceres check` reports what startup is about to issue, without writing anything.
 
 ### CLI Queries
 

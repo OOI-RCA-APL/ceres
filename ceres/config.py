@@ -984,7 +984,8 @@ class ConfigCheckType(StrEnum):
     """Verify the component tree builds without errors."""
 
     SERVER = "server"
-    """Verify the HTTPS listener's certificate and key load."""
+    """Verify the HTTPS listener's certificate and key load, or for a managed certificate, that
+    its authority can sign one."""
 
     @classmethod
     def all(cls) -> tuple[ConfigCheckType, ...]:
@@ -1131,7 +1132,7 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
         from ceres.__internal__.core import NativeServer
 
         try:
-            NativeServer.certificate_expiry(self.server)
+            NativeServer.certificate_status(self.server)
         except ValueError as error:
             problem = ValidationProblem(
                 type="value_error", location=["server", "https"], message=str(error)

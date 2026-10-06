@@ -1,12 +1,8 @@
 //! The `generate` command group, rendering project resources.
 
-use std::fmt;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use std::path::{Path, PathBuf};
-
-use ceres_config::{DEFAULT_TLS_CERT, DEFAULT_TLS_KEY};
-use sha2::{Digest, Sha256};
-use time::{Duration, OffsetDateTime};
+use ceres_config::ServerCertificateAutoConfig;
+use ceres_server::{Managed, SubjectName};
+use time::OffsetDateTime;
 
 use crate::cli::{CertificateArgs, OpenapiArgs, SchemaFormat};
 use crate::error::{Exit, Result, fail, failure};
@@ -54,395 +50,308 @@ pub fn openapi(args: &OpenapiArgs) -> Result<()> {
     }
 }
 
-/// A name a certificate vouches for.
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum SubjectName {
-    Dns(String),
-    Ip(IpAddr),
-}
-
-impl fmt::Display for SubjectName {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Dns(name) => formatter.write_str(name),
-            Self::Ip(address) => write!(formatter, "{address}"),
-        }
-    }
-}
-
-/// Generate a self-signed certificate and key for the HTTPS listener.
+/// Issue the HTTPS certificate the `server.https.certificate` section describes, signed by
+/// its certificate authority.
 ///
-/// Both go to the paths the `server.https` section names, or to the default
-/// `.ceres/tls` paths when there is no such section. Existing files are only replaced
-/// with `--force`. The key file is readable by its owner alone.
+/// Under `auto` this is the issuance startup runs, writing only when a certificate is due
+/// or `--force` is passed. Otherwise the certificate is signed by the default authority,
+/// created when missing, and existing files are only replaced with `--force`. Either way
+/// `--ip` and `--dns` add names and `--days` sets the lifetime. Keys are readable by their
+/// owner alone.
 pub fn certificate(args: &CertificateArgs, project: &Project, output: &Output) -> Result<()> {
     let meta = project.load_meta()?;
-    let (cert, key) = match &meta.server.https {
-        Some(https) => (https.cert.clone(), https.key.clone()),
-        None => (
-            PathBuf::from(DEFAULT_TLS_CERT),
-            PathBuf::from(DEFAULT_TLS_KEY),
-        ),
-    };
-    let cert_path = project.directory().join(&cert);
-    let key_path = project.directory().join(&key);
+    let certificate = meta
+        .server
+        .https
+        .map(|https| https.certificate)
+        .unwrap_or_default();
+    let directory = project.directory();
 
-    if !args.force {
-        for (shown, path) in [(&cert, &cert_path), (&key, &key_path)] {
-            if path.exists() {
+    let (auto, force) = match &certificate.auto {
+        Some(auto) => (auto.clone(), args.force),
+        None => {
+            if certificate.key_password.is_some() {
                 fail!(
-                    "{} already exists. Pass --force to replace it.",
-                    shown.display()
+                    "`server.https.certificate.key-password` is set, and generate certificate \
+                     writes the key unencrypted. Remove it, or write the certificate yourself."
                 );
             }
-        }
-    }
-
-    let state = project.state_directory();
-    if cert_path.starts_with(&state) || key_path.starts_with(&state) {
-        project.create_state_directory()?;
-    }
-
-    let names = subject_names(args, hostname(), interface_addresses());
-    let now = OffsetDateTime::now_utc();
-    let expires = now + Duration::days(i64::from(args.days));
-    // Valid from an hour back, so a client whose clock runs a little behind accepts it.
-    let (certificate_pem, key_pem, der) = sign(&names, now - Duration::hours(1), expires)?;
-
-    for path in [&cert_path, &key_path] {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|error| failure!("Failed to create {}. {error}", parent.display()))?;
-        }
-    }
-
-    // Both files are written in full before either replaces what is there, so a failed
-    // write leaves the existing files alone. The key is renamed into place first, so a
-    // certificate never stands without its key.
-    let staged_cert = stage(&cert_path, &certificate_pem, 0o644)
-        .map_err(|error| failure!("Failed to write {}. {error}", cert.display()))?;
-    let staged_key = stage(&key_path, &key_pem, 0o600)
-        .map_err(|error| failure!("Failed to write {}. {error}", key.display()))?;
-    staged_key
-        .persist(&key_path)
-        .map_err(|error| failure!("Failed to write {}. {}", key.display(), error.error))?;
-    staged_cert
-        .persist(&cert_path)
-        .map_err(|error| failure!("Failed to write {}. {}", cert.display(), error.error))?;
-
-    let names: Vec<String> = names.iter().map(ToString::to_string).collect();
-    output.write(format!("Wrote the certificate to {}.", cert.display()));
-    output.write(format!("Wrote the key to {}.", key.display()));
-    output.write(format!("Names: {}", names.join(", ")));
-    output.write(format!("Expires: {} ({} days)", expires.date(), args.days));
-    output.write(format!("SHA-256 fingerprint: {}", fingerprint(&der)));
-    Ok(())
-}
-
-/// The names a generated certificate vouches for, in order and without repeats.
-///
-/// Those are localhost and the loopback addresses, the machine's hostname, its interface
-/// addresses other than loopback and link-local ones, then the names asked for.
-fn subject_names(
-    args: &CertificateArgs,
-    hostname: Option<String>,
-    interfaces: Vec<IpAddr>,
-) -> Vec<SubjectName> {
-    let mut names = vec![
-        SubjectName::Dns("localhost".to_string()),
-        SubjectName::Ip(IpAddr::V4(Ipv4Addr::LOCALHOST)),
-        SubjectName::Ip(IpAddr::V6(Ipv6Addr::LOCALHOST)),
-    ];
-    names.extend(hostname.map(SubjectName::Dns));
-    names.extend(
-        interfaces
-            .into_iter()
-            .filter(|address| !address.is_loopback() && !is_link_local(address))
-            .map(SubjectName::Ip),
-    );
-    names.extend(args.ips.iter().copied().map(SubjectName::Ip));
-    names.extend(args.dns.iter().cloned().map(SubjectName::Dns));
-
-    let mut unique: Vec<SubjectName> = Vec::new();
-    for name in names {
-        let name = match name {
-            SubjectName::Dns(name) => SubjectName::Dns(name.to_ascii_lowercase()),
-            name => name,
-        };
-        if !unique.contains(&name) {
-            unique.push(name);
-        }
-    }
-    unique
-}
-
-/// Whether an address only reaches its own link, which no client would name a server by.
-fn is_link_local(address: &IpAddr) -> bool {
-    match address {
-        IpAddr::V4(address) => address.is_link_local(),
-        IpAddr::V6(address) => (address.segments()[0] & 0xffc0) == 0xfe80,
-    }
-}
-
-/// Sign a certificate for `names` with a fresh ECDSA P-256 key, answering the
-/// certificate and key in PEM and the certificate in DER.
-fn sign(
-    names: &[SubjectName],
-    not_before: OffsetDateTime,
-    not_after: OffsetDateTime,
-) -> Result<(String, String, Vec<u8>)> {
-    let key = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256)
-        .map_err(|error| failure!("Failed to generate a key. {error}"))?;
-
-    let mut params = rcgen::CertificateParams::default();
-    params.distinguished_name = rcgen::DistinguishedName::new();
-    params
-        .distinguished_name
-        .push(rcgen::DnType::CommonName, "Ceres");
-    params.subject_alt_names = names
-        .iter()
-        .map(|name| match name {
-            SubjectName::Dns(name) => rcgen::string::Ia5String::try_from(name.as_str())
-                .map(rcgen::SanType::DnsName)
-                .map_err(|error| failure!("{name:?} cannot be a DNS name. {error}")),
-            SubjectName::Ip(address) => Ok(rcgen::SanType::IpAddress(*address)),
-        })
-        .collect::<Result<_>>()?;
-    params.key_usages = vec![rcgen::KeyUsagePurpose::DigitalSignature];
-    params.extended_key_usages = vec![rcgen::ExtendedKeyUsagePurpose::ServerAuth];
-    params.not_before = not_before;
-    params.not_after = not_after;
-
-    let certificate = params
-        .self_signed(&key)
-        .map_err(|error| failure!("Failed to sign the certificate. {error}"))?;
-    Ok((
-        certificate.pem(),
-        key.serialize_pem(),
-        certificate.der().to_vec(),
-    ))
-}
-
-/// The SHA-256 fingerprint of a DER certificate, as colon-separated uppercase hex.
-fn fingerprint(der: &[u8]) -> String {
-    Sha256::digest(der)
-        .iter()
-        .map(|byte| format!("{byte:02X}"))
-        .collect::<Vec<_>>()
-        .join(":")
-}
-
-/// Write `contents` to a temporary file beside `path`, created with `mode` on Unix, ready
-/// to be renamed over it.
-fn stage(path: &Path, contents: &str, mode: u32) -> std::io::Result<tempfile::NamedTempFile> {
-    use std::io::Write;
-
-    let directory = path.parent().unwrap_or(Path::new("."));
-    let mut builder = tempfile::Builder::new();
-    builder.prefix(".ceres-generate-");
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-
-        builder.permissions(std::fs::Permissions::from_mode(mode));
-    }
-    #[cfg(not(unix))]
-    let _ = mode;
-
-    let mut file = builder.tempfile_in(directory)?;
-    file.write_all(contents.as_bytes())?;
-    file.as_file().sync_all()?;
-    Ok(file)
-}
-
-/// The machine's hostname, when it is one a certificate can name.
-#[cfg(unix)]
-fn hostname() -> Option<String> {
-    let mut buffer = [0u8; 256];
-    // SAFETY: the buffer is writable for its whole length, which is what is passed.
-    let status = unsafe { libc::gethostname(buffer.as_mut_ptr().cast(), buffer.len()) };
-    if status != 0 {
-        return None;
-    }
-
-    let end = buffer.iter().position(|&byte| byte == 0)?;
-    let name = std::str::from_utf8(&buffer[..end]).ok()?;
-    let valid = !name.is_empty()
-        && name
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || "-.".contains(character));
-    valid.then(|| name.to_string())
-}
-
-#[cfg(not(unix))]
-fn hostname() -> Option<String> {
-    std::env::var("COMPUTERNAME").ok()
-}
-
-/// Every address assigned to the machine's network interfaces.
-#[cfg(unix)]
-fn interface_addresses() -> Vec<IpAddr> {
-    let mut addresses = Vec::new();
-    let mut head: *mut libc::ifaddrs = std::ptr::null_mut();
-    // SAFETY: getifaddrs fills `head` with a list that stays valid until freeifaddrs.
-    if unsafe { libc::getifaddrs(&mut head) } != 0 {
-        return addresses;
-    }
-
-    let mut cursor = head;
-    while !cursor.is_null() {
-        // SAFETY: every node of the list is valid until freeifaddrs below, and an address
-        // is read as the socket address type its family names.
-        unsafe {
-            let entry = &*cursor;
-            if !entry.ifa_addr.is_null() {
-                match i32::from((*entry.ifa_addr).sa_family) {
-                    libc::AF_INET => {
-                        let address = &*entry.ifa_addr.cast::<libc::sockaddr_in>();
-                        let bits = u32::from_be(address.sin_addr.s_addr);
-                        addresses.push(IpAddr::V4(Ipv4Addr::from(bits)));
+            if !args.force {
+                for shown in [&certificate.path, &certificate.key] {
+                    if directory.join(shown).exists() {
+                        fail!(
+                            "{} already exists. Pass --force to replace it.",
+                            shown.display()
+                        );
                     }
-                    libc::AF_INET6 => {
-                        let address = &*entry.ifa_addr.cast::<libc::sockaddr_in6>();
-                        addresses.push(IpAddr::V6(Ipv6Addr::from(address.sin6_addr.s6_addr)));
-                    }
-                    _ => {}
                 }
             }
-            cursor = entry.ifa_next;
+            (ServerCertificateAutoConfig::default(), true)
         }
+    };
+    let auto = ServerCertificateAutoConfig {
+        days: args.days.unwrap_or(auto.days),
+        ..auto
+    };
+
+    // Startup keeps a certificate naming more than it needs, so added names stay put.
+    let mut names = SubjectName::required(&auto, SubjectName::detected);
+    names.extend(args.ips.iter().copied().map(SubjectName::Ip));
+    names.extend(args.dns.iter().cloned().map(SubjectName::Dns));
+    let names = SubjectName::unique(names);
+
+    let managed = Managed::ensure(
+        directory,
+        &certificate,
+        &auto,
+        &names,
+        OffsetDateTime::now_utc(),
+        force,
+    )
+    .map_err(|error| failure!("{error}"))?;
+
+    let authority = auto.authority().path;
+    if managed.created_authority {
+        output.write(format!(
+            "Created the certificate authority {}.",
+            authority.display()
+        ));
     }
-
-    // SAFETY: `head` came from getifaddrs and nothing borrowed from it outlives this call.
-    unsafe { libc::freeifaddrs(head) };
-    addresses
-}
-
-#[cfg(not(unix))]
-fn interface_addresses() -> Vec<IpAddr> {
-    Vec::new()
+    match &managed.issued {
+        Some(_) => {
+            output.write(format!(
+                "Wrote the certificate to {}.",
+                certificate.path.display()
+            ));
+            output.write(format!("Wrote the key to {}.", certificate.key.display()));
+        }
+        None => output.write(format!(
+            "The certificate {} is current, so it stays. Pass --force to replace it.",
+            certificate.path.display()
+        )),
+    }
+    let names: Vec<String> = managed.names.iter().map(ToString::to_string).collect();
+    output.write(format!("Names: {}", names.join(", ")));
+    output.write(format!("Expires: {}", managed.expires.date()));
+    output.write(format!("SHA-256 fingerprint: {}", managed.fingerprint));
+    output.write(format!(
+        "Trust the certificate authority {} on each client to trust the certificate.",
+        authority.display()
+    ));
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
+    use ceres_config::{ServerCertificateAuthorityConfig, ServerCertificateConfig};
+    use ceres_server::CertificateStatus;
+
     use super::*;
 
-    fn args(ips: &[&str], dns: &[&str], force: bool) -> CertificateArgs {
+    fn args(ips: &[&str], dns: &[&str], days: Option<u32>, force: bool) -> CertificateArgs {
         CertificateArgs {
             ips: ips.iter().map(|ip| ip.parse().unwrap()).collect(),
             dns: dns.iter().map(ToString::to_string).collect(),
-            days: 825,
+            days,
             force,
         }
     }
 
-    #[test]
-    fn names_cover_the_machine_then_what_was_asked_for() {
-        let names = subject_names(
-            &args(
-                &["10.0.0.9", "127.0.0.1"],
-                &["Ceres.example", "localhost"],
-                false,
-            ),
-            Some("bench".to_string()),
-            vec![
-                "127.0.0.1".parse().unwrap(),
-                "192.168.1.20".parse().unwrap(),
-                "169.254.3.4".parse().unwrap(),
-                "fe80::1".parse().unwrap(),
-                "fd00::20".parse().unwrap(),
-            ],
-        );
-        let names: Vec<String> = names.iter().map(ToString::to_string).collect();
-        assert_eq!(
-            names,
-            [
-                "localhost",
-                "127.0.0.1",
-                "::1",
-                "bench",
-                "192.168.1.20",
-                "fd00::20",
-                "10.0.0.9",
-                "ceres.example",
-            ]
-        );
+    fn project(directory: &Path, config: &str) -> Project {
+        std::fs::write(directory.join("ceres.yaml"), config).unwrap();
+        Project::at(directory.join("ceres.yaml"))
+    }
+
+    fn read(path: impl AsRef<Path>) -> String {
+        std::fs::read_to_string(path).unwrap()
+    }
+
+    /// The listener's view of the certificate at `path`, as signed by the authority at `ca`
+    /// for `dns`: when it expires and what startup would reissue it for.
+    fn status(path: &Path, key: &Path, ca: &Path, dns: &[&str]) -> CertificateStatus {
+        let auto = ServerCertificateAutoConfig {
+            dns: dns.iter().map(ToString::to_string).collect(),
+            ca: Some(ServerCertificateAuthorityConfig {
+                path: ca.join("ca.crt"),
+                key: ca.join("ca.key"),
+                key_password: None,
+            }),
+            ..ServerCertificateAutoConfig::default()
+        };
+        let https = ceres_config::ServerHttpsConfig {
+            certificate: ServerCertificateConfig {
+                path: path.to_path_buf(),
+                key: key.to_path_buf(),
+                key_password: None,
+                auto: Some(auto),
+            },
+            ..ceres_config::ServerHttpsConfig::default()
+        };
+        CertificateStatus::of(&https, Vec::new, OffsetDateTime::now_utc()).unwrap()
+    }
+
+    fn days_left(status: &CertificateStatus) -> i64 {
+        (status.expires.unwrap() - OffsetDateTime::now_utc().unix_timestamp()) / 86_400
     }
 
     #[test]
-    fn certificates_load_into_the_https_listener() {
+    fn unmanaged_certificates_are_signed_by_the_default_authority() {
         let directory = tempfile::tempdir().unwrap();
-        std::fs::write(directory.path().join("ceres.yaml"), "").unwrap();
-        let project = Project::at(directory.path().join("ceres.yaml"));
+        let project = project(directory.path(), "");
         let output = Output::new(Some(false));
 
-        certificate(&args(&[], &["bench.example"], false), &project, &output).unwrap();
+        certificate(
+            &args(&["10.0.0.9"], &["Bench.example"], None, false),
+            &project,
+            &output,
+        )
+        .unwrap();
 
         let state = directory.path().join(".ceres");
-        assert_eq!(
-            std::fs::read_to_string(state.join(".gitignore")).unwrap(),
-            "*\n"
-        );
+        assert_eq!(read(state.join(".gitignore")), "*\n");
         // The staged files were renamed into place, leaving nothing else behind.
-        let mut written: Vec<_> = std::fs::read_dir(state.join("tls"))
+        let tls = state.join("tls");
+        let mut written: Vec<_> = std::fs::read_dir(&tls)
             .unwrap()
             .map(|entry| entry.unwrap().file_name())
             .collect();
         written.sort();
-        assert_eq!(written, ["server.crt", "server.key"]);
-        let https = ceres_config::ServerHttpsConfig {
-            cert: state.join("tls/server.crt"),
-            key: state.join("tls/server.key"),
-            ..ceres_config::ServerHttpsConfig::default()
-        };
-        let expiry = ceres_server::certificate_expiry(&https).unwrap();
-        let days = (expiry - OffsetDateTime::now_utc().unix_timestamp()) / 86_400;
-        assert!((824..=825).contains(&days), "{days}");
+        assert_eq!(written, ["ca.crt", "ca.key", "server.crt", "server.key"]);
+
+        // Signed by the authority beside it, for the names asked for besides the machine's.
+        let current = status(
+            &tls.join("server.crt"),
+            &tls.join("server.key"),
+            &tls,
+            &["localhost", "bench.example"],
+        );
+        assert_eq!(current.plan, None);
+        assert!((363..=364).contains(&days_left(&current)), "{current:?}");
 
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
 
-            let mode = std::fs::metadata(&https.key).unwrap().permissions().mode();
-            assert_eq!(mode & 0o777, 0o600);
+            for key in ["server.key", "ca.key"] {
+                let mode = std::fs::metadata(tls.join(key))
+                    .unwrap()
+                    .permissions()
+                    .mode();
+                assert_eq!(mode & 0o777, 0o600, "{key}");
+            }
         }
     }
 
     #[test]
     fn existing_files_are_replaced_only_with_force() {
         let directory = tempfile::tempdir().unwrap();
-        std::fs::write(
-            directory.path().join("ceres.yaml"),
-            "server:\n  https:\n    cert: certs/site.crt\n    key: certs/site.key\n",
-        )
-        .unwrap();
-        let project = Project::at(directory.path().join("ceres.yaml"));
+        let project = project(
+            directory.path(),
+            "server:\n  https:\n    certificate:\n      path: certs/site.crt\n      key: certs/site.key\n",
+        );
         let output = Output::new(Some(false));
 
-        // The configured paths are written, and no `.ceres` directory is needed for them.
-        certificate(&args(&[], &[], false), &project, &output).unwrap();
+        certificate(&args(&[], &[], Some(30), false), &project, &output).unwrap();
         let cert = directory.path().join("certs/site.crt");
-        let first = std::fs::read_to_string(&cert).unwrap();
-        assert!(!directory.path().join(".ceres").exists());
+        let first = read(&cert);
+        let authority = read(directory.path().join(".ceres/tls/ca.crt"));
 
-        let error = certificate(&args(&[], &[], false), &project, &output).unwrap_err();
+        let error = certificate(&args(&[], &[], None, false), &project, &output).unwrap_err();
         assert!(
             error
                 .to_string()
                 .contains("certs/site.crt already exists. Pass --force to replace it."),
             "{error}"
         );
-        assert_eq!(std::fs::read_to_string(&cert).unwrap(), first);
+        assert_eq!(read(&cert), first);
 
-        certificate(&args(&[], &[], true), &project, &output).unwrap();
-        assert_ne!(std::fs::read_to_string(&cert).unwrap(), first);
+        certificate(&args(&[], &[], None, true), &project, &output).unwrap();
+        assert_ne!(read(&cert), first);
+        // The authority is created once and signs every certificate after.
+        assert_eq!(read(directory.path().join(".ceres/tls/ca.crt")), authority);
+        let renewed = status(
+            &cert,
+            &directory.path().join("certs/site.key"),
+            &directory.path().join(".ceres/tls"),
+            &["localhost"],
+        );
+        assert_eq!(renewed.plan, None);
+        assert!((363..=364).contains(&days_left(&renewed)), "{renewed:?}");
     }
 
     #[test]
-    fn fingerprints_are_colon_separated_hex() {
-        assert_eq!(
-            fingerprint(b"abc"),
-            "BA:78:16:BF:8F:01:CF:EA:41:41:40:DE:5D:AE:22:23:B0:03:61:A3:96:17:7A:9C:B4:10:FF:61:F2:00:15:AD"
+    fn encrypted_keys_are_not_overwritten() {
+        let directory = tempfile::tempdir().unwrap();
+        let project = project(
+            directory.path(),
+            "server:\n  https:\n    certificate:\n      key-password: hunter2\n",
         );
+        let output = Output::new(Some(false));
+
+        let error = certificate(&args(&[], &[], None, true), &project, &output).unwrap_err();
+        assert!(
+            error.to_string().contains(
+                "`server.https.certificate.key-password` is set, and generate certificate \
+                 writes the key unencrypted."
+            ),
+            "{error}"
+        );
+        assert!(!directory.path().join(".ceres").exists());
+    }
+
+    #[test]
+    fn managed_certificates_are_issued_the_way_startup_issues_them() {
+        let directory = tempfile::tempdir().unwrap();
+        let project = project(
+            directory.path(),
+            "server:\n  https:\n    certificate:\n      auto:\n        dns: [bench.example]\n        days: 90\n",
+        );
+        let output = Output::new(Some(false));
+        let tls = directory.path().join(".ceres/tls");
+        let (cert, key) = (tls.join("server.crt"), tls.join("server.key"));
+
+        certificate(&args(&[], &[], None, false), &project, &output).unwrap();
+        let first = read(&cert);
+        let issued = status(&cert, &key, &tls, &["bench.example"]);
+        assert_eq!(issued.plan, None);
+        assert!((88..=89).contains(&days_left(&issued)), "{issued:?}");
+
+        // A current certificate stays, even when another lifetime is asked for.
+        certificate(&args(&[], &[], Some(30), false), &project, &output).unwrap();
+        assert_eq!(read(&cert), first);
+
+        // A name it lacks reissues it, keeping the configured ones.
+        certificate(&args(&["10.0.0.9"], &[], None, false), &project, &output).unwrap();
+        let added = read(&cert);
+        assert_ne!(added, first);
+        let both = status(&cert, &key, &tls, &["bench.example"]);
+        assert_eq!(both.plan, None);
+        certificate(&args(&["10.0.0.9"], &[], None, false), &project, &output).unwrap();
+        assert_eq!(read(&cert), added);
+
+        certificate(&args(&[], &[], Some(60), true), &project, &output).unwrap();
+        assert_ne!(read(&cert), added);
+        let forced = status(&cert, &key, &tls, &["bench.example"]);
+        assert!((58..=59).contains(&days_left(&forced)), "{forced:?}");
+    }
+
+    #[test]
+    fn supplied_authorities_are_never_created() {
+        let directory = tempfile::tempdir().unwrap();
+        let project = project(
+            directory.path(),
+            "server:\n  https:\n    certificate:\n      auto:\n        ca:\n          path: ca/typo.crt\n          key: ca/typo.key\n",
+        );
+        let output = Output::new(Some(false));
+
+        let error = certificate(&args(&[], &[], None, true), &project, &output).unwrap_err();
+        assert!(
+            error.to_string().contains("typo.crt does not exist."),
+            "{error}"
+        );
+        assert!(!directory.path().join("ca").exists());
+        assert!(!directory.path().join(".ceres/tls/server.crt").exists());
     }
 }

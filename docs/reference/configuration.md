@@ -49,9 +49,7 @@ The HTTPS listener of the engine's HTTP server.
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
 | `port` | integer |  | Port the HTTPS listener binds, 443 when omitted. |
-| `cert` | string |  | Path to the PEM certificate chain, `.ceres/tls/server.crt` when omitted. |
-| `key` | string |  | Path to the PEM private key, `.ceres/tls/server.key` when omitted. |
-| `key-password` | string |  | Password for an encrypted private key. |
+| `certificate` | `auto` or [`ServerCertificateConfig`](#servercertificateconfig) |  | Certificate the listener presents, read from `.ceres/tls/server.crt` and `.ceres/tls/server.key` when omitted. `auto` has Ceres issue and renew it. |
 | `min-version` | `1.2` or `1.3` |  | Lowest TLS version offered, `"1.2"` or `"1.3"`, `"1.2"` when omitted. |
 
 ### `ServerHttpConfig`
@@ -102,6 +100,38 @@ Response compression settings for the engine's HTTP server.
 | `brotli-quality` | integer |  |  |
 | `gzip` | boolean |  |  |
 | `gzip-level` | integer |  |  |
+
+### `ServerCertificateConfig`
+
+The certificate the HTTPS listener presents.
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `path` | string |  | Path to the PEM certificate chain, `.ceres/tls/server.crt` when omitted. |
+| `key` | string |  | Path to the PEM private key, `.ceres/tls/server.key` when omitted. |
+| `key-password` | string |  | Password for an encrypted private key, not allowed with `auto`. |
+| `auto` | boolean or [`ServerCertificateAutoConfig`](#servercertificateautoconfig) |  | Whether Ceres issues and renews the certificate itself, `true` or the issuance settings. Ceres then owns both files. |
+
+### `ServerCertificateAutoConfig`
+
+How Ceres issues and renews the HTTPS certificate it manages.
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `ip` | list of string |  | IP addresses the certificate names. With `dns` also omitted, the certificate names localhost, 127.0.0.1, ::1, the hostname, and every non-loopback interface address. |
+| `dns` | list of string |  | DNS names the certificate names. With `ip` also omitted, the certificate names the detected ones. |
+| `days` | integer |  | Days each issued certificate stays valid, 365 when omitted and at most 825. |
+| `ca` | [`ServerCertificateAuthorityConfig`](#servercertificateauthorityconfig) |  | Certificate authority you supply to sign the certificate, whose files must exist. When omitted, Ceres creates one at `.ceres/tls/ca.crt` and `.ceres/tls/ca.key`. |
+
+### `ServerCertificateAuthorityConfig`
+
+A certificate authority you supply to sign the managed HTTPS certificate.
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `path` | string |  | Path to the authority's PEM certificate, `.ceres/tls/ca.crt` when omitted. Ceres never creates it. |
+| `key` | string |  | Path to the authority's PEM private key, `.ceres/tls/ca.key` when omitted. |
+| `key-password` | string |  | Password for an encrypted authority key. |
 
 ## `console`
 

@@ -165,6 +165,7 @@ class Server(Tasklet):
                     _favicon(self._engine, ".svg", console),
                     tls=tls,
                     records=records,
+                    log=self._engine.log,
                 )
 
             if serves_https:

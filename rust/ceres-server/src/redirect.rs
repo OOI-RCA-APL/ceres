@@ -7,11 +7,23 @@ use axum::extract::State;
 use axum::http::uri::Authority;
 use axum::http::{HeaderMap, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Redirect, Response};
+use axum::routing::get;
+
+use crate::trust;
 
 /// Builds a router answering every request with a temporary redirect to the same path and
 /// query on the HTTPS origin, which listens on `https_port` at the host the client named.
-pub fn redirect_router(https_port: u16) -> Router {
-    Router::new().fallback(redirect).with_state(https_port)
+///
+/// `/ca.crt` answers `authority`'s certificate in place, since a client fetches it to trust
+/// the HTTPS origin in the first place.
+pub fn redirect_router(https_port: u16, authority: Option<trust::Authority>) -> Router {
+    let router = Router::new().fallback(redirect).with_state(https_port);
+    match authority {
+        Some(authority) => {
+            router.route("/ca.crt", get(move || async move { authority.download() }))
+        }
+        None => router,
+    }
 }
 
 async fn redirect(State(https_port): State<u16>, headers: HeaderMap, uri: Uri) -> Response {
@@ -50,7 +62,10 @@ mod tests {
             .header(header::HOST, host)
             .body(Body::empty())
             .unwrap();
-        let response = redirect_router(https_port).oneshot(request).await.unwrap();
+        let response = redirect_router(https_port, None)
+            .oneshot(request)
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::TEMPORARY_REDIRECT);
         response.headers()[header::LOCATION]
             .to_str()
@@ -77,7 +92,7 @@ mod tests {
     #[tokio::test]
     async fn requests_without_a_host_are_refused() {
         let request = Request::post("/").body(Body::empty()).unwrap();
-        let response = redirect_router(8443).oneshot(request).await.unwrap();
+        let response = redirect_router(8443, None).oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 }

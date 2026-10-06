@@ -13,6 +13,7 @@ mod error;
 mod logging;
 mod meta;
 mod server;
+mod state;
 mod types;
 mod values;
 
@@ -27,11 +28,16 @@ pub use error::{Problem, Problems};
 pub use logging::{Level, LogToggle, LoggingConfig, RawLoggingConfig};
 pub use meta::ConfigMeta;
 pub use server::{
-    DEFAULT_TLS_CERT, DEFAULT_TLS_KEY, RawServerAuthenticationConfig, RawServerCompressionConfig,
-    RawServerConfig, RawServerCorsConfig, RawServerHttpConfig, RawServerHttpsConfig,
-    ServerAuthenticationConfig, ServerCompressionConfig, ServerConfig, ServerCorsConfig,
-    ServerHttpConfig, ServerHttpsConfig, TlsVersion,
+    DEFAULT_CERTIFICATE_DAYS, DEFAULT_TLS_CA_CERT, DEFAULT_TLS_CA_KEY, DEFAULT_TLS_CERT,
+    DEFAULT_TLS_KEY, MAX_CERTIFICATE_DAYS, RawServerAuthenticationConfig,
+    RawServerCertificateAuthorityConfig, RawServerCertificateAutoConfig,
+    RawServerCertificateConfig, RawServerCompressionConfig, RawServerConfig, RawServerCorsConfig,
+    RawServerHttpConfig, RawServerHttpsConfig, ServerAuthenticationConfig,
+    ServerCertificateAuthorityConfig, ServerCertificateAutoConfig, ServerCertificateConfig,
+    ServerCompressionConfig, ServerConfig, ServerCorsConfig, ServerHttpConfig, ServerHttpsConfig,
+    TlsVersion,
 };
+pub use state::{STATE_DIRECTORY, create_parent_directory, create_state_directory};
 pub use types::{
     ConsoleConfig, NAME_PATTERN, Name, RawConsoleConfig, RawServiceConfig, ServiceConfig,
 };

@@ -11,12 +11,13 @@ written, and the release workflow refuses a version that has no entry here.
 **Breaking**
 
 - The `server` section names its listeners. `server.bind` replaces `server.host`,
-  `server.https` (`port`, `cert`, `key`, `key-password`, `min-version`) replaces `server.ssl`,
+  `server.https` (`port`, `certificate`, `min-version`) replaces `server.ssl`,
   and `server.http` (`port`, `redirect`) serves plain HTTP. `server.host`, `server.port`, and
   `server.ssl` are rejected, so rewrite them before upgrading. `server.port: 8080` becomes
   `server.http.port: 8080`, or `server.https.port: 8080` beside a former `server.ssl`. Its
-  `version` gives way to `min-version`, `"1.2"` by default or `"1.3"`, and its `ca-certs` has
-  no counterpart, so drop it.
+  `cert`, `key`, and `key-password` move under `certificate` as `path`, `key`, and
+  `key-password`, its `version` gives way to `min-version`, `"1.2"` by default or `"1.3"`, and
+  its `ca-certs` has no counterpart, so drop it.
 - The engine no longer creates a `local/` directory in the project. A SQLite database still
   creates the directories leading to its file, and `ceres service` creates the directories of
   its log files.
@@ -33,19 +34,32 @@ written, and the release workflow refuses a version that has no entry here.
   working after a move to HTTPS.
 - An empty `server.https` section listens on port 443 with the certificate and key at
   `.ceres/tls/server.crt` and `.ceres/tls/server.key`. `ceres check` and startup fail when the
-  certificate or key cannot be loaded, and name `ceres generate certificate` when either file
-  is missing.
+  certificate or key cannot be loaded, and name `ceres generate certificate` and
+  `certificate: auto` when either file is missing.
+- `server.https.certificate: auto` has Ceres issue and renew the HTTPS certificate itself,
+  signed by a certificate authority it creates once in `.ceres/tls`, or by the one `auto.ca`
+  names, which has to exist. Startup and a daily check issue a new certificate when it expires
+  within 30 days, lacks a configured or detected name, or another authority signed it, and the
+  running listener presents it without a restart. `auto` takes `ip`, `dns`, and `days`, 365
+  by default and at most 825.
+- Every listener serves a managed certificate's authority at `/ca.crt`, the redirecting one
+  included, and the console's login page links to a page with the download, the authority's
+  fingerprint, and steps for trusting it on each operating system.
 - Ceres keeps machine-local state in a `.ceres` directory next to `ceres.yaml`, which carries
   its own `.gitignore`.
 
 **CLI**
 
-- New `ceres generate certificate` writes a self-signed ECDSA P-256 certificate and key for the
-  HTTPS listener, naming localhost, the loopback addresses, the hostname, and the machine's
-  interface addresses, plus any `--ip` and `--dns` names. It is valid for 825 days unless
-  `--days` says otherwise, refuses to replace existing files without `--force`, and prints the
-  names, expiry, and SHA-256 fingerprint.
-- `ceres check` and engine startup warn when the HTTPS certificate expires within 30 days.
+- New `ceres generate certificate` issues the HTTPS certificate and key, an ECDSA P-256 pair
+  signed by the certificate authority, naming localhost, the loopback addresses, the hostname,
+  and the machine's interface addresses, or the `auto` names, plus any `--ip` and `--dns`
+  names. Under `certificate: auto` it runs the issuance startup runs and only writes a
+  certificate that is due, otherwise it refuses to replace existing files. `--force` replaces
+  them either way and `--days` sets the lifetime. It prints the authority to trust, the names,
+  the expiry, and the SHA-256 fingerprint.
+- `ceres check` and engine startup warn when an HTTPS certificate Ceres does not manage expires
+  within 30 days. Under `certificate: auto`, `ceres check` reports what startup is about to
+  issue.
 - `ceres run --development-source` serves the engine over plain HTTP alone, leaving any
   `server.https` listener out, so the console dev server can proxy to it and a project
   without a certificate still runs.

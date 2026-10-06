@@ -5,7 +5,6 @@
 //! router until stopped. Shutdown is graceful, in-flight requests finish first.
 
 use std::net::{SocketAddr, TcpListener};
-use std::sync::Arc;
 use std::time::Duration;
 
 use axum::Router;
@@ -18,7 +17,8 @@ use crate::tls;
 pub struct BoundServer {
     listener: TcpListener,
     handle: Handle<SocketAddr>,
-    tls: Option<Arc<rustls::ServerConfig>>,
+    tls: Option<tls::Tls>,
+    renewal_interval: Duration,
 }
 
 /// A serving failure.
@@ -51,12 +51,33 @@ impl BoundServer {
             listener,
             handle: Handle::new(),
             tls: None,
+            renewal_interval: tls::RENEWAL_INTERVAL,
         })
     }
 
-    /// Terminate TLS with the `https` section's certificate material.
-    pub fn with_tls(mut self, https: &ceres_config::ServerHttpsConfig) -> Result<Self, Error> {
-        self.tls = Some(tls::server_config(https)?);
+    /// Terminate TLS with the `https` section's certificate, issuing a managed one first
+    /// when it is due. A managed certificate renews while serving, `report` hearing of it.
+    pub fn with_tls(
+        mut self,
+        https: &ceres_config::ServerHttpsConfig,
+        report: tls::Report,
+    ) -> Result<Self, Error> {
+        self.tls = Some(tls::Tls::load(https, report)?);
+        Ok(self)
+    }
+
+    /// [`Self::with_tls`], with `detect` answering the machine's names and renewal checked
+    /// every `interval`.
+    #[cfg(test)]
+    fn with_tls_detecting(
+        mut self,
+        https: &ceres_config::ServerHttpsConfig,
+        report: tls::Report,
+        detect: fn() -> Vec<tls::SubjectName>,
+        interval: Duration,
+    ) -> Result<Self, Error> {
+        self.tls = Some(tls::Tls::load_detecting(https, report, detect)?);
+        self.renewal_interval = interval;
         Ok(self)
     }
 
@@ -75,18 +96,23 @@ impl BoundServer {
         }
     }
 
-    /// Serve the router until stopped.
+    /// Serve the router until stopped, renewing a managed certificate meanwhile.
     pub async fn serve(self, router: Router) -> Result<(), Error> {
         let service = router.into_make_service();
         match self.tls {
-            Some(config) => {
+            Some(tls) => {
+                let config = RustlsConfig::from_config(tls.config.clone());
                 let mut server =
-                    axum_server::from_tcp_rustls(self.listener, RustlsConfig::from_config(config))?
-                        .handle(self.handle);
+                    axum_server::from_tcp_rustls(self.listener, config)?.handle(self.handle);
                 // Extended CONNECT lets a browser open its WebSockets as streams of the one
                 // HTTP/2 connection rather than spending a plain HTTP/1.1 connection each.
                 server.http_builder().http2().enable_connect_protocol();
-                server.serve(service).await?;
+                // Renewal never finishes, so serving decides when this does and renewal stops
+                // with it.
+                tokio::select! {
+                    served = server.serve(service) => served?,
+                    () = tls.renew_every(self.renewal_interval) => {}
+                }
             }
             None => {
                 axum_server::from_tcp(self.listener)?
@@ -115,7 +141,9 @@ impl Stopper {
 
 #[cfg(test)]
 mod tests {
-    use rustls::pki_types::ServerName;
+    use std::sync::Arc;
+
+    use rustls::pki_types::{CertificateDer, ServerName};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpStream;
 
@@ -124,6 +152,7 @@ mod tests {
 
     fn test_router() -> Router {
         build_router(AppConfig {
+            authority: None,
             console: None,
             cli_token: None,
             auth: None,
@@ -156,13 +185,10 @@ mod tests {
         serving.await.unwrap().unwrap();
     }
 
-    /// A client trusting only the self-signed certificate `https` names, offering `h2` alone.
-    fn h2_client(https: &ceres_config::ServerHttpsConfig) -> tokio_rustls::TlsConnector {
-        let mut roots = rustls::RootCertStore::empty();
-        let pem = std::fs::read(&https.cert).unwrap();
-        for certificate in rustls_pemfile::certs(&mut pem.as_slice()) {
-            roots.add(certificate.unwrap()).unwrap();
-        }
+    /// A client trusting only the certificates in the PEM file at `trusted`, offering `h2`
+    /// alone.
+    fn h2_client(trusted: &std::path::Path) -> tokio_rustls::TlsConnector {
+        let roots = crate::tls::tests::trusting(trusted);
         let provider = Arc::new(rustls::crypto::ring::default_provider());
         let mut config = rustls::ClientConfig::builder_with_provider(provider)
             .with_safe_default_protocol_versions()
@@ -179,14 +205,14 @@ mod tests {
         let https = crate::tls::tests::https(directory.path(), None, |key| key);
         let server = BoundServer::bind("127.0.0.1", 0)
             .unwrap()
-            .with_tls(&https)
+            .with_tls(&https, Arc::new(|_| {}))
             .unwrap();
         let port = server.port();
         let stopper = server.stopper();
         let serving = tokio::spawn(server.serve(test_router()));
 
         let tcp = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
-        let tls = h2_client(&https)
+        let tls = h2_client(&https.certificate.path)
             .connect(ServerName::try_from("localhost").unwrap(), tcp)
             .await
             .unwrap();
@@ -210,5 +236,74 @@ mod tests {
 
         stopper.stop(Duration::from_millis(100));
         serving.await.unwrap().unwrap();
+    }
+
+    /// Open an h2 connection to `port`, answering it and the certificate it was shown.
+    async fn h2_connect(
+        trusted: &std::path::Path,
+        port: u16,
+    ) -> (
+        h2::client::SendRequest<axum::body::Bytes>,
+        CertificateDer<'static>,
+    ) {
+        let tcp = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        let tls = h2_client(trusted)
+            .connect(ServerName::try_from("localhost").unwrap(), tcp)
+            .await
+            .unwrap();
+        let presented = tls.get_ref().1.peer_certificates().unwrap()[0].clone();
+        let (client, connection) = h2::client::handshake(tls).await.unwrap();
+        tokio::spawn(connection);
+        (client, presented)
+    }
+
+    async fn alive(client: h2::client::SendRequest<axum::body::Bytes>) -> u16 {
+        let mut client = client.ready().await.unwrap();
+        let request = axum::http::Request::get("https://localhost/api/alive")
+            .body(())
+            .unwrap();
+        let (response, _) = client.send_request(request, true).unwrap();
+        response.await.unwrap().status().as_u16()
+    }
+
+    #[tokio::test]
+    async fn managed_certificates_renew_while_serving() {
+        let directory = tempfile::tempdir().unwrap();
+        let https = crate::tls::tests::managed(directory.path());
+        let authority = https.certificate.auto.as_ref().unwrap().authority().path;
+        let server = BoundServer::bind("127.0.0.1", 0)
+            .unwrap()
+            .with_tls_detecting(
+                &https,
+                Arc::new(|_| {}),
+                crate::tls::tests::localhost,
+                Duration::from_millis(20),
+            )
+            .unwrap();
+        let port = server.port();
+        let stopper = server.stopper();
+        let serving = tokio::spawn(server.serve(test_router()));
+
+        let (open, before) = h2_connect(&authority, port).await;
+        std::fs::remove_file(&https.certificate.path).unwrap();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        while !https.certificate.path.exists() {
+            assert!(tokio::time::Instant::now() < deadline, "no renewal");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        // New connections see the renewed certificate, the open one carries on unaffected.
+        let (fresh, after) = h2_connect(&authority, port).await;
+        assert_ne!(after, before);
+        assert_eq!(alive(fresh).await, 200);
+        assert_eq!(alive(open).await, 200);
+
+        stopper.stop(Duration::from_millis(100));
+        serving.await.unwrap().unwrap();
+
+        // Renewal stopped with the server.
+        std::fs::remove_file(&https.certificate.path).unwrap();
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(!https.certificate.path.exists());
     }
 }

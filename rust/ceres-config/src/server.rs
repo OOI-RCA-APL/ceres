@@ -10,13 +10,28 @@ use serde::{Deserialize, Serialize};
 use crate::error::{Problem, Problems};
 use crate::values::{ByteSize, MaybeSequence, TimeDelta};
 
-/// Where `ceres generate certificate` writes the certificate, relative to the project
-/// directory.
+/// Where the HTTPS certificate lives when `certificate.path` is omitted, relative to the
+/// project directory.
 pub const DEFAULT_TLS_CERT: &str = ".ceres/tls/server.crt";
 
-/// Where `ceres generate certificate` writes the private key, relative to the project
-/// directory.
+/// Where the HTTPS private key lives when `certificate.key` is omitted, relative to the
+/// project directory.
 pub const DEFAULT_TLS_KEY: &str = ".ceres/tls/server.key";
+
+/// Where the certificate authority signing managed certificates lives when `auto.ca` is
+/// omitted, relative to the project directory.
+pub const DEFAULT_TLS_CA_CERT: &str = ".ceres/tls/ca.crt";
+
+/// Where the certificate authority's private key lives when `auto.ca` is omitted, relative
+/// to the project directory.
+pub const DEFAULT_TLS_CA_KEY: &str = ".ceres/tls/ca.key";
+
+/// How many days a managed certificate stays valid when `auto.days` is omitted.
+pub const DEFAULT_CERTIFICATE_DAYS: u32 = 365;
+
+/// The longest validity in days a managed certificate may have. Apple platforms reject a
+/// server certificate valid for longer.
+pub const MAX_CERTIFICATE_DAYS: u32 = 825;
 
 /// The lowest TLS version the HTTPS server negotiates.
 ///
@@ -31,6 +46,294 @@ pub enum TlsVersion {
     Tls13,
 }
 
+/// A certificate authority you supply to sign the managed HTTPS certificate.
+#[kebab_aliases]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, JsonSchema)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
+#[schemars(title = "ServerCertificateAuthorityConfig")]
+pub struct RawServerCertificateAuthorityConfig {
+    /// Path to the authority's PEM certificate, `.ceres/tls/ca.crt` when omitted. Ceres never
+    /// creates it.
+    pub path: Option<PathBuf>,
+
+    /// Path to the authority's PEM private key, `.ceres/tls/ca.key` when omitted.
+    pub key: Option<PathBuf>,
+
+    /// Password for an encrypted authority key.
+    pub key_password: Option<String>,
+}
+
+/// Validated certificate authority signing the managed HTTPS certificate.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ServerCertificateAuthorityConfig {
+    pub path: PathBuf,
+    pub key: PathBuf,
+    pub key_password: Option<String>,
+}
+
+impl Default for ServerCertificateAuthorityConfig {
+    fn default() -> Self {
+        Self {
+            path: DEFAULT_TLS_CA_CERT.into(),
+            key: DEFAULT_TLS_CA_KEY.into(),
+            key_password: None,
+        }
+    }
+}
+
+impl TryFrom<RawServerCertificateAuthorityConfig> for ServerCertificateAuthorityConfig {
+    type Error = Problems;
+
+    fn try_from(raw: RawServerCertificateAuthorityConfig) -> Result<Self, Problems> {
+        let defaults = Self::default();
+        Ok(Self {
+            path: raw.path.unwrap_or(defaults.path),
+            key: raw.key.unwrap_or(defaults.key),
+            key_password: raw.key_password,
+        })
+    }
+}
+
+/// How Ceres issues and renews the HTTPS certificate it manages.
+#[kebab_aliases]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, JsonSchema)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
+#[schemars(title = "ServerCertificateAutoConfig")]
+pub struct RawServerCertificateAutoConfig {
+    /// IP addresses the certificate names. With `dns` also omitted, the certificate names
+    /// localhost, 127.0.0.1, ::1, the hostname, and every non-loopback interface address.
+    pub ip: Option<Vec<IpAddr>>,
+
+    /// DNS names the certificate names. With `ip` also omitted, the certificate names the
+    /// detected ones.
+    pub dns: Option<Vec<String>>,
+
+    /// Days each issued certificate stays valid, 365 when omitted and at most 825.
+    pub days: Option<u32>,
+
+    /// Certificate authority you supply to sign the certificate, whose files must exist.
+    /// When omitted, Ceres creates one at `.ceres/tls/ca.crt` and `.ceres/tls/ca.key`.
+    pub ca: Option<RawServerCertificateAuthorityConfig>,
+}
+
+/// Validated issuance settings of the managed HTTPS certificate.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ServerCertificateAutoConfig {
+    pub ip: Vec<IpAddr>,
+    pub dns: Vec<String>,
+    pub days: u32,
+    /// The authority you supply, `None` for the one Ceres creates at the default paths.
+    pub ca: Option<ServerCertificateAuthorityConfig>,
+}
+
+impl Default for ServerCertificateAutoConfig {
+    fn default() -> Self {
+        Self {
+            ip: Vec::new(),
+            dns: Vec::new(),
+            days: DEFAULT_CERTIFICATE_DAYS,
+            ca: None,
+        }
+    }
+}
+
+impl ServerCertificateAutoConfig {
+    /// Whether the certificate names the machine's detected names, which it does when
+    /// neither `ip` nor `dns` lists any.
+    pub fn detects_names(&self) -> bool {
+        self.ip.is_empty() && self.dns.is_empty()
+    }
+
+    /// The authority signing the certificate, the one Ceres creates when none is supplied.
+    pub fn authority(&self) -> ServerCertificateAuthorityConfig {
+        self.ca.clone().unwrap_or_default()
+    }
+}
+
+impl TryFrom<RawServerCertificateAutoConfig> for ServerCertificateAutoConfig {
+    type Error = Problems;
+
+    fn try_from(raw: RawServerCertificateAutoConfig) -> Result<Self, Problems> {
+        let mut problems = Problems::default();
+
+        let dns = raw.dns.unwrap_or_default();
+        for name in &dns {
+            let valid = !name.is_empty()
+                && name.chars().all(|character| {
+                    character.is_ascii_alphanumeric() || "-.*".contains(character)
+                });
+            if !valid {
+                problems.push(Problem::new("dns", format!("{name:?} is not a DNS name.")));
+            }
+        }
+
+        let days = raw.days.unwrap_or(DEFAULT_CERTIFICATE_DAYS);
+        if !(1..=MAX_CERTIFICATE_DAYS).contains(&days) {
+            problems.push(Problem::new(
+                "days",
+                format!("must be between 1 and {MAX_CERTIFICATE_DAYS}."),
+            ));
+        }
+
+        let ca = validate_nested(raw.ca, "ca", &mut problems);
+        problems.into_result(Self {
+            ip: raw.ip.unwrap_or_default(),
+            dns,
+            days,
+            ca,
+        })
+    }
+}
+
+/// The certificate the HTTPS listener presents.
+#[kebab_aliases]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, JsonSchema)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
+#[schemars(title = "ServerCertificateConfig")]
+pub struct RawServerCertificateConfig {
+    /// Path to the PEM certificate chain, `.ceres/tls/server.crt` when omitted.
+    pub path: Option<PathBuf>,
+
+    /// Path to the PEM private key, `.ceres/tls/server.key` when omitted.
+    pub key: Option<PathBuf>,
+
+    /// Password for an encrypted private key, not allowed with `auto`.
+    pub key_password: Option<String>,
+
+    /// Whether Ceres issues and renews the certificate itself, `true` or the issuance
+    /// settings. Ceres then owns both files.
+    #[serde(deserialize_with = "auto_or_settings")]
+    #[schemars(schema_with = "auto_schema")]
+    pub auto: Option<RawServerCertificateAutoConfig>,
+}
+
+/// Validated certificate the HTTPS listener presents.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ServerCertificateConfig {
+    pub path: PathBuf,
+    pub key: PathBuf,
+    pub key_password: Option<String>,
+    pub auto: Option<ServerCertificateAutoConfig>,
+}
+
+impl Default for ServerCertificateConfig {
+    fn default() -> Self {
+        Self {
+            path: DEFAULT_TLS_CERT.into(),
+            key: DEFAULT_TLS_KEY.into(),
+            key_password: None,
+            auto: None,
+        }
+    }
+}
+
+impl TryFrom<RawServerCertificateConfig> for ServerCertificateConfig {
+    type Error = Problems;
+
+    fn try_from(raw: RawServerCertificateConfig) -> Result<Self, Problems> {
+        let defaults = Self::default();
+        let mut problems = Problems::default();
+
+        let auto = validate_nested(raw.auto, "auto", &mut problems);
+        if raw.key_password.is_some() && auto.is_some() {
+            problems.push(Problem::new(
+                "key_password",
+                "cannot be combined with `auto`, which writes the key unencrypted.",
+            ));
+        }
+
+        problems.into_result(Self {
+            path: raw.path.unwrap_or(defaults.path),
+            key: raw.key.unwrap_or(defaults.key),
+            key_password: raw.key_password,
+            auto,
+        })
+    }
+}
+
+/// Read `auto` as `true`, `false`, or the issuance settings.
+fn auto_or_settings<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<RawServerCertificateAutoConfig>, D::Error> {
+    struct Visitor;
+
+    impl<'de> serde::de::Visitor<'de> for Visitor {
+        type Value = Option<RawServerCertificateAutoConfig>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("`true`, `false`, or a mapping of issuance settings")
+        }
+
+        fn visit_bool<E: serde::de::Error>(self, enabled: bool) -> Result<Self::Value, E> {
+            Ok(enabled.then(RawServerCertificateAutoConfig::default))
+        }
+
+        fn visit_unit<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_none<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_map<A: serde::de::MapAccess<'de>>(self, map: A) -> Result<Self::Value, A::Error> {
+            Deserialize::deserialize(serde::de::value::MapAccessDeserializer::new(map)).map(Some)
+        }
+    }
+
+    deserializer.deserialize_any(Visitor)
+}
+
+fn auto_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    let settings = generator.subschema_for::<RawServerCertificateAutoConfig>();
+    schemars::json_schema!({ "anyOf": [{ "type": "boolean" }, settings] })
+}
+
+/// Read `certificate` as the shorthand `auto` or the certificate settings.
+fn certificate_or_auto<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<RawServerCertificateConfig>, D::Error> {
+    struct Visitor;
+
+    impl<'de> serde::de::Visitor<'de> for Visitor {
+        type Value = Option<RawServerCertificateConfig>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("`auto` or a mapping of certificate settings")
+        }
+
+        fn visit_str<E: serde::de::Error>(self, text: &str) -> Result<Self::Value, E> {
+            if text != "auto" {
+                return Err(E::invalid_value(serde::de::Unexpected::Str(text), &self));
+            }
+
+            Ok(Some(RawServerCertificateConfig {
+                auto: Some(RawServerCertificateAutoConfig::default()),
+                ..RawServerCertificateConfig::default()
+            }))
+        }
+
+        fn visit_unit<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_none<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_map<A: serde::de::MapAccess<'de>>(self, map: A) -> Result<Self::Value, A::Error> {
+            Deserialize::deserialize(serde::de::value::MapAccessDeserializer::new(map)).map(Some)
+        }
+    }
+
+    deserializer.deserialize_any(Visitor)
+}
+
+fn certificate_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    let settings = generator.subschema_for::<RawServerCertificateConfig>();
+    schemars::json_schema!({ "anyOf": [{ "enum": ["auto"] }, settings] })
+}
+
 /// The HTTPS listener of the engine's HTTP server.
 #[kebab_aliases]
 #[derive(Debug, Clone, Default, PartialEq, Deserialize, JsonSchema)]
@@ -40,14 +343,11 @@ pub struct RawServerHttpsConfig {
     /// Port the HTTPS listener binds, 443 when omitted.
     pub port: Option<u16>,
 
-    /// Path to the PEM certificate chain, `.ceres/tls/server.crt` when omitted.
-    pub cert: Option<PathBuf>,
-
-    /// Path to the PEM private key, `.ceres/tls/server.key` when omitted.
-    pub key: Option<PathBuf>,
-
-    /// Password for an encrypted private key.
-    pub key_password: Option<String>,
+    /// Certificate the listener presents, read from `.ceres/tls/server.crt` and
+    /// `.ceres/tls/server.key` when omitted. `auto` has Ceres issue and renew it.
+    #[serde(deserialize_with = "certificate_or_auto")]
+    #[schemars(schema_with = "certificate_schema")]
+    pub certificate: Option<RawServerCertificateConfig>,
 
     /// Lowest TLS version offered, `"1.2"` or `"1.3"`, `"1.2"` when omitted.
     pub min_version: Option<TlsVersion>,
@@ -57,9 +357,7 @@ pub struct RawServerHttpsConfig {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ServerHttpsConfig {
     pub port: u16,
-    pub cert: PathBuf,
-    pub key: PathBuf,
-    pub key_password: Option<String>,
+    pub certificate: ServerCertificateConfig,
     pub min_version: TlsVersion,
 }
 
@@ -67,9 +365,7 @@ impl Default for ServerHttpsConfig {
     fn default() -> Self {
         Self {
             port: 443,
-            cert: DEFAULT_TLS_CERT.into(),
-            key: DEFAULT_TLS_KEY.into(),
-            key_password: None,
+            certificate: ServerCertificateConfig::default(),
             min_version: TlsVersion::default(),
         }
     }
@@ -80,11 +376,15 @@ impl TryFrom<RawServerHttpsConfig> for ServerHttpsConfig {
 
     fn try_from(raw: RawServerHttpsConfig) -> Result<Self, Problems> {
         let defaults = Self::default();
-        Ok(Self {
+        let mut problems = Problems::default();
+        let certificate = match raw.certificate {
+            Some(certificate) => validate_nested(Some(certificate), "certificate", &mut problems),
+            None => Some(defaults.certificate),
+        };
+
+        problems.into_result(Self {
             port: raw.port.unwrap_or(defaults.port),
-            cert: raw.cert.unwrap_or(defaults.cert),
-            key: raw.key.unwrap_or(defaults.key),
-            key_password: raw.key_password,
+            certificate: certificate.unwrap_or_default(),
             min_version: raw.min_version.unwrap_or(defaults.min_version),
         })
     }
@@ -578,10 +878,135 @@ mod tests {
         assert_eq!(config.http, Some(ServerHttpConfig::default()));
         let https = config.https.unwrap();
         assert_eq!(https.port, 443);
-        assert_eq!(https.cert, PathBuf::from(".ceres/tls/server.crt"));
-        assert_eq!(https.key, PathBuf::from(".ceres/tls/server.key"));
+        assert_eq!(
+            https.certificate.path,
+            PathBuf::from(".ceres/tls/server.crt")
+        );
+        assert_eq!(
+            https.certificate.key,
+            PathBuf::from(".ceres/tls/server.key")
+        );
+        assert_eq!(https.certificate.auto, None);
         assert_eq!(https.min_version, TlsVersion::Tls12);
         assert_eq!(config.http.unwrap().port, 80);
+    }
+
+    /// The `certificate` of a validated `https: {certificate: ...}` section.
+    fn certificate(written: &str) -> Result<ServerCertificateConfig, Problems> {
+        server(&format!("https:\n  certificate: {written}\n"))
+            .map(|config| config.https.unwrap().certificate)
+    }
+
+    #[test]
+    fn auto_certificates_take_the_shorthand_or_settings() {
+        let managed = ServerCertificateConfig {
+            auto: Some(ServerCertificateAutoConfig::default()),
+            ..ServerCertificateConfig::default()
+        };
+        assert_eq!(certificate("auto"), Ok(managed.clone()));
+        assert_eq!(certificate("{auto: true}"), Ok(managed.clone()));
+        assert_eq!(certificate("{auto: {}}"), Ok(managed));
+        assert_eq!(
+            certificate("{auto: false}"),
+            Ok(ServerCertificateConfig::default())
+        );
+        for refused in [
+            "manual",
+            "true",
+            "{auto: yes-please}",
+            "{auto: {days: 30, typo: 1}}",
+            "{cert: a.crt}",
+        ] {
+            let document = format!("https:\n  certificate: {refused}\n");
+            let read = yaml_serde::from_str::<RawServerConfig>(&document);
+            assert!(read.is_err(), "{refused:?} reads");
+        }
+
+        let settings = certificate(
+            "\n    path: certs/site.crt\n    key: certs/site.key\n    auto:\n      ip: \
+             [10.20.1.230, '::1']\n      dns: [camctrl.local]\n      days: 825\n      ca:\n        \
+             key-password: hunter2\n",
+        )
+        .unwrap();
+        assert_eq!(settings.path, PathBuf::from("certs/site.crt"));
+        let auto = settings.auto.unwrap();
+        assert_eq!(
+            auto.ip,
+            [
+                "10.20.1.230".parse::<IpAddr>().unwrap(),
+                "::1".parse().unwrap()
+            ]
+        );
+        assert_eq!(auto.dns, ["camctrl.local"]);
+        assert_eq!(auto.days, 825);
+        assert!(!auto.detects_names());
+        // A supplied authority keeps the default paths it omits.
+        let ca = auto.ca.clone().unwrap();
+        assert_eq!(ca.path, PathBuf::from(".ceres/tls/ca.crt"));
+        assert_eq!(ca.key_password.as_deref(), Some("hunter2"));
+        assert_eq!(auto.authority(), ca);
+    }
+
+    #[test]
+    fn omitted_names_and_authorities_are_detected_and_created() {
+        let auto = certificate("auto").unwrap().auto.unwrap();
+        assert!(auto.detects_names());
+        assert_eq!(auto.days, 365);
+        assert_eq!(auto.ca, None);
+        assert_eq!(
+            auto.authority(),
+            ServerCertificateAuthorityConfig {
+                path: ".ceres/tls/ca.crt".into(),
+                key: ".ceres/tls/ca.key".into(),
+                key_password: None,
+            }
+        );
+    }
+
+    #[test]
+    fn auto_certificates_refuse_what_they_cannot_issue() {
+        let location = |written: &str| {
+            let problems = certificate(written).unwrap_err();
+            assert_eq!(problems.0.len(), 1, "{problems:?}");
+            problems.0[0].location.clone()
+        };
+        // An unencrypted key is all `auto` writes, so a password could never apply.
+        assert_eq!(
+            location("{key-password: hunter2, auto: true}"),
+            "https.certificate.key_password"
+        );
+        assert_eq!(location("{auto: {days: 0}}"), "https.certificate.auto.days");
+        assert_eq!(
+            location("{auto: {days: 826}}"),
+            "https.certificate.auto.days"
+        );
+        assert!(certificate("{auto: {days: 1}}").is_ok());
+        assert_eq!(
+            location("{auto: {dns: ['bad name']}}"),
+            "https.certificate.auto.dns"
+        );
+        assert_eq!(
+            location("{auto: {dns: ['']}}"),
+            "https.certificate.auto.dns"
+        );
+        // Without `auto`, the password decrypts a key the user wrote.
+        assert!(certificate("{key-password: hunter2}").is_ok());
+    }
+
+    #[test]
+    fn validated_certificates_read_back_as_written() {
+        // A Python instance passes back through its raw form, so a validated section must
+        // serialize into a raw one meaning the same thing.
+        for written in [
+            "auto",
+            "{path: a.crt, key: a.key, key-password: p}",
+            "{auto: {ip: ['10.0.0.1'], days: 30, ca: {path: ca.pem}}}",
+        ] {
+            let validated = certificate(written).unwrap();
+            let value = yaml_serde::to_value(&validated).unwrap();
+            let raw: RawServerCertificateConfig = yaml_serde::from_value(value).unwrap();
+            assert_eq!(ServerCertificateConfig::try_from(raw), Ok(validated));
+        }
     }
 
     #[test]
@@ -639,6 +1064,9 @@ mod tests {
             "ssl:\n  key: k\n",
             "https-redirect: true\n",
             "https:\n  ssl-version: 17\n",
+            "https:\n  cert: server.crt\n",
+            "https:\n  key: server.key\n",
+            "https:\n  key-password: hunter2\n",
         ] {
             let result: Result<RawServerConfig, _> = yaml_serde::from_str(document);
             assert!(result.is_err(), "{document:?} reads");
