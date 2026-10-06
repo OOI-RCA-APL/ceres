@@ -67,6 +67,12 @@ written, and the release workflow refuses a version that has no entry here.
   `server.https` listener out, so the console dev server can proxy to it and a project
   without a certificate still runs.
 
+**Web Console**
+
+- The workspaces section says "No workspaces yet." with a create button for each kind of
+  workspace on one line when it is empty, and an empty group shrinks to one line naming what
+  it lacks. Create buttons sit beside their group's label.
+
 **Fixes**
 
 - Report every workspace commit. The console shows a toast while the commit runs, a success toast
