@@ -121,7 +121,7 @@ impl ResolvesServerCert for Presented {
 /// A listener's TLS, its rustls configuration plus what renews a managed certificate.
 pub struct Tls {
     pub config: Arc<rustls::ServerConfig>,
-    renewer: Option<Renewer>,
+    renewer: Option<Arc<Renewer>>,
 }
 
 impl Tls {
@@ -156,15 +156,20 @@ impl Tls {
         let config = server_config(https, presented.clone())?;
         Ok(Self {
             config,
-            renewer: renewer.map(|renewer| Renewer {
-                presented: Some(presented),
-                ..renewer
+            renewer: renewer.map(|renewer| {
+                Arc::new(Renewer {
+                    presented: Some(presented),
+                    ..renewer
+                })
             }),
         })
     }
 
     /// Renew a managed certificate every `interval` for as long as the future is polled.
     /// Without a managed certificate it waits forever.
+    ///
+    /// Each renewal reads and writes files and signs, so it runs on the blocking pool. One
+    /// under way when the future is dropped runs to its end.
     pub async fn renew_every(&self, interval: Duration) {
         let Some(renewer) = &self.renewer else {
             return std::future::pending().await;
@@ -172,7 +177,10 @@ impl Tls {
 
         loop {
             tokio::time::sleep(interval).await;
-            renewer.renew();
+            let renewer = renewer.clone();
+            if let Err(error) = tokio::task::spawn_blocking(move || renewer.renew()).await {
+                std::panic::resume_unwind(error.into_panic());
+            }
         }
     }
 }
