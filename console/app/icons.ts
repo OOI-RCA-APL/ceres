@@ -103,6 +103,7 @@ const icons = {
   tab: 'i-mdi-tab',
   tabAdd: 'i-mdi-tab-plus',
   tabUnselected: 'i-mdi-tab-unselected',
+  trust: 'i-mdi-shield-lock-outline',
   ungroupWidgets: 'i-mdi-ungroup',
   unlocked: 'i-mdi-lock-open-variant-outline',
   user: 'i-mdi-account',
