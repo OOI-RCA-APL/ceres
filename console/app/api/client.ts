@@ -23,6 +23,24 @@ export type RequestOptions<TParseModel extends z.ZodType = z.ZodAny> = {
   data?: Record<string, unknown> | unknown[] | null
   init?: RequestInit
   parse?: TParseModel
+  /** Milliseconds before the request fails with `request-timeout-error`. A request the browser
+  holds in its connection queue otherwise waits forever, with nothing reaching the server. */
+  timeout?: number
+}
+
+/** The signal that aborts a request after `timeout`, combined with the caller's own signal. */
+export function timeoutSignal(timeout: number | undefined, signal: AbortSignal | null | undefined) {
+  if (timeout == null) {
+    return signal ?? undefined
+  }
+
+  const timer = AbortSignal.timeout(timeout)
+  return signal == null ? timer : AbortSignal.any([signal, timer])
+}
+
+/** Whether `error` is the `fetch` rejection that `AbortSignal.timeout` produces. */
+export function isTimeoutError(error: unknown) {
+  return error instanceof DOMException && error.name === 'TimeoutError'
 }
 
 const defaultRequestInit: RequestInit = {
@@ -33,17 +51,28 @@ const defaultRequestInit: RequestInit = {
   },
 }
 
-async function request<TParseModel extends z.ZodType = z.ZodAny>(
+export async function request<TParseModel extends z.ZodType = z.ZodAny>(
   method: RequestMethod,
   path: string,
-  { query, data, parse, init }: RequestOptions<TParseModel> = {},
+  { query, data, parse, init, timeout }: RequestOptions<TParseModel> = {},
 ): Promise<z.infer<TParseModel>> {
-  const response = await fetch(query != null ? path + createQueryParameters(query) : path, {
-    ...defaultRequestInit,
-    ...init,
-    method,
-    body: data != null ? JSON.stringify(data) : undefined,
-  })
+  let response: Response
+  try {
+    response = await fetch(query != null ? path + createQueryParameters(query) : path, {
+      ...defaultRequestInit,
+      ...init,
+      signal: timeoutSignal(timeout, init?.signal),
+      method,
+      body: data != null ? JSON.stringify(data) : undefined,
+    })
+  } catch (error) {
+    if (timeout != null && isTimeoutError(error)) {
+      console.error(`${method} ${path}: no response within ${timeout} ms (request-timeout-error)`)
+      throw new Failure({ __error__: true, type: 'request-timeout-error', timeout })
+    }
+
+    throw error
+  }
 
   let result: unknown
   try {
