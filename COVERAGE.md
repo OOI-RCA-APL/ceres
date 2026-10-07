@@ -1,6 +1,6 @@
 # Coverage
 
-<!-- coverage:fingerprint:7f3443d5d980ea1e -->
+<!-- coverage:fingerprint:2efc3fbc6189c6af -->
 
 ## Python
 
@@ -193,12 +193,12 @@
 | `rust/ceres-media/src/output.rs` | 97% |
 | `rust/ceres-media/src/pkg_config.rs` | 100% |
 | `rust/ceres-media/src/remux/mod.rs` | 100% |
-| `rust/ceres-media/src/remux/reader.rs` | 87% |
+| `rust/ceres-media/src/remux/reader.rs` | 90% |
 | `rust/ceres-media/src/remux/subscriber.rs` | 95% |
 | `rust/ceres-media/src/remux/timeline.rs` | 100% |
 | `rust/ceres-media/src/server/mod.rs` | 90% |
 | `rust/ceres-media/src/server/session.rs` | 89% |
-| `rust/ceres-media/src/server/stream.rs` | 94% |
+| `rust/ceres-media/src/server/stream.rs` | 95% |
 | `rust/ceres-media/src/transcode.rs` | 92% |
 | `rust/ceres-rtsp-server/src/main.rs` | 0% |
 | `rust/ceres-server/src/api/auth.rs` | 95% |

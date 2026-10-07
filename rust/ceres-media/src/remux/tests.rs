@@ -435,6 +435,24 @@ fn a_lost_camera_is_reported_once_per_outage() {
 }
 
 #[test]
+fn a_stream_joining_during_an_outage_starts_with_the_next_connection() {
+    let server = serve(RtspServerOptions {
+        restart_after: Some(Duration::from_secs(1)),
+        restart_downtime: Duration::from_secs(1),
+        ..RtspServerOptions::default()
+    });
+    let first = drain_for(shared(&server, options(true)), Duration::from_secs(4));
+    thread::sleep(Duration::from_millis(1400));
+    let joined = drain_for(shared(&server, options(false)), Duration::from_millis(2500));
+    let joined = joined.join().unwrap();
+    assert!(joined.error.is_none(), "{:?}", joined.error);
+    assert!(joined.notices.is_empty(), "{:?}", joined.notices);
+    assert!(decode_timestamps(&joined.bytes).len() > 10);
+    assert!(starts_with_keyframe(&joined.bytes));
+    assert!(first.join().unwrap().error.is_none());
+}
+
+#[test]
 fn a_changed_picture_ends_the_streams_that_cannot_continue() {
     let stream = RemuxStream::start(Attempts([Clip("h264"), Clip("h265")].into()), options(true));
     let drained = drain_all(&stream, None);

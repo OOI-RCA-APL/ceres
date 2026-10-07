@@ -51,6 +51,8 @@ struct Subscriber {
     pending: Arc<AtomicUsize>,
     /// Whether the stream waits for a keyframe, having joined mid-picture or fallen behind.
     waiting: bool,
+    /// Whether the stream was told of the current outage, and so is told how it goes.
+    lost: bool,
 }
 
 impl Subscriber {
@@ -145,8 +147,12 @@ impl Reader {
             sender,
             pending: Arc::clone(&pending),
             waiting: false,
+            lost: false,
         };
-        if let Some(track) = state.track.clone() {
+        if state.outage.is_some() {
+            // The stream starts with the next connection, never having seen this one go.
+            subscriber.waiting = true;
+        } else if let Some(track) = state.track.clone() {
             if state.gop_valid {
                 let packets = state
                     .gop
@@ -158,9 +164,6 @@ impl Reader {
                 subscriber.send(Feed::Track(track));
                 subscriber.waiting = true;
             }
-        }
-        if let Some(outage) = &state.outage {
-            subscriber.send(Feed::Lost(outage.reason.clone()));
         }
         if self.closed.load(Ordering::Relaxed) {
             subscriber.send(Feed::End(None));
@@ -350,7 +353,10 @@ impl Reader {
                 attempts: outage.attempts,
                 outage: outage.since.elapsed(),
             };
-            Self::broadcast(&mut state, || Feed::Notice(notice.clone()));
+            Self::tell_lost(&mut state, || Feed::Notice(notice.clone()));
+            for subscriber in &mut state.subscribers {
+                subscriber.lost = false;
+            }
         }
     }
 
@@ -415,7 +421,15 @@ impl Reader {
             reason: error.clone(),
             scheduled: false,
         });
-        Self::broadcast(&mut state, || Feed::Lost(error.clone()));
+        // A stream joining in the outage starts from the next connection's keyframe, never from
+        // a picture the camera has already moved past.
+        state.gop.clear();
+        state.gop_bytes = 0;
+        state.gop_valid = false;
+        state.subscribers.retain_mut(|subscriber| {
+            subscriber.lost = true;
+            subscriber.send(Feed::Lost(error.clone()))
+        });
     }
 
     /// Tells streams of the first reconnect attempt each outage.
@@ -425,7 +439,7 @@ impl Reader {
             && !outage.scheduled
         {
             outage.scheduled = true;
-            Self::broadcast(&mut state, || {
+            Self::tell_lost(&mut state, || {
                 Feed::Notice(StreamNotice::Retrying { delay })
             });
         }
@@ -435,6 +449,13 @@ impl Reader {
         state
             .subscribers
             .retain(|subscriber| subscriber.send(feed()));
+    }
+
+    /// Sends the streams told of the current outage how it goes.
+    fn tell_lost(state: &mut State, mut feed: impl FnMut() -> Feed) {
+        state
+            .subscribers
+            .retain(|subscriber| !subscriber.lost || subscriber.send(feed()));
     }
 
     /// Closes for good when no stream reads the source, false when one joined meanwhile.
