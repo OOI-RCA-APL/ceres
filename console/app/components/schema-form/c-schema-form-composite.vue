@@ -14,15 +14,13 @@ const isDefined = $computed(() => modelValue !== undefined)
 const isRequired = $computed(() => form.getRequired(path))
 const isRoot = $computed(() => path.length === 0)
 
-// The form's own heading belongs to the root alone, drawn under the root description so the
-// fields that follow read as what it names.
+// The form's own heading belongs to the root alone. It heads a card holding the fields, set apart
+// from the root description above it.
 const title = $computed(() => (isRoot ? form.title : undefined))
 
 const description = $computed(() => form.getDescription(path))
 
-const isShowingHeader = $computed(
-  () => label != null || description != null || title != null || !isRequired,
-)
+const isShowingHeader = $computed(() => label != null || description != null || !isRequired)
 
 function create() {
   if (!isDefined) {
@@ -43,13 +41,12 @@ function create() {
             class="relative flex flex-col gap-1 pr-3 pb-1.5"
             :class="label != null && 'mt-1 ml-3'"
           >
-            <c-text class="pt-1" variant="mono-sm">{{ label }}</c-text>
+            <c-text v-if="label != null" class="pt-1" variant="mono-sm">{{ label }}</c-text>
             <c-description
               v-if="description"
               class="pb-0.5 text-[11px] text-muted"
               :text="description"
             />
-            <c-text v-if="title != null" variant="th">{{ title }}</c-text>
             <div class="absolute -top-0.5 right-1.5 flex justify-end">
               <c-schema-form-node-clear-button
                 v-if="!isRequired && modelValue !== undefined"
@@ -61,7 +58,11 @@ function create() {
           </div>
           <c-separator v-if="!isRoot && modelValue != null && (label || description)" />
         </div>
-        <slot />
+        <div v-if="title != null" class="border-default rounded-md border p-2">
+          <c-text class="mb-1 block" variant="th">{{ title }}</c-text>
+          <slot />
+        </div>
+        <slot v-else />
       </div>
     </div>
   </div>
