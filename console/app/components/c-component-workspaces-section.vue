@@ -559,7 +559,7 @@ function menuItems(
               :items="menuItems(workspace, group.reorder)"
             >
               <div
-                class="flex cursor-pointer items-center gap-2 py-1 pr-2 hover:bg-elevated"
+                class="flex cursor-pointer items-center gap-2 py-1 hover:bg-elevated"
                 :class="[
                   $style.row,
                   group.reorder.isSwapping && $style.swapping,
@@ -663,8 +663,11 @@ function menuItems(
   margin-top: 10px;
 }
 
+/* The right padding centers the trailing menu button under the section header's caret, which
+sits 12px in from the frame, past this row's 8px inset and the list's 1px border. */
 .row {
   position: relative;
+  padding-right: 2.5px;
   padding-left: 8px;
   transition:
     background-color 0.2s,
