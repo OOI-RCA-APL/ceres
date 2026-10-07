@@ -20,6 +20,7 @@ const {
   placement,
   canManage,
   collapsible = false,
+  title,
 } = defineProps<{
   /** Every workspace placed here that the caller can view, whether or not it is open. */
   workspaces: Workspace[]
@@ -31,6 +32,8 @@ const {
   /** Renders the section as an expansion item like the other detail sections, with the
   `expanded` model carrying its state. */
   collapsible?: boolean
+  /** The heading, which says whose workspaces these are. */
+  title: string
 }>()
 
 let expanded = $(defineModel<boolean>('expanded', { default: true }))
@@ -643,7 +646,7 @@ function menuItems(
         type="button"
         @click="expanded = !expanded"
       >
-        <c-text variant="title3">Workspaces</c-text>
+        <c-text variant="title3">{{ title }}</c-text>
         <div class="flex-1" />
         <c-icon :name="expanded ? icons.menuUp : icons.menuDown" size="18" />
       </button>
@@ -652,7 +655,7 @@ function menuItems(
       </div>
     </div>
     <template v-else>
-      <c-text class="mb-1 block" variant="title3">Workspaces</c-text>
+      <c-text class="mb-1 block" variant="title3">{{ title }}</c-text>
       <reuse-groups />
     </template>
   </div>
