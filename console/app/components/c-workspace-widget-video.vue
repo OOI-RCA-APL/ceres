@@ -31,8 +31,8 @@ let isUnloading = $ref(false)
 const isMuted = $ref(widget.startMuted)
 let isDisposed = false
 
-// Bumped for each reconnect attempt and sent along as a query parameter, so the element loads the
-// stream anew rather than settling for what it already has.
+// Bumped for each reconnect attempt and carried in the URL's fragment, so the element sees a new
+// source and loads the stream anew. A query parameter would reach the query as an argument.
 let attempt = $ref(0)
 // Whether the last frame is held up over the element while a new connection comes up.
 let isHoldingFrame = $ref(false)
@@ -78,7 +78,7 @@ const url = $computed(() => {
   // Absolute so the request goes straight to the engine. The dev proxy does not cancel a request
   // when the video element unloads, so the engine keeps streaming to it until the proxy restarts.
   const path = `/api/components/${queryComponent}/queries/${queryName}/call`
-  return getHttpUrl(attempt === 0 ? path : `${path}?attempt=${attempt}`)
+  return getHttpUrl(attempt === 0 ? path : `${path}#attempt=${attempt}`)
 })
 
 // Safari requires byte range support on a video response, which a live stream cannot offer, so

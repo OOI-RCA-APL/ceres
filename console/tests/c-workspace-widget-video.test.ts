@@ -61,7 +61,7 @@ describe('c-workspace-widget-video', () => {
     await video.find('video').trigger('error')
 
     expect(video.find('c-text-stub').exists()).toBe(false)
-    expect(video.find('video').attributes('src')).toContain('?attempt=1')
+    expect(video.find('video').attributes('src')).toContain('#attempt=1')
 
     // The new attempt fails as well, after the old connection's last word has settled.
     vi.advanceTimersByTime(2000)
@@ -71,7 +71,7 @@ describe('c-workspace-widget-video', () => {
 
     vi.advanceTimersByTime(5000)
     await nextTick()
-    expect(video.find('video').attributes('src')).toContain('?attempt=2')
+    expect(video.find('video').attributes('src')).toContain('#attempt=2')
 
     // Frames flow again, so the badge goes.
     await video.find('video').trigger('loadeddata')
