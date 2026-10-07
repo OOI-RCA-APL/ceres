@@ -111,6 +111,7 @@ written, and the release workflow refuses a version that has no entry here.
   when it ran out, `ProcedureExceptionEvent` when reading it raised, and
   `ProcedureCancelledEvent` when it closed early, such as a client leaving a live video view.
   Before, such a call reported `ProcedureCalledEvent` and nothing after it.
+- Pressing a locked control button no longer opens its arguments popup as well as running it.
 
 ## [0.48.1] - 2026-10-01
 

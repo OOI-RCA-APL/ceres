@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import type { DropdownMenuItem } from '@nuxt/ui'
 import { startCase } from 'lodash-es'
-import { nextTick } from 'vue'
+import { nextTick, useTemplateRef } from 'vue'
 import { stringify } from 'yaml'
 
 import { useAccess } from '@/api/access'
@@ -89,6 +89,7 @@ const monochrome = $computed(() => monochromeClasses(button.color, variant))
 
 let isRunning = $ref(false)
 let isShowingArguments = $ref(false)
+const control = useTemplateRef<HTMLDivElement>('control')
 let isShowingSettings = $ref(false)
 let isShowingMenu = $ref(false)
 
@@ -374,41 +375,41 @@ const tooltip = $computed(() => {
   <c-context-menu :items="menuItems" @update:open="(value: boolean) => (isShowingMenu = value)">
     <!-- Named, since the bar around this one is a group too and the dots answer only to their
     own button being pointed at. -->
-    <div class="group/control relative inline-flex" @contextmenu.stop>
-      <c-popover v-model:open="isShowingArguments" :ui="{ content: 'w-[420px] max-w-[90vw]' }">
-        <c-tooltip :disabled="tooltip == null" :text="tooltip ?? ''">
-          <c-button
-            :class="monochrome"
-            :color="color"
-            :disabled="isConfigured && (!canOperate || procedure == null)"
-            size="sm"
-            :variant="variant"
-            @click="onPress"
-          >
-            <!-- Drawn beside the label rather than through the button's own loading state, which
+    <div ref="control" class="group/control relative inline-flex" @contextmenu.stop>
+      <c-tooltip :disabled="tooltip == null" :text="tooltip ?? ''">
+        <c-button
+          :class="monochrome"
+          :color="color"
+          :disabled="isConfigured && (!canOperate || procedure == null)"
+          size="sm"
+          :variant="variant"
+          @click="onPress"
+        >
+          <!-- Drawn beside the label rather than through the button's own loading state, which
             swallows the press that is the abort. -->
-            <c-icon v-if="isRunning" class="animate-spin" :name="icons.loading" size="14" />
-            <span @pointerenter="isLabelHovered = true" @pointerleave="isLabelHovered = false">
-              <c-inline-name-edit
-                :claim="isEditingLabel"
-                :editing="isLabelOffered"
-                :name="named"
-                @rename="renameButton"
-                @update:editing="(value: boolean) => (isEditingLabel = value)"
-              />
-            </span>
-            <!-- The chevron is how a control says it asks something before it acts, whether what
-            it opens is the arguments or the question of whether to go ahead at all. -->
-            <c-icon
-              v-if="opensDialog"
-              class="-mr-1 opacity-80"
-              :name="icons.chevronDown"
-              size="14"
+          <c-icon v-if="isRunning" class="animate-spin" :name="icons.loading" size="14" />
+          <span @pointerenter="isLabelHovered = true" @pointerleave="isLabelHovered = false">
+            <c-inline-name-edit
+              :claim="isEditingLabel"
+              :editing="isLabelOffered"
+              :name="named"
+              @rename="renameButton"
+              @update:editing="(value: boolean) => (isEditingLabel = value)"
             />
-          </c-button>
-        </c-tooltip>
-        <!-- The arguments are asked for where the button is rather than in the middle of the
-        screen, so the thing being run stays in view beside the form that runs it. -->
+          </span>
+          <!-- The chevron is how a control says it asks something before it acts, whether what
+            it opens is the arguments or the question of whether to go ahead at all. -->
+          <c-icon v-if="opensDialog" class="-mr-1 opacity-80" :name="icons.chevronDown" size="14" />
+        </c-button>
+      </c-tooltip>
+      <!-- The arguments are asked for where the button is rather than in the middle of the
+      screen, so the thing being run stays in view beside the form that runs it. Anchored rather
+      than wrapping the button, since a wrapping trigger opens it on every press, locked or not. -->
+      <c-popover
+        v-model:open="isShowingArguments"
+        :reference="control ?? undefined"
+        :ui="{ content: 'w-[420px] max-w-[90vw]' }"
+      >
         <template #content>
           <div class="p-2">
             <div class="mb-2 flex flex-nowrap items-center gap-1">
