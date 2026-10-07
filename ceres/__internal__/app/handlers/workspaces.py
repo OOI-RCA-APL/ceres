@@ -9,7 +9,11 @@ from ceres.__internal__.app.shared import (
     get_components_access,
     get_engine_access,
 )
-from ceres.__internal__.workspace_redaction import merge_redacted_widgets, redact_workspace_data
+from ceres.__internal__.workspace_redaction import (
+    merge_redacted_widgets,
+    pin_widget_addresses,
+    redact_workspace_data,
+)
 from ceres.access import fetch_access_grants, resolve_access_from
 from ceres.address import Address
 from ceres.config import ComponentAccessLevel
@@ -18,6 +22,7 @@ from ceres.error import NotFoundError, NotPermittedError
 from ceres.workspace import (
     Workspace,
     WorkspaceCreate,
+    WorkspaceEditCreate,
     WorkspaceFilter,
     WorkspaceUpdate,
 )
@@ -320,6 +325,10 @@ async def update_workspace(
     shared one private removes it from them along with any working copies they hold against it.
     A caller may only ever take ownership for themselves.
 
+    A change of placement takes write access where the workspace is and, where it goes, what
+    creating it there would take: view for a private workspace, manage for a shared one. Its
+    relative widget addresses are pinned to the old placement so its widgets keep their components.
+
     Writing a workspace is not enough to change what a logged-out visitor sees, so the logged-out
     marker takes manage on the engine root on top of whatever the workspace itself requires.
 
@@ -352,10 +361,28 @@ async def update_workspace(
         await require_engine_manage(engine, actor, user)
 
     if "scope" in update and update["scope"] != workspace.scope:
-        # Moving a workspace requires manage on where it is going, not just where it came from.
-        await require_placement_access(
-            engine, actor, user, update["scope"], ComponentAccessLevel.MANAGE
-        )
+        # Moving takes on the destination what creating the workspace there would take, on top of
+        # the write access already required where it is now.
+        owner_id = update["owner_id"] if "owner_id" in update else workspace.owner_id
+        minimum = ComponentAccessLevel.VIEW if owner_id is not None else ComponentAccessLevel.MANAGE
+        await require_placement_access(engine, actor, user, update["scope"], minimum)
+
+        # Relative widget addresses were written against the old placement. Pinning them keeps
+        # every widget on the components it showed, including working copies held against it.
+        update["data"] = pin_widget_addresses(update.get("data", workspace.data), workspace.scope)
+        for edit in await engine.workspace_edits.where(workspace_id=id):
+            await engine.workspace_edits.create(
+                WorkspaceEditCreate(
+                    user_id=edit.user_id,
+                    workspace_id=id,
+                    data=pin_widget_addresses(edit.data, workspace.scope),
+                ),
+                upsert=True,
+            )
+
+        # Only the engine root's workspaces are offered to a logged-out visitor.
+        if not update["scope"].is_engine:
+            update["show_when_logged_out"] = False
 
     # Nobody else can see a private workspace, so it can never be one of the workspaces a
     # logged-out visitor lands on. Taking one private clears the marker rather than refusing,

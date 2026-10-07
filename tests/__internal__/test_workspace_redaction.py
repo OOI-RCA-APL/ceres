@@ -1,6 +1,7 @@
 from ceres.__internal__.workspace_redaction import (
     iter_widget_targets,
     merge_redacted_widgets,
+    pin_widget_addresses,
     redact_workspace_data,
 )
 from ceres.address import Address
@@ -313,3 +314,43 @@ def test_merge_restores_a_stub_held_on_a_carousel_slide() -> None:
 
     inside = merged["layout"][0]["widgets"][0]["slides"][0]["layout"][0]["widgets"][0]
     assert inside["buttons"] == [{"id": "b1", "address": "@secret.pump", "action": "stop"}]
+
+
+def test_pin_widget_addresses_resolves_relative_values_at_the_engine_root() -> None:
+    data = {
+        "layout": [
+            {
+                "widgets": [
+                    {"id": "a", "type": "procedures", "procedureAddress": "rig"},
+                    {"id": "b", "type": "button", "address": ""},
+                    {"id": "c", "type": "records", "filter": {"address": "all"}},
+                ]
+            }
+        ]
+    }
+
+    pinned = pin_widget_addresses(data, Address("~"))
+
+    a, b, c = pinned["layout"][0]["widgets"]
+    assert a["procedureAddress"] == "@rig"
+    assert b["address"] == ""
+    assert c["filter"]["address"] == "@:all"
+    assert data["layout"][0]["widgets"][0]["procedureAddress"] == "rig"
+
+
+def test_pin_widget_addresses_reaches_a_widget_on_a_tab_page() -> None:
+    inner = {"id": "inner", "type": "button", "address": "arm"}
+    data = {
+        "layout": [
+            {
+                "widgets": [
+                    {"id": "tabs", "type": "tabs", "tabs": [{"layout": [{"widgets": [inner]}]}]}
+                ]
+            }
+        ]
+    }
+
+    pinned = pin_widget_addresses(data, Address("@rig"))
+
+    page = pinned["layout"][0]["widgets"][0]["tabs"][0]
+    assert page["layout"][0]["widgets"][0]["address"] == "@rig.arm"

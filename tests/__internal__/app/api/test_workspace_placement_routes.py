@@ -15,7 +15,7 @@ from ceres.data import validate
 from ceres.error import NotFoundError, NotPermittedError
 from ceres.permission import PermissionTargetType, UserPermission
 from ceres.user import User
-from ceres.workspace import Workspace, WorkspaceFilter
+from ceres.workspace import Workspace, WorkspaceEditCreate, WorkspaceFilter
 
 
 async def _build_engine(access: str | None = None, secret: bool = False) -> Engine:
@@ -470,7 +470,7 @@ async def test_any_user_creates_a_private_engine_workspace() -> None:
     await engine.database.dispose()
 
 
-async def test_moving_a_workspace_requires_manage_on_the_destination() -> None:
+async def test_owner_moves_a_private_workspace_with_view_on_both_ends() -> None:
     engine = await _build_engine()
     user = await _create_user(engine, "viewer")
     await _grant(engine, user, "@rig", ComponentAccessLevel.VIEW)
@@ -479,14 +479,128 @@ async def test_moving_a_workspace_requires_manage_on_the_destination() -> None:
         Workspace.Create(name="scratch", scope=Address("@rig"), owner_id=user.id)
     )
 
-    with pytest.raises(NotPermittedError):
+    moved = await update_workspace(
+        engine=engine,
+        actor=Actor(user=user, unrestricted=False),
+        user=user,
+        id=private.id,
+        update={"scope": Address("~")},
+    )
+
+    assert moved.scope == Address("~")
+
+    await engine.database.dispose()
+
+
+async def test_moving_a_private_workspace_requires_view_on_the_destination() -> None:
+    engine = await _build_engine(secret=True)
+    user = await _create_user(engine, "viewer")
+    await _grant(engine, user, "@rig", ComponentAccessLevel.VIEW)
+
+    private = await engine.workspaces.create(
+        Workspace.Create(name="scratch", scope=Address("@rig"), owner_id=user.id)
+    )
+
+    with pytest.raises(NotFoundError):
         await update_workspace(
             engine=engine,
             actor=Actor(user=user, unrestricted=False),
             user=user,
             id=private.id,
+            update={"scope": Address("@secret")},
+        )
+
+    await engine.database.dispose()
+
+
+async def test_moving_a_shared_workspace_requires_manage_on_the_destination() -> None:
+    engine = await _build_engine()
+    manager = await _create_user(engine, "manager")
+    await _grant(engine, manager, "@rig", ComponentAccessLevel.MANAGE)
+
+    shared = await engine.workspaces.create(Workspace.Create(name="rig", scope=Address("@rig")))
+
+    with pytest.raises(NotPermittedError):
+        await update_workspace(
+            engine=engine,
+            actor=Actor(user=manager, unrestricted=False),
+            user=manager,
+            id=shared.id,
             update={"scope": Address("~")},
         )
+
+    await engine.database.dispose()
+
+
+async def _engine_manager(engine: Engine) -> User:
+    manager = await _create_user(engine, "manager")
+    await engine.database.user_permissions.create(
+        UserPermission.Create(
+            user_id=manager.id,
+            target_type=PermissionTargetType.ALL,
+            target="",
+            level=ComponentAccessLevel.MANAGE,
+        )
+    )
+    return manager
+
+
+async def test_moving_a_workspace_pins_its_relative_widget_addresses() -> None:
+    engine = await _build_engine()
+    manager = await _engine_manager(engine)
+    widgets: list[dict[str, object]] = [
+        {"id": "a", "type": "button", "buttons": [{"address": ""}, {"address": "@other"}]},
+        {"id": "b", "type": "procedures", "procedureAddress": "arm"},
+        {"id": "c", "type": "video", "query": "::queries::video"},
+        {"id": "d", "type": "records", "filter": {"address": ":all"}},
+        {"id": "e", "type": "meter", "particleAddress": None},
+    ]
+    data = {"layout": [{"widgets": widgets}]}
+    shared = await engine.workspaces.create(
+        Workspace.Create(name="rig", scope=Address("@rig"), data=data)
+    )
+    await engine.workspace_edits.create(
+        WorkspaceEditCreate(user_id=manager.id, workspace_id=shared.id, data=data)
+    )
+
+    moved = await update_workspace(
+        engine=engine,
+        actor=Actor(user=manager, unrestricted=False),
+        user=manager,
+        id=shared.id,
+        update={"scope": Address("~")},
+    )
+
+    edit = await engine.workspace_edits.get(manager.id, shared.id)
+    assert edit is not None
+    for pinned in (moved.data, edit.data):
+        a, b, c, d, e = pinned["layout"][0]["widgets"]
+        assert [button["address"] for button in a["buttons"]] == ["@rig", "@other"]
+        assert b["procedureAddress"] == "@rig.arm"
+        assert c["query"] == "@rig::queries::video"
+        assert d["filter"]["address"] == "@rig:all"
+        assert e["particleAddress"] is None
+
+    await engine.database.dispose()
+
+
+async def test_moving_a_workspace_off_the_engine_root_clears_the_logged_out_marker() -> None:
+    engine = await _build_engine()
+    manager = await _engine_manager(engine)
+    landing = await engine.workspaces.create(
+        Workspace.Create(name="landing", show_when_logged_out=True)
+    )
+
+    moved = await update_workspace(
+        engine=engine,
+        actor=Actor(user=manager, unrestricted=False),
+        user=manager,
+        id=landing.id,
+        update={"scope": Address("@rig")},
+    )
+
+    assert moved.scope == Address("@rig")
+    assert moved.show_when_logged_out is False
 
     await engine.database.dispose()
 
