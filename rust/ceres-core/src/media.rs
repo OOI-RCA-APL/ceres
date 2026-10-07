@@ -3,7 +3,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use ceres_media::{RemuxOptions, RemuxStream, RtspSource};
+use ceres_media::{RemuxOptions, RemuxStream, RtspSource, StreamItem, StreamNotice};
 use pyo3::exceptions::{PyConnectionError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
@@ -11,7 +11,61 @@ use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 
 use crate::interop::to_value_error;
 
-/// An RTSP camera remuxed into one fragmented MP4 stream on a thread of its own.
+/// Something an `RtspStream` reports besides its bytes.
+#[gen_stub_pyclass]
+#[pyclass(module = "ceres.__internal__.core", frozen, get_all)]
+pub struct RtspNotice {
+    /// `"lost"`, `"retrying"`, `"reconnected"`, or `"ended"`.
+    kind: &'static str,
+    /// Why the camera was lost or the stream ended, if known.
+    reason: Option<String>,
+    /// Seconds until the first attempt to reach a lost camera again, for `"retrying"`.
+    delay: Option<f64>,
+    /// How many connections the outage took, for `"reconnected"`.
+    attempts: Option<u32>,
+    /// Seconds the outage lasted, for `"reconnected"`.
+    outage: Option<f64>,
+}
+
+impl From<StreamNotice> for RtspNotice {
+    fn from(notice: StreamNotice) -> Self {
+        let blank = Self {
+            kind: "",
+            reason: None,
+            delay: None,
+            attempts: None,
+            outage: None,
+        };
+        match notice {
+            StreamNotice::Lost { reason } => Self {
+                kind: "lost",
+                reason,
+                ..blank
+            },
+            StreamNotice::Retrying { delay } => Self {
+                kind: "retrying",
+                delay: Some(delay.as_secs_f64()),
+                ..blank
+            },
+            StreamNotice::Reconnected { attempts, outage } => Self {
+                kind: "reconnected",
+                attempts: Some(attempts),
+                outage: Some(outage.as_secs_f64()),
+                ..blank
+            },
+            StreamNotice::Ended { reason } => Self {
+                kind: "ended",
+                reason: Some(reason),
+                ..blank
+            },
+        }
+    }
+}
+
+/// An RTSP camera remuxed into a fragmented MP4 stream.
+///
+/// Streams of one camera with the same `transport`, `copy`, and `stall_timeout` share its
+/// connection, so a camera allowing few sessions serves any number of them.
 #[gen_stub_pyclass]
 #[pyclass(module = "ceres.__internal__.core", frozen)]
 pub struct RtspStream {
@@ -52,13 +106,15 @@ impl RtspStream {
                 .transpose()?,
             ..RemuxOptions::default()
         };
-        let source = RtspSource { url, transport };
+        let key = format!("{transport} {copy} {stall_timeout:?} {url}");
+        let source = || RtspSource { url, transport };
         Ok(Self {
-            stream: Arc::new(RemuxStream::start(source, options)),
+            stream: Arc::new(RemuxStream::shared(key, source, options)),
         })
     }
 
-    /// The next chunk of the MP4 stream as `bytes`, `None` once the stream ends.
+    /// The next chunk of the MP4 stream as `bytes`, or an `RtspNotice`, `None` once the stream
+    /// ends.
     ///
     /// Waiting blocks a thread of its own so a quiet camera leaves the event loop free.
     fn next<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
@@ -70,7 +126,12 @@ impl RtspStream {
                 .map_err(to_value_error)?;
             match chunk {
                 None => Ok(None),
-                Some(Ok(bytes)) => Ok(Some(Python::attach(|py| PyBytes::new(py, &bytes).unbind()))),
+                Some(Ok(StreamItem::Chunk(bytes))) => Ok(Some(Python::attach(|py| {
+                    PyBytes::new(py, &bytes).into_any().unbind()
+                }))),
+                Some(Ok(StreamItem::Notice(notice))) => Ok(Some(Python::attach(|py| {
+                    Ok::<_, PyErr>(Py::new(py, RtspNotice::from(notice))?.into_any())
+                })?)),
                 Some(Err(error)) => Err(PyConnectionError::new_err(error.to_string())),
             }
         })

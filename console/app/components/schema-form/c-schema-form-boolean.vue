@@ -78,8 +78,10 @@ const ui = $computed(() => {
         @click="modelValue = undefined"
       />
     </div>
-    <c-text v-if="description && !form.embedded" class="mt-1 pb-1" variant="description">
-      {{ description }}
-    </c-text>
+    <c-description
+      v-if="description && !form.embedded"
+      class="mt-1 pb-1 text-[11px] text-muted"
+      :text="description"
+    />
   </div>
 </template>

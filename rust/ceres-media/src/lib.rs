@@ -17,8 +17,10 @@ use std::time::Duration;
 
 pub use error::MediaError;
 pub use input::{Interrupt, MediaInput, MediaPacket, PacketTiming};
-pub use output::{MediaOutput, MediaSink, MediaTrack};
-pub use remux::{RemuxBackoff, RemuxOptions, RemuxSource, RemuxStream, RtspSource};
+pub use output::{MediaOutput, MediaSink, MediaTrack, OwnedTrack};
+pub use remux::{
+    RemuxBackoff, RemuxOptions, RemuxSource, RemuxStream, RtspSource, StreamItem, StreamNotice,
+};
 #[cfg(any(test, feature = "server"))]
 pub use server::{RTSP_CLIPS, RtspServer, RtspServerOptions};
 pub use transcode::MediaTranscoder;

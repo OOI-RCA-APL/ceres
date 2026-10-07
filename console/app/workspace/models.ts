@@ -169,6 +169,8 @@ export const VideoWidgetModel = BaseWidgetModel.extend({
   autoplay: z.boolean().default(true).catch(true),
   startMuted: z.boolean().default(true).catch(true),
   showControls: z.boolean().default(true).catch(true),
+  /** Reconnect on its own when the stream drops, keeping the last frame up meanwhile. */
+  reconnect: z.boolean().default(true).catch(true),
 })
 
 /** A stored control color, in the vocabulary the old console wrote and the engine still holds. */

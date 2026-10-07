@@ -3,7 +3,7 @@ import type { Address } from '@/api/address'
 import type { ProcedureInfo } from '@/api/components'
 import { useEngine } from '@/api/engine'
 import { useSchemaForm } from '@/schema-form'
-import { displayDuration, useTime, utc } from '@/time'
+import { utc } from '@/time'
 import type { Datetime } from '@/time'
 import type { Plain } from '@/utilities'
 
@@ -18,7 +18,6 @@ const { address, procedure } = defineProps<{
 // finds what was last entered.
 const hasArgumentsModel = $computed(() => argumentsModel !== undefined)
 
-const time = useTime()
 const engine = useEngine()
 
 let result = $ref<unknown>(undefined)
@@ -75,31 +74,24 @@ if (!form.isValid) {
     >
       <c-schema-form :key="`${address}${procedure.name}`" :form />
     </div>
+    <div
+      v-if="procedure.returns != null || procedure.raises.length > 0"
+      class="text-muted mb-2 flex flex-col gap-1 text-[11px]"
+    >
+      <div v-if="procedure.returns != null" class="flex gap-1.5">
+        <span class="text-default shrink-0 font-medium">Returns</span>
+        <c-description class="min-w-0" :text="procedure.returns" />
+      </div>
+      <div v-for="(raised, index) in procedure.raises" :key="index" class="flex gap-1.5">
+        <span class="text-default shrink-0 font-medium">Raises</span>
+        <span v-if="raised.type != null" class="shrink-0 font-mono">{{ raised.type }}</span>
+        <c-description class="min-w-0" :text="raised.description" />
+      </div>
+    </div>
     <c-schema-form-controls class="mb-2" :form />
     <div v-if="resultJson === undefined" class="flex items-center justify-center p-1">
       <c-text variant="description">Results will be displayed here.</c-text>
     </div>
-    <div v-else>
-      <div class="mb-1 flex items-baseline gap-1">
-        <c-text variant="th">Output</c-text>
-        <c-text v-if="receivedAt != null" class="opacity-50" variant="description">
-          {{ displayDuration(time.now.diff(receivedAt, 'second'), { short: true }) }} ago
-        </c-text>
-        <c-text
-          v-if="receivedAt != null && sentAt != null"
-          class="opacity-50"
-          variant="description"
-        >
-          &middot; {{ displayDuration(receivedAt.diff(sentAt) / 1000, { short: true }) }}
-        </c-text>
-      </div>
-      <c-textarea
-        class="w-full"
-        :model-value="resultJson"
-        readonly
-        :rows="8"
-        :ui="{ base: 'font-mono text-[11px]' }"
-      />
-    </div>
+    <c-procedure-output v-else :received-at :sent-at :value="result" />
   </div>
 </template>

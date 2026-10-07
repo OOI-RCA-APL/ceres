@@ -26,6 +26,9 @@ written, and the release workflow refuses a version that has no entry here.
 
 **Engine**
 
+- A procedure's docstring is parsed, Google sections and Sphinx fields alike. Its arguments' text
+  becomes their fields' descriptions in the arguments schema, the schema's description keeps only
+  the prose, and procedures in the components listing carry `returns` and `raises`.
 - The server offers HTTP/2 over a `server.https` listener. Browsers then multiplex every
   console request over one connection, which lifts the six-connection limit that stalled a
   dashboard with more than a few live video widgets.
@@ -50,6 +53,17 @@ written, and the release workflow refuses a version that has no entry here.
   fingerprint, and steps for trusting it on each operating system.
 - Ceres keeps machine-local state in a `.ceres` directory next to `ceres.yaml`, which carries
   its own `.gitignore`.
+- `rtsp()` streams of one camera share one connection to it when they use the same `copy`,
+  `transport`, and `stall_timeout`, so a camera allowing few sessions serves any number of
+  viewers. A viewer joining starts from the latest keyframe, a viewer reading too slowly skips
+  to the next keyframe instead of holding up the others, and the connection stays open three
+  seconds after its last viewer leaves so a reloaded page finds it open. A stream without
+  `reconnect` ends on a lost camera while the others reconnect.
+- `rtsp()` streams report what happens to the camera as events: `StreamLostEvent` once per
+  outage, `StreamReconnectScheduledEvent` for its first reconnect attempt,
+  `StreamReconnectedEvent` with the attempts and length of the outage, and `StreamEndedEvent`
+  when the stream ends on its own. A stream returned from a procedure reports on that
+  procedure's component. Code reading `rtsp()` itself passes `component=` to get them.
 
 **CLI**
 
@@ -67,6 +81,24 @@ written, and the release workflow refuses a version that has no entry here.
   `server.https` listener out, so the console dev server can proxy to it and a project
   without a certificate still runs.
 
+**Web Console**
+
+- Video widgets reconnect on their own when the stream drops, ends, stands still for ten
+  seconds, or never answers, at once and then every five seconds. The last frame stays up
+  meanwhile, with a small countdown in the corner. A new "Reconnect" setting, on by default,
+  brings back the error box instead.
+- Descriptions render as Markdown and are cut to three lines with a "Show more" when longer.
+- A procedure's docstring is split into its prose, its arguments' text, shown under each
+  argument's field, and what it returns and raises, shown beside the result. Google sections and
+  Sphinx fields are both read.
+- Control buttons can call queries as well as actions, under a "Procedure" field. A query's
+  result shows under the arguments form when the button asks for arguments, or otherwise in a
+  popup that can run the query again. A new query button runs without asking first. Queries
+  returning a file or a stream are not offered.
+- The workspaces section says "No workspaces yet." with a create button for each kind of
+  workspace on one line when it is empty, and an empty group shrinks to one line naming what
+  it lacks. Create buttons sit beside their group's label.
+
 **Fixes**
 
 - Report every workspace commit. The console shows a toast while the commit runs, a success toast
@@ -74,6 +106,12 @@ written, and the release workflow refuses a version that has no entry here.
   browser cannot send within 15 seconds, which happens when video widgets hold every connection
   the browser allows to the server, now fails with that message instead of hanging silently.
 - Dismissing the "Commit Changes" dialog with Escape no longer commits.
+- A procedure returning a stream or a file now reports how its call ended. A returned file
+  completes the call. A returned stream ends it when it closes, with `ProcedureCompletedEvent`
+  when it ran out, `ProcedureExceptionEvent` when reading it raised, and
+  `ProcedureCancelledEvent` when it closed early, such as a client leaving a live video view.
+  Before, such a call reported `ProcedureCalledEvent` and nothing after it.
+- Pressing a locked control button no longer opens its arguments popup as well as running it.
 
 ## [0.48.1] - 2026-10-01
 

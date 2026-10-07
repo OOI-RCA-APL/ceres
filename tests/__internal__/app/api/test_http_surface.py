@@ -14,11 +14,17 @@ from uuid import uuid4
 
 import httpx
 
-from ceres import Component, Engine, query
+from ceres import Component, Engine, listener, query
 from ceres.address import Address
 from ceres.component import FileOutput, StreamingOutput
 from ceres.config import Config
 from ceres.data import to_json, validate
+from ceres.event import (
+    Event,
+    ProcedureCancelledEvent,
+    ProcedureCompletedEvent,
+    ProcedureExceptionEvent,
+)
 from ceres.particle import Particle
 from ceres.user import User
 
@@ -50,6 +56,13 @@ def _exit(name: str) -> Callable[[], Awaitable[None]]:
 class _Media(Component):
     """A component whose queries answer with media, for the described-response path."""
 
+    @listener(local=True)
+    def on__event(self, event: Event) -> None:
+        if isinstance(
+            event, ProcedureCompletedEvent | ProcedureCancelledEvent | ProcedureExceptionEvent
+        ):
+            _media.setdefault("ended", []).append((event.procedure, event.type))
+
     @query(permit="public")
     async def download(self) -> FileOutput:
         return FileOutput(_media["path"], http_filename="export.csv", on_exit=_exit("download"))
@@ -76,6 +89,29 @@ class _Media(Component):
                 _media.setdefault("exited", []).append("endless producer")
 
         return StreamingOutput(chunks, "application/octet-stream", on_exit=_exit("endless"))
+
+    @query(permit="public", media="application/octet-stream")
+    async def broken(self) -> StreamingOutput:
+        async def chunks() -> AsyncIterator[bytes]:
+            yield b"x" * 4096
+            raise ConnectionError("the camera is gone")
+
+        return StreamingOutput(chunks, "application/octet-stream", on_exit=_exit("broken"))
+
+
+async def _ended(procedure: str) -> list[str]:
+    """How a served procedure's call ended, giving the release its moment to arrive."""
+    import asyncio
+
+    for _ in range(50):
+        await _media["component"].system.settle()
+        ended = [kind for name, kind in _media.get("ended", []) if name == procedure]
+        if ended:
+            return ended
+
+        await asyncio.sleep(0.02)
+
+    return []
 
 
 async def _exited(name: str) -> bool:
@@ -136,7 +172,11 @@ async def _serve(
 
     if media:
         _media["exited"] = []
-        engine.attach(_Media(__with_name__="media"))
+        _media["ended"] = []
+        _media["component"] = _Media(__with_name__="media")
+        engine.attach(_media["component"])
+        # Started so its listener records how each call ended.
+        _media["component"].system.start()
 
     host = Host(engine)
     records = engine.database._reader()
@@ -165,6 +205,9 @@ async def _serve(
                 await asyncio.wait_for(serving, 3)
             except Exception:  # noqa: BLE001
                 pass
+
+            if media:
+                await _media["component"].system.stop()
 
             await engine.database.dispose()
 
@@ -516,6 +559,7 @@ async def test_a_file_output_serves_the_file_with_its_headers(tmp_path: Path) ->
         assert response.headers["content-length"] == "19"
         assert response.headers["content-disposition"] == 'attachment; filename="export.csv"'
         assert await _exited("download")
+        assert await _ended("download") == ["procedure-completed"]
 
 
 async def test_a_missing_file_refuses_rather_than_truncating() -> None:
@@ -540,6 +584,7 @@ async def test_a_streaming_output_serves_its_chunks() -> None:
         assert response.headers["content-disposition"] == 'attachment; filename="rows.csv"'
         assert "content-length" not in response.headers
         assert await _exited("rows")
+        assert await _ended("rows") == ["procedure-completed"]
 
 
 async def test_a_client_leaving_mid_stream_closes_the_producer_then_runs_the_exit_hook() -> None:
@@ -552,6 +597,21 @@ async def test_a_client_leaving_mid_stream_closes_the_producer_then_runs_the_exi
 
         assert await _exited("endless")
         assert _media["exited"][-2:] == ["endless producer", "endless"]
+        assert await _ended("endless") == ["procedure-cancelled"]
+
+
+async def test_a_stream_failing_mid_body_ends_its_call_with_the_exception() -> None:
+    """The body is cut short, and the procedure call reports the stream's exception."""
+    async with _serve(media=True) as (_, client):
+        try:
+            async with client.stream("GET", "/api/components/@media/queries/broken/call") as body:
+                async for _ in body.aiter_bytes():
+                    pass
+        except httpx.HTTPError:
+            pass
+
+        assert await _exited("broken")
+        assert await _ended("broken") == ["procedure-exception"]
 
 
 async def test_config_routes_gate_by_admin_and_scrub_credentials() -> None:

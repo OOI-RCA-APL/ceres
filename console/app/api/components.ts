@@ -43,6 +43,12 @@ export const ProcedureOutputInfoModel = z.discriminatedUnion('type', [
   ProcedureFileOutputInfoModel,
 ])
 
+export type ProcedureRaiseInfo = z.infer<typeof ProcedureRaiseInfoModel>
+export const ProcedureRaiseInfoModel = z.object({
+  type: z.string().nullable(),
+  description: z.string(),
+})
+
 export type ProcedurePermissions = z.infer<typeof ProcedurePermissionsModel>
 export const ProcedurePermissionsModel = z.enum(['public', 'deny', 'view', 'operate', 'manage'])
 
@@ -53,6 +59,10 @@ const BaseProcedureInfoModel = z.object({
   permissions: ProcedurePermissionsModel,
   arguments: ProcedureArgumentsInfoModel,
   output: ProcedureOutputInfoModel,
+  /** What the docstring says comes back, as Markdown. */
+  returns: z.string().nullish(),
+  /** The exceptions the docstring says are raised. */
+  raises: z.array(ProcedureRaiseInfoModel).default([]),
 })
 
 export type QueryInfo = z.infer<typeof QueryInfoModel>
@@ -89,6 +99,17 @@ export function canInvokeProcedure(
   }
 
   return permissionRank[level] >= permissionRank[procedure.permissions]
+}
+
+/** The segment naming a procedure's kind in a path such as `@camera::queries::video`. */
+export function procedureNamespace(procedure: ProcedureInfo | null): 'queries' | 'actions' {
+  return procedure?.type === 'query' ? 'queries' : 'actions'
+}
+
+/** Whether a workspace button can run the procedure: any action, and a query returning a value
+rather than a file or a stream, which a button has nowhere to show. */
+export function isButtonProcedure(procedure: ProcedureInfo): boolean {
+  return procedure.type === 'action' || procedure.output.type === 'value'
 }
 
 /** The access a procedure asks for, as a sentence. */

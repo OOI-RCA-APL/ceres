@@ -1,11 +1,12 @@
 <script lang="ts" setup>
 import type { DropdownMenuItem } from '@nuxt/ui'
 import { startCase } from 'lodash-es'
-import { nextTick } from 'vue'
+import { nextTick, useTemplateRef } from 'vue'
 import { stringify } from 'yaml'
 
 import { useAccess } from '@/api/access'
 import { Address } from '@/api/address'
+import { isButtonProcedure, procedureNamespace } from '@/api/components'
 import { useEngine } from '@/api/engine'
 import { isError } from '@/api/shared'
 import { type ColorVariant, monochromeClasses, semanticColor } from '@/colors'
@@ -13,7 +14,8 @@ import icons from '@/icons'
 import { useModifiers } from '@/modifiers'
 import { useNotify } from '@/notify'
 import { isEmptyObjectSchema, useSchemaForm } from '@/schema-form'
-import { displayDuration, useTime } from '@/time'
+import { displayDuration, useTime, utc } from '@/time'
+import type { Datetime } from '@/time'
 import { afterMenuCloses, deepClone, highlight } from '@/utilities'
 import type { Plain } from '@/utilities'
 import { useWorkspace } from '@/workspace'
@@ -43,17 +45,25 @@ const resolvedAddress = $computed(() => {
   return resolved == null ? null : Address.parse(resolved)
 })
 
-const action = $computed(() => {
+// What pressing runs, an action or a query returning a value. A query returning a file or a stream
+// has nowhere to show here so it counts as missing.
+const procedure = $computed(() => {
   if (resolvedAddress == null || button.action == null) {
     return null
   }
 
-  return engine.components.getAction(resolvedAddress, button.action)
+  const found = engine.components.getProcedure(resolvedAddress, button.action)
+  return found != null && isButtonProcedure(found) ? found : null
 })
 
+const isQuery = $computed(() => procedure?.type === 'query')
+const kind = $computed(() => (isQuery ? 'Query' : 'Action'))
+
 // The full path of what pressing runs, written the way an address is. The popup only opens once
-// there is an action to run so the parts are there to name.
-const actionPath = $computed(() => `${resolvedAddress}::actions::${button.action}`)
+// there is a procedure to run so the parts are there to name.
+const procedurePath = $computed(
+  () => `${resolvedAddress}::${procedureNamespace(procedure)}::${button.action}`,
+)
 
 const canOperate = $computed(
   () => resolvedAddress != null && access.canOperate(resolvedAddress.toString()),
@@ -79,8 +89,14 @@ const monochrome = $computed(() => monochromeClasses(button.color, variant))
 
 let isRunning = $ref(false)
 let isShowingArguments = $ref(false)
+const control = useTemplateRef<HTMLDivElement>('control')
 let isShowingSettings = $ref(false)
 let isShowingMenu = $ref(false)
+
+// What the last run of a query returned. Shown under the form while the arguments popup is open,
+// otherwise in a popup of its own that offers to run the query again.
+let output = $ref<{ value: unknown; sentAt: Datetime; receivedAt: Datetime } | null>(null)
+let isShowingOutput = $ref(false)
 
 // The arguments are edited on a copy of what the button holds so a popup opened and dismissed
 // leaves the button exactly as it was found. They are kept on submitting or on locking, which are
@@ -96,9 +112,9 @@ const held = {
 
 const form = useSchemaForm({
   ...held,
-  schema: () => action?.arguments.json_schema ?? { type: 'object', properties: {} },
+  schema: () => procedure?.arguments.json_schema ?? { type: 'object', properties: {} },
   title: 'Arguments',
-  // The popup stays put while the action runs, with the button and the "Execute" control both
+  // The popup stays put while the procedure runs, with the button and the "Execute" control both
   // showing the wait so what was pressed and what it is doing stay in view together.
   async onSubmit(values: unknown) {
     button.arguments = deepClone(values) as Record<string, unknown>
@@ -106,7 +122,7 @@ const form = useSchemaForm({
   },
 })
 
-/** Whether the action takes arguments, which decides whether pressing opens a popup.
+/** Whether the procedure takes arguments, which decides whether pressing opens a popup.
 
 Read off the schema rather than the form since the form holds a stale copy from the last time
 the popup was open.
@@ -172,7 +188,7 @@ function createRunToast(controller: AbortController) {
   // No icon while it runs. A toast cannot spin one, and a still ring reads as a progress bar
   // stuck at the same place, against a run whose length is not known anyway.
   const toast = notify.open({
-    title: actionPath,
+    title: procedurePath,
     description: elapsed(),
     color: 'primary',
     actions: [{ label: 'Abort', color: 'neutral', onClick: () => controller.abort() }],
@@ -193,15 +209,15 @@ function createRunToast(controller: AbortController) {
   }
 
   return {
-    succeeded: () => settle('success', `Action "${button.action}" succeeded.`, 3000),
-    canceled: () => settle('neutral', `Action "${button.action}" was canceled.`, 3000),
+    succeeded: () => settle('success', `${kind} "${button.action}" succeeded.`, 3000),
+    canceled: () => settle('neutral', `${kind} "${button.action}" was canceled.`, 3000),
     failed: (detail: string) =>
-      settle('error', `Action "${button.action}" failed. ${detail}`, 8000),
+      settle('error', `${kind} "${button.action}" failed. ${detail}`, 8000),
   }
 }
 
 async function run(values: unknown) {
-  if (!canOperate || resolvedAddress == null || button.action == null || action == null) {
+  if (!canOperate || resolvedAddress == null || button.action == null || procedure == null) {
     return
   }
 
@@ -215,6 +231,7 @@ async function run(values: unknown) {
 
   try {
     isRunning = true
+    const sentAt = utc()
     const result = await engine.components.call(
       resolvedAddress,
       button.action,
@@ -226,6 +243,10 @@ async function run(values: unknown) {
       toast.failed(JSON.stringify(result))
     } else {
       toast.succeeded()
+      if (isQuery) {
+        output = { value: result, sentAt, receivedAt: utc() }
+        isShowingOutput = !isShowingArguments
+      }
     }
   } catch (error) {
     // Asked for so not a failure. Anything else is one and stays thrown.
@@ -243,6 +264,7 @@ async function run(values: unknown) {
 
 async function showArguments() {
   draft = deepClone(button.arguments)
+  output = null
   isShowingArguments = true
 
   // The form reads the copy it was just handed, and anything left over from an action that has
@@ -292,7 +314,7 @@ function onPress(event: MouseEvent) {
     return
   }
 
-  if (!canOperate || action == null) {
+  if (!canOperate || procedure == null) {
     return
   }
 
@@ -337,10 +359,10 @@ const tooltip = $computed(() => {
     return 'Press to Abort'
   }
   if (!isConfigured) {
-    return 'Button action is not configured. Press to configure.'
+    return 'Button is not configured. Press to configure.'
   }
-  if (action == null) {
-    return `Button action ${resolvedAddress}::action::${button.action} not found.`
+  if (procedure == null) {
+    return `Button procedure ${resolvedAddress}::${button.action} not found.`
   }
 
   return button.tooltip ?? null
@@ -353,45 +375,45 @@ const tooltip = $computed(() => {
   <c-context-menu :items="menuItems" @update:open="(value: boolean) => (isShowingMenu = value)">
     <!-- Named, since the bar around this one is a group too and the dots answer only to their
     own button being pointed at. -->
-    <div class="group/control relative inline-flex" @contextmenu.stop>
-      <c-popover v-model:open="isShowingArguments" :ui="{ content: 'w-[420px] max-w-[90vw]' }">
-        <c-tooltip :disabled="tooltip == null" :text="tooltip ?? ''">
-          <c-button
-            :class="monochrome"
-            :color="color"
-            :disabled="isConfigured && (!canOperate || action == null)"
-            size="sm"
-            :variant="variant"
-            @click="onPress"
-          >
-            <!-- Drawn beside the label rather than through the button's own loading state, which
+    <div ref="control" class="group/control relative inline-flex" @contextmenu.stop>
+      <c-tooltip :disabled="tooltip == null" :text="tooltip ?? ''">
+        <c-button
+          :class="monochrome"
+          :color="color"
+          :disabled="isConfigured && (!canOperate || procedure == null)"
+          size="sm"
+          :variant="variant"
+          @click="onPress"
+        >
+          <!-- Drawn beside the label rather than through the button's own loading state, which
             swallows the press that is the abort. -->
-            <c-icon v-if="isRunning" class="animate-spin" :name="icons.loading" size="14" />
-            <span @pointerenter="isLabelHovered = true" @pointerleave="isLabelHovered = false">
-              <c-inline-name-edit
-                :claim="isEditingLabel"
-                :editing="isLabelOffered"
-                :name="named"
-                @rename="renameButton"
-                @update:editing="(value: boolean) => (isEditingLabel = value)"
-              />
-            </span>
-            <!-- The chevron is how a control says it asks something before it acts, whether what
-            it opens is the arguments or the question of whether to go ahead at all. -->
-            <c-icon
-              v-if="opensDialog"
-              class="-mr-1 opacity-80"
-              :name="icons.chevronDown"
-              size="14"
+          <c-icon v-if="isRunning" class="animate-spin" :name="icons.loading" size="14" />
+          <span @pointerenter="isLabelHovered = true" @pointerleave="isLabelHovered = false">
+            <c-inline-name-edit
+              :claim="isEditingLabel"
+              :editing="isLabelOffered"
+              :name="named"
+              @rename="renameButton"
+              @update:editing="(value: boolean) => (isEditingLabel = value)"
             />
-          </c-button>
-        </c-tooltip>
-        <!-- The arguments are asked for where the button is rather than in the middle of the
-        screen, so the thing being run stays in view beside the form that runs it. -->
+          </span>
+          <!-- The chevron is how a control says it asks something before it acts, whether what
+            it opens is the arguments or the question of whether to go ahead at all. -->
+          <c-icon v-if="opensDialog" class="-mr-1 opacity-80" :name="icons.chevronDown" size="14" />
+        </c-button>
+      </c-tooltip>
+      <!-- The arguments are asked for where the button is rather than in the middle of the
+      screen, so the thing being run stays in view beside the form that runs it. Anchored rather
+      than wrapping the button, since a wrapping trigger opens it on every press, locked or not. -->
+      <c-popover
+        v-model:open="isShowingArguments"
+        :reference="control ?? undefined"
+        :ui="{ content: 'w-[420px] max-w-[90vw]' }"
+      >
         <template #content>
           <div class="p-2">
             <div class="mb-2 flex flex-nowrap items-center gap-1">
-              <c-text class="grow" variant="mono-sm">{{ actionPath }}</c-text>
+              <c-text class="grow" variant="mono-sm">{{ procedurePath }}</c-text>
               <c-tooltip
                 :text="button.confirm ? 'Confirm Dialog Enabled' : 'Confirm Dialog Disabled'"
               >
@@ -425,6 +447,13 @@ const tooltip = $computed(() => {
               :execute-label="button.confirm ? 'Execute ...' : 'Execute'"
               :form
               @cancel="onCancel"
+            />
+            <c-procedure-output
+              v-if="output != null"
+              class="mt-2"
+              :received-at="output.receivedAt"
+              :sent-at="output.sentAt"
+              :value="output.value"
             />
           </div>
         </template>
@@ -462,6 +491,34 @@ const tooltip = $computed(() => {
         variant="ghost"
         @click="isShowingSettings = false"
       />
+    </template>
+  </c-modal>
+  <c-modal
+    v-model:open="isShowingOutput"
+    :title="named"
+    :ui="{ content: 'w-[480px] max-w-[90vw]' }"
+  >
+    <template #body>
+      <c-text class="mb-2 block" variant="mono-sm">{{ procedurePath }}</c-text>
+      <c-procedure-output
+        v-if="output != null"
+        :received-at="output.receivedAt"
+        :sent-at="output.sentAt"
+        :value="output.value"
+      />
+    </template>
+    <template #footer>
+      <div class="grid w-full grid-cols-2 gap-2">
+        <c-button
+          block
+          color="primary"
+          :icon="icons.refresh"
+          label="Run Again"
+          :loading="isRunning"
+          @click="run(deepClone(button.arguments))"
+        />
+        <c-button block label="Close" variant="ghost" @click="isShowingOutput = false" />
+      </div>
     </template>
   </c-modal>
   <c-modal

@@ -808,6 +808,63 @@ ProcedureEvent: TypeAlias = (
 """Union of procedure-related events."""
 
 
+class StreamLostEvent(Event, slots=True):
+    """Emitted when a live stream loses its source, once per outage.
+
+    The stream holds on to its clients and keeps their picture where it stopped while it
+    reconnects, if it reconnects at all.
+    """
+
+    type: Literal["stream-lost"] = "stream-lost"
+    level: Level = Level.WARNING
+    procedure: str | None = None
+    """Name of the procedure that returned the stream, if one did."""
+    reason: str | None = None
+    """Why the source was lost, if known."""
+
+
+class StreamReconnectScheduledEvent(Event, slots=True):
+    """Emitted when a live stream schedules its first attempt to reach its lost source again.
+
+    Later attempts in the same outage go unreported, `StreamReconnectedEvent` counts them.
+    """
+
+    type: Literal["stream-reconnect-scheduled"] = "stream-reconnect-scheduled"
+    procedure: str | None = None
+    """Name of the procedure that returned the stream, if one did."""
+    delay: PositiveTimeDelta
+    """How long the stream waits before the attempt."""
+
+
+class StreamReconnectedEvent(Event, slots=True):
+    """Emitted when a live stream receives its source's picture again after an outage."""
+
+    type: Literal["stream-reconnected"] = "stream-reconnected"
+    procedure: str | None = None
+    """Name of the procedure that returned the stream, if one did."""
+    attempts: int
+    """How many connections the outage took, the one that came back included."""
+    outage: TimeDelta
+    """How long the source was lost."""
+
+
+class StreamEndedEvent(Event, slots=True):
+    """Emitted when a live stream ends on its own, rather than its reader closing it."""
+
+    type: Literal["stream-ended"] = "stream-ended"
+    level: Level = Level.WARNING
+    procedure: str | None = None
+    """Name of the procedure that returned the stream, if one did."""
+    reason: str
+    """Why the stream ended."""
+
+
+StreamEvent: TypeAlias = (
+    StreamLostEvent | StreamReconnectScheduledEvent | StreamReconnectedEvent | StreamEndedEvent
+)
+"""Union of live stream events."""
+
+
 class DatabaseExceptionEvent(Event, slots=True):
     """Emitted when a database operation raises an unhandled exception."""
 
@@ -832,6 +889,7 @@ StandardEvent: TypeAlias = (
     | PrunerEvent
     | SieveEvent
     | ProcedureEvent
+    | StreamEvent
     | DatabaseEvent
 )
 """Union of every event type defined in the standard ceres distribution."""

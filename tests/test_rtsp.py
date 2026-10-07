@@ -9,9 +9,18 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
+from typing import override
 
 import pytest
 
+from ceres import Component, listener, query
+from ceres.component import StreamingOutput
+from ceres.event import (
+    Event,
+    StreamLostEvent,
+    StreamReconnectedEvent,
+    StreamReconnectScheduledEvent,
+)
 from ceres.rtsp import rtsp
 
 
@@ -170,3 +179,78 @@ async def test_reencodes_h265_as_h264_across_a_lost_camera() -> None:
         movie = await watch(url, fragments=40, copy=False, stall_timeout=1.0)
     assert movie.codec() == b"avc1"
     assert_one_timeline(movie, 40)
+
+
+async def test_streams_of_one_camera_share_its_session() -> None:
+    async with rtsp_server("--max-sessions", "1") as url:
+        first, second = await asyncio.gather(watch(url, fragments=20), watch(url, fragments=20))
+    assert_one_timeline(first, 20)
+    assert_one_timeline(second, 20)
+
+
+class Camera(Component):
+    """A camera whose stream reports how it fares."""
+
+    @override
+    def __setup__(self) -> None:
+        super().__setup__()
+        self.url = ""
+        self.emitted: list[Event] = []
+
+    @listener(local=True)
+    def on__event(self, event: Event) -> None:
+        if event.type.startswith("stream-"):
+            self.emitted.append(event)
+
+    @query(media="video/mp4")
+    async def video(self) -> StreamingOutput:
+        return await rtsp(self.url, stall_timeout=1.0)
+
+
+async def read_for(output: StreamingOutput, fragments: int) -> None:
+    movie = Movie()
+    async with asyncio.timeout(60), output:
+        async for chunk in output:
+            movie.data += chunk
+            if movie.kinds().count(b"moof") >= fragments:
+                break
+
+
+@pytest.fixture
+async def camera() -> AsyncIterator[Camera]:
+    camera = Camera()
+    camera.system.start()
+    yield camera
+    await camera.system.stop()
+
+
+async def test_a_returned_stream_reports_a_lost_camera_on_its_component(camera: Camera) -> None:
+    async with rtsp_server("--restart-after", "1", "--restart-downtime", "1") as url:
+        camera.url = url
+        output = await camera.system.call("video", {})
+        assert isinstance(output, StreamingOutput)
+        await read_for(output, 60)
+    await camera.system.settle()
+    kinds = [type(event) for event in camera.emitted]
+    assert kinds == [StreamLostEvent, StreamReconnectScheduledEvent, StreamReconnectedEvent]
+    assert all(getattr(event, "procedure", None) == "video" for event in camera.emitted)
+    reconnected = camera.emitted[-1]
+    assert isinstance(reconnected, StreamReconnectedEvent)
+    assert reconnected.attempts >= 1
+    assert reconnected.outage.total_seconds() >= 0.5
+
+
+async def test_a_stream_reports_on_the_component_it_was_given(camera: Camera) -> None:
+    async with rtsp_server("--drop-after", "1") as url:
+        output = await rtsp(url, component=camera)
+        await read_for(output, 40)
+    await camera.system.settle()
+    assert StreamLostEvent in [type(event) for event in camera.emitted]
+    assert all(getattr(event, "procedure", "") is None for event in camera.emitted)
+
+
+async def test_an_unbound_stream_reports_nothing(camera: Camera) -> None:
+    async with rtsp_server("--drop-after", "1") as url:
+        await read_for(await rtsp(url), 40)
+    await camera.system.settle()
+    assert camera.emitted == []

@@ -370,6 +370,10 @@ const groups = $computed(() => [
   },
 ])
 
+// With nothing in either group there is nothing to drag between them, so one line stands in for
+// both headings and offers whatever the caller may create.
+const isEmpty = $computed(() => groups.every((group) => group.items.length === 0))
+
 // Whether persistOrder's writes are still in flight, which is the only time the hold below may
 // outlast an incoming list.
 let writing = false
@@ -491,7 +495,25 @@ function menuItems(
 <template>
   <div ref="root">
     <define-groups>
-      <template v-for="group in groups" :key="group.key">
+      <div
+        v-if="isEmpty"
+        class="flex flex-wrap items-center gap-x-2 gap-y-1"
+        :class="collapsible && 'pl-1'"
+        data-workspace-empty
+      >
+        <c-text variant="description">No workspaces yet.</c-text>
+        <template v-for="group in groups" :key="group.key">
+          <c-button
+            v-if="group.canAdd"
+            :icon="icons.add"
+            :label="group.label"
+            size="xs"
+            variant="ghost"
+            @click="create(group.key as 'shared' | 'private')"
+          />
+        </template>
+      </div>
+      <template v-for="group in isEmpty ? [] : groups" :key="group.key">
         <!-- A group the caller may add to keeps its heading even while it is empty since that
         heading is where the first one is made from. -->
         <!-- The whole group is a drop target so a workspace can be dragged into one with no
@@ -505,14 +527,23 @@ function menuItems(
           ]"
           :data-workspace-group-list="group.key"
         >
-          <div class="mb-0.5 flex min-h-5 items-center">
+          <!-- An empty group shrinks to one line saying so, still a place to create one or to drop
+          one dragged from the other group. -->
+          <div
+            class="flex min-h-5 items-center gap-1"
+            :class="[collapsible && 'pl-1', group.items.length > 0 && 'mb-0.5']"
+          >
             <c-text variant="description">
-              {{ group.items.length === 0 ? `${group.label} (None)` : group.label }}
+              {{
+                group.items.length === 0
+                  ? `No ${group.label.toLowerCase()} workspaces`
+                  : group.label
+              }}
             </c-text>
-            <div class="flex-1" />
             <c-tooltip v-if="group.canAdd" :text="`Create ${group.label} Workspace`">
               <button
-                class="mr-2 flex items-center rounded-full opacity-50 transition-opacity hover:opacity-100"
+                :aria-label="`Create ${group.label} Workspace`"
+                class="flex items-center rounded-full opacity-50 transition-opacity hover:opacity-100"
                 type="button"
                 @click="create(group.key as 'shared' | 'private')"
               >
