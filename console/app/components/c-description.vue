@@ -2,30 +2,36 @@
 import { useResizeObserver } from '@vueuse/core'
 import { nextTick, onMounted, useTemplateRef, watch } from 'vue'
 
+import icons from '@/icons'
 import { renderMarkdown } from '@/markdown'
+import { lineBottoms } from '@/text-lines'
 
 const { text, lines = 3 } = defineProps<{
   /** Markdown, a docstring or a field's description. */
   text: string
-  /** How many lines show while collapsed. */
+  /** How many lines show while folded. */
   lines?: number
 }>()
 
 const html = $computed(() => renderMarkdown(text))
 
 let isExpanded = $ref(false)
-// Whether the collapsed text runs past its lines, the only case worth a "Show more".
-let isOverflowing = $ref(false)
+// Where the folded text is cut, the bottom of its last shown line, and how many lines lie below.
+let foldAt = $ref<number | null>(null)
+let hiddenLines = $ref(0)
 
 const content = useTemplateRef<HTMLElement>('content')
 
 function measure() {
   const element = content.value
-  // Expanded, nothing is cut, so the last collapsed measure stands.
-  if (element == null || isExpanded) {
+  if (element == null) {
     return
   }
-  isOverflowing = element.scrollHeight > element.clientHeight + 1
+
+  // A single line past the fold takes no more room than the toggle that would hide it.
+  const bottoms = lineBottoms(element)
+  hiddenLines = bottoms.length - lines
+  foldAt = hiddenLines > 1 ? bottoms[lines - 1]! : null
 }
 
 useResizeObserver(content, measure)
@@ -34,10 +40,12 @@ watch(
   () => nextTick(measure),
 )
 onMounted(measure)
+
+const isFolded = $computed(() => foldAt != null && !isExpanded)
 </script>
 
-<!-- Markdown text cut to a few lines with an ellipsis, and a link to show the rest when there is
-more than fits. -->
+<!-- Markdown text folded to its first few lines, with a toggle to unfold the rest when there is more
+than fits. -->
 <template>
   <div>
     <!-- Rendered with raw HTML off, so the text cannot inject markup. -->
@@ -45,26 +53,25 @@ more than fits. -->
     <div
       ref="content"
       class="c-description"
-      :class="!isExpanded && 'c-description-clamped'"
-      :style="!isExpanded ? { WebkitLineClamp: lines } : undefined"
+      :class="isFolded && 'c-description-folded'"
+      :style="isFolded ? { maxHeight: `${foldAt}px` } : undefined"
       v-html="html"
     />
     <!-- eslint-enable vue/no-v-html -->
     <button
-      v-if="isOverflowing"
-      class="text-primary mt-0.5 cursor-pointer text-[11px] hover:underline"
+      v-if="foldAt != null"
+      class="text-muted hover:text-default mt-0.5 flex cursor-pointer items-center gap-0.5 text-[11px]"
       type="button"
       @click="isExpanded = !isExpanded"
     >
-      {{ isExpanded ? 'Show less' : 'Show more' }}
+      <c-icon :name="isExpanded ? icons.chevronUp : icons.chevronDown" size="14" />
+      {{ isExpanded ? 'Fold' : `${hiddenLines} more ${hiddenLines === 1 ? 'line' : 'lines'}` }}
     </button>
   </div>
 </template>
 
 <style scoped>
-.c-description-clamped {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
+.c-description-folded {
   overflow: hidden;
 }
 

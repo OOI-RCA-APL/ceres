@@ -1,9 +1,12 @@
 import { mount } from '@vue/test-utils'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 
 import CDescription from '@/components/c-description.vue'
 import { renderMarkdown } from '@/markdown'
+import { lineBottoms } from '@/text-lines'
+
+vi.mock('@/text-lines', () => ({ lineBottoms: vi.fn(() => []) }))
 
 describe('rendering a description as Markdown', () => {
   it('joins wrapped lines and keeps paragraphs, lists and code', () => {
@@ -27,40 +30,37 @@ describe('rendering a description as Markdown', () => {
   })
 })
 
-/** Make every element report the given heights, which happy-dom never lays out. */
-function heights(scroll: number, client: number) {
-  vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(scroll)
-  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(client)
+/** Mount a description laid out as this many 15px lines, which happy-dom never does itself. */
+async function laidOut(lines: number) {
+  vi.mocked(lineBottoms).mockReturnValue(
+    Array.from({ length: lines }, (_, line) => (line + 1) * 15),
+  )
+  const description = mount(CDescription, {
+    props: { text: 'abc' },
+    global: { stubs: { 'c-icon': true } },
+  })
+  await nextTick()
+  return description
 }
 
 describe('c-description', () => {
-  afterEach(() => {
-    vi.restoreAllMocks()
+  it('offers no fold when the text fits or one line would hide', async () => {
+    expect((await laidOut(3)).find('button').exists()).toBe(false)
+    expect((await laidOut(4)).find('button').exists()).toBe(false)
   })
 
-  it('offers nothing more when the text fits', async () => {
-    heights(40, 40)
-    const description = mount(CDescription, { props: { text: 'Short.' } })
-    await nextTick()
-
-    expect(description.find('button').exists()).toBe(false)
-  })
-
-  it('cuts long text and toggles the rest', async () => {
-    heights(200, 45)
-    const description = mount(CDescription, { props: { text: 'Long.\n\nMore.\n\nMore.' } })
-    await nextTick()
+  it('folds after the last whole line shown and toggles the rest', async () => {
+    const description = await laidOut(7)
 
     const content = description.find('.c-description')
-    const button = description.find('button')
-    expect(content.classes()).toContain('c-description-clamped')
-    expect(button.text()).toBe('Show more')
-
-    await button.trigger('click')
-    expect(content.classes()).not.toContain('c-description-clamped')
-    expect(description.find('button').text()).toBe('Show less')
+    expect(content.attributes('style')).toContain('max-height: 45px')
+    expect(description.find('button').text()).toBe('4 more lines')
 
     await description.find('button').trigger('click')
-    expect(content.classes()).toContain('c-description-clamped')
+    expect(content.attributes('style')).toBeUndefined()
+    expect(description.find('button').text()).toBe('Fold')
+
+    await description.find('button').trigger('click')
+    expect(content.attributes('style')).toContain('max-height: 45px')
   })
 })
