@@ -13,6 +13,7 @@ import { moved, usePointerReorder } from '@/reorder'
 import { useTabs } from '@/tabs'
 import { keepFocusWhile } from '@/utilities'
 import { inStandardOrder, isWorkspaceWritable, useWorkspaces, type Workspace } from '@/workspace'
+import { useWorkspaceAssociation } from '@/workspace-association'
 
 const {
   workspaces,
@@ -56,6 +57,7 @@ const dialogs = useDialogs()
 const notify = useNotify()
 const tabs = useTabs()
 const workspaceStore = useWorkspaces()
+const association = useWorkspaceAssociation()
 
 const ordered = $computed(() => pending ?? inStandardOrder(workspaces))
 
@@ -216,18 +218,59 @@ function groupAt(x: number, y: number): 'shared' | 'private' | null {
   return null
 }
 
+// The sidebar's components and Home take a row too, which associates it with whichever it lands
+// on. Measured once per drag like the groups.
+let placementBoxes: [HTMLElement, DOMRect][] | null = null
+
+/** The sidebar entry under the given point that a row may be dropped on, if any. */
+function placementTargetAt(x: number, y: number): HTMLElement | null {
+  placementBoxes ??= [
+    ...document.querySelectorAll<HTMLElement>('[data-workspace-drop-placement]'),
+  ].map((element) => [element, element.getBoundingClientRect()])
+
+  for (const [element, box] of placementBoxes) {
+    if (x >= box.left && x <= box.right && y >= box.top && y <= box.bottom) {
+      return element
+    }
+  }
+
+  return null
+}
+
+let hoveredPlacement: HTMLElement | null = null
+
+function setHoveredPlacement(element: HTMLElement | null) {
+  if (element === hoveredPlacement) {
+    return
+  }
+
+  hoveredPlacement?.removeAttribute('data-workspace-drop-hover')
+  element?.setAttribute('data-workspace-drop-hover', '')
+  hoveredPlacement = element
+}
+
 watch(
   () => sharedReorder.isMoving || privateReorder.isMoving,
   (moving) => {
     if (!moving) {
       groupBoxes = null
+      placementBoxes = null
       hoveredGroup = null
+      setHoveredPlacement(null)
     }
   },
 )
 
 // Scrolling mid-drag shifts the lists under the cached boxes.
-useEventListener(window, 'scroll', () => (groupBoxes = null), { passive: true, capture: true })
+useEventListener(
+  window,
+  'scroll',
+  () => {
+    groupBoxes = null
+    placementBoxes = null
+  },
+  { passive: true, capture: true },
+)
 
 useEventListener(window, 'pointermove', (event: PointerEvent) => {
   if (!sharedReorder.isMoving && !privateReorder.isMoving) {
@@ -235,9 +278,10 @@ useEventListener(window, 'pointermove', (event: PointerEvent) => {
   }
 
   hoveredGroup = groupAt(event.clientX, event.clientY)
+  setHoveredPlacement(placementTargetAt(event.clientX, event.clientY))
 })
 
-/** Take a row released outside its own group, which is either the other group or the tab strip.
+/** Take a row released outside its own group: the other group, the tab strip, or the sidebar.
 
 Returns whether the drop was claimed, which stops the release from reordering the source group.
 */
@@ -251,6 +295,17 @@ function onDrop(workspace: Workspace, from: 'shared' | 'private', event: Pointer
       .find((candidate) => held == null || !held.contains(candidate)) ?? null
   if (element == null) {
     return false
+  }
+
+  // Never an instant move, since a stray release over the sidebar must not change anything. The
+  // dialog asks first, and a drop where the workspace already sits asks nothing.
+  const destination = placementTargetAt(event.clientX, event.clientY)?.dataset
+    .workspaceDropPlacement
+  if (destination != null) {
+    if (destination !== workspace.scope.toString()) {
+      association.associate({ workspace, destination })
+    }
+    return true
   }
 
   if (element.closest('[data-workspace-drop="tabs"]') != null) {
@@ -435,6 +490,23 @@ watch(
   },
 )
 
+// A component page offers to bring a global workspace here, the one direction its own rows cannot
+// start since none of them are global. Asked from a group's heading it offers only that group's
+// kind, so the workspace lands under the heading it was picked from.
+function associateHere(kind?: 'shared' | 'private') {
+  const candidates = workspaceStore.all.filter(
+    (workspace) =>
+      workspace.scope.isEngine &&
+      (kind == null || (workspace.owner_id != null) === (kind === 'private')),
+  )
+  association.associate({ candidates: inStandardOrder(candidates), destination: placement })
+}
+
+/** A group heading's dots menu, for ways to add a workspace beyond creating one. */
+function groupMenuItems(kind: 'shared' | 'private'): DropdownMenuItem[][] {
+  return [[{ label: 'Associate…', icon: icons.associate, onSelect: () => associateHere(kind) }]]
+}
+
 function openSettings(workspace: Workspace) {
   dialogs.workspaceSettings(workspace.id).onOk(() => workspaceStore.refresh())
 }
@@ -486,7 +558,30 @@ function menuItems(
     { label: 'Duplicate', icon: icons.duplicate, onSelect: () => duplicate(workspace) },
   )
 
-  const groups = [opening, editing]
+  // Named after the headings the workspace moves between rather than "move", which the tabs
+  // already mean by opening one somewhere else.
+  const placing: DropdownMenuItem[] = workspace.scope.isEngine
+    ? [
+        {
+          label: 'Associate…',
+          icon: icons.associate,
+          onSelect: () => association.associate({ workspace }),
+        },
+      ]
+    : [
+        {
+          label: 'Reassociate…',
+          icon: icons.associate,
+          onSelect: () => association.associate({ workspace }),
+        },
+        {
+          label: 'Make Global…',
+          icon: icons.home,
+          onSelect: () => association.associate({ workspace, destination: engineRoot }),
+        },
+      ]
+
+  const groups = [opening, editing, placing]
   if (isWritable(workspace)) {
     groups.push([{ label: 'Delete', icon: icons.delete, onSelect: () => promptDelete(workspace) }])
   }
@@ -515,6 +610,14 @@ function menuItems(
             @click="create(group.key as 'shared' | 'private')"
           />
         </template>
+        <c-button
+          v-if="!isHome"
+          :icon="icons.associate"
+          label="Associate…"
+          size="xs"
+          variant="ghost"
+          @click="associateHere()"
+        />
       </div>
       <template v-for="group in isEmpty ? [] : groups" :key="group.key">
         <!-- A group the caller may add to keeps its heading even while it is empty since that
@@ -553,6 +656,19 @@ function menuItems(
                 <c-icon :name="icons.add" size="16" />
               </button>
             </c-tooltip>
+            <c-dropdown-menu
+              v-if="!isHome"
+              :content="menuContent"
+              :items="groupMenuItems(group.key as 'shared' | 'private')"
+            >
+              <button
+                :aria-label="`More ${group.label} Workspace Actions`"
+                class="flex items-center rounded-full opacity-50 transition-opacity hover:opacity-100"
+                type="button"
+              >
+                <c-icon :name="icons.more" size="13" />
+              </button>
+            </c-dropdown-menu>
           </div>
           <c-list v-if="group.items.length > 0">
             <c-context-menu
@@ -709,6 +825,14 @@ offering costs no layout shift. */
 .dropZoneActive {
   outline-color: color-mix(in srgb, var(--ui-primary) 70%, transparent);
   background: color-mix(in srgb, var(--ui-primary) 6%, transparent);
+}
+
+/* The sidebar's entries take a held row too, lit the same way while it is over one. They live
+outside this component, so they carry an attribute rather than a class from here. */
+:global([data-workspace-drop-hover]) {
+  outline: 2px dashed color-mix(in srgb, var(--ui-primary) 70%, transparent);
+  outline-offset: -2px;
+  background: color-mix(in srgb, var(--ui-primary) 12%, transparent);
 }
 
 /* The lifted row sits above the ones sliding under it so it takes the surface it was lifted off

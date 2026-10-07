@@ -3,6 +3,10 @@ import { defineStore } from 'pinia'
 import CConfirmDialog, { type ConfirmDialogProps } from '@/components/base/c-confirm-dialog.vue'
 import CChangePasswordDialog from '@/components/c-change-password-dialog.vue'
 import CFilterGroupDialog from '@/components/c-filter-group-dialog.vue'
+import CWorkspaceAssociateDialog, {
+  type WorkspaceAssociateDialogProps,
+  type WorkspaceAssociation,
+} from '@/components/c-workspace-associate-dialog.vue'
 import CWorkspaceDialog from '@/components/c-workspace-dialog.vue'
 import CWorkspaceTransferDialog from '@/components/c-workspace-transfer-dialog.vue'
 import type { Workspace, WorkspaceData } from '@/workspace'
@@ -21,6 +25,7 @@ export const useDialogs = defineStore('dialogs', () => {
   const confirmDialog = overlay.create(CConfirmDialog)
   const workspaceDialog = overlay.create(CWorkspaceDialog)
   const workspaceTransferDialog = overlay.create(CWorkspaceTransferDialog)
+  const workspaceAssociateDialog = overlay.create(CWorkspaceAssociateDialog)
   const changePasswordDialog = overlay.create(CChangePasswordDialog)
   const filterGroupDialog = overlay.create(CFilterGroupDialog)
 
@@ -77,6 +82,11 @@ export const useDialogs = defineStore('dialogs', () => {
     */
     transferWorkspace: (workspace: Workspace, to: 'shared' | 'private', canMove: boolean) =>
       handleOf(workspaceTransferDialog.open({ workspace, to, canMove }).result),
+    /** Ask where a workspace goes and whether it changes placement or is copied there. */
+    associateWorkspace: (props: WorkspaceAssociateDialogProps) =>
+      handleOf(workspaceAssociateDialog.open(props).result) as DialogHandle<
+        WorkspaceAssociation | false
+      >,
     workspaceSettings: (workspaceId: string) =>
       handleOf(workspaceDialog.open({ workspaceId, action: 'view' }).result),
     duplicateWorkspace: (workspaceId: string, data?: WorkspaceData) =>

@@ -6,6 +6,7 @@ const icons = {
   arrowDown: 'i-mdi-arrow-down',
   arrowLeft: 'i-mdi-arrow-left',
   arrowUp: 'i-mdi-arrow-up',
+  associate: 'i-mdi-map-marker-outline',
   baseComponents: 'i-mdi-toy-brick-outline',
   cancel: 'i-mdi-close-circle',
   carousel: 'i-mdi-view-carousel-outline',

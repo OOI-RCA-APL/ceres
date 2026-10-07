@@ -16,6 +16,8 @@ import { useNotify } from '@/notify'
 import { usePreferences } from '@/preferences'
 import { useValidate } from '@/validate'
 import type { Workspace, WorkspaceData } from '@/workspace'
+import { pinWidgetAddresses } from '@/workspace/association'
+import { useWorkspaceAssociation } from '@/workspace-association'
 export type WorkspaceDialogProps =
   | {
       workspaceId: string
@@ -56,6 +58,7 @@ const {
 const emit = defineEmits<{ close: [Workspace | boolean] }>()
 
 const access = useAccess()
+const association = useWorkspaceAssociation()
 const auth = useAuth()
 const dialogs = useDialogs()
 const engine = useEngine()
@@ -79,14 +82,26 @@ const workspace = $computed(() => query.data?.workspace ?? null)
 // Everything the dialog explains follows from where the workspace sits and whether it is owned.
 // A workspace being created has no row to read those from yet so they come from the placement
 // passed in and from the choice the form is currently showing.
-const placement = $computed(() =>
-  action === 'create' ? new Address(scope ?? engineRoot) : (workspace?.scope ?? null),
-)
+// A duplicate lands wherever its form says, so that is the placement it is explained against.
+const placement = $computed(() => {
+  if (action === 'create') {
+    return new Address(scope ?? engineRoot)
+  }
+  if (action === 'duplicate' && form.data.associatedWith !== '') {
+    return new Address(form.data.associatedWith)
+  }
+
+  return workspace?.scope ?? null
+})
 
 // A shared workspace appears for everyone who can see its placement so creating one takes manage
 // there. A private one is visible to nobody else and takes only the view access needed to be
 // looking at the placement at all.
 const canShare = $computed(() => placement != null && access.canManage(placement.toString()))
+
+function named(value: string) {
+  return value === engineRoot ? 'Home' : value
+}
 
 const titles = {
   view: 'Workspace Settings',
@@ -111,6 +126,9 @@ const form = useForm({
     // Whether this is one of the workspaces a new user lands on. Only meaningful for a shared
     // workspace placed on the engine root, which the home page draws its defaults from.
     showWhenLoggedOut: false,
+    // Where the workspace sits, `~` for global. Changing it in the settings moves this workspace,
+    // and in a duplicate it decides where the copy goes.
+    associatedWith: '',
   },
   validators: {
     name: validate.isNotBlank(),
@@ -145,21 +163,61 @@ const form = useForm({
         }
       }
 
-      await engine.workspaces.update(workspaceId as string, {
+      const source = workspace?.scope.toString() ?? null
+      const relocating = source != null && values.associatedWith !== source
+
+      // Taking a shared workspace elsewhere removes it for anyone who cannot see where it goes,
+      // the same warning the association dialog gives.
+      if (relocating && !values.isPrivate) {
+        const confirmed = await new Promise<boolean>((resolve) => {
+          dialogs
+            .confirm({
+              title: 'Change Associated Component',
+              message:
+                `"${values.name}" moves from ${named(source)} ` +
+                `to ${named(values.associatedWith)}.`,
+              note:
+                'It disappears for anyone who cannot see where it goes, along with any unsaved ' +
+                'changes they are holding against it.',
+              okColor: 'warning',
+            })
+            .onOk(() => resolve(true))
+            .onCancel(() => resolve(false))
+        })
+        if (!confirmed) {
+          return
+        }
+      }
+
+      const updated = await engine.workspaces.update(workspaceId as string, {
         name: values.name,
         ...(changingVisibility ? { owner_id: owner } : {}),
         ...(canMarkForHome ? { show_when_logged_out: values.showWhenLoggedOut } : {}),
+        ...(relocating ? { scope: new Address(values.associatedWith) } : {}),
       })
-      notify.success('Workspace settings updated successfully.')
+      if (relocating) {
+        association.announce(updated.name, updated.id, values.associatedWith, 'change')
+      } else {
+        notify.success('Workspace settings updated successfully.')
+      }
       emit('close', true)
       return
     }
+
+    // A duplicate placed elsewhere is a new workspace there, so its relative addresses are pinned
+    // to where they were written first.
+    const source = workspace?.scope ?? null
+    const copied = action === 'duplicate' ? (data ?? workspace?.data ?? null) : null
+    const relocated =
+      copied != null && source != null && placement != null && !placement.equals(source)
+        ? (pinWidgetAddresses(copied, source) as unknown as WorkspaceData)
+        : copied
 
     const created = await engine.workspaces.create({
       name: values.name,
       scope: placement ?? undefined,
       owner_id: values.isPrivate ? auth.user?.id : null,
-      data: action === 'duplicate' ? (data ?? workspace?.data ?? undefined) : undefined,
+      data: relocated ?? undefined,
     })
 
     // Only a deliberate choice is remembered. Duplicating is always private, and a user without
@@ -237,6 +295,7 @@ void nextTick(async () => {
       ...workspace,
       isPrivate: workspace.owner_id != null,
       showWhenLoggedOut: workspace.show_when_logged_out,
+      associatedWith: workspace.scope.toString(),
     })
     if (action === 'duplicate') {
       form.data.name = `${workspace.name} (Copy)`
@@ -290,6 +349,25 @@ void nextTick(async () => {
             Access follows the <c-text variant="mono-xs">{{ placement }}</c-text> component.
           </template>
         </c-text>
+        <template v-if="action !== 'create'">
+          <c-text class="mt-1 mb-1 block" variant="description">Associated Component</c-text>
+          <c-workspace-placement-select
+            v-model="form.data.associatedWith"
+            class="mb-1"
+            :current="workspace?.scope.toString() ?? null"
+            :disabled="form.readonly"
+          />
+          <c-text
+            v-if="form.editable && form.data.associatedWith !== (workspace?.scope.toString() ?? '')"
+            class="mb-2 block"
+            variant="description"
+          >
+            {{
+              action === 'view' ? 'Saving moves this workspace there.' : 'The copy is made there.'
+            }}
+            Its widgets keep pointing at the same components.
+          </c-text>
+        </template>
         <c-text v-if="action === 'create' && !canShare" class="block" variant="description">
           Sharing requires manage access.
         </c-text>
