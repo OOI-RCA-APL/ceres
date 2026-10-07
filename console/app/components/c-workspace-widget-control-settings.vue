@@ -1,11 +1,12 @@
 <script lang="ts" setup>
 import { startCase } from 'lodash-es'
-import { watchEffect } from 'vue'
+import { nextTick, watch, watchEffect } from 'vue'
 
 import { Address } from '@/api/address'
 import { isButtonProcedure, procedureNamespace } from '@/api/components'
 import { useEngine } from '@/api/engine'
 import icons from '@/icons'
+import { rememberArguments, rememberedArguments } from '@/procedure-arguments'
 import { isEmptyObjectSchema, useSchemaForm } from '@/schema-form'
 import { deepClone } from '@/utilities'
 import type { Plain } from '@/utilities'
@@ -76,6 +77,9 @@ const held = {
   value: () => button.arguments as Plain,
   onUpdate: (value: unknown) => {
     button.arguments = deepClone(value) as Record<string, unknown>
+    if (resolvedAddress != null && button.action != null) {
+      rememberArguments(resolvedAddress, button.action, value)
+    }
   },
 }
 
@@ -83,6 +87,20 @@ const form = useSchemaForm({
   ...held,
   schema: () => procedure?.arguments.json_schema ?? { type: 'object', properties: {} },
   title: 'Arguments',
+})
+
+// Arguments belong to one procedure of one component, so pointing the button at another takes up
+// what was last entered for that one, or its defaults.
+watch([() => resolvedAddress?.toString(), () => button.action], async () => {
+  const remembered =
+    resolvedAddress != null && button.action != null
+      ? rememberedArguments(resolvedAddress, button.action)
+      : undefined
+  button.arguments = remembered === undefined ? {} : deepClone(remembered)
+  await nextTick()
+  if (!form.isValid) {
+    form.reset()
+  }
 })
 
 const takesArguments = $computed(() => !isEmptyObjectSchema(form.getSchema([])))

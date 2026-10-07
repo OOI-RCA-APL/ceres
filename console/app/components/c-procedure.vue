@@ -2,6 +2,7 @@
 import type { Address } from '@/api/address'
 import type { ProcedureInfo } from '@/api/components'
 import { useEngine } from '@/api/engine'
+import { procedureArgumentsKey } from '@/procedure-arguments'
 import { useSchemaForm } from '@/schema-form'
 import { utc } from '@/time'
 import type { Datetime } from '@/time'
@@ -43,7 +44,7 @@ const options = $computed(() => {
   }
 
   return {
-    persist: () => ['state', 'procedure', 'schema-form', address, 'procedures', procedure.name],
+    persist: () => procedureArgumentsKey(address, procedure.name),
   }
 })
 

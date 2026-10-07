@@ -13,6 +13,7 @@ import { type ColorVariant, monochromeClasses, semanticColor } from '@/colors'
 import icons from '@/icons'
 import { useModifiers } from '@/modifiers'
 import { useNotify } from '@/notify'
+import { rememberArguments } from '@/procedure-arguments'
 import { isEmptyObjectSchema, useSchemaForm } from '@/schema-form'
 import { displayDuration, useTime, utc } from '@/time'
 import type { Datetime } from '@/time'
@@ -95,7 +96,12 @@ let isShowingMenu = $ref(false)
 
 // What the last run of a query returned. Shown under the form while the arguments popup is open,
 // otherwise in a popup of its own that offers to run the query again.
-let output = $ref<{ value: unknown; sentAt: Datetime; receivedAt: Datetime } | null>(null)
+let output = $ref<{
+  value: unknown
+  arguments: string | null
+  sentAt: Datetime
+  receivedAt: Datetime
+} | null>(null)
 let isShowingOutput = $ref(false)
 
 // The arguments are edited on a copy of what the button holds so a popup opened and dismissed
@@ -117,10 +123,18 @@ const form = useSchemaForm({
   // The popup stays put while the procedure runs, with the button and the "Execute" control both
   // showing the wait so what was pressed and what it is doing stay in view together.
   async onSubmit(values: unknown) {
-    button.arguments = deepClone(values) as Record<string, unknown>
+    keepArguments(values)
     await run(values)
   },
 })
+
+/** Hold the arguments on the button and remember them for its procedure across the console. */
+function keepArguments(values: unknown) {
+  button.arguments = deepClone(values) as Record<string, unknown>
+  if (resolvedAddress != null && button.action != null) {
+    rememberArguments(resolvedAddress, button.action, values)
+  }
+}
 
 /** Whether the procedure takes arguments, which decides whether pressing opens a popup.
 
@@ -128,6 +142,11 @@ Read off the schema rather than the form since the form holds a stale copy from 
 the popup was open.
 */
 const takesArguments = $computed(() => !isEmptyObjectSchema(form.getSchema([])))
+
+/** The arguments a press runs with without asking, none for a procedure that takes none. */
+function heldArguments() {
+  return takesArguments ? deepClone(button.arguments) : {}
+}
 
 /** Whether pressing opens something rather than running there and then. */
 const opensDialog = $computed(() => (takesArguments && !button.locked) || button.confirm)
@@ -157,10 +176,15 @@ let answerConfirm = $ref<((confirmed: boolean) => void) | null>(null)
 // The arguments the confirmed run would send, highlighted for the dialog, or null with none.
 let confirmingArguments = $ref<string | null>(null)
 
-function askConfirm(values: unknown): Promise<boolean> {
+/** Arguments as highlighted YAML, or null when there are none to show. */
+function highlightedArguments(values: unknown) {
   const hasArguments =
     values != null && typeof values === 'object' && Object.keys(values).length > 0
-  confirmingArguments = hasArguments ? highlight(stringify(values), 'yaml') : null
+  return hasArguments ? highlight(stringify(values), 'yaml') : null
+}
+
+function askConfirm(values: unknown): Promise<boolean> {
+  confirmingArguments = highlightedArguments(values)
 
   return new Promise((resolve) => {
     answerConfirm = resolve
@@ -244,7 +268,12 @@ async function run(values: unknown) {
     } else {
       toast.succeeded()
       if (isQuery) {
-        output = { value: result, sentAt, receivedAt: utc() }
+        output = {
+          value: result,
+          arguments: highlightedArguments(values),
+          sentAt,
+          receivedAt: utc(),
+        }
         isShowingOutput = !isShowingArguments
       }
     }
@@ -323,7 +352,7 @@ function onPress(event: MouseEvent) {
     return
   }
 
-  void run(deepClone(button.arguments))
+  void run(heldArguments())
 }
 
 /** Keep the arguments as they stand and stop asking for them, or start asking again.
@@ -334,7 +363,7 @@ as the ones it will offer next time. The popup stays open either way so the choi
 reconsidered where it was made.
 */
 function toggleLock() {
-  button.arguments = deepClone(draft) as Record<string, unknown>
+  keepArguments(draft)
   button.locked = !button.locked
 }
 
@@ -495,11 +524,26 @@ const tooltip = $computed(() => {
   </c-modal>
   <c-modal
     v-model:open="isShowingOutput"
+    :description="procedurePath"
     :title="named"
-    :ui="{ content: 'w-[480px] max-w-[90vw]' }"
+    :ui="{
+      content: 'w-[480px] max-w-[90vw]',
+      header: 'px-4 py-3 sm:px-4',
+      description: 'font-mono text-[11px]',
+      body: 'p-4 sm:p-4',
+      footer: 'px-4 py-3 sm:px-4',
+    }"
   >
     <template #body>
-      <c-text class="mb-2 block" variant="mono-sm">{{ procedurePath }}</c-text>
+      <template v-if="output?.arguments != null">
+        <c-text class="mb-1 block" variant="th">Arguments</c-text>
+        <!-- eslint-disable vue/no-v-html -->
+        <!-- prettier-ignore -->
+        <pre
+          class="m-0 mb-3 max-h-40 overflow-auto px-2 text-[12px] leading-normal"
+        ><code v-html="output.arguments" /></pre>
+        <!-- eslint-enable vue/no-v-html -->
+      </template>
       <c-procedure-output
         v-if="output != null"
         :received-at="output.receivedAt"
@@ -515,7 +559,7 @@ const tooltip = $computed(() => {
           :icon="icons.refresh"
           label="Run Again"
           :loading="isRunning"
-          @click="run(deepClone(button.arguments))"
+          @click="run(heldArguments())"
         />
         <c-button block label="Close" variant="ghost" @click="isShowingOutput = false" />
       </div>
