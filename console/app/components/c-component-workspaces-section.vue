@@ -513,7 +513,7 @@ function groupMenuItems(group: { key: string; label: string; canAdd: boolean }) 
       onSelect: () => create(kind),
     })
   }
-  items.push({ label: 'Move Here…', icon: icons.move, onSelect: () => moveHere(kind) })
+  items.push({ label: 'Move Workspace Here…', icon: icons.move, onSelect: () => moveHere(kind) })
 
   return [items]
 }
@@ -601,7 +601,7 @@ function menuItems(
         </template>
         <c-button
           :icon="icons.move"
-          label="Move Here…"
+          label="Move Workspace Here…"
           size="xs"
           variant="ghost"
           @click="moveHere()"
