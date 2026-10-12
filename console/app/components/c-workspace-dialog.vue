@@ -346,7 +346,7 @@ void nextTick(async () => {
             Anyone signed in can see this workspace.
           </template>
           <template v-else>
-            Access follows the <c-text variant="mono-xs">{{ placement }}</c-text> component.
+            Access follows the <c-text inline variant="mono-xs">{{ placement }}</c-text> component.
           </template>
         </c-text>
         <template v-if="action !== 'create'">
