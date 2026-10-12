@@ -492,7 +492,7 @@ const tooltip = $computed(() => {
         buttons is a bar of buttons and arranging one costs no room until it is reached for. -->
         <c-button
           :class="[
-            'absolute top-[calc(100%+2px)] left-1/2 z-1 min-h-0 -translate-x-1/2 px-[3px]',
+            'absolute top-[calc(100%+2px)] left-1/2 z-1 min-h-0 -translate-x-1/2 px-[3px] py-0',
             'opacity-0 transition-opacity duration-150',
             'group-hover/control:opacity-50 hover:opacity-100! focus:opacity-100!',
             isShowingMenu && 'opacity-100!',
