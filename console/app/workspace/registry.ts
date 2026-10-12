@@ -123,6 +123,18 @@ export const widgetInfos = {
       paddingClass: [],
     }),
   },
+  section: {
+    type: 'section',
+    name: 'Section',
+    model: widgetModels.section,
+    component: defineAsyncComponent(() => import('@/components/c-workspace-widget-section.vue')),
+    settingsComponent: defineAsyncComponent(
+      () => import('@/components/c-workspace-widget-section-settings.vue'),
+    ),
+    options: widgetOptions({
+      paddingClass: [],
+    }),
+  },
   tabs: {
     type: 'tabs',
     name: 'Tabs',
@@ -140,18 +152,6 @@ export const widgetInfos = {
     component: defineAsyncComponent(() => import('@/components/c-workspace-widget-carousel.vue')),
     // No settings dialog. Its slides are arranged in place and its behavior is set from the
     // control band under them.
-    options: widgetOptions({
-      paddingClass: [],
-    }),
-  },
-  section: {
-    type: 'section',
-    name: 'Section',
-    model: widgetModels.section,
-    component: defineAsyncComponent(() => import('@/components/c-workspace-widget-section.vue')),
-    settingsComponent: defineAsyncComponent(
-      () => import('@/components/c-workspace-widget-section-settings.vue'),
-    ),
     options: widgetOptions({
       paddingClass: [],
     }),
@@ -213,7 +213,7 @@ export function createWidget(type: WidgetType): Widget {
 }
 
 /** Every pages-widget kind, in the order menus offer them. */
-export const pagesWidgetTypes: PagesWidgetType[] = ['tabs', 'carousel', 'section']
+export const pagesWidgetTypes = ['section', 'tabs', 'carousel'] as const satisfies PagesWidgetType[]
 
 /** The icon a menu shows beside each pages-widget kind. */
 export const pagesWidgetIcons: Record<PagesWidgetType, string> = {

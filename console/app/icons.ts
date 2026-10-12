@@ -73,7 +73,7 @@ const icons = {
   meter: 'i-mdi-numeric',
   more: 'i-mdi-dots-horizontal',
   moreVertical: 'i-mdi-dots-vertical',
-  move: 'i-mdi-map-marker-outline',
+  move: 'i-mdi-folder-move-outline',
   open: 'i-mdi-open-in-new',
   operate: 'i-mdi-wrench',
   operations: 'i-mdi-cog-transfer',

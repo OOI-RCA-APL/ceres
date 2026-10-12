@@ -27,7 +27,7 @@ let open = $ref(true)
 const persisted = usePersisted({
   schema: (zod) =>
     zod.object({
-      kind: zod.enum(['tabs', 'carousel', 'section']).catch('tabs'),
+      kind: zod.enum(pagesWidgetTypes).catch('section'),
       split: zod.enum(['widget', 'row', 'none']).catch('widget'),
       frameless: zod.boolean().catch(false),
     }),
