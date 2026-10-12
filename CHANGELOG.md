@@ -23,6 +23,9 @@ written, and the release workflow refuses a version that has no entry here.
   its log files.
 - The CLI finds a running engine through `.ceres/server.json` in the project instead of a file
   under `/tmp`, so restart a running engine after upgrading.
+- Serialized data objects name their fields as the YAML does, so API responses carry `class`
+  rather than `cls` and an entity filter carries `or` and `and` rather than `or__` and `and__`.
+  Both spellings are still read.
 
 **Engine**
 
