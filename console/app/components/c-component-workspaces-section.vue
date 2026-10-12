@@ -523,7 +523,7 @@ function openSettings(workspace: Workspace) {
 }
 
 function duplicate(workspace: Workspace) {
-  dialogs.duplicateWorkspace(workspace.id, workspace.data).onOk((created) => {
+  dialogs.duplicateWorkspace(workspace.id).onOk((created) => {
     emit('openBeside', workspace.id, created.id)
   })
 }

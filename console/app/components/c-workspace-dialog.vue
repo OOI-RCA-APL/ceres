@@ -15,7 +15,7 @@ import icons from '@/icons'
 import { useNotify } from '@/notify'
 import { usePreferences } from '@/preferences'
 import { useValidate } from '@/validate'
-import type { Workspace, WorkspaceData } from '@/workspace'
+import { useWorkspaces, type Workspace, type WorkspaceData } from '@/workspace'
 import { pinWidgetAddresses } from '@/workspace/association'
 import { useWorkspaceMove } from '@/workspace-move'
 export type WorkspaceDialogProps =
@@ -62,6 +62,7 @@ const move = useWorkspaceMove()
 const auth = useAuth()
 const dialogs = useDialogs()
 const engine = useEngine()
+const workspaces = useWorkspaces()
 const notify = useNotify()
 const preferences = usePreferences()
 const validate = useValidate()
@@ -205,7 +206,14 @@ const form = useForm({
     // A duplicate placed elsewhere is a new workspace there, so its relative addresses are pinned
     // to where they were written first.
     const source = workspace?.scope ?? null
-    const copied = action === 'duplicate' ? (data ?? workspace?.data ?? null) : null
+    // Without layout in hand a duplicate is of what the caller sees, their pending edit if any.
+    const copied =
+      action === 'duplicate'
+        ? (data ??
+          (workspaceId != null ? (await workspaces.getEdit(workspaceId))?.data : null) ??
+          workspace?.data ??
+          null)
+        : null
     const relocated =
       copied != null && source != null && placement != null && !placement.equals(source)
         ? (pinWidgetAddresses(copied, source) as unknown as WorkspaceData)

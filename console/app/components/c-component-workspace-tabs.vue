@@ -294,7 +294,7 @@ function openSettingsById(workspace: Workspace) {
 }
 
 function duplicateById(workspace: Workspace) {
-  dialogs.duplicateWorkspace(workspace.id, workspace.data).onOk((created) => {
+  dialogs.duplicateWorkspace(workspace.id).onOk((created) => {
     emit('openBeside', workspace.id, created.id)
   })
 }
