@@ -369,9 +369,9 @@ function toggleLock() {
 
 const menuItems = $computed<DropdownMenuItem[][]>(() => [
   [
-    { label: 'Configure ...', icon: icons.settings, onSelect: () => (isShowingSettings = true) },
+    { label: 'Configure', icon: icons.settings, onSelect: () => (isShowingSettings = true) },
     {
-      label: 'Arguments ...',
+      label: 'Arguments',
       icon: icons.edit,
       disabled: !takesArguments,
       onSelect: showArgumentsFromMenu,

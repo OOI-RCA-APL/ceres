@@ -205,7 +205,7 @@ const menuItems = $computed<MenuItem[][]>(() => {
   }
   if (settingsComponent != null) {
     single.push({
-      label: 'Settings ...',
+      label: 'Settings',
       icon: icons.settings,
       onSelect: () => (isShowingSettingsDialog = true),
     })
@@ -236,7 +236,7 @@ const menuItems = $computed<MenuItem[][]>(() => {
   // or carousel widget standing in its place. Which kind and how the pages are dealt are ironed
   // out in the dialog. Ungrouping is the inverse, for a widget that holds pages.
   arranging.push({
-    label: 'Group ...',
+    label: 'Group',
     icon: icons.groupWidgets,
     onSelect: () => (isShowingGroupDialog = true),
   })

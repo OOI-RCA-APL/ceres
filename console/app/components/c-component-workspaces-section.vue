@@ -513,7 +513,7 @@ function groupMenuItems(group: { key: string; label: string; canAdd: boolean }) 
       onSelect: () => create(kind),
     })
   }
-  items.push({ label: 'Move Workspace Here…', icon: icons.move, onSelect: () => moveHere(kind) })
+  items.push({ label: 'Move Workspace Here', icon: icons.move, onSelect: () => moveHere(kind) })
 
   return [items]
 }
@@ -567,7 +567,7 @@ function menuItems(
     { label: 'Settings', icon: icons.settings, onSelect: () => openSettings(workspace) },
     { label: 'Copy Link', icon: icons.share, onSelect: () => emit('share', [workspace.id]) },
     { label: 'Duplicate', icon: icons.duplicate, onSelect: () => duplicate(workspace) },
-    { label: 'Move…', icon: icons.move, onSelect: () => move.move({ workspace }) },
+    { label: 'Move', icon: icons.move, onSelect: () => move.move({ workspace }) },
   )
 
   const groups = [opening, editing]
@@ -601,7 +601,7 @@ function menuItems(
         </template>
         <c-button
           :icon="icons.move"
-          label="Move Workspace Here…"
+          label="Move Workspace Here"
           size="xs"
           variant="ghost"
           @click="moveHere()"
