@@ -24,17 +24,20 @@ export const useWorkspaceMove = defineStore('workspace-move', () => {
 
   async function apply({ workspace, destination, copy, isPrivate }: WorkspaceMove) {
     const scope = Address.parse(destination)
-    const result = copy
-      ? await workspaces.create({
-          name: workspace.name,
-          scope,
-          owner_id: isPrivate ? (auth.user?.id ?? null) : null,
-          // A copy is a new workspace, so its relative addresses are pinned here. Moving the
-          // workspace itself has the server pin them, including those hidden from the caller.
-          // Parsed again on the way out, so the raw JSON stands in for parsed data here.
-          data: pinWidgetAddresses(workspace.data, workspace.scope) as unknown as WorkspaceData,
-        })
-      : await workspaces.update(workspace.id, { scope })
+    // A copy is of what the caller sees, which is their pending edit when they hold one.
+    const shown = copy ? ((await workspaces.getEdit(workspace.id))?.data ?? workspace.data) : null
+    const result =
+      shown != null
+        ? await workspaces.create({
+            name: workspace.name,
+            scope,
+            owner_id: isPrivate ? (auth.user?.id ?? null) : null,
+            // A copy is a new workspace, so its relative addresses are pinned here. Moving the
+            // workspace itself has the server pin them, including those hidden from the caller.
+            // Parsed again on the way out, so the raw JSON stands in for parsed data here.
+            data: pinWidgetAddresses(shown, workspace.scope) as unknown as WorkspaceData,
+          })
+        : await workspaces.update(workspace.id, { scope })
 
     announce(workspace.name, result.id, destination, copy)
   }

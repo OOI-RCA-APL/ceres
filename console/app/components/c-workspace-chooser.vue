@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import type { CommandPaletteItem } from '@nuxt/ui'
+import { watchEffect } from 'vue'
 
 import { useQuery } from '@/api/client'
 import { useEngine } from '@/api/engine'
@@ -28,6 +29,13 @@ const engine = useEngine()
 
 let search = $ref('')
 
+type Kind = 'global' | 'associated'
+
+// Global and associated workspaces sit under tabs of their own, since a name alone rarely says
+// which kind it is. A chooser held to one placement has only one kind, so it shows no tabs.
+let kind = $ref<Kind>('global')
+let kindChosen = false
+
 // Only fetched when the caller has not already said what to choose between, since a caller with a
 // list in hand usually has one this component could not work out for itself.
 const query = useQuery({
@@ -36,12 +44,48 @@ const query = useQuery({
   placeholderData: (previous) => previous,
 })
 
-const workspaces = $computed(() => {
-  const text = search.trim().toLowerCase()
+const available = $computed(() => {
   let found = items ?? query.data.value ?? []
-
   if (scope != null) {
     found = found.filter((workspace) => workspace.scope.toString() === scope)
+  }
+  if (omit != null) {
+    found = found.filter((workspace) => !omit(workspace))
+  }
+
+  return found
+})
+
+const counts = $computed(() => {
+  const global = available.filter((workspace) => workspace.scope.isEngine).length
+  return { global, associated: available.length - global }
+})
+
+const tabbed = $computed(() => scope == null)
+
+const tabs = $computed(() => [
+  { label: 'Global', value: 'global', badge: counts.global },
+  { label: 'Associated', value: 'associated', badge: counts.associated },
+])
+
+// Opens on whichever kind has anything to offer, Global first, until a tab is picked by hand.
+watchEffect(() => {
+  if (!kindChosen) {
+    kind = counts.global > 0 || counts.associated === 0 ? 'global' : 'associated'
+  }
+})
+
+function chooseKind(value: string | number) {
+  kindChosen = true
+  kind = value as Kind
+}
+
+const workspaces = $computed(() => {
+  const text = search.trim().toLowerCase()
+  let found = available
+
+  if (tabbed) {
+    found = found.filter((workspace) => workspace.scope.isEngine === (kind === 'global'))
   }
 
   // Matched against the placement as well as the name, since a strip mixing placements is often
@@ -52,10 +96,6 @@ const workspaces = $computed(() => {
         workspace.name.toLowerCase().includes(text) ||
         workspace.scope.toString().toLowerCase().includes(text),
     )
-  }
-
-  if (omit != null) {
-    found = found.filter((workspace) => !omit(workspace))
   }
 
   return inStandardOrder(found)
@@ -91,6 +131,16 @@ function onSelect(item: CommandPaletteItem & { workspace?: Workspace }) {
 
 <template>
   <div>
+    <c-tabs
+      v-if="tabbed"
+      class="w-full px-2 pt-1"
+      :content="false"
+      :items="tabs"
+      :model-value="kind"
+      size="xs"
+      variant="link"
+      @update:model-value="chooseKind"
+    />
     <c-command-palette
       v-model:search-term="search"
       class="max-h-[210px]"
@@ -113,7 +163,11 @@ function onSelect(item: CommandPaletteItem & { workspace?: Workspace }) {
       </template>
       <template #empty>
         <c-text class="block p-2 text-center opacity-50" variant="body2">
-          {{ empty ?? 'No workspaces found.' }}
+          {{
+            search.trim() === '' && tabbed
+              ? `No ${kind} workspaces.`
+              : (empty ?? 'No workspaces found.')
+          }}
         </c-text>
       </template>
     </c-command-palette>

@@ -616,13 +616,7 @@ function menuItems(
             class="flex min-h-5 items-center gap-1"
             :class="[collapsible && 'pl-1', group.items.length > 0 && 'mb-0.5']"
           >
-            <c-text variant="description">
-              {{
-                group.items.length === 0
-                  ? `No ${group.label.toLowerCase()} workspaces`
-                  : group.label
-              }}
-            </c-text>
+            <c-text variant="description">{{ group.label }} ({{ group.items.length }})</c-text>
             <c-tooltip v-if="group.canAdd" :text="`Create ${group.label} Workspace`">
               <button
                 :aria-label="`Create ${group.label} Workspace`"

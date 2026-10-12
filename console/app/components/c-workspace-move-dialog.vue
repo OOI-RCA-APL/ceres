@@ -123,14 +123,6 @@ const canSubmit = $computed(
     workspace != null && destination != null && !unchanged && (copy ? canCopy : blocker == null),
 )
 
-const workspaceOptions = $computed(() =>
-  candidates.map((candidate) => ({
-    label: `${candidate.name} (${named(candidate.scope.toString())})`,
-    value: candidate.id,
-    icon: candidate.owner_id != null ? icons.privateWorkspace : icons.workspace,
-  })),
-)
-
 function submit() {
   if (!canSubmit || workspace == null || destination == null) {
     return
@@ -147,23 +139,29 @@ function submit() {
     @update:open="(value: boolean) => value || emit('close', false)"
   >
     <template #body>
-      <c-select
-        v-if="given == null"
-        class="mb-3 w-full"
-        :items="workspaceOptions"
-        label-key="label"
-        :model-value="chosenId ?? undefined"
-        placeholder="Choose a workspace"
-        value-key="value"
-        @update:model-value="(id: string) => (chosenId = id)"
-      />
-      <c-text
-        v-if="given == null && candidates.length === 0"
-        class="mb-3 block"
-        variant="description"
-      >
-        There are no other workspaces you can see.
-      </c-text>
+      <!-- Once one is picked the list folds to that one, so the rest of the dialog has room. -->
+      <template v-if="given == null">
+        <div
+          v-if="workspace != null"
+          class="mb-3 flex items-center gap-2 rounded-md border border-default px-2 py-1.5"
+        >
+          <c-icon
+            class="shrink-0"
+            :name="workspace.owner_id != null ? icons.privateWorkspace : icons.workspace"
+            size="18"
+          />
+          <c-text class="min-w-0 flex-1 truncate" variant="body2">{{ workspace.name }}</c-text>
+          <c-text class="opacity-60" variant="mono-xs">{{ named(source as string) }}</c-text>
+          <c-button label="Change" size="xs" variant="ghost" @click="chosenId = null" />
+        </div>
+        <c-workspace-chooser
+          v-else
+          class="mb-3 rounded-md border border-default"
+          empty="There are no other workspaces you can see."
+          :items="candidates"
+          @select="(chosen: Workspace) => (chosenId = chosen.id)"
+        />
+      </template>
       <template v-if="presetDestination == null">
         <c-text class="mb-1 block" variant="description">Location</c-text>
         <c-workspace-location-select v-model="destination" class="mb-3" :current="source" />

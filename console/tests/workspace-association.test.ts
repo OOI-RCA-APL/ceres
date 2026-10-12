@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { Address } from '@/api/address'
-import type { WorkspaceData } from '@/workspace'
+import { type WorkspaceData, WorkspaceDataModel } from '@/workspace'
 import { pinWidgetAddresses, widgetsOutside } from '@/workspace/association'
 
 function dataOf(...widgets: Record<string, unknown>[]): WorkspaceData {
@@ -47,6 +47,31 @@ describe('pinWidgetAddresses', () => {
     const page = (widgetsOf(pinned)[0]!.tabs as { layout: unknown }[])[0]!
     expect(widgetsOf(page as Record<string, unknown>)[0]!.address).toBe('@rig.arm')
     expect(inner.address).toBe('arm')
+  })
+
+  it('pins parsed data into data that parses again', () => {
+    const data = WorkspaceDataModel.parse({
+      layout: [
+        {
+          widgets: [
+            { type: 'controls', buttons: [{ label: 'Go', address: '@rig', action: 'go' }] },
+            { type: 'procedures', procedureAddress: '@rig.arm' },
+            { type: 'meter', particleAddress: '@rig.arm', particleKey: 'speed' },
+            { type: 'records', filter: { address: '@rig:all' } },
+            { type: 'chart', particles: [{ address: '@rig', key: 'speed' }] },
+            { type: 'video', query: '::queries::video' },
+            { type: 'markdown', text: 'Notes' },
+          ],
+        },
+      ],
+    })
+
+    const result = WorkspaceDataModel.safeParse(pinWidgetAddresses(data, Address.parse('@rig')))
+
+    expect(result.error).toBeUndefined()
+    expect(result.data?.layout[0]?.widgets.map((widget) => widget.type)).toEqual(
+      data.layout[0]?.widgets.map((widget) => widget.type),
+    )
   })
 
   it('resolves against every component at the engine root', () => {
