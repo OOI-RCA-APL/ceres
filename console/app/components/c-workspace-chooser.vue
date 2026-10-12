@@ -148,6 +148,7 @@ const tree = $computed(() => {
     return {
       id: address,
       label: address,
+      slot: 'tree',
       headings,
       ignoreFilter: true,
       items: byPlacement
@@ -185,17 +186,18 @@ function onSelect(item: CommandPaletteItem & { workspace?: Workspace }) {
     <c-tabs
       v-if="tabbed"
       class="w-full p-2 pb-0"
-      color="neutral"
+      color="primary"
       :content="false"
       :items="tabs"
       :model-value="kind"
       size="xs"
-      :ui="{ list: 'w-full', trigger: 'flex-1 justify-center' }"
+      :ui="{ list: 'w-full', trigger: 'flex-1 justify-center data-[state=active]:text-white' }"
       variant="pill"
       @update:model-value="chooseKind"
     >
       <template #trailing="{ item }">
-        <span class="text-xs tabular-nums text-muted">{{ item.count }}</span>
+        <!-- Dimmed from the label's own color, so it reads on the selected tab's fill too. -->
+        <span class="-ml-0.5 tabular-nums opacity-70">({{ item.count }})</span>
       </template>
     </c-tabs>
     <c-command-palette
@@ -203,16 +205,17 @@ function onSelect(item: CommandPaletteItem & { workspace?: Workspace }) {
       class="max-h-[210px]"
       :groups
       placeholder="Workspaces"
+      :ui="{ label: 'px-2 pt-1 pb-0' }"
       @update:model-value="onSelect"
     >
-      <template #group-label="{ group }">
+      <!-- Named for the tree's groups alone, since the palette draws a label row, padding and all,
+      for every group whenever the plain group-label slot is given. -->
+      <template #tree-group-label="{ group }">
         <div
           v-for="heading in (group as { headings?: Heading[] }).headings ?? []"
           :key="heading.address"
-          class="flex items-center gap-1.5 py-0.5"
           :style="{ paddingLeft: `${heading.depth * 16}px` }"
         >
-          <c-icon class="shrink-0 opacity-60" :name="icons.components" size="14" />
           <c-text variant="mono-xs">{{ heading.address }}</c-text>
         </div>
       </template>

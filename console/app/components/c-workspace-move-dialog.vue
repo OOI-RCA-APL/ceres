@@ -172,15 +172,15 @@ function submit() {
           "{{ workspace.name }}" is already in {{ named(destination) }}.
         </c-text>
         <template v-else>
-          <c-text class="mb-3 block" variant="body2">
+          <c-text class="text-toned mb-3 block" variant="body3">
             <template v-if="copy">
-              A copy of "{{ workspace.name }}" is made in {{ named(destination) }}, and the original
-              stays in {{ named(source) }}.
+              A copy of "{{ workspace.name }}" will be made in {{ named(destination) }}, and the
+              original will stay in {{ named(source) }}.
             </template>
             <template v-else>
-              "{{ workspace.name }}" moves from {{ named(source) }} to {{ named(destination) }}.
+              "{{ workspace.name }}" will move from {{ named(source) }} to {{ named(destination) }}.
             </template>
-            Its widgets keep pointing at the same components.
+            Its widgets will keep pointing at the same components.
           </c-text>
 
           <c-checkbox v-model="copy" :disabled="blocker != null" label="Make a Copy" />
@@ -188,7 +188,7 @@ function submit() {
             {{ blocker }}
           </c-text>
 
-          <c-text v-if="hidesFromSome" class="mt-3 block italic text-warning" variant="description">
+          <c-text v-if="hidesFromSome" class="mt-3 block text-warning" variant="description">
             It disappears for anyone who cannot see {{ destination }}, along with any unsaved
             changes they hold against it, and appears for everyone who can.
           </c-text>
