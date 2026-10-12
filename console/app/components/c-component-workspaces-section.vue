@@ -624,7 +624,7 @@ function menuItems(
                 type="button"
                 @click="create(group.key as 'shared' | 'private')"
               >
-                <c-icon :name="icons.add" size="16" />
+                <c-icon :name="icons.add" size="14" />
               </button>
             </c-tooltip>
             <c-dropdown-menu
