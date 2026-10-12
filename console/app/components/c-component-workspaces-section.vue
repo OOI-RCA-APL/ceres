@@ -13,7 +13,7 @@ import { moved, usePointerReorder } from '@/reorder'
 import { useTabs } from '@/tabs'
 import { keepFocusWhile } from '@/utilities'
 import { inStandardOrder, isWorkspaceWritable, useWorkspaces, type Workspace } from '@/workspace'
-import { useWorkspaceAssociation } from '@/workspace-association'
+import { useWorkspaceMove } from '@/workspace-move'
 
 const {
   workspaces,
@@ -57,7 +57,7 @@ const dialogs = useDialogs()
 const notify = useNotify()
 const tabs = useTabs()
 const workspaceStore = useWorkspaces()
-const association = useWorkspaceAssociation()
+const move = useWorkspaceMove()
 
 const ordered = $computed(() => pending ?? inStandardOrder(workspaces))
 
@@ -218,7 +218,7 @@ function groupAt(x: number, y: number): 'shared' | 'private' | null {
   return null
 }
 
-// The sidebar's components and Home take a row too, which associates it with whichever it lands
+// The sidebar's components and Home take a row too, which moves it to whichever it lands
 // on. Measured once per drag like the groups.
 let placementBoxes: [HTMLElement, DOMRect][] | null = null
 
@@ -303,7 +303,7 @@ function onDrop(workspace: Workspace, from: 'shared' | 'private', event: Pointer
     .workspaceDropPlacement
   if (destination != null) {
     if (destination !== workspace.scope.toString()) {
-      association.associate({ workspace, destination })
+      move.move({ workspace, destination })
     }
     return true
   }
@@ -490,21 +490,21 @@ watch(
   },
 )
 
-// A component page offers to bring a global workspace here, the one direction its own rows cannot
-// start since none of them are global. Asked from a group's heading it offers only that group's
-// kind, so the workspace lands under the heading it was picked from.
-function associateHere(kind?: 'shared' | 'private') {
+// Brings a workspace here from anywhere else, the one direction this page's own rows cannot start.
+// Asked from a group's heading it offers only that group's kind, so the workspace lands under the
+// heading it was picked from.
+function moveHere(kind?: 'shared' | 'private') {
   const candidates = workspaceStore.all.filter(
     (workspace) =>
-      workspace.scope.isEngine &&
+      workspace.scope.toString() !== placement &&
       (kind == null || (workspace.owner_id != null) === (kind === 'private')),
   )
-  association.associate({ candidates: inStandardOrder(candidates), destination: placement })
+  move.move({ candidates: inStandardOrder(candidates), destination: placement })
 }
 
 /** A group heading's dots menu, for ways to add a workspace beyond creating one. */
 function groupMenuItems(kind: 'shared' | 'private'): DropdownMenuItem[][] {
-  return [[{ label: 'Associate…', icon: icons.associate, onSelect: () => associateHere(kind) }]]
+  return [[{ label: 'Move Here…', icon: icons.move, onSelect: () => moveHere(kind) }]]
 }
 
 function openSettings(workspace: Workspace) {
@@ -556,32 +556,10 @@ function menuItems(
     { label: 'Settings', icon: icons.settings, onSelect: () => openSettings(workspace) },
     { label: 'Copy Link', icon: icons.share, onSelect: () => emit('share', [workspace.id]) },
     { label: 'Duplicate', icon: icons.duplicate, onSelect: () => duplicate(workspace) },
+    { label: 'Move…', icon: icons.move, onSelect: () => move.move({ workspace }) },
   )
 
-  // Named after the headings the workspace moves between rather than "move", which the tabs
-  // already mean by opening one somewhere else.
-  const placing: DropdownMenuItem[] = workspace.scope.isEngine
-    ? [
-        {
-          label: 'Associate…',
-          icon: icons.associate,
-          onSelect: () => association.associate({ workspace }),
-        },
-      ]
-    : [
-        {
-          label: 'Reassociate…',
-          icon: icons.associate,
-          onSelect: () => association.associate({ workspace }),
-        },
-        {
-          label: 'Make Global…',
-          icon: icons.home,
-          onSelect: () => association.associate({ workspace, destination: engineRoot }),
-        },
-      ]
-
-  const groups = [opening, editing, placing]
+  const groups = [opening, editing]
   if (isWritable(workspace)) {
     groups.push([{ label: 'Delete', icon: icons.delete, onSelect: () => promptDelete(workspace) }])
   }
@@ -611,12 +589,11 @@ function menuItems(
           />
         </template>
         <c-button
-          v-if="!isHome"
-          :icon="icons.associate"
-          label="Associate…"
+          :icon="icons.move"
+          label="Move Here…"
           size="xs"
           variant="ghost"
-          @click="associateHere()"
+          @click="moveHere()"
         />
       </div>
       <template v-for="group in isEmpty ? [] : groups" :key="group.key">
@@ -657,8 +634,7 @@ function menuItems(
               </button>
             </c-tooltip>
             <c-dropdown-menu
-              v-if="!isHome"
-              :content="menuContent"
+              :content="{ side: 'right', align: 'start' }"
               :items="groupMenuItems(group.key as 'shared' | 'private')"
             >
               <button

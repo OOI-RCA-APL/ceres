@@ -17,7 +17,7 @@ import { usePreferences } from '@/preferences'
 import { useValidate } from '@/validate'
 import type { Workspace, WorkspaceData } from '@/workspace'
 import { pinWidgetAddresses } from '@/workspace/association'
-import { useWorkspaceAssociation } from '@/workspace-association'
+import { useWorkspaceMove } from '@/workspace-move'
 export type WorkspaceDialogProps =
   | {
       workspaceId: string
@@ -58,7 +58,7 @@ const {
 const emit = defineEmits<{ close: [Workspace | boolean] }>()
 
 const access = useAccess()
-const association = useWorkspaceAssociation()
+const move = useWorkspaceMove()
 const auth = useAuth()
 const dialogs = useDialogs()
 const engine = useEngine()
@@ -87,8 +87,8 @@ const placement = $computed(() => {
   if (action === 'create') {
     return new Address(scope ?? engineRoot)
   }
-  if (action === 'duplicate' && form.data.associatedWith !== '') {
-    return new Address(form.data.associatedWith)
+  if (action === 'duplicate' && form.data.location !== '') {
+    return new Address(form.data.location)
   }
 
   return workspace?.scope ?? null
@@ -100,7 +100,7 @@ const placement = $computed(() => {
 const canShare = $computed(() => placement != null && access.canManage(placement.toString()))
 
 function named(value: string) {
-  return value === engineRoot ? 'Home' : value
+  return value === engineRoot ? 'Global' : value
 }
 
 const titles = {
@@ -126,9 +126,9 @@ const form = useForm({
     // Whether this is one of the workspaces a new user lands on. Only meaningful for a shared
     // workspace placed on the engine root, which the home page draws its defaults from.
     showWhenLoggedOut: false,
-    // Where the workspace sits, `~` for global. Changing it in the settings moves this workspace,
+    // Where the workspace sits, `~` for Global. Changing it in the settings moves this workspace,
     // and in a duplicate it decides where the copy goes.
-    associatedWith: '',
+    location: '',
   },
   validators: {
     name: validate.isNotBlank(),
@@ -164,18 +164,16 @@ const form = useForm({
       }
 
       const source = workspace?.scope.toString() ?? null
-      const relocating = source != null && values.associatedWith !== source
+      const relocating = source != null && values.location !== source
 
-      // Taking a shared workspace elsewhere removes it for anyone who cannot see where it goes,
-      // the same warning the association dialog gives.
-      if (relocating && !values.isPrivate) {
+      // Taking a shared workspace to a component removes it for anyone who cannot see that
+      // component, the same warning the move dialog gives.
+      if (relocating && !values.isPrivate && values.location !== engineRoot) {
         const confirmed = await new Promise<boolean>((resolve) => {
           dialogs
             .confirm({
-              title: 'Change Associated Component',
-              message:
-                `"${values.name}" moves from ${named(source)} ` +
-                `to ${named(values.associatedWith)}.`,
+              title: 'Move Workspace',
+              message: `"${values.name}" moves from ${named(source)} to ${named(values.location)}.`,
               note:
                 'It disappears for anyone who cannot see where it goes, along with any unsaved ' +
                 'changes they are holding against it.',
@@ -193,10 +191,10 @@ const form = useForm({
         name: values.name,
         ...(changingVisibility ? { owner_id: owner } : {}),
         ...(canMarkForHome ? { show_when_logged_out: values.showWhenLoggedOut } : {}),
-        ...(relocating ? { scope: new Address(values.associatedWith) } : {}),
+        ...(relocating ? { scope: new Address(values.location) } : {}),
       })
       if (relocating) {
-        association.announce(updated.name, updated.id, values.associatedWith, 'change')
+        move.announce(updated.name, updated.id, values.location, false)
       } else {
         notify.success('Workspace settings updated successfully.')
       }
@@ -295,7 +293,7 @@ void nextTick(async () => {
       ...workspace,
       isPrivate: workspace.owner_id != null,
       showWhenLoggedOut: workspace.show_when_logged_out,
-      associatedWith: workspace.scope.toString(),
+      location: workspace.scope.toString(),
     })
     if (action === 'duplicate') {
       form.data.name = `${workspace.name} (Copy)`
@@ -350,15 +348,15 @@ void nextTick(async () => {
           </template>
         </c-text>
         <template v-if="action !== 'create'">
-          <c-text class="mt-1 mb-1 block" variant="description">Associated Component</c-text>
-          <c-workspace-placement-select
-            v-model="form.data.associatedWith"
+          <c-text class="mt-1 mb-1 block" variant="description">Location</c-text>
+          <c-workspace-location-select
+            v-model="form.data.location"
             class="mb-1"
             :current="workspace?.scope.toString() ?? null"
             :disabled="form.readonly"
           />
           <c-text
-            v-if="form.editable && form.data.associatedWith !== (workspace?.scope.toString() ?? '')"
+            v-if="form.editable && form.data.location !== (workspace?.scope.toString() ?? '')"
             class="mb-2 block"
             variant="description"
           >

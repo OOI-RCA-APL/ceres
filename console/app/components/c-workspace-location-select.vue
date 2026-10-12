@@ -9,7 +9,7 @@ const { current = null, disabled = false } = defineProps<{
   disabled?: boolean
 }>()
 
-/** The chosen placement, `~` for global, null before anything is chosen. */
+/** The chosen location, `~` for Global, null before anything is chosen. */
 let value = $(defineModel<string | null>({ default: null }))
 
 const engine = useEngine()
@@ -19,7 +19,7 @@ type Option = { label: string; value: string; icon: string; isCurrent: boolean }
 // Global leads, since it is the one choice that is not a component.
 const options = $computed<Option[]>(() => [
   {
-    label: 'Global (None)',
+    label: 'Global',
     value: engineRoot,
     icon: icons.home,
     isCurrent: current === engineRoot,
@@ -45,7 +45,7 @@ const selected = $computed(() => options.find((option) => option.value === value
     :icon="selected?.icon"
     :items="options"
     :model-value="selected"
-    placeholder="Choose a component"
+    placeholder="Component"
     :search-input="{ placeholder: 'Filter...' }"
     @update:model-value="(option: Option | undefined) => (value = option?.value ?? null)"
   >

@@ -1,5 +1,3 @@
-<script lang="ts"></script>
-
 <script lang="ts" setup>
 import { watch } from 'vue'
 
@@ -10,19 +8,19 @@ import icons from '@/icons'
 import { isWorkspaceWritable, type Workspace } from '@/workspace'
 import { pinWidgetAddresses, widgetsOutside } from '@/workspace/association'
 
-export type WorkspaceAssociateDialogProps = {
-  /** The workspace to place elsewhere. Without one, the dialog asks which of `candidates`. */
+export type WorkspaceMoveDialogProps = {
+  /** The workspace to move. Without one, the dialog asks which of `candidates`. */
   workspace?: Workspace | null
   candidates?: Workspace[]
   /** Where it goes, already chosen by a drop or by the page it was asked from. */
   destination?: string | null
 }
 
-export type WorkspaceAssociation = {
+export type WorkspaceMove = {
   workspace: Workspace
   destination: string
-  /** Whether the workspace itself changes placement or a copy is made there. */
-  mode: 'change' | 'copy'
+  /** Whether a copy is made there, leaving the original where it is. */
+  copy: boolean
   /** For a copy, whether it is the caller's own. */
   isPrivate: boolean
 }
@@ -31,10 +29,10 @@ const {
   workspace: given = null,
   candidates = [],
   destination: presetDestination = null,
-} = defineProps<WorkspaceAssociateDialogProps>()
+} = defineProps<WorkspaceMoveDialogProps>()
 
-/** Closes with the chosen association, or `false` for a cancel. */
-const emit = defineEmits<{ close: [WorkspaceAssociation | false] }>()
+/** Closes with the chosen move, or `false` for a cancel. */
+const emit = defineEmits<{ close: [WorkspaceMove | false] }>()
 
 const access = useAccess()
 const auth = useAuth()
@@ -45,34 +43,34 @@ const workspace = $computed(
 )
 
 let destination = $ref<string | null>(presetDestination)
-let mode = $ref<'change' | 'copy'>('change')
+let copy = $ref(false)
 let copyIsPrivate = $ref<boolean>(true)
 
 const source = $computed(() => workspace?.scope.toString() ?? null)
 const isPrivate = $computed(() => workspace?.owner_id != null)
 
-/** How a placement is named in prose, which for the engine root is where it is listed. */
-function named(placement: string) {
-  return placement === engineRoot ? 'Home' : placement
+/** How a location reads in prose and in lists. */
+function named(location: string) {
+  return location === engineRoot ? 'Global' : location
 }
 
 // The engine root is visible to anyone signed in, which the access cache holds no entry for.
-function canView(placement: string) {
-  return placement === engineRoot ? auth.user != null : access.canView(placement)
+function canView(location: string) {
+  return location === engineRoot ? auth.user != null : access.canView(location)
 }
 
-// Changing placement takes write access where the workspace is and, where it goes, whatever
-// creating it there would: view for a private workspace and manage for a shared one. The server
-// holds the same rule, this only says so before the click.
+// Moving takes write access where the workspace is and, where it goes, whatever creating it there
+// would: view for a private workspace and manage for a shared one. The server holds the same rule,
+// this only says so before the click.
 const blocker = $computed(() => {
   if (workspace == null || source == null || destination == null) {
     return null
   }
   if (!isWorkspaceWritable(workspace, auth.user?.id, access.canManage(source))) {
-    return `Changing it requires manage access on ${named(source)}.`
+    return `Moving it requires manage access on ${named(source)}.`
   }
   if (isPrivate ? !canView(destination) : !access.canManage(destination)) {
-    return `Changing it requires ${isPrivate ? 'view' : 'manage'} access on ${named(destination)}.`
+    return `Moving it requires ${isPrivate ? 'view' : 'manage'} access on ${named(destination)}.`
   }
 
   return null
@@ -87,7 +85,7 @@ watch(
   () => blocker,
   (reason) => {
     if (reason != null) {
-      mode = 'copy'
+      copy = true
     }
   },
   { immediate: true },
@@ -104,7 +102,7 @@ watch(
 
 // Everyone signed in sees the engine root, so a shared workspace going there hides from no one.
 const hidesFromSome = $computed(
-  () => workspace != null && !isPrivate && mode === 'change' && destination !== engineRoot,
+  () => workspace != null && !isPrivate && !copy && destination !== engineRoot,
 )
 
 const unchanged = $computed(() => destination != null && destination === source)
@@ -116,38 +114,18 @@ const outside = $computed(() =>
     : widgetsOutside(pinWidgetAddresses(workspace.data, workspace.scope), destination),
 )
 
-const title = $computed(() => {
-  if (destination === engineRoot) {
-    return 'Make Workspace Global'
-  }
-  if (destination != null) {
-    return `Associate Workspace with ${destination}`
-  }
-
-  return workspace != null && !workspace.scope.isEngine
-    ? 'Reassociate Workspace'
-    : 'Associate Workspace'
-})
-
-const submitLabel = $computed(() => {
-  if (mode === 'copy') {
-    return 'Copy'
-  }
-
-  return destination === engineRoot ? 'Make Global' : 'Associate'
-})
+const title = $computed(() =>
+  presetDestination == null ? 'Move Workspace' : `Move Workspace to ${named(presetDestination)}`,
+)
 
 const canSubmit = $computed(
   () =>
-    workspace != null &&
-    destination != null &&
-    !unchanged &&
-    (mode === 'copy' ? canCopy : blocker == null),
+    workspace != null && destination != null && !unchanged && (copy ? canCopy : blocker == null),
 )
 
 const workspaceOptions = $computed(() =>
   candidates.map((candidate) => ({
-    label: candidate.name,
+    label: `${candidate.name} (${named(candidate.scope.toString())})`,
     value: candidate.id,
     icon: candidate.owner_id != null ? icons.privateWorkspace : icons.workspace,
   })),
@@ -158,7 +136,7 @@ function submit() {
     return
   }
 
-  emit('close', { workspace, destination, mode, isPrivate: copyIsPrivate })
+  emit('close', { workspace, destination, copy, isPrivate: copyIsPrivate })
 }
 </script>
 
@@ -175,7 +153,7 @@ function submit() {
         :items="workspaceOptions"
         label-key="label"
         :model-value="chosenId ?? undefined"
-        placeholder="Choose a global workspace"
+        placeholder="Choose a workspace"
         value-key="value"
         @update:model-value="(id: string) => (chosenId = id)"
       />
@@ -184,65 +162,43 @@ function submit() {
         class="mb-3 block"
         variant="description"
       >
-        There are no global workspaces you can see.
+        There are no other workspaces you can see.
       </c-text>
-      <c-workspace-placement-select
-        v-if="presetDestination == null"
-        v-model="destination"
-        class="mb-3"
-        :current="source"
-      />
+      <template v-if="presetDestination == null">
+        <c-text class="mb-1 block" variant="description">Location</c-text>
+        <c-workspace-location-select v-model="destination" class="mb-3" :current="source" />
+      </template>
 
-      <template v-if="workspace != null && destination != null">
+      <template v-if="workspace != null && destination != null && source != null">
         <c-text v-if="unchanged" class="block" variant="description">
-          "{{ workspace.name }}" is already
-          {{ destination === engineRoot ? 'global' : `associated with ${destination}` }}.
+          "{{ workspace.name }}" is already in {{ named(destination) }}.
         </c-text>
         <template v-else>
           <c-text class="mb-3 block" variant="body2">
-            <template v-if="destination === engineRoot">
-              "{{ workspace.name }}" stops belonging to
-              <c-text inline variant="mono-xs">{{ source }}</c-text> and is listed on Home.
+            <template v-if="copy">
+              A copy of "{{ workspace.name }}" is made in {{ named(destination) }}, and the original
+              stays in {{ named(source) }}.
             </template>
             <template v-else>
-              "{{ workspace.name }}" is listed on
-              <c-text inline variant="mono-xs">{{ destination }}</c-text>
-              instead of
-              <template v-if="source === engineRoot">Home.</template>
-              <template v-else
-                ><c-text inline variant="mono-xs">{{ source }}</c-text
-                >.</template
-              >
+              "{{ workspace.name }}" moves from {{ named(source) }} to {{ named(destination) }}.
             </template>
             Its widgets keep pointing at the same components.
           </c-text>
 
-          <c-radio-group
-            v-model="mode"
-            :items="[
-              { label: 'Change this workspace.', value: 'change', disabled: blocker != null },
-              { label: 'Make a copy, leaving this one where it is.', value: 'copy' },
-            ]"
-          />
-          <c-text v-if="blocker != null" class="mt-2 block pl-2" variant="description">
+          <c-checkbox v-model="copy" :disabled="blocker != null" label="Make a Copy" />
+          <c-text v-if="blocker != null" class="mt-2 block" variant="description">
             {{ blocker }}
           </c-text>
 
           <c-text v-if="hidesFromSome" class="mt-3 block italic text-warning" variant="description">
-            It disappears for anyone who cannot see
-            <c-text inline variant="mono-xs">{{ destination }}</c-text
-            >, along with any unsaved changes they hold against it, and appears for everyone who
-            can.
+            It disappears for anyone who cannot see {{ destination }}, along with any unsaved
+            changes they hold against it, and appears for everyone who can.
           </c-text>
-          <c-text
-            v-else-if="mode === 'change' && !isPrivate"
-            class="mt-3 block"
-            variant="description"
-          >
+          <c-text v-else-if="!copy && !isPrivate" class="mt-3 block" variant="description">
             It appears for everyone signed in.
           </c-text>
 
-          <template v-if="mode === 'copy'">
+          <template v-if="copy">
             <c-select
               v-if="canShareCopy"
               v-model="copyIsPrivate"
@@ -289,7 +245,7 @@ function submit() {
           :color="hidesFromSome ? 'warning' : 'primary'"
           :disabled="!canSubmit"
           :icon="icons.confirm"
-          :label="submitLabel"
+          :label="copy ? 'Copy' : 'Move'"
           @click="submit()"
         />
       </div>
