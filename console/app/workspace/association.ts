@@ -7,7 +7,7 @@ import { type Address, AddressSelector, engineRoot } from '@/api/address'
 type Raw = Record<string, unknown>
 
 const addressKeys = ['address', 'commandAddress', 'particleAddress', 'procedureAddress']
-const pageKeys = ['slides', 'tabs']
+const pageKeys = ['pages', 'slides', 'tabs']
 const listKeys = ['buttons', 'particles']
 
 function isRaw(value: unknown): value is Raw {

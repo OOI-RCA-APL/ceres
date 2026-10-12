@@ -1,8 +1,11 @@
 import { v7 } from 'uuid'
 import { defineAsyncComponent } from 'vue'
 
+import icons from '@/icons'
 import {
+  isPagesWidget,
   pagesOf,
+  type PagesWidgetType,
   UnknownWidgetModel,
   type Widget,
   widgetModels,
@@ -141,6 +144,18 @@ export const widgetInfos = {
       paddingClass: [],
     }),
   },
+  section: {
+    type: 'section',
+    name: 'Section',
+    model: widgetModels.section,
+    component: defineAsyncComponent(() => import('@/components/c-workspace-widget-section.vue')),
+    settingsComponent: defineAsyncComponent(
+      () => import('@/components/c-workspace-widget-section-settings.vue'),
+    ),
+    options: widgetOptions({
+      paddingClass: [],
+    }),
+  },
   controls: {
     type: 'controls',
     name: 'Controls',
@@ -188,26 +203,64 @@ The cast is required because the widget shape is recursive and the compiler cann
 export function createWidget(type: WidgetType): Widget {
   const widget = widgetInfos[type].model.parse({ type }) as Widget
 
-  // A carousel or a tab strip begins with a page since one with no pages has no layout to drag
-  // or paste widgets into.
-  if ((widget.type === 'carousel' || widget.type === 'tabs') && pagesOf(widget).length === 0) {
+  // A widget that holds pages begins with one since one with no pages has no layout to drag or
+  // paste widgets into.
+  if (isPagesWidget(widget) && pagesOf(widget).length === 0) {
     return withPages(widget, [{ id: v7(), name: '', layout: [] }])
   }
 
   return widget
 }
 
-/** The widget's pages under the other pages-widget kind, a carousel becomes tabs and back.
+/** Every pages-widget kind, in the order menus offer them. */
+export const pagesWidgetTypes: PagesWidgetType[] = ['tabs', 'carousel', 'section']
 
-Returns null for a widget that holds no pages. The pages carry across untouched, keeping their
-names, layouts, and IDs.
+/** The icon a menu shows beside each pages-widget kind. */
+export const pagesWidgetIcons: Record<PagesWidgetType, string> = {
+  tabs: icons.tab,
+  carousel: icons.carousel,
+  section: icons.section,
+}
+
+/** The pages-widget kinds `widget` can be turned into, in menu order. None for a widget that
+holds no pages. */
+export function pagesWidgetConversions(widget: Widget): PagesWidgetType[] {
+  if (!isPagesWidget(widget)) {
+    return []
+  }
+
+  return pagesWidgetTypes.filter((kind) => kind !== widget.type)
+}
+
+/** A "Convert To" menu item for each kind `widget` can be turned into, handing the converted
+widget to `replace`. Shared by the widget's own menu and the menus on its strip or controls. */
+export function pagesWidgetConversionItems(widget: Widget, replace: (converted: Widget) => void) {
+  return pagesWidgetConversions(widget).map((kind) => ({
+    label: `Convert To ${widgetInfos[kind].name}`,
+    icon: pagesWidgetIcons[kind],
+    onSelect: () => {
+      const converted = convertedPagesWidget(widget, kind)
+      if (converted != null) {
+        replace(converted)
+      }
+    },
+  }))
+}
+
+/** The widget's pages under another pages-widget kind, in the same place.
+
+Returns null for a widget that holds no pages or is already of that kind. The pages carry across
+with their names, layouts, and IDs, except that a section folds them into its one, and how the
+leftover height is spread carries across too.
 */
-export function convertedPagesWidget(widget: Widget): Widget | null {
-  if (widget.type !== 'carousel' && widget.type !== 'tabs') {
+export function convertedPagesWidget(widget: Widget, to: PagesWidgetType): Widget | null {
+  if (!isPagesWidget(widget) || widget.type === to) {
     return null
   }
 
-  const converted = createWidget(widget.type === 'carousel' ? 'tabs' : 'carousel')
+  const converted = createWidget(to) as Widget & { expand: unknown; shrink: boolean }
+  converted.expand = widget.expand
+  converted.shrink = widget.shrink
 
   // A name that is still one kind's default was never chosen so the other kind's default
   // replaces it.

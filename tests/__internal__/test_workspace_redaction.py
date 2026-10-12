@@ -1,3 +1,5 @@
+import pytest
+
 from ceres.__internal__.workspace_redaction import (
     iter_widget_targets,
     merge_redacted_widgets,
@@ -234,16 +236,17 @@ def test_redact_reaches_a_widget_on_a_carousel_slide() -> None:
     assert inside == {"id": "w2", "type": "value", "name": "", "width": 120, "restricted": True}
 
 
-def test_redact_reaches_a_widget_on_a_tab_page() -> None:
+@pytest.mark.parametrize(("kind", "key"), [("tabs", "tabs"), ("section", "pages")])
+def test_redact_reaches_a_widget_on_a_page(kind: str, key: str) -> None:
     data = {
         "layout": [
             {
                 "widgets": [
                     {
                         "id": "w1",
-                        "type": "tabs",
+                        "type": kind,
                         "width": 120,
-                        "tabs": [
+                        key: [
                             {
                                 "id": "t1",
                                 "name": "",
@@ -276,7 +279,7 @@ def test_redact_reaches_a_widget_on_a_tab_page() -> None:
         can_view=lambda address: not str(address).startswith("@secret"),
     )
 
-    inside = redacted["layout"][0]["widgets"][0]["tabs"][0]["layout"][0]["widgets"][0]
+    inside = redacted["layout"][0]["widgets"][0][key][0]["layout"][0]["widgets"][0]
     assert inside == {"id": "w2", "type": "button", "name": "", "width": 120, "restricted": True}
 
 

@@ -7,9 +7,9 @@ import { useNavigation } from '@/navigation'
 import { usePreferences } from '@/preferences'
 import { keepFocusWhile } from '@/utilities'
 import {
-  convertedPagesWidget,
   createWidget,
   getWidgetInfo,
+  pagesWidgetConversionItems,
   useWorkspace,
   type Widget,
   widgetInfos,
@@ -66,21 +66,12 @@ function onSettingsRequested() {
   isShowingSettingsDialog = true
 }
 
-/** The widget's pages under the other pages-widget kind, or null for a widget without pages.
-Offered from the header as well as from the strip itself because it changes the widget rather
+/** The widget's pages under each other pages-widget kind, none for a widget without pages.
+Offered from the header as well as from a strip itself because it changes the widget rather
 than any one of its pages. */
-const conversion = $computed(() => {
-  const converted = convertedPagesWidget(widget)
-  if (converted == null) {
-    return null
-  }
-
-  return {
-    widget: converted,
-    label: converted.type === 'tabs' ? 'Convert To Tabs' : 'Convert To Carousel',
-    icon: converted.type === 'tabs' ? icons.tab : icons.carousel,
-  }
-})
+const conversions = $computed(() =>
+  pagesWidgetConversionItems(widget, (converted) => workspace.replaceWidget(widget.id, converted)),
+)
 
 // The menu acts on everything picked out when this widget is among them, the same way
 // dragging does, and on this widget alone otherwise. Actions that only make sense for one
@@ -223,24 +214,17 @@ const menuItems = $computed<MenuItem[][]>(() => {
       { label: 'Add Widget After', icon: icons.add, children: addWidgetItems(column + 1) },
     )
   }
-  if (conversion != null) {
-    const converted = conversion
-    arranging.push({
-      label: converted.label,
-      icon: converted.icon,
-      onSelect: () => workspace.replaceWidget(widget.id, converted.widget),
-    })
-  }
+  arranging.push(...conversions)
 
-  // Grouping puts the widget, or everything picked out with it, onto the pages of a fresh tabs
-  // or carousel widget standing in its place. Which kind and how the pages are dealt are ironed
-  // out in the dialog. Ungrouping is the inverse, for a widget that holds pages.
+  // Grouping puts the widget, or everything picked out with it, onto the pages of a fresh tabs,
+  // carousel, or section widget standing in its place. Which kind and how the pages are dealt are
+  // ironed out in the dialog. Ungrouping is the inverse, for a widget that holds pages.
   arranging.push({
     label: 'Group',
     icon: icons.groupWidgets,
     onSelect: () => (isShowingGroupDialog = true),
   })
-  if (conversion != null) {
+  if (conversions.length > 0) {
     arranging.push({
       label: 'Ungroup',
       icon: icons.ungroupWidgets,

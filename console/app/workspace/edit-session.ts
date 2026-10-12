@@ -44,6 +44,7 @@ import {
 } from '@/workspace/layout'
 import {
   comparableWorkspaceData,
+  type PagesWidgetType,
   widgetWidthSubdivisions,
   withoutMeta,
   type Widget,
@@ -522,7 +523,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
   /** Group the widgets named by `ids` under a fresh widget of `type`, standing in their place. */
   function groupWidgets(
     ids: string[],
-    type: 'tabs' | 'carousel',
+    type: PagesWidgetType,
     split: GroupSplit = 'widget',
     frameless: boolean = false,
   ) {

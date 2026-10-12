@@ -92,6 +92,7 @@ const icons = {
   rename: 'i-mdi-rename',
   revertToOriginal: 'i-mdi-restore',
   search: 'i-mdi-magnify',
+  section: 'i-mdi-view-agenda-outline',
   send: 'i-mdi-send',
   settings: 'i-mdi-cog',
   share: 'i-mdi-link-variant',

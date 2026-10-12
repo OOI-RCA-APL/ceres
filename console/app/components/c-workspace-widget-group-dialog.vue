@@ -1,6 +1,13 @@
 <script lang="ts" setup>
 import { usePersisted } from '@/persistence'
-import { useWorkspace } from '@/workspace'
+import {
+  type GroupSplit,
+  type PagesWidgetType,
+  pagesWidgetIcons,
+  pagesWidgetTypes,
+  useWorkspace,
+  widgetInfos,
+} from '@/workspace'
 
 const { widgetIds } = defineProps<{
   /** The widgets to group, resolved by the menu that opened this dialog. */
@@ -20,7 +27,7 @@ let open = $ref(true)
 const persisted = usePersisted({
   schema: (zod) =>
     zod.object({
-      kind: zod.enum(['tabs', 'carousel']).catch('tabs'),
+      kind: zod.enum(['tabs', 'carousel', 'section']).catch('tabs'),
       split: zod.enum(['widget', 'row', 'none']).catch('widget'),
       frameless: zod.boolean().catch(false),
     }),
@@ -43,20 +50,24 @@ const rowCount = $computed(() => {
   return 0
 })
 
-let kind = $ref<'tabs' | 'carousel'>(persisted.kind)
-let split = $ref<'widget' | 'row' | 'none'>(
+let kind = $ref<PagesWidgetType>(persisted.kind)
+let chosenSplit = $ref<GroupSplit>(
   persisted.split === 'row' && rowCount < 2 ? 'widget' : persisted.split,
 )
 let frameless = $ref(persisted.frameless)
+
+// A section holds one layout so everything taken lands on it, a row per row it came from.
+const split = $computed<GroupSplit>(() => (kind === 'section' ? 'none' : chosenSplit))
 
 // A page holding one widget already names it on the tab or the dot so its frame is pure
 // repetition and hiding frames is offered. A page holding several needs them to stay told apart.
 const offersFrameless = $computed(() => split === 'widget' || widgetIds.length === 1)
 
-const kindOptions = [
-  { label: 'Tabs', value: 'tabs' },
-  { label: 'Carousel', value: 'carousel' },
-]
+const kindOptions = pagesWidgetTypes.map((type) => ({
+  label: widgetInfos[type].name,
+  value: type,
+  icon: pagesWidgetIcons[type],
+}))
 
 const pageWord = $computed(() => (kind === 'tabs' ? 'Tab' : 'Slide'))
 
@@ -69,7 +80,7 @@ const splitOptions = $computed(() => [
 
 function group() {
   persisted.kind = kind
-  persisted.split = split
+  persisted.split = chosenSplit
   persisted.frameless = frameless
   workspace.groupWidgets(widgetIds, kind, split, offersFrameless && frameless)
   open = false
@@ -92,11 +103,11 @@ function group() {
         value-key="value"
       />
       <div class="flex flex-nowrap items-center gap-2">
-        <!-- With one widget every split lands the same single page so there is no choice to
-        offer. -->
+        <!-- With one widget, or into a section, everything lands on a single page so there is no
+        choice to offer. -->
         <c-select
-          v-if="widgetIds.length > 1"
-          v-model="split"
+          v-if="widgetIds.length > 1 && kind !== 'section'"
+          v-model="chosenSplit"
           class="grow"
           :items="splitOptions"
           label-key="label"

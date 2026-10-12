@@ -266,6 +266,14 @@ leaves the rows at their dragged heights.
 export type LayoutExpand = z.infer<typeof LayoutExpandModel>
 export const LayoutExpandModel = z.enum(['last', 'first', 'even', 'none'])
 
+/** The choices for `LayoutExpand`, in the words a settings select shows them in. */
+export const layoutExpandOptions: { label: string; value: LayoutExpand }[] = [
+  { label: 'Last Widget Row', value: 'last' },
+  { label: 'First Widget Row', value: 'first' },
+  { label: 'All Widget Rows', value: 'even' },
+  { label: "Don't Fill", value: 'none' },
+]
+
 export type CarouselWidget = BaseWidget & {
   type: 'carousel'
   slides: WidgetPage[]
@@ -323,6 +331,32 @@ export const TabsWidgetModel = BaseWidgetModel.extend({
   shrink: z.boolean().catch(false),
 })
 
+/** One layout under the widget's own header, marking off a part of the workspace that can be
+told apart from the rest and collapsed. */
+export type SectionWidget = BaseWidget & {
+  type: 'section'
+
+  /** Always exactly one page. Held as a list so everything that walks pages, here and on the
+  server, reads a section the way it reads slides and tabs. */
+  pages: WidgetPage[]
+
+  /** What the layout does with the height left over once its rows have taken theirs. */
+  expand: LayoutExpand
+
+  /** Whether rows may also be squeezed below their own heights to fit the section. */
+  shrink: boolean
+}
+
+export const SectionWidgetModel = BaseWidgetModel.extend({
+  type: z.literal('section'),
+  name: z.string().catch('Section'),
+  pages: safeArrayOf(WidgetPageModel),
+  // The bottom of a section is where empty space shows so the bottom row is given it.
+  expand: LayoutExpandModel.catch('last'),
+  // Off by default, squeezing rows below their dragged heights is opt-in.
+  shrink: z.boolean().catch(false),
+})
+
 export type Widget =
   | MessagesWidget
   | ParticlesWidget
@@ -335,8 +369,18 @@ export type Widget =
   | ControlsWidget
   | CarouselWidget
   | TabsWidget
+  | SectionWidget
 
 export type WidgetType = Widget['type']
+
+/** A widget holding layouts of its own on pages. */
+export type PagesWidget = CarouselWidget | TabsWidget | SectionWidget
+
+export type PagesWidgetType = PagesWidget['type']
+
+export function isPagesWidget(widget: Widget): widget is PagesWidget {
+  return widget.type === 'carousel' || widget.type === 'tabs' || widget.type === 'section'
+}
 
 /** A widget of a kind this console has no model for.
 
@@ -362,6 +406,7 @@ export const widgetModels = {
   controls: ControlsWidgetModel,
   carousel: CarouselWidgetModel,
   tabs: TabsWidgetModel,
+  section: SectionWidgetModel,
 } as const
 
 /** Kinds that were renamed without changing shape, rewritten on the stored data before its
@@ -398,6 +443,7 @@ export const WidgetModel = z.preprocess(
       StoredButtonWidgetModel,
       CarouselWidgetModel,
       TabsWidgetModel,
+      SectionWidgetModel,
     ])
     .or(UnknownWidgetModel),
 ) as unknown as z.ZodType<Widget>
@@ -426,26 +472,46 @@ Everything that walks a workspace's layouts goes through here so a new pages-hol
 only needs to be named here.
 */
 export function pagesOf(widget: Widget): WidgetPage[] {
-  if (widget.type === 'carousel') {
-    return widget.slides
+  switch (widget.type) {
+    case 'carousel':
+      return widget.slides
+    case 'tabs':
+      return widget.tabs
+    case 'section':
+      return widget.pages
+    default:
+      return []
   }
-  if (widget.type === 'tabs') {
-    return widget.tabs
-  }
-
-  return []
 }
 
-/** A copy of `widget` holding `pages` in place of the ones it held. */
-export function withPages(widget: Widget, pages: WidgetPage[]): Widget {
-  if (widget.type === 'carousel') {
-    return { ...widget, slides: pages }
-  }
-  if (widget.type === 'tabs') {
-    return { ...widget, tabs: pages }
-  }
+/** A copy of `widget` holding `pages` in place of the ones it held.
 
-  return widget
+A section folds several pages into its one.
+*/
+export function withPages(widget: Widget, pages: WidgetPage[]): Widget {
+  switch (widget.type) {
+    case 'carousel':
+      return { ...widget, slides: pages }
+    case 'tabs':
+      return { ...widget, tabs: pages }
+    case 'section':
+      return { ...widget, pages: [foldedPage(pages)] }
+    default:
+      return widget
+  }
+}
+
+/** One page holding every row of `pages`, in order.
+
+It keeps the first page's ID so the layout it names carries on as the folded one. With no pages it
+is a fresh empty page.
+*/
+export function foldedPage(pages: WidgetPage[]): WidgetPage {
+  return {
+    id: pages[0]?.id ?? v7(),
+    name: '',
+    layout: pages.flatMap((page) => page.layout),
+  }
 }
 
 /** Return `widget` in its current shape, upgrading the legacy `button` kind and its inline
@@ -456,13 +522,11 @@ function upgradedWidget(widget: Widget): Widget {
     layout: upgradedRows(page.layout),
   }))
 
-  // A carousel or a tab strip always holds at least one page since one with no pages has no
-  // layout to drag or paste widgets into.
+  // A widget that holds pages always holds at least one since one with no pages has no layout to
+  // drag or paste widgets into. A section's are folded into exactly one by `withPages`.
   const upgraded = withPages(
     widget,
-    pages.length === 0 && (widget.type === 'carousel' || widget.type === 'tabs')
-      ? [{ id: v7(), name: '', layout: [] }]
-      : pages,
+    pages.length === 0 && isPagesWidget(widget) ? [{ id: v7(), name: '', layout: [] }] : pages,
   )
 
   const stored = upgraded as Widget | StoredButtonWidget

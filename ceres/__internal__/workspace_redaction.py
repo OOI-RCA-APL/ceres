@@ -36,6 +36,7 @@ _ADDRESS_KEYS = (
 """Widget configuration keys that hold a component address or selector."""
 
 _PAGE_KEYS = (
+    "pages",
     "slides",
     "tabs",
 )
