@@ -394,7 +394,8 @@ async def components_config(host: Host, arguments: dict[str, Any]) -> Any:
     config = await component_handlers.get_component_config(
         engine=host.engine, actor=actor, address=_address(arguments)
     )
-    return None if config is None else Raw(to_json(config, exclude_defaults=True))
+    # By alias, so the result names fields as the source YAML does, such as `class` for `cls`.
+    return None if config is None else Raw(to_json(config, by_alias=True, exclude_defaults=True))
 
 
 @operation("components.connections")

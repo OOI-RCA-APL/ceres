@@ -17,7 +17,7 @@ import httpx
 from ceres import Component, Engine, listener, query
 from ceres.address import Address
 from ceres.component import FileOutput, StreamingOutput
-from ceres.config import Config
+from ceres.config import ComponentConfig, Config
 from ceres.data import to_json, validate
 from ceres.event import (
     Event,
@@ -356,6 +356,19 @@ async def test_single_component_statuses_are_reachable() -> None:
 
         response = await client.get("/api/statuses/@missing", headers=_bearer(identity))
         assert response.status_code == 404
+
+
+async def test_component_config_names_fields_as_the_yaml_does() -> None:
+    async with _serve() as (engine, client):
+        config = validate(ComponentConfig, {"name": "probe", "class": f"{__name__}._Probe"})
+        engine.attach(_Probe(__with_name__="probe", __with_config__=config))
+        await _create_user(engine, "admin", ADMIN_PASSWORD, admin=True)
+        identity = await _login(client, "admin", ADMIN_PASSWORD)
+
+        response = await client.get("/api/components/@probe/config", headers=_bearer(identity))
+
+        assert response.status_code == 200
+        assert response.json() == {"name": "probe", "class": f"{__name__}._Probe"}
 
 
 async def test_statuses_and_statistics_require_authentication() -> None:
