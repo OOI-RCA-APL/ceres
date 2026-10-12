@@ -118,7 +118,7 @@ def adapt[T](ty: TypeInput[T], /, *, _namespace: int = 3) -> TypeAdapter[T]:
 
     adapter: TypeAdapter[Any] | None = cache.get(key)
     if adapter is None:
-        adapter = TypeAdapter(ty, _parent_depth=_namespace)
+        adapter = TypeAdapter(key, _parent_depth=_namespace)
         # Use `setdefault` to handle the race where another thread builds and caches the adapter
         # between our `get` and `set`, ensuring all callers see the same instance.
         adapter = cache.setdefault(key, adapter)

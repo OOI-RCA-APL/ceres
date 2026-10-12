@@ -3,8 +3,9 @@ from re import RegexFlag
 from typing import Annotated, Any, override
 
 import pytest
-from pydantic import TypeAdapter, ValidationError
+from pydantic import ValidationError
 
+from ceres.data import adapt
 from ceres.data.types import (
     BCryptHash,
     DateTime,
@@ -29,7 +30,7 @@ from ceres.data.types import (
 
 
 class TestUsername:
-    adapter = TypeAdapter(Username)
+    adapter = adapt(Username)
 
     def test_valid_letters(self) -> None:
         assert self.adapter.validate_python("alice") == "alice"
@@ -51,7 +52,7 @@ class TestUsername:
 
 
 class TestPassword:
-    adapter = TypeAdapter(Password)
+    adapter = adapt(Password)
 
     def test_valid_password(self) -> None:
         assert self.adapter.validate_python("hunter2") == "hunter2"
@@ -85,7 +86,7 @@ class TestPassword:
 
 
 class TestEmailAddress:
-    adapter = TypeAdapter(EmailAddress)
+    adapter = adapt(EmailAddress)
 
     def test_valid_email_normalized(self) -> None:
         result = self.adapter.validate_python("Alice@Example.COM")
@@ -97,7 +98,7 @@ class TestEmailAddress:
 
 
 class TestBCryptHash:
-    adapter = TypeAdapter(BCryptHash)
+    adapter = adapt(BCryptHash)
 
     def test_valid_bcrypt_hash(self) -> None:
         # A well-formed bcrypt hash: $2b$ prefix, 2-digit cost, $ then 53 chars of salt+hash.
@@ -110,7 +111,7 @@ class TestBCryptHash:
 
 
 class TestPasswordHash:
-    adapter = TypeAdapter(PasswordHash)
+    adapter = adapt(PasswordHash)
 
     def test_bcrypt_hash_accepted(self) -> None:
         valid = "$2b$12$" + "a" * 53
@@ -213,7 +214,7 @@ class TestOrderedStrEnum:
 
 
 class TestRegexFlags:
-    adapter = TypeAdapter(RegexFlags)
+    adapter = adapt(RegexFlags)
 
     def test_single_character_flag(self) -> None:
         result = self.adapter.validate_python("I")
@@ -242,7 +243,7 @@ class TestRegexFlags:
 
 
 class TestName:
-    adapter = TypeAdapter(Name)
+    adapter = adapt(Name)
 
     def test_valid_identifier(self) -> None:
         assert self.adapter.validate_python("my-name_01") == "my-name_01"
@@ -259,7 +260,7 @@ class TestName:
 
 
 class TestNonEmptyStr:
-    adapter = TypeAdapter(NonEmptyStr)
+    adapter = adapt(NonEmptyStr)
 
     def test_non_empty_accepted(self) -> None:
         assert self.adapter.validate_python("hello") == "hello"
@@ -270,7 +271,7 @@ class TestNonEmptyStr:
 
 
 class TestNonBlankStr:
-    adapter = TypeAdapter(NonBlankStr)
+    adapter = adapt(NonBlankStr)
 
     def test_non_blank_accepted(self) -> None:
         assert self.adapter.validate_python("hello") == "hello"
@@ -285,7 +286,7 @@ class TestNonBlankStr:
 
 
 class TestDateTime:
-    adapter = TypeAdapter(DateTime)
+    adapter = adapt(DateTime)
 
     def test_datetime_with_utc_preserved(self) -> None:
         value = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
@@ -332,7 +333,7 @@ class TestDateTime:
 
 
 class TestTimeDelta:
-    adapter = TypeAdapter(TimeDelta)
+    adapter = adapt(TimeDelta)
 
     def test_timedelta_passthrough(self) -> None:
         value = timedelta(seconds=30)
@@ -368,7 +369,7 @@ class TestTimeDelta:
 
 
 class TestPositiveTimeDelta:
-    adapter = TypeAdapter(PositiveTimeDelta)
+    adapter = adapt(PositiveTimeDelta)
 
     def test_positive_accepted(self) -> None:
         result = self.adapter.validate_python(10)
@@ -384,7 +385,7 @@ class TestPositiveTimeDelta:
 
 
 class TestNonNegativeTimeDelta:
-    adapter = TypeAdapter(NonNegativeTimeDelta)
+    adapter = adapt(NonNegativeTimeDelta)
 
     def test_positive_accepted(self) -> None:
         result = self.adapter.validate_python(10)
@@ -400,7 +401,7 @@ class TestNonNegativeTimeDelta:
 
 
 class TestFromJSON:
-    adapter = TypeAdapter(FromJSON[dict[str, int]])
+    adapter = adapt(FromJSON[dict[str, int]])
 
     def test_json_string_parsed(self) -> None:
         result = self.adapter.validate_python('{"a": 1}')
@@ -420,7 +421,7 @@ class TestFromJSON:
 
 
 class TestFromYAML:
-    adapter = TypeAdapter(FromYAML[dict[str, int]])
+    adapter = adapt(FromYAML[dict[str, int]])
 
     def test_yaml_string_parsed(self) -> None:
         result = self.adapter.validate_python("a: 1\nb: 2")
@@ -440,7 +441,7 @@ class TestFromYAML:
 
 
 class TestNumber:
-    adapter = TypeAdapter(Number)
+    adapter = adapt(Number)
 
     def test_integer_preserved(self) -> None:
         result = self.adapter.validate_python(42)
@@ -473,25 +474,25 @@ class TestJSONSerializable:
     def test_serializable_value_passes(self) -> None:
         from ceres.data.types import JSONSerializable
 
-        adapter = TypeAdapter(JSONSerializable[dict[str, int]])
+        adapter = adapt(JSONSerializable[dict[str, int]])
         result = adapter.validate_python({"key": 123})
         assert result == {"key": 123}
 
     def test_non_serializable_value_rejected(self) -> None:
         from ceres.data.types import JSONSerializable
 
-        adapter = TypeAdapter(JSONSerializable[Any])
+        adapter = adapt(JSONSerializable[Any])
         with pytest.raises(ValidationError, match="not serializable to JSON"):
             adapter.validate_python(object())
 
 
 class TestUnit:
     def test_unit_lands_in_the_json_schema(self) -> None:
-        adapter = TypeAdapter(Annotated[float, Unit("degC")])
+        adapter = adapt(Annotated[float, Unit("degC")])
         schema = adapter.json_schema()
         assert schema["type"] == "number"
         assert schema["unit"] == "degC"
 
     def test_validation_is_unaffected(self) -> None:
-        adapter = TypeAdapter(Annotated[float, Unit("degC")])
+        adapter = adapt(Annotated[float, Unit("degC")])
         assert adapter.validate_python(21.5) == 21.5

@@ -2,8 +2,9 @@ import datetime as dt
 from datetime import datetime, timedelta
 
 import pytest
-from pydantic import TypeAdapter, ValidationError
+from pydantic import ValidationError
 
+from ceres.data import adapt
 from ceres.schedule import (
     CronSchedule,
     CronTrigger,
@@ -119,14 +120,14 @@ class TestCronScheduleConstruction:
 
     def test_model_validator_coerces_crontab_via_schedule_expr(self) -> None:
         """The `ScheduleExpr` before-validator coerces a bare crontab string."""
-        adapter = TypeAdapter(ScheduleExpr)
+        adapter = adapt(ScheduleExpr)
         schedule = adapter.validate_python("0 12 * * *")
         assert isinstance(schedule, CronSchedule)
         assert schedule.crontab == "0 12 * * *"
 
     def test_model_validator_passes_through_non_crontab_string(self) -> None:
         """A string that is not a valid crontab or interval expression fails validation."""
-        adapter = TypeAdapter(ScheduleExpr)
+        adapter = adapt(ScheduleExpr)
         with pytest.raises(ValidationError):
             adapter.validate_python("not-valid")
 
@@ -302,35 +303,35 @@ class TestOrTrigger:
 
 class TestScheduleExpr:
     def test_crontab_string_shorthand(self) -> None:
-        adapter = TypeAdapter(ScheduleExpr)
+        adapter = adapt(ScheduleExpr)
         schedule = adapter.validate_python("*/5 * * * *")
         assert isinstance(schedule, CronSchedule)
         assert schedule.crontab == "*/5 * * * *"
 
     def test_interval_seconds_shorthand(self) -> None:
-        adapter = TypeAdapter(ScheduleExpr)
+        adapter = adapt(ScheduleExpr)
         schedule = adapter.validate_python(60)
         assert isinstance(schedule, IntervalSchedule)
         assert schedule.interval == timedelta(seconds=60)
 
     def test_interval_float_shorthand(self) -> None:
-        adapter = TypeAdapter(ScheduleExpr)
+        adapter = adapt(ScheduleExpr)
         schedule = adapter.validate_python(30.0)
         assert isinstance(schedule, IntervalSchedule)
         assert schedule.interval == timedelta(seconds=30)
 
     def test_non_parseable_string_falls_through(self) -> None:
-        adapter = TypeAdapter(ScheduleExpr)
+        adapter = adapt(ScheduleExpr)
         with pytest.raises(ValidationError):
             adapter.validate_python("not-a-schedule")
 
     def test_dict_passthrough_cron(self) -> None:
-        adapter = TypeAdapter(ScheduleExpr)
+        adapter = adapt(ScheduleExpr)
         schedule = adapter.validate_python({"type": "cron", "crontab": "0 12 * * *"})
         assert isinstance(schedule, CronSchedule)
 
     def test_dict_passthrough_interval(self) -> None:
-        adapter = TypeAdapter(ScheduleExpr)
+        adapter = adapt(ScheduleExpr)
         schedule = adapter.validate_python({"type": "interval", "interval": 120})
         assert isinstance(schedule, IntervalSchedule)
 
