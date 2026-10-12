@@ -502,9 +502,20 @@ function moveHere(kind?: 'shared' | 'private') {
   move.move({ candidates: inStandardOrder(candidates), destination: placement })
 }
 
-/** A group heading's dots menu, for ways to add a workspace beyond creating one. */
-function groupMenuItems(kind: 'shared' | 'private'): DropdownMenuItem[][] {
-  return [[{ label: 'Move Here…', icon: icons.move, onSelect: () => moveHere(kind) }]]
+/** A group heading's dots menu, every way to add a workspace to that group. */
+function groupMenuItems(group: { key: string; label: string; canAdd: boolean }) {
+  const kind = group.key as 'shared' | 'private'
+  const items: DropdownMenuItem[] = []
+  if (group.canAdd) {
+    items.push({
+      label: `Create ${group.label} Workspace`,
+      icon: icons.add,
+      onSelect: () => create(kind),
+    })
+  }
+  items.push({ label: 'Move Here…', icon: icons.move, onSelect: () => moveHere(kind) })
+
+  return [items]
 }
 
 function openSettings(workspace: Workspace) {
@@ -629,7 +640,7 @@ function menuItems(
             </c-tooltip>
             <c-dropdown-menu
               :content="{ side: 'right', align: 'start' }"
-              :items="groupMenuItems(group.key as 'shared' | 'private')"
+              :items="groupMenuItems(group)"
             >
               <button
                 :aria-label="`More ${group.label} Workspace Actions`"
