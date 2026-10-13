@@ -217,6 +217,16 @@ impl MediaPacket {
         usize::try_from(size).unwrap_or(0)
     }
 
+    /// The packet's payload, the encoded bytes of one frame for a video packet.
+    pub fn data(&self) -> &[u8] {
+        let mut data = ptr::null();
+        // SAFETY: The packet is live, and its data stays put until `&mut self` changes it.
+        unsafe {
+            let size = ffi::ceres_packet_data(self.raw.as_ptr(), &raw mut data);
+            ffi::bytes(data, size)
+        }
+    }
+
     /// Another packet referencing this one's data, which FFmpeg counts rather than copies.
     pub fn try_clone(&self) -> Result<Self, MediaError> {
         let clone = Self::new();
@@ -256,7 +266,7 @@ unsafe impl Send for MediaPacket {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixture;
+    use crate::{MediaCodec, fixture};
 
     fn packet_count(url: &str) -> Result<usize, MediaError> {
         let mut input = MediaInput::open(url)?;
@@ -277,6 +287,31 @@ mod tests {
     #[test]
     fn reads_every_h265_packet() {
         assert_eq!(packet_count(&fixture("h265.mp4")), Ok(100));
+    }
+
+    #[test]
+    fn tracks_name_their_codec_and_header() {
+        for (clip, codec) in [
+            ("h264.mp4", MediaCodec::H264),
+            ("h265.mp4", MediaCodec::H265),
+        ] {
+            let input = MediaInput::open(&fixture(clip)).unwrap();
+            let track = input.track(0).to_owned().unwrap();
+            assert_eq!(track.codec(), codec);
+            // An MP4 track's header is an `avcC` or `hvcC` record, opening with version 1.
+            assert_eq!(track.extradata().first(), Some(&1));
+        }
+    }
+
+    #[test]
+    fn packet_data_is_the_whole_payload() {
+        let mut input = MediaInput::open(&fixture("h264.mp4")).unwrap();
+        let mut packet = MediaPacket::new();
+        assert!(input.read(&mut packet).unwrap());
+        assert!(packet.size() > 0);
+        assert_eq!(packet.data().len(), packet.size());
+        packet.clear();
+        assert!(packet.data().is_empty());
     }
 
     #[test]

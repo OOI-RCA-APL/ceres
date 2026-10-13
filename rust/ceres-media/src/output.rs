@@ -60,6 +60,38 @@ impl OwnedTrack {
         // SAFETY: The parameters live and stay unchanged as long as `self`.
         unsafe { MediaTrack::new(self.parameters.as_ptr(), self.time_base) }
     }
+
+    pub fn codec(&self) -> MediaCodec {
+        // SAFETY: The parameters are live, and the shim only reads the codec ID.
+        match unsafe { ffi::ceres_parameters_codec(self.parameters.as_ptr()) } {
+            1 => MediaCodec::H264,
+            2 => MediaCodec::H265,
+            _ => MediaCodec::Other,
+        }
+    }
+
+    /// The codec's out-of-band header, an `avcC` or `hvcC` record from MP4 or the parameter
+    /// sets in Annex B from RTSP, empty when the stream carries them only in band.
+    pub fn extradata(&self) -> &[u8] {
+        let mut data = ptr::null();
+        // SAFETY: The parameters are live and unchanged for as long as `self`.
+        unsafe {
+            let size = ffi::ceres_parameters_extradata(self.parameters.as_ptr(), &raw mut data);
+            ffi::bytes(data, size)
+        }
+    }
+
+    pub fn time_base(&self) -> TimeBase {
+        self.time_base
+    }
+}
+
+/// The video codecs a track can be told apart by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MediaCodec {
+    H264,
+    H265,
+    Other,
 }
 
 impl Drop for OwnedTrack {
@@ -255,15 +287,7 @@ fn error(state: &mut SinkState, code: c_int) -> MediaError {
 unsafe extern "C" fn write_sink(opaque: *mut c_void, data: *const u8, size: c_int) -> c_int {
     // SAFETY: `opaque` is the `SinkState` boxed in the `MediaOutput` that owns this muxer, and
     // FFmpeg passes `size` readable bytes.
-    let (state, data) = unsafe {
-        let size = usize::try_from(size).unwrap_or(0);
-        let data = if data.is_null() || size == 0 {
-            &[][..]
-        } else {
-            std::slice::from_raw_parts(data, size)
-        };
-        (&mut *opaque.cast::<SinkState>(), data)
-    };
+    let (state, data) = unsafe { (&mut *opaque.cast::<SinkState>(), ffi::bytes(data, size)) };
     if state.error.is_some() {
         return EIO;
     }

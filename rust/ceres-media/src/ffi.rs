@@ -24,6 +24,21 @@ opaque!(
 /// FFmpeg's `AV_NOPTS_VALUE`, a fixed constant in its public ABI.
 pub const NOPTS: i64 = i64::MIN;
 
+/// The `size` bytes at `data`, empty for a null pointer or a size that is not positive.
+///
+/// # Safety
+///
+/// A non-null `data` points at `size` bytes that stay readable and unchanged for `'a`.
+pub unsafe fn bytes<'a>(data: *const u8, size: c_int) -> &'a [u8] {
+    match usize::try_from(size) {
+        Ok(size) if size > 0 && !data.is_null() => {
+            // SAFETY: The caller vouches for `size` readable bytes at `data`.
+            unsafe { std::slice::from_raw_parts(data, size) }
+        }
+        _ => &[],
+    }
+}
+
 /// FFmpeg's `interrupt_callback`, returning nonzero to abort a blocking call.
 pub type InterruptCallback = unsafe extern "C" fn(opaque: *mut c_void) -> c_int;
 
@@ -58,8 +73,14 @@ unsafe extern "C" {
         copy: *mut *mut AVCodecParameters,
     ) -> c_int;
     pub fn ceres_parameters_free(parameters: *mut *mut AVCodecParameters);
+    pub fn ceres_parameters_codec(parameters: *const AVCodecParameters) -> c_int;
+    pub fn ceres_parameters_extradata(
+        parameters: *const AVCodecParameters,
+        data: *mut *const u8,
+    ) -> c_int;
     pub fn ceres_packet_alloc() -> *mut AVPacket;
     pub fn ceres_packet_size(packet: *const AVPacket) -> c_int;
+    pub fn ceres_packet_data(packet: *const AVPacket, data: *mut *const u8) -> c_int;
     pub fn ceres_packet_ref(packet: *mut AVPacket, source: *const AVPacket) -> c_int;
     pub fn ceres_packet_free(packet: *mut *mut AVPacket);
     pub fn ceres_packet_unref(packet: *mut AVPacket);

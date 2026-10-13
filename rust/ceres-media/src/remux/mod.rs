@@ -2,8 +2,10 @@
 //!
 //! A reader thread holds the source's connection, reconnecting it as needed, and fans its packets
 //! out to every stream reading it. Each stream runs its own muxer on a thread of its own, so one
-//! camera connection serves any number of viewers, each joining at the latest keyframe.
+//! camera connection serves any number of viewers, each joining at the latest keyframe. A
+//! `PacketStream` reads the same packets unmuxed, for a consumer that frames them itself.
 
+mod packets;
 mod reader;
 mod subscriber;
 mod timeline;
@@ -15,7 +17,8 @@ use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError};
 use std::thread;
 use std::time::Duration;
 
-use self::reader::Reader;
+pub use self::packets::{PacketItem, PacketStream};
+use self::reader::{Feeding, Reader};
 use crate::{Interrupt, MediaError, MediaInput, TimeBase};
 
 /// The most bytes one chunk of the stream carries.
@@ -151,6 +154,29 @@ fn readers() -> MutexGuard<'static, HashMap<String, Arc<Reader>>> {
     READERS.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// Joins a new stream to the shared reader of `key`, starting it from `source` when no stream
+/// reads it yet, or to a reader of its own when `key` is `None`.
+fn attach<S: RemuxSource>(
+    key: Option<String>,
+    source: impl FnOnce() -> S,
+    options: RemuxOptions,
+) -> (Arc<Reader>, Feeding) {
+    // The registry stays locked through the join, so the reader cannot close in between.
+    let mut registry = key.as_ref().map(|_| readers());
+    if let (Some(registry), Some(key)) = (&registry, &key)
+        && let Some(reader) = registry.get(key)
+    {
+        return (Arc::clone(reader), reader.join());
+    }
+    let reader = Reader::new(key.clone(), options);
+    if let (Some(registry), Some(key)) = (&mut registry, key) {
+        registry.insert(key, Arc::clone(&reader));
+    }
+    let feeding = reader.join();
+    reader.spawn(source());
+    (reader, feeding)
+}
+
 /// A fragmented MP4 stream remuxed from a source, read in chunks.
 ///
 /// Stopping or dropping the stream ends it, and its source closes once no stream reads it.
@@ -164,10 +190,7 @@ pub struct RemuxStream {
 impl RemuxStream {
     /// Starts remuxing `source` for this stream alone.
     pub fn start(source: impl RemuxSource, options: RemuxOptions) -> Self {
-        let reader = Reader::new(None, options);
-        let stream = Self::join(&reader, options);
-        reader.spawn(source);
-        stream
+        Self::mux(attach(None, || source, options), options)
     }
 
     /// Joins the stream to the source known as `key`, starting it from `source` when no stream
@@ -177,21 +200,12 @@ impl RemuxStream {
         source: impl FnOnce() -> S,
         options: RemuxOptions,
     ) -> Self {
-        let mut readers = readers();
-        if let Some(reader) = readers.get(&key) {
-            return Self::join(reader, options);
-        }
-        let reader = Reader::new(Some(key.clone()), options);
-        readers.insert(key, Arc::clone(&reader));
-        let stream = Self::join(&reader, options);
-        reader.spawn(source());
-        stream
+        Self::mux(attach(Some(key), source, options), options)
     }
 
-    fn join(reader: &Arc<Reader>, options: RemuxOptions) -> Self {
+    fn mux((reader, feeding): (Arc<Reader>, Feeding), options: RemuxOptions) -> Self {
         let (chunk_sender, chunks) = mpsc::sync_channel(CHUNK_BACKLOG);
         let stopped = Arc::new(AtomicBool::new(false));
-        let feeding = reader.join();
         let id = feeding.id;
         let muxing = subscriber::Subscriber::new(options, chunk_sender, Arc::clone(&stopped));
         thread::Builder::new()
@@ -200,7 +214,7 @@ impl RemuxStream {
             .expect("the remux thread spawns");
         Self {
             chunks: Mutex::new(chunks),
-            reader: Arc::clone(reader),
+            reader,
             id,
             stopped,
         }

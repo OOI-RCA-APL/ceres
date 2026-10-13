@@ -110,6 +110,25 @@ int ceres_parameters_copy(const AVCodecParameters *parameters, AVCodecParameters
 
 void ceres_parameters_free(AVCodecParameters **parameters) { avcodec_parameters_free(parameters); }
 
+// The codec `parameters` describe, 1 for H.264, 2 for HEVC, and 0 for any other, so Rust names
+// codecs without mirroring FFmpeg's codec IDs.
+int ceres_parameters_codec(const AVCodecParameters *parameters) {
+    switch (parameters->codec_id) {
+    case AV_CODEC_ID_H264:
+        return 1;
+    case AV_CODEC_ID_HEVC:
+        return 2;
+    default:
+        return 0;
+    }
+}
+
+// Points `data` at the codec's out-of-band header and returns its size, 0 when there is none.
+int ceres_parameters_extradata(const AVCodecParameters *parameters, const uint8_t **data) {
+    *data = parameters->extradata;
+    return parameters->extradata_size;
+}
+
 AVPacket *ceres_packet_alloc(void) { return av_packet_alloc(); }
 
 // Makes `packet`, which must be blank, another reference to `source`'s data and properties.
@@ -124,6 +143,12 @@ void ceres_packet_unref(AVPacket *packet) { av_packet_unref(packet); }
 int ceres_packet_stream(const AVPacket *packet) { return packet->stream_index; }
 
 int ceres_packet_size(const AVPacket *packet) { return packet->size; }
+
+// Points `data` at the packet's payload and returns its size.
+int ceres_packet_data(const AVPacket *packet, const uint8_t **data) {
+    *data = packet->data;
+    return packet->size;
+}
 
 // Reads the packet's timing in its stream's time base, `AV_NOPTS_VALUE` where unset.
 void ceres_packet_timing(const AVPacket *packet, int64_t *pts, int64_t *dts, int64_t *duration) {
