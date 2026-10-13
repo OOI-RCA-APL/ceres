@@ -119,6 +119,9 @@ function mediaSourceBufferType(contentType: string) {
   return MediaSource.isTypeSupported(bufferType) ? bufferType : null
 }
 
+// How much already played video the `MediaSource` keeps, enough for a short seek back.
+const KEPT_SECONDS = 30
+
 // The request feeding the current `MediaSource`, aborted when a newer one replaces it.
 let mediaSourceRequest: AbortController | null = null
 
@@ -188,10 +191,21 @@ async function syncMediaSource(url: string | null | undefined) {
         break
       }
 
-      // A failure here means the `src` changed and detached the media source, so stop reading.
+      // A `SourceBuffer` keeps every fragment until told otherwise, so a view left open for hours
+      // fills it and the next append throws.
+      const playedUntil = (element?.currentTime ?? 0) - KEPT_SECONDS
+      if (buffer.buffered.length > 0 && buffer.buffered.start(0) < playedUntil) {
+        buffer.remove(buffer.buffered.start(0), playedUntil)
+        await new Promise((resolve) => buffer.addEventListener('updateend', resolve, once))
+      }
+
       try {
         buffer.appendBuffer(chunk)
-      } catch {
+      } catch (error) {
+        // Any other failure means the `src` changed and detached the media source.
+        if (error instanceof DOMException && error.name === 'QuotaExceededError') {
+          fail('The video buffer is full.')
+        }
         break
       }
 
