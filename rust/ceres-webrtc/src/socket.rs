@@ -11,6 +11,10 @@ use tokio::net::UdpSocket;
 /// The largest datagram str0m sends or expects, with room to spare.
 const DATAGRAM_SIZE: usize = 2048;
 
+/// The most batches of `BATCH_SIZE` datagrams one wake reads, since every session shares one
+/// task and a flood on the socket would starve its timeouts and source reads.
+const MAX_BATCHES_PER_WAKE: usize = 8;
+
 /// The media port's sockets, one per address family.
 ///
 /// A dual-stack socket reports IPv4 destinations as mapped IPv6 addresses, which match no IPv4
@@ -94,14 +98,15 @@ impl MediaSocket {
         ReceiveBuffers(std::array::from_fn(|_| vec![0; size]))
     }
 
-    /// Reads every datagram waiting, passing each to `receive` with its source and the local
-    /// address it arrived at.
+    /// Reads the datagrams waiting, up to `MAX_BATCHES_PER_WAKE` batches, passing each to
+    /// `receive` with its source and the local address it arrived at.
     pub(crate) fn receive(
         &self,
         buffers: &mut ReceiveBuffers,
         mut receive: impl FnMut(SocketAddr, SocketAddr, &[u8]),
     ) {
-        loop {
+        // The socket stays readable past the cap, so the event loop returns for the rest.
+        for _ in 0..MAX_BATCHES_PER_WAKE {
             let mut slices = buffers.0.each_mut().map(|buffer| IoSliceMut::new(buffer));
             let mut metas = [RecvMeta::default(); BATCH_SIZE];
             let read = || {
