@@ -60,6 +60,10 @@ impl PacketStream {
     /// The clock every packet is timed in, RTP's video clock.
     pub const TIME_BASE: TimeBase = TimeBase { num: 1, den: 90000 };
 
+    /// The most bytes of packets since the last keyframe worth holding for a consumer not yet
+    /// ready to play them, the bound a shared source holds for one joining late.
+    pub const GOP_BYTES: usize = super::reader::GOP_CACHE_BYTES;
+
     /// Starts reading `source` for this stream alone.
     pub fn start(source: impl RemuxSource, options: RemuxOptions) -> Self {
         Self::new(attach(None, || source, options), options)

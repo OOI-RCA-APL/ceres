@@ -20,10 +20,41 @@ async fn a_browser_receives_the_sources_keyframe() {
     let answer = server.open(source(&camera), &offer).await.unwrap();
     let browser = browser.accept(&answer.sdp);
 
-    let keyframe = tokio::task::spawn_blocking(move || browser.first_keyframe());
-    assert!(keyframe.await.unwrap(), "no keyframe within the deadline");
+    let picture = tokio::task::spawn_blocking(move || browser.first_picture());
+    assert_eq!(
+        picture.await.unwrap(),
+        Some(true),
+        "the first picture is not a keyframe"
+    );
     assert!(server.close(&answer.id).await);
     assert!(!server.close(&answer.id).await);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_browser_connecting_late_starts_from_the_picture_held_for_it() {
+    // The camera falls silent before the browser connects, so only the held picture can play.
+    let camera = RtspServer::start(
+        "127.0.0.1:0".parse().unwrap(),
+        RtspServerOptions {
+            clips: vec!["h264".into()],
+            // Long enough for the source's probe to find its track.
+            stall_after: Some(Duration::from_secs(2)),
+            ..RtspServerOptions::default()
+        },
+    )
+    .unwrap();
+    let server = server(4);
+    let (browser, offer) = Browser::offer();
+    let source = LiveSource {
+        stall_timeout: None,
+        ..source(&camera)
+    };
+    let answer = server.open(source, &offer).await.unwrap();
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let browser = browser.accept(&answer.sdp);
+
+    let picture = tokio::task::spawn_blocking(move || browser.first_picture());
+    assert_eq!(picture.await.unwrap(), Some(true));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -129,14 +160,15 @@ impl Browser {
         self
     }
 
-    /// Runs the peer until a keyframe arrives, `false` when none does within ten seconds.
-    fn first_keyframe(mut self) -> bool {
+    /// Runs the peer until media arrives, answering whether it is a keyframe, or `None` when
+    /// none arrives within ten seconds.
+    fn first_picture(mut self) -> Option<bool> {
         let deadline = Instant::now() + Duration::from_secs(10);
         let local = self.socket.local_addr().unwrap();
         let mut buffer = vec![0; 2048];
         while Instant::now() < deadline {
             let timeout = match self.rtc.poll_output().unwrap() {
-                Output::Event(Event::MediaData(data)) if data.is_keyframe() => return true,
+                Output::Event(Event::MediaData(data)) => return Some(data.is_keyframe()),
                 Output::Event(_) => continue,
                 Output::Transmit(transmit) => {
                     self.socket
@@ -158,7 +190,7 @@ impl Browser {
                 self.rtc.handle_input(input).unwrap();
             }
         }
-        false
+        None
     }
 }
 

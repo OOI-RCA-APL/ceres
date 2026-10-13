@@ -32,8 +32,13 @@ pub(crate) struct Session {
     /// When str0m next expects a timeout input.
     pub(crate) timeout: Instant,
     connected: bool,
-    /// Whether packets are skipped until a keyframe, as they are before the browser connects,
-    /// since a picture can start only there.
+    /// The packets since the source's last keyframe, held until the browser connects, since
+    /// str0m sends media written before then late and the picture can start only at a keyframe.
+    pending: Vec<MediaPacket>,
+    /// The bytes in `pending`, bounded by `PacketStream::GOP_BYTES`.
+    pending_bytes: usize,
+    /// Whether packets are skipped until a keyframe is sent, as they are after the track
+    /// changes, since a picture can start only there.
     awaiting_key: bool,
     _slot: OwnedSemaphorePermit,
 }
@@ -63,6 +68,8 @@ impl Session {
             track,
             timeout: Instant::now(),
             connected: false,
+            pending: Vec::new(),
+            pending_bytes: 0,
             awaiting_key: true,
             _slot: slot,
         })
@@ -88,6 +95,10 @@ impl Session {
                 Ok(Output::Event(Event::Connected)) => {
                     log::info!("WebRTC session {} connected", self.id);
                     self.connected = true;
+                    self.pending_bytes = 0;
+                    for packet in std::mem::take(&mut self.pending) {
+                        self.write(&packet);
+                    }
                 }
                 Ok(Output::Event(Event::IceConnectionStateChange(
                     IceConnectionState::Disconnected,
@@ -119,20 +130,38 @@ impl Session {
             PacketItem::Track(track) => {
                 self.track = track;
                 self.awaiting_key = true;
+                self.pending.clear();
+                self.pending_bytes = 0;
             }
-            PacketItem::Packet(packet) => self.write(&packet),
+            PacketItem::Packet(packet) if self.connected => self.write(&packet),
+            PacketItem::Packet(packet) => self.hold(packet),
             PacketItem::Notice(notice) => log::debug!("WebRTC session {}: {notice:?}", self.id),
         }
         true
     }
 
-    fn write(&mut self, packet: &MediaPacket) {
-        // str0m queues media written before the browser connects and sends it late, so writing
-        // waits for the connection and then a keyframe.
-        if !self.connected || self.awaiting_key && !packet.is_key() {
+    /// Keeps `packet` for the browser to start from once it connects.
+    fn hold(&mut self, packet: MediaPacket) {
+        if packet.is_key() {
+            self.pending.clear();
+            self.pending_bytes = 0;
+        } else if self.pending.is_empty() {
             return;
         }
-        self.awaiting_key = false;
+        self.pending_bytes += packet.data().len();
+        if self.pending_bytes > PacketStream::GOP_BYTES {
+            // The picture is too long to hold, so the browser starts at the next keyframe.
+            self.pending.clear();
+            self.pending_bytes = 0;
+            return;
+        }
+        self.pending.push(packet);
+    }
+
+    fn write(&mut self, packet: &MediaPacket) {
+        if self.awaiting_key && !packet.is_key() {
+            return;
+        }
         let Some(pts) = packet.timing().pts else {
             return;
         };
@@ -141,8 +170,9 @@ impl Session {
         let Some(writer) = self.rtc.writer(self.mid) else {
             return;
         };
-        if let Err(error) = writer.write(self.pt, Instant::now(), time, data) {
-            log::warn!("Writing to WebRTC session {} failed: {error}", self.id);
+        match writer.write(self.pt, Instant::now(), time, data) {
+            Ok(()) => self.awaiting_key = false,
+            Err(error) => log::warn!("Writing to WebRTC session {} failed: {error}", self.id),
         }
     }
 

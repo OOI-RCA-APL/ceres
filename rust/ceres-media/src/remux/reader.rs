@@ -15,7 +15,7 @@ use crate::{Interrupt, MediaError, MediaInput, MediaPacket, MediaTranscoder, Own
 pub(super) const FEED_BACKLOG: usize = 256;
 
 /// The most bytes of packets kept since the last keyframe for streams joining mid-picture.
-const GOP_CACHE_BYTES: usize = 16 << 20;
+pub(super) const GOP_CACHE_BYTES: usize = 16 << 20;
 
 /// How often a reader waiting out a backoff delay checks whether it should close.
 const POLL: Duration = Duration::from_millis(20);
