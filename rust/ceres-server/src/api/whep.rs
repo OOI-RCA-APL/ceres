@@ -54,7 +54,10 @@ async fn open(
     let call = Dispatch::procedure("procedures.live", address, name);
     let source = match call.answer(&state, &headers, query).await? {
         Answer::Live(source) => source,
-        Answer::Payload(_) | Answer::Served(_) => {
+        Answer::Payload(_) => return Err(refusal(StatusCode::CONFLICT, "not-live")),
+        Answer::Served(served) => {
+            // The host holds the output open for the handle until told it is done.
+            state.host.stream_close(served.handle).await;
             return Err(refusal(StatusCode::CONFLICT, "not-live"));
         }
     };
@@ -128,15 +131,19 @@ mod tests {
 
     use super::*;
     use crate::app::{AppConfig, build_router};
-    use crate::host::{Host, HostError, UserRecord};
+    use crate::host::{Host, HostError, Served, UserRecord};
 
     const PROCEDURE: &str = "/api/components/abc/procedures/video/whep";
 
-    /// A host whose procedures play `live`, recording the arguments of every call.
+    /// A host whose procedures play `live`, recording the arguments of every call and the
+    /// handles it is told to close.
     #[derive(Default)]
     struct LiveHost {
         live: Option<LiveSource>,
+        /// Whether a procedure that is not live answers with a body, as a media output does.
+        served: bool,
         calls: Mutex<Vec<Value>>,
+        closed: Mutex<Vec<u64>>,
     }
 
     #[async_trait::async_trait]
@@ -167,9 +174,19 @@ mod tests {
             self.calls.lock().unwrap().push(arguments);
             match &self.live {
                 Some(live) => Ok(Answer::Live(live.clone())),
+                None if self.served => Ok(Answer::Served(Served {
+                    status: 200,
+                    headers: Vec::new(),
+                    file: None,
+                    handle: 7,
+                })),
                 // What the operation answers for a procedure whose output reads no camera.
                 None => Ok(Answer::Payload("null".into())),
             }
+        }
+
+        async fn stream_close(&self, handle: u64) {
+            self.closed.lock().unwrap().push(handle);
         }
     }
 
@@ -288,6 +305,18 @@ mod tests {
         let h265 = app(&host(Some(&camera)), true);
         let codec = (StatusCode::CONFLICT, json!("codec"));
         assert_eq!(refused(post(&h265, PROCEDURE, SDP).await).await, codec);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_media_output_that_is_not_live_is_closed_and_refused() {
+        let host = Arc::new(LiveHost {
+            served: true,
+            ..LiveHost::default()
+        });
+        let app = app(&host, true);
+        let conflict = (StatusCode::CONFLICT, json!("not-live"));
+        assert_eq!(refused(post(&app, PROCEDURE, SDP).await).await, conflict);
+        assert_eq!(*host.closed.lock().unwrap(), [7]);
     }
 
     #[tokio::test(flavor = "multi_thread")]
