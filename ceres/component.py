@@ -811,7 +811,6 @@ class StreamingOutput(BaseOutput):
         "_iterator",
         "_origin",
         "_reported",
-        "_live",
         "media",
         "http_status",
         "http_headers",
@@ -846,8 +845,6 @@ class StreamingOutput(BaseOutput):
         self._origin: tuple[ComponentSystem, str] | None = None
         # Whether the output already reported how that call ended.
         self._reported = False
-        # The camera the output reads, which a browser can play from directly over WebRTC.
-        self._live: dict[str, Any] | None = None
         self.media = media
         self.http_status = http_status
         self.http_headers = http_headers

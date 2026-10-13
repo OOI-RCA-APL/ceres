@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
+from dataclasses import asdict
 from typing import TYPE_CHECKING, Annotated, Any, cast
 from uuid import UUID
 
@@ -23,6 +24,7 @@ from ceres.__internal__.app.handlers import workspaces as workspace_handlers
 from ceres.__internal__.app.host import Host, Live, Raw, operation, stream
 from ceres.__internal__.app.shared import RECORD_TABLES, Actor, Limit, exclude_recursively
 from ceres.__internal__.core import RecordBatch
+from ceres.__internal__.live import LiveOutput
 from ceres.address import Address
 from ceres.alert import Alert
 from ceres.component import BaseOutput, ComponentFilter, FileOutput, StreamingOutput
@@ -576,8 +578,8 @@ async def procedures_live(host: Host, arguments: dict[str, Any]) -> Any:
     if isinstance(result, FileOutput | StreamingOutput) and result.on_exit is not None:
         await result.on_exit()
 
-    if isinstance(result, StreamingOutput) and result._live is not None:  # noqa: SLF001
-        return Live(result._live)  # noqa: SLF001
+    if isinstance(result, LiveOutput):
+        return Live(asdict(result.source))
 
     return None
 

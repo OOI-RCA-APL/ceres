@@ -11,7 +11,7 @@ from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from ceres.__internal__.core import RtspNotice, RtspStream
-from ceres.component import StreamingOutput
+from ceres.__internal__.live import LiveOutput, LiveSource
 from ceres.event import (
     StreamEndedEvent,
     StreamLostEvent,
@@ -20,7 +20,7 @@ from ceres.event import (
 )
 
 if TYPE_CHECKING:
-    from ceres.component import Component, ComponentSystem
+    from ceres.component import Component, ComponentSystem, StreamingOutput
 
 __all__ = [
     "rtsp",
@@ -125,14 +125,8 @@ async def rtsp(
             # Ends the camera connection at once when the client leaves mid-stream.
             session.close()
 
-    output = StreamingOutput(stream, "video/mp4")
-    output._live = {  # noqa: SLF001
-        "url": url,
-        "transport": transport,
-        "copy": copy,
-        "reconnect": reconnect,
-        "stall_timeout": stall_timeout,
-    }
+    source = LiveSource(url, transport, copy, reconnect, stall_timeout)
+    output = LiveOutput(source, stream, "video/mp4")
     return output
 
 
