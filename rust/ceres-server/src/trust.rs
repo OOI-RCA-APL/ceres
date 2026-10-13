@@ -90,6 +90,7 @@ mod tests {
         std::fs::write(directory.join("index.html"), b"<html>console</html>").unwrap();
         build_router(AppConfig {
             authority,
+            webrtc: None,
             console: Some(ConsolePaths {
                 directory: directory.to_path_buf(),
                 favicon_ico: directory.join("favicon.ico"),

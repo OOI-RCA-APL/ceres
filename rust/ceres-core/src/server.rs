@@ -6,18 +6,20 @@
 //! other way through the host object, whose async methods answer the server's
 //! [`Host`] calls
 //! with one JSON envelope per result, `{"ok": ...}` carrying a user record or null,
-//! `{"error": {"status", "envelope"}}` passing a typed error through verbatim, and
-//! `{"response": ...}` describing a body the server produces itself.
+//! `{"error": {"status", "envelope"}}` passing a typed error through verbatim,
+//! `{"response": ...}` describing a body the server produces itself, and `{"live": ...}`
+//! naming the camera a WebRTC session plays.
 
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
 use std::time::Duration;
 
+use ceres_config::ServerWebrtcConfig;
 use ceres_database::{RecordFilter, RecordStore, RecordTable};
 use ceres_server::axum::Router;
 use ceres_server::{
     Answer, AppConfig, AuthSettings, Authority, BoundServer, CertificateStatus, ConsolePaths,
-    GateUser, Host, HostError, Notice, Report, Served, Stopper, StreamClose, UserRecord,
-    apply_compression, apply_cors, build_router, redirect_router,
+    GateUser, Host, HostError, LiveSource, Notice, Report, Served, Stopper, StreamClose,
+    UserRecord, WebrtcServer, apply_compression, apply_cors, build_router, redirect_router,
 };
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -218,8 +220,8 @@ impl Host for PyHost {
 
 /// A host result envelope, its payloads borrowed verbatim from the serialized text.
 ///
-/// One shape covers every host method. Operations answer with `ok`, `error`, or
-/// `response`, and streams answer with `ok`, `message`, `end`, or `close`. Payload
+/// One shape covers every host method. Operations answer with `ok`, `error`, `response`,
+/// or `live`, and streams answer with `ok`, `message`, `end`, or `close`. Payload
 /// slices stay raw so a record dump the engine already serialized crosses into the
 /// response body without ever parsing into a value tree here.
 #[derive(serde::Deserialize)]
@@ -228,6 +230,7 @@ struct Envelope<'a> {
     ok: Option<&'a RawValue>,
     error: Option<TypedError<'a>>,
     response: Option<Described>,
+    live: Option<Live>,
     close: Option<Close>,
     end: Option<bool>,
     message: Option<String>,
@@ -249,6 +252,34 @@ struct Described {
     headers: Vec<(String, String)>,
     file: Option<std::path::PathBuf>,
     handle: u64,
+}
+
+/// The `live` member, the camera a procedure's output reads, for a browser to play directly.
+#[derive(serde::Deserialize)]
+struct Live {
+    url: String,
+    transport: String,
+    copy: bool,
+    reconnect: bool,
+    /// Seconds, `None` to wait on a silent camera forever.
+    stall_timeout: Option<f64>,
+}
+
+impl Live {
+    fn into_source(self) -> Result<LiveSource, HostError> {
+        let stall_timeout = self
+            .stall_timeout
+            .map(Duration::try_from_secs_f64)
+            .transpose()
+            .map_err(|error| HostError::Internal(format!("unusable stall timeout. {error}")))?;
+        Ok(LiveSource {
+            url: self.url,
+            transport: self.transport,
+            copy: self.copy,
+            reconnect: self.reconnect,
+            stall_timeout,
+        })
+    }
 }
 
 /// The `close` member, why a stream refused to open or stopped early.
@@ -309,6 +340,9 @@ impl<'a> Envelope<'a> {
                 file: described.file,
                 handle: described.handle,
             }));
+        }
+        if let Some(live) = self.live {
+            return Ok(Answer::Live(live.into_source()?));
         }
 
         Ok(Answer::Payload(
@@ -421,6 +455,53 @@ fn reporting(
     })
 }
 
+/// The WebRTC server the web listeners share, since HTTPS and HTTP serve one media port.
+///
+/// It closes with the last listener holding it, so a restarted engine binds afresh.
+static WEBRTC: Mutex<Weak<WebrtcServer>> = Mutex::new(Weak::new());
+
+/// Returns the shared WebRTC server, binding it when no listener holds one, or `None` when
+/// `config` turns WebRTC off or its port cannot be bound.
+///
+/// A port another process holds warns on `log` and serves without WebRTC, since the console
+/// then plays every stream over HTTP.
+fn shared_webrtc(
+    config: Option<&ServerWebrtcConfig>,
+    log: Option<&Py<PyAny>>,
+) -> Option<Arc<WebrtcServer>> {
+    let config = config.cloned().unwrap_or_default();
+    if !config.enabled {
+        return None;
+    }
+    let mut shared = WEBRTC.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(server) = shared.upgrade() {
+        return Some(server);
+    }
+    // The server's event loop runs on the runtime the listeners serve on.
+    let _runtime = pyo3_async_runtimes::tokio::get_runtime().enter();
+    match WebrtcServer::bind(&config) {
+        Ok(server) => {
+            let server = Arc::new(server);
+            *shared = Arc::downgrade(&server);
+            Some(server)
+        }
+        Err(error) => {
+            let port = config.port;
+            let message = format!(
+                "WebRTC is off, UDP port {port} could not be bound: {error}. Video plays over HTTP."
+            );
+            if let Some(log) = log {
+                Python::attach(|py| {
+                    if let Err(error) = log.call_method1(py, "warning", (message,)) {
+                        error.write_unraisable(py, None);
+                    }
+                });
+            }
+            None
+        }
+    }
+}
+
 impl NativeServer {
     #[allow(clippy::too_many_arguments)]
     fn build(
@@ -432,6 +513,7 @@ impl NativeServer {
         console: Option<ConsolePaths>,
         cli_token: Option<String>,
         authority: Option<Authority>,
+        webrtc: Option<Arc<WebrtcServer>>,
         tls: Option<(&ceres_config::ServerHttpsConfig, Option<Py<PyAny>>)>,
     ) -> PyResult<Self> {
         let auth = config
@@ -451,6 +533,7 @@ impl NativeServer {
         let locals = Arc::new(OnceLock::new());
         let router = build_router(AppConfig {
             authority,
+            webrtc,
             console,
             cli_token,
             version: env!("CARGO_PKG_VERSION").to_string(),
@@ -493,7 +576,8 @@ impl NativeServer {
     ///
     /// The HTTPS listener issues a managed certificate first when it is due and renews it
     /// while serving, telling `log` what it issued and when renewal fails. Either listener
-    /// offers the managed certificate's authority at `/ca.crt`.
+    /// offers the managed certificate's authority at `/ca.crt`, and both share one WebRTC
+    /// media port, telling `log` when it cannot be bound.
     #[staticmethod]
     #[pyo3(signature = (host, config, console_directory, favicon_ico, favicon_png, favicon_svg, *, tls, records=None, log=None))]
     #[allow(clippy::too_many_arguments)]
@@ -509,6 +593,7 @@ impl NativeServer {
         #[gen_stub(override_type(type_repr = "typing.Any"))] log: Option<Py<PyAny>>,
     ) -> PyResult<Self> {
         let config = &config.inner;
+        let webrtc = shared_webrtc(config.webrtc.as_ref(), log.as_ref());
         let (port, tls) = if tls {
             let https = config
                 .https
@@ -536,6 +621,7 @@ impl NativeServer {
             }),
             None,
             config.https.as_ref().and_then(Authority::of),
+            webrtc,
             tls,
         )
     }
@@ -605,6 +691,7 @@ impl NativeServer {
             0,
             None,
             Some(token),
+            None,
             None,
             None,
         )

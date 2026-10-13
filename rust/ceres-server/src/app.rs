@@ -19,6 +19,7 @@ use axum::http::{HeaderMap, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
+use ceres_webrtc::WebrtcServer;
 use serde_json::Value;
 use subtle::ConstantTimeEq;
 use tower::ServiceExt;
@@ -43,6 +44,8 @@ pub struct AppConfig {
     pub version: String,
     /// The authority signing a managed HTTPS certificate, offered at `/ca.crt`.
     pub authority: Option<Authority>,
+    /// The server sending live video over WebRTC, `None` when WebRTC is off.
+    pub webrtc: Option<Arc<WebrtcServer>>,
 }
 
 /// Where the console's assets live.
@@ -94,6 +97,7 @@ pub(crate) struct AppState {
     pub(crate) auth: Option<AuthSettings>,
     pub(crate) host: Arc<dyn Host>,
     pub(crate) authority: Option<Authority>,
+    pub(crate) webrtc: Option<Arc<WebrtcServer>>,
     cli: bool,
 }
 
@@ -238,6 +242,7 @@ pub fn build_router(config: AppConfig) -> Router {
         auth: config.auth,
         host: config.host,
         authority: config.authority,
+        webrtc: config.webrtc,
         cli: config.cli_token.is_some(),
     });
 
@@ -267,6 +272,7 @@ pub fn build_router(config: AppConfig) -> Router {
         .route("/ca.crt", get(serve_authority));
     router = record_routes(router);
     router = crate::api::dispatch::register(router);
+    router = crate::api::whep::register(router);
     router = crate::api::streams::register(router);
     router = router.route("/api/statuses", get(crate::api::streams::statuses));
 
