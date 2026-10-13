@@ -7,6 +7,7 @@ import { isMediaSourceSupported, isSafari } from '@/environment'
 import icons from '@/icons'
 import { useReconnectSchedule } from '@/reconnect'
 import { getHttpUrl } from '@/utilities'
+import { openWhep, useVideoTransports, type VideoTransport, type WhepSession } from '@/whep'
 import { useWorkspace } from '@/workspace'
 import type { VideoWidget } from '@/workspace'
 
@@ -70,6 +71,24 @@ const queryInfo = $computed(() => {
 
 const isStreamingOutput = $computed(() => queryInfo?.output.type === 'streaming')
 
+// A streaming query may read a camera the engine can send over WebRTC, which is tried first.
+const whepUrl = $computed(() => {
+  if (
+    !isStreamingOutput ||
+    queryComponent == null ||
+    queryName == null ||
+    typeof RTCPeerConnection === 'undefined'
+  ) {
+    return null
+  }
+
+  return getHttpUrl(`/api/components/${queryComponent}/procedures/${queryName}/whep`)
+})
+
+const transports = useVideoTransports()
+// `null` while the first try over WebRTC decides between the two.
+let transport = $ref<VideoTransport | null>(null)
+
 const url = $computed(() => {
   if (queryComponent == null || queryName == null || isDisposed) {
     return undefined
@@ -84,13 +103,13 @@ const url = $computed(() => {
 // Safari requires byte range support on a video response, which a live stream cannot offer, so
 // there the stream is downloaded and fed to a `MediaSource` instead.
 const isUsingMediaSourceBuffer = $computed(
-  () => isStreamingOutput && isSafari && isMediaSourceSupported,
+  () => transport === 'http' && isStreamingOutput && isSafari && isMediaSourceSupported,
 )
 
 let mediaSource: MediaSource | null = $shallowRef(null)
 
 const src = $computed(() => {
-  if (isDisposed) {
+  if (isDisposed || transport !== 'http') {
     return undefined
   }
 
@@ -228,6 +247,62 @@ watchEffect(() => {
   }
 })
 
+let whep: WhepSession | null = null
+// The negotiation in flight, aborted when a newer attempt or the widget's end replaces it.
+let whepRequest: AbortController | null = null
+
+function closeWhep() {
+  whepRequest?.abort()
+  whepRequest = null
+  whep?.close()
+  whep = null
+  if (element != null) {
+    element.srcObject = null
+  }
+}
+
+/** Play the camera at `target` over WebRTC, or settle on HTTP when a first try cannot. */
+async function playWhep(target: string) {
+  closeWhep()
+  const request = new AbortController()
+  whepRequest = request
+  // The negotiation bounds itself, and an HTTP fallback gets a deadline of its own.
+  reconnect.stop()
+  try {
+    const session = await openWhep(target, {
+      signal: request.signal,
+      onLost: (reason) => {
+        if (whep === session) {
+          fail(reason)
+        }
+      },
+    })
+    whep = session
+    transport = 'webrtc'
+    transports.remember(target, 'webrtc')
+    if (element != null) {
+      element.srcObject = session.stream
+    }
+  } catch (error) {
+    if (request.signal.aborted) {
+      return
+    }
+
+    if (transport === 'webrtc') {
+      // The network carried WebRTC before, so a drop is a lost camera rather than a blocked path.
+      fail(`WebRTC did not reconnect. ${String(error)}`)
+      return
+    }
+
+    console.info(`Playing ${target} over HTTP. ${String(error)}`)
+    transport = 'http'
+    transports.remember(target, 'http')
+    if (widget.reconnect) {
+      reconnect.begin()
+    }
+  }
+}
+
 const reconnect = useReconnectSchedule(() => {
   holdLastFrame()
   isReloading = true
@@ -343,7 +418,9 @@ const MAX_LAG_SECONDS = 3
 const CATCH_UP_MARGIN_SECONDS = 0.5
 
 useIntervalFn(() => {
-  if (!isStreamingOutput || element == null || element.paused || element.buffered.length === 0) {
+  // WebRTC plays each frame as it arrives, so only the HTTP stream falls behind.
+  const isBuffering = isStreamingOutput && transport === 'http'
+  if (!isBuffering || element == null || element.paused || element.buffered.length === 0) {
     return
   }
 
@@ -380,10 +457,29 @@ watch(
   },
 )
 
+// Each attempt over WebRTC negotiates a new session, where HTTP takes a new `src` instead.
+watch(
+  () => [whepUrl, attempt] as const,
+  ([target]) => {
+    closeWhep()
+    if (target == null) {
+      transport = 'http'
+      return
+    }
+
+    transport = transports.verdict(target)
+    if (transport !== 'http' && !isDisposed) {
+      void playWhep(target)
+    }
+  },
+  { immediate: true },
+)
+
 /** Stop the download, which the element goes on doing until its source is taken away. */
 function dispose() {
   reconnect.stop()
   mediaSourceRequest?.abort()
+  closeWhep()
   if (element != null) {
     element.pause()
     isDisposed = true
@@ -428,6 +524,14 @@ useEventListener('beforeunload', () => {
       ref="lastFrame"
       class="pointer-events-none absolute inset-0 h-full w-full object-contain"
     />
+    <!-- Names the transport in use so a fallback to HTTP is visible, clear of the controls. -->
+    <span
+      v-if="transport != null && url != null"
+      class="text-muted pointer-events-none absolute top-2 left-2 text-[10px] opacity-60"
+      data-transport
+    >
+      {{ transport === 'webrtc' ? 'WebRTC' : 'HTTP' }}
+    </span>
     <div
       v-if="reconnect.isReconnecting && !isUnloading"
       class="bg-default/80 text-muted absolute top-2 right-2 flex items-center gap-1 rounded-md px-2 py-1 text-[11px]"
