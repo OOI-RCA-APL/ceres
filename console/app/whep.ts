@@ -10,6 +10,37 @@ const CONNECT_TIMEOUT_MS = 5_000
 const FRAME_TIMEOUT_MS = 5_000
 const FRAME_POLL_MS = 250
 
+/** The server's refusal of an offer, with the `reason` its envelope gives. */
+export class WhepRefusal extends Error {
+  constructor(
+    readonly status: number,
+    readonly reason: string | null,
+  ) {
+    super(`The offer was refused with status ${status}${reason == null ? '' : `, ${reason}`}.`)
+  }
+}
+
+/** A session the server answered that never connected or never brought a picture. */
+export class WhepSilence extends Error {}
+
+// Refusals that the same video meets on every try, where `full`, `source`, and `timeout` pass.
+const PERMANENT_REASONS = new Set(['disabled', 'not-live', 'codec', 'offer'])
+
+/** Whether `error` failing a first try means the video plays over HTTP for the page's life.
+
+Silence counts, since a network that drops UDP stays that way, while a refusal the server may lift
+on the next try falls back for that try alone.
+*/
+export function permanent(error: unknown) {
+  if (error instanceof WhepSilence) {
+    return true
+  }
+  if (error instanceof WhepRefusal) {
+    return error.status === 415 || (error.reason != null && PERMANENT_REASONS.has(error.reason))
+  }
+  return false
+}
+
 /** A procedure's camera playing over WebRTC. */
 export interface WhepSession {
   /** The camera's picture, for a video element's `srcObject`. */
@@ -59,7 +90,7 @@ export async function openWhep(
       signal: AbortSignal.any([signal, AbortSignal.timeout(OFFER_TIMEOUT_MS)]),
     })
     if (response.status !== 201) {
-      throw new Error(`The offer was refused with status ${response.status}.`)
+      throw new WhepRefusal(response.status, await refusalReason(response))
     }
 
     const answer = await response.text()
@@ -88,18 +119,28 @@ export async function openWhep(
   }
 }
 
+/** The `reason` a refusal's JSON envelope gives, `null` for any other body. */
+async function refusalReason(response: Response) {
+  try {
+    const { reason } = (await response.json()) as { reason?: unknown }
+    return typeof reason === 'string' ? reason : null
+  } catch {
+    return null
+  }
+}
+
 /** Resolves once `connection` is up, rejecting when it fails or takes too long. */
 function connected(connection: RTCPeerConnection) {
   return new Promise<void>((resolve, reject) => {
     const timer = setTimeout(
-      () => settle(new Error('The WebRTC connection did not come up.')),
+      () => settle(new WhepSilence('The WebRTC connection did not come up.')),
       CONNECT_TIMEOUT_MS,
     )
     const check = () => {
       if (connection.connectionState === 'connected') {
         settle()
       } else if (['failed', 'closed'].includes(connection.connectionState)) {
-        settle(new Error(`The WebRTC connection ${connection.connectionState}.`))
+        settle(new WhepSilence(`The WebRTC connection ${connection.connectionState}.`))
       }
     }
     const settle = (error?: Error) => {
@@ -130,7 +171,7 @@ async function firstFrame(connection: RTCPeerConnection) {
     await new Promise((resolve) => setTimeout(resolve, FRAME_POLL_MS))
   }
 
-  throw new Error('The WebRTC connection brought no picture.')
+  throw new WhepSilence('The WebRTC connection brought no picture.')
 }
 
 /** Which transport each video plays over, decided by its first try and kept for the page's

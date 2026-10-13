@@ -7,7 +7,13 @@ import { isMediaSourceSupported, isSafari } from '@/environment'
 import icons from '@/icons'
 import { useReconnectSchedule } from '@/reconnect'
 import { getHttpUrl } from '@/utilities'
-import { openWhep, useVideoTransports, type VideoTransport, type WhepSession } from '@/whep'
+import {
+  openWhep,
+  permanent,
+  useVideoTransports,
+  type VideoTransport,
+  type WhepSession,
+} from '@/whep'
 import { useWorkspace } from '@/workspace'
 import type { VideoWidget } from '@/workspace'
 
@@ -296,7 +302,9 @@ async function playWhep(target: string) {
 
     console.info(`Playing ${target} over HTTP. ${String(error)}`)
     transport = 'http'
-    transports.remember(target, 'http')
+    if (permanent(error)) {
+      transports.remember(target, 'http')
+    }
     if (widget.reconnect) {
       reconnect.begin()
     }

@@ -1,7 +1,7 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { openWhep, useVideoTransports } from '@/whep'
+import { openWhep, permanent, useVideoTransports, WhepRefusal, WhepSilence } from '@/whep'
 
 const ROUTE = 'http://engine/api/components/@camera/procedures/video/whep'
 
@@ -50,11 +50,14 @@ function peer({ state = 'connected', frames = 1 } = {}) {
   return peers
 }
 
-/** The engine answering every offer with `status`, recording each request. */
-function engine(status = 201) {
+/** The engine answering every offer with `status` and refusal `reason`, recording each request. */
+function engine(status = 201, reason = 'codec') {
   const fetch = vi.fn(async (_url: string, init: RequestInit) => {
     if (init.method === 'DELETE') {
       return new Response(null, { status: 200 })
+    }
+    if (status !== 201) {
+      return Response.json({ status, reason }, { status })
     }
 
     return new Response('answer', { status, headers: { location: `${ROUTE}/abcd` } })
@@ -99,11 +102,12 @@ describe('openWhep', () => {
     )
   })
 
-  it('rejects an offer the engine refuses', async () => {
+  it('rejects an offer the engine refuses with its status and reason', async () => {
     const peers = peer()
-    engine(409)
+    engine(409, 'codec')
 
-    await expect(open()).rejects.toThrow('409')
+    await expect(open()).rejects.toEqual(new WhepRefusal(409, 'codec'))
+    await expect(open()).rejects.toMatchObject({ status: 409, reason: 'codec' })
     expect(peers[0]?.closed).toBe(true)
   })
 
@@ -111,7 +115,7 @@ describe('openWhep', () => {
     peer({ state: 'connecting' })
     const fetch = engine()
 
-    const opening = expect(open()).rejects.toThrow('did not come up')
+    const opening = expect(open()).rejects.toThrow(WhepSilence)
     await vi.advanceTimersByTimeAsync(5000)
     await opening
     expect(fetch).toHaveBeenLastCalledWith(
@@ -124,9 +128,27 @@ describe('openWhep', () => {
     peer({ frames: 0 })
     engine()
 
-    const opening = expect(open()).rejects.toThrow('no picture')
+    const opening = expect(open()).rejects.toThrow(WhepSilence)
     await vi.advanceTimersByTimeAsync(5000)
     await opening
+  })
+})
+
+describe('permanent', () => {
+  it('holds for silence and for refusals every try meets', () => {
+    expect(permanent(new WhepSilence())).toBe(true)
+    for (const reason of ['disabled', 'not-live', 'codec', 'offer']) {
+      expect(permanent(new WhepRefusal(409, reason))).toBe(true)
+    }
+    expect(permanent(new WhepRefusal(415, null))).toBe(true)
+  })
+
+  it('passes for refusals a later try may not meet', () => {
+    for (const reason of ['full', 'source', 'timeout']) {
+      expect(permanent(new WhepRefusal(503, reason))).toBe(false)
+    }
+    expect(permanent(new WhepRefusal(500, null))).toBe(false)
+    expect(permanent(new TypeError('Failed to fetch'))).toBe(false)
   })
 })
 

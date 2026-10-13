@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 
 import CWorkspaceWidgetVideo from '@/components/c-workspace-widget-video.vue'
+import { WhepRefusal } from '@/whep'
 import { VideoWidgetModel } from '@/workspace/models'
 
 vi.mock('@/api/engine', () => ({
@@ -34,7 +35,8 @@ function webrtc(opens: () => Promise<unknown>) {
 }
 
 const session = () => Promise.resolve({ stream: null, close: () => {} })
-const refused = () => Promise.reject(new Error('The offer was refused with status 409.'))
+const refused = () => Promise.reject(new WhepRefusal(409, 'codec'))
+const full = () => Promise.reject(new WhepRefusal(503, 'full'))
 
 function render(reconnect: boolean) {
   const widget = VideoWidgetModel.parse({
@@ -93,6 +95,18 @@ describe('c-workspace-widget-video', () => {
     await flushPromises()
     expect(second.find('[data-transport]').text()).toBe('HTTP')
     expect(openWhep).toHaveBeenCalledTimes(1)
+  })
+
+  it('falls back to HTTP for one try when the engine is full', async () => {
+    webrtc(full)
+    const first = render(false)
+    await flushPromises()
+    expect(first.find('[data-transport]').text()).toBe('HTTP')
+
+    webrtc(session)
+    const second = render(false)
+    await flushPromises()
+    expect(second.find('[data-transport]').text()).toBe('WebRTC')
   })
 
   it('stays on WebRTC when a session that played is lost', async () => {
