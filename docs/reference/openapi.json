@@ -737,6 +737,79 @@
         ]
       }
     },
+    "/api/components/{id}/procedures/{second}/whep": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "second",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
+        "summary": "Play a procedure's live video over WebRTC, access checked by the operation.",
+        "tags": [
+          "procedures"
+        ]
+      }
+    },
+    "/api/components/{id}/procedures/{second}/whep/{session}": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "second",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "session",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
+        "summary": "End a WebRTC session.",
+        "tags": [
+          "procedures"
+        ]
+      }
+    },
     "/api/components/{id}/queries": {
       "get": {
         "parameters": [
@@ -2446,6 +2519,9 @@
       "name": "statuses"
     },
     {
+      "name": "procedures"
+    },
+    {
       "name": "messages"
     },
     {
@@ -2483,9 +2559,6 @@
     },
     {
       "name": "components"
-    },
-    {
-      "name": "procedures"
     },
     {
       "name": "queries"

@@ -510,7 +510,8 @@ class NativeServer:
 
         The HTTPS listener issues a managed certificate first when it is due and renews it
         while serving, telling `log` what it issued and when renewal fails. Either listener
-        offers the managed certificate's authority at `/ca.crt`.
+        offers the managed certificate's authority at `/ca.crt`, and both share one WebRTC
+        media port, telling `log` when it cannot be bound.
         """
     @staticmethod
     def redirect(config: ServerConfig, https_port: int) -> NativeServer:

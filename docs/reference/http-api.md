@@ -153,6 +153,8 @@ caller themselves against the resource they name.
 | `GET` | `/api/components/{id}/procedures/{second}` | required | Fetch one procedure binding. |
 | `GET` | `/api/components/{id}/procedures/{second}/call` | optional | Call a procedure with query arguments, access checked by the operation. |
 | `POST` | `/api/components/{id}/procedures/{second}/call` | optional | Call a procedure with body arguments, access checked by the operation. |
+| `POST` | `/api/components/{id}/procedures/{second}/whep` | optional | Play a procedure's live video over WebRTC, access checked by the operation. |
+| `DELETE` | `/api/components/{id}/procedures/{second}/whep/{session}` | optional | End a WebRTC session. |
 
 ## Queries
 
