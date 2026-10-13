@@ -227,8 +227,21 @@ impl EventLoop {
                     None => break,
                 },
                 Some((id, read)) = self.reads_receiver.recv() => self.read(&id, read),
-                Ok(()) = self.sockets.v4.readable() => self.receive(false),
-                Ok(()) = readable(self.sockets.v6.as_ref()) => self.receive(true),
+                ready = self.sockets.v4.readable() => match ready {
+                    Ok(()) => self.receive(false),
+                    Err(error) => {
+                        log::error!("WebRTC media stopped, its IPv4 socket failed: {error}");
+                        break;
+                    }
+                },
+                ready = readable(self.sockets.v6.as_ref()) => match ready {
+                    Ok(()) => self.receive(true),
+                    Err(error) => {
+                        log::error!("WebRTC media over IPv6 stopped, its socket failed: {error}");
+                        self.sockets.v6 = None;
+                        self.v6_buffers = None;
+                    }
+                },
                 () = sleep_until(deadline) => self.timeouts(),
             }
         }
