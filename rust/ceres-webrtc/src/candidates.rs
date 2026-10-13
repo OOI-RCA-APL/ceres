@@ -9,14 +9,26 @@ use str0m::Candidate;
 ///
 /// A configured host that is not a local address, such as the public address of a host
 /// behind NAT, is offered as server reflexive, since datagrams sent to it arrive at a local
-/// address and str0m answers only at a host candidate's address.
-pub(crate) fn candidates(port: u16, local: &[IpAddr], hosts: &[IpAddr]) -> Vec<Candidate> {
+/// address and str0m answers only at a host candidate's address. IPv6 addresses are offered
+/// only when `v6` says the port has an IPv6 socket to arrive at.
+pub(crate) fn candidates(
+    port: u16,
+    local: &[IpAddr],
+    hosts: &[IpAddr],
+    v6: bool,
+) -> Vec<Candidate> {
+    let reachable = |ip: &&IpAddr| ip.is_ipv4() || v6;
     let mut offered: Vec<Candidate> = local
         .iter()
+        .filter(reachable)
         .filter(|ip| !link_local(**ip))
         .filter_map(|ip| Candidate::host(SocketAddr::new(*ip, port), "udp").ok())
         .collect();
-    for host in hosts.iter().filter(|host| !local.contains(host)) {
+    for host in hosts
+        .iter()
+        .filter(reachable)
+        .filter(|host| !local.contains(host))
+    {
         let base = offered
             .iter()
             .map(Candidate::addr)
@@ -63,11 +75,27 @@ mod tests {
     use super::*;
 
     fn offered(local: &[&str], hosts: &[&str]) -> Vec<String> {
+        offered_over(true, local, hosts)
+    }
+
+    fn offered_over(v6: bool, local: &[&str], hosts: &[&str]) -> Vec<String> {
         let parse = |ips: &[&str]| ips.iter().map(|ip| ip.parse().unwrap()).collect::<Vec<_>>();
-        candidates(8189, &parse(local), &parse(hosts))
+        candidates(8189, &parse(local), &parse(hosts), v6)
             .iter()
             .map(|candidate| format!("{:?} {}", candidate.kind(), candidate.addr()))
             .collect()
+    }
+
+    #[test]
+    fn without_an_ipv6_socket_only_ipv4_is_offered() {
+        assert_eq!(
+            offered_over(
+                false,
+                &["10.0.0.2", "fd00::2"],
+                &["203.0.113.5", "2001:db8::5"]
+            ),
+            ["Host 10.0.0.2:8189", "ServerReflexive 203.0.113.5:8189"]
+        );
     }
 
     #[test]

@@ -60,6 +60,8 @@ pub struct WebrtcServer {
     crypto: Arc<CryptoProvider>,
     hosts: Vec<IpAddr>,
     port: u16,
+    /// Whether the port has an IPv6 socket, without which IPv6 candidates reach nothing.
+    v6: bool,
 }
 
 enum Command {
@@ -77,6 +79,7 @@ impl WebrtcServer {
     pub fn bind(config: &ServerWebrtcConfig) -> io::Result<Self> {
         let sockets = MediaSockets::bind(config.port)?;
         let port = sockets.port();
+        let v6 = sockets.v6.is_some();
         let max_sessions = usize::try_from(config.max_sessions).unwrap_or(usize::MAX);
         let (commands, receiver) = mpsc::channel(max_sessions.min(64));
         tokio::spawn(EventLoop::new(sockets, max_sessions).run(receiver));
@@ -87,6 +90,7 @@ impl WebrtcServer {
             crypto: Arc::new(str0m::crypto::from_feature_flags()),
             hosts: config.hosts.clone(),
             port,
+            v6,
         })
     }
 
@@ -120,7 +124,7 @@ impl WebrtcServer {
         }
 
         let mut rtc = self.rtc();
-        for candidate in candidates(self.port, &local_addresses(), &self.hosts) {
+        for candidate in candidates(self.port, &local_addresses(), &self.hosts, self.v6) {
             rtc.add_local_candidate(candidate);
         }
         let answer = rtc
