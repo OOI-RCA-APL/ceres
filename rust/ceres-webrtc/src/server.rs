@@ -132,11 +132,7 @@ impl WebrtcServer {
             .accept_offer(offer)
             .map_err(|error| WebrtcError::Offer(error.to_string()))?;
         let id = uuid::Uuid::new_v4().to_string();
-        let Some(session) = Session::new(id.as_str().into(), rtc, mid, stream, track, slot) else {
-            return Err(WebrtcError::Codec(
-                "the offer has no H.264 video to answer".into(),
-            ));
-        };
+        let session = Session::new(id.as_str().into(), rtc, mid, stream, track, slot)?;
         // The event loop ends only with the server, which `self` keeps alive.
         let _ = self.commands.send(Command::Open(Box::new(session))).await;
         Ok(WebrtcAnswer {

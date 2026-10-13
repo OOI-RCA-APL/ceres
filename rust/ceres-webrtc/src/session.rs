@@ -10,6 +10,7 @@ use str0m::media::{Direction, MediaTime, Mid, Pt};
 use str0m::{Event, IceConnectionState, Input, Output, Rtc};
 use tokio::sync::OwnedSemaphorePermit;
 
+use crate::WebrtcError;
 use crate::h264::with_parameter_sets;
 use crate::socket::MediaSockets;
 
@@ -49,8 +50,7 @@ pub(crate) struct Session {
 }
 
 impl Session {
-    /// Returns a session sending `track` over the `mid` video `rtc` answered, or `None` when the
-    /// answer agreed on no H.264 to send it as.
+    /// Returns a session sending `track` over the `mid` video `rtc` answered.
     pub(crate) fn new(
         id: SessionId,
         mut rtc: Rtc,
@@ -58,13 +58,17 @@ impl Session {
         stream: Arc<PacketStream>,
         track: Arc<OwnedTrack>,
         slot: OwnedSemaphorePermit,
-    ) -> Option<Self> {
+    ) -> Result<Self, WebrtcError> {
         let pt = rtc
-            .writer(mid)?
-            .payload_params()
-            .find(|params| is_sendable(params))?
-            .pt();
-        Some(Self {
+            .writer(mid)
+            .and_then(|writer| {
+                let mut params = writer.payload_params();
+                params
+                    .find(|params| is_sendable(params))
+                    .map(PayloadParams::pt)
+            })
+            .ok_or_else(|| WebrtcError::Codec("the answer agreed on no H.264 payload".into()))?;
+        Ok(Self {
             id,
             rtc,
             stream,
