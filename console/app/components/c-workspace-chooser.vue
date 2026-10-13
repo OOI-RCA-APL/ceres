@@ -205,7 +205,7 @@ function onSelect(item: CommandPaletteItem & { workspace?: Workspace }) {
       class="max-h-[210px]"
       :groups
       placeholder="Workspaces"
-      :ui="{ label: 'px-2 pt-1 pb-0' }"
+      :ui="{ label: 'px-2 pt-1 pb-1' }"
       @update:model-value="onSelect"
     >
       <!-- Named for the tree's groups alone, since the palette draws a label row, padding and all,
