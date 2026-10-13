@@ -53,6 +53,52 @@ impl RemuxSource for RtspSource {
     }
 }
 
+/// A live RTSP camera and how a shared connection to it is held.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LiveSource {
+    pub url: String,
+    /// `tcp` or `udp`.
+    pub transport: String,
+    pub copy: bool,
+    pub reconnect: bool,
+    pub stall_timeout: Option<Duration>,
+}
+
+impl LiveSource {
+    /// The key of the shared connection this source's streams join.
+    ///
+    /// It leaves out `reconnect`, which each stream applies on its own, so streams differing
+    /// only there still share one camera connection.
+    pub fn key(&self) -> String {
+        let Self {
+            url,
+            transport,
+            copy,
+            stall_timeout,
+            ..
+        } = self;
+        format!("{transport} {copy} {stall_timeout:?} {url}")
+    }
+
+    /// The connection this source opens.
+    pub fn connection(&self) -> RtspSource {
+        RtspSource {
+            url: self.url.clone(),
+            transport: self.transport.clone(),
+        }
+    }
+
+    /// The default remux options with this source's own in place.
+    pub fn options(&self) -> RemuxOptions {
+        RemuxOptions {
+            copy: self.copy,
+            reconnect: self.reconnect,
+            stall_timeout: self.stall_timeout,
+            ..RemuxOptions::default()
+        }
+    }
+}
+
 /// The delay between reconnect attempts.
 #[derive(Debug, Clone, Copy)]
 pub struct RemuxBackoff {

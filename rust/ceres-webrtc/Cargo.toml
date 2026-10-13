@@ -1,0 +1,30 @@
+[package]
+name = "ceres-webrtc"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Live video from a ceres media source to browsers over WebRTC"
+
+[dependencies]
+ceres-config = { path = "../ceres-config" }
+ceres-media = { path = "../ceres-media" }
+if-addrs = "0.15"
+log = "0.4"
+# Reads each datagram's destination address and sends from the address str0m names, which a
+# socket bound to the wildcard address cannot do through the standard library.
+quinn-udp = { version = "0.6", default-features = false, features = ["log"] }
+socket2 = "0.6"
+# `rust-crypto` runs DTLS and SRTP in pure Rust. Its certificate generation still builds
+# `aws-lc-sys` through `dimpl`'s `rcgen` feature.
+str0m = { version = "0.24", default-features = false, features = ["rust-crypto"] }
+thiserror = "2"
+tokio = { version = "1", default-features = false, features = ["macros", "net", "rt", "sync", "time"] }
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+ceres-media = { path = "../ceres-media", features = ["server"] }
+tokio = { version = "1", default-features = false, features = ["macros", "net", "rt", "rt-multi-thread", "sync", "time"] }
+
+[lints]
+workspace = true

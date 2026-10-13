@@ -3,7 +3,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use ceres_media::{RemuxOptions, RemuxStream, RtspSource, StreamItem, StreamNotice};
+use ceres_media::{LiveSource, RemuxOptions, RemuxStream, StreamItem, StreamNotice};
 use pyo3::exceptions::{PyConnectionError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
@@ -96,20 +96,23 @@ impl RtspStream {
                 "transport must be \"tcp\" or \"udp\", not {transport:?}"
             )));
         }
-        let options = RemuxOptions {
+        let live = LiveSource {
+            url,
+            transport,
             copy,
-            fragment_duration: seconds("fragment_duration", fragment_duration)?,
-            dash,
             reconnect,
             stall_timeout: stall_timeout
                 .map(|timeout| seconds("stall_timeout", timeout))
                 .transpose()?,
-            ..RemuxOptions::default()
         };
-        let key = format!("{transport} {copy} {stall_timeout:?} {url}");
-        let source = || RtspSource { url, transport };
+        let options = RemuxOptions {
+            fragment_duration: seconds("fragment_duration", fragment_duration)?,
+            dash,
+            ..live.options()
+        };
+        let source = || live.connection();
         Ok(Self {
-            stream: Arc::new(RemuxStream::shared(key, source, options)),
+            stream: Arc::new(RemuxStream::shared(live.key(), source, options)),
         })
     }
 

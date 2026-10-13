@@ -19,8 +19,8 @@ pub use error::MediaError;
 pub use input::{Interrupt, MediaInput, MediaPacket, PacketTiming};
 pub use output::{MediaCodec, MediaOutput, MediaSink, MediaTrack, OwnedTrack};
 pub use remux::{
-    PacketItem, PacketStream, RemuxBackoff, RemuxOptions, RemuxSource, RemuxStream, RtspSource,
-    StreamItem, StreamNotice,
+    LiveSource, PacketItem, PacketStream, RemuxBackoff, RemuxOptions, RemuxSource, RemuxStream,
+    RtspSource, StreamItem, StreamNotice,
 };
 #[cfg(any(test, feature = "server"))]
 pub use server::{RTSP_CLIPS, RtspServer, RtspServerOptions};
