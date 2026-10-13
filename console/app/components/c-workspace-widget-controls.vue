@@ -75,7 +75,7 @@ function duplicateButton(at: number) {
   <div
     :class="
       widget.buttons.length > 0
-        ? ['group/bar flex flex-wrap items-center justify-center gap-x-1.5 gap-y-5']
+        ? ['group/bar flex flex-wrap items-center justify-center gap-x-1.5 gap-y-3']
         : ['flex min-h-[34px] flex-col items-center justify-center']
     "
   >

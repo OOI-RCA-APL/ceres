@@ -489,10 +489,12 @@ const tooltip = $computed(() => {
       </c-popover>
       <c-dropdown-menu :items="menuItems">
         <!-- The dots wait just under the button rather than beside or over it, so a bar of
-        buttons is a bar of buttons and arranging one costs no room until it is reached for. -->
+        buttons is a bar of buttons and arranging one costs no room until it is reached for. The
+        short clipped box trims the icon's empty top so the dots sit close without covering it. -->
         <c-button
           :class="[
-            'absolute top-[calc(100%+2px)] left-1/2 z-1 min-h-0 -translate-x-1/2 px-[3px] py-0',
+            'absolute top-full left-1/2 z-1 h-2.5 min-h-0 -translate-x-1/2 overflow-hidden',
+            'px-[3px] py-0',
             'opacity-0 transition-opacity duration-150',
             'group-hover/control:opacity-50 hover:opacity-100! focus:opacity-100!',
             isShowingMenu && 'opacity-100!',
