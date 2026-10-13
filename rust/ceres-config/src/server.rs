@@ -713,11 +713,12 @@ pub struct RawServerWebrtcConfig {
     /// Whether live video is offered over WebRTC, true when omitted.
     pub enabled: Option<bool>,
 
-    /// UDP port every WebRTC session's media passes through, 8189 when omitted.
+    /// UDP port every WebRTC session's media passes through, 8189 when omitted. When the
+    /// port cannot be bound the server logs it and video plays over HTTP.
     pub port: Option<u16>,
 
     /// Addresses browsers are told to reach the media port at, besides those of every
-    /// non-loopback interface, such as the public address of a host behind NAT.
+    /// interface, such as the public address of a host behind NAT.
     pub hosts: Option<Vec<IpAddr>>,
 
     /// Most WebRTC sessions served at once, 32 when omitted.
