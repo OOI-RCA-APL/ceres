@@ -47,12 +47,8 @@ function* widgetsIn(layout: unknown): Generator<Raw> {
 }
 
 function pin(value: unknown, scope: Address): unknown {
-  if (typeof value !== 'string') {
+  if (typeof value !== 'string' || value === '') {
     return value
-  }
-
-  if (value === '') {
-    return scope.isEngine ? value : scope.toString()
   }
 
   // The server reads a bare `all` as `:all` before resolving it, which `asAbsolute` does not.
@@ -116,8 +112,8 @@ function pinWidget(widget: Raw, scope: Address) {
 /** A copy of `data` as raw JSON, with every relative widget address resolved against `scope`.
 
 Mirrors the server's `pin_widget_addresses`, which a change of placement runs on its own. A copy
-made elsewhere is a new workspace, so it is pinned here before it is created. An unset address is
-left unset, since it stands for whatever placement the workspace has.
+made elsewhere is a new workspace, so it is pinned here before it is created. An unset or empty
+address is left as it is, since it stands for whatever placement the workspace has.
 */
 export function pinWidgetAddresses(data: WorkspaceData, scope: Address): Raw {
   const raw = JSON.parse(JSON.stringify(data)) as Raw

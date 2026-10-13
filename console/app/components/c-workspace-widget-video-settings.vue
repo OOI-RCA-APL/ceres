@@ -2,6 +2,7 @@
 import { watch } from 'vue'
 
 import { useEngine } from '@/api/engine'
+import { useWorkspace } from '@/workspace'
 import type { VideoWidget } from '@/workspace'
 
 const { widget } = defineProps<{
@@ -9,6 +10,24 @@ const { widget } = defineProps<{
 }>()
 
 const engine = useEngine()
+const workspace = useWorkspace()
+
+// The options name each query by its full address, so a stored relative or default address is
+// shown by the full one it resolves to, and the option it matches stays selected.
+const query = $computed({
+  get: () => {
+    const at = widget.query?.indexOf('::') ?? -1
+    if (widget.query == null || at < 0) {
+      return widget.query
+    }
+
+    const address = workspace.resolveAddress(widget.query.slice(0, at))
+    return address == null ? widget.query : `${address}${widget.query.slice(at)}`
+  },
+  set: (value: string | null | undefined) => {
+    widget.query = value
+  },
+})
 
 const possibleQueryNames = $computed(() =>
   engine.components.all.flatMap((component) =>
@@ -50,7 +69,7 @@ watch(
   <c-workspace-widget-settings :widget>
     <div class="flex flex-col gap-2">
       <c-schema-form-value
-        v-model="widget.query"
+        v-model="query"
         :schema="{
           type: 'string',
           title: 'Video Query',

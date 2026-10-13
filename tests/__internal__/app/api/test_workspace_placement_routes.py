@@ -575,9 +575,9 @@ async def test_moving_a_workspace_pins_its_relative_widget_addresses() -> None:
     assert edit is not None
     for pinned in (moved.data, edit.data):
         a, b, c, d, e = pinned["layout"][0]["widgets"]
-        assert [button["address"] for button in a["buttons"]] == ["@rig", "@other"]
+        assert [button["address"] for button in a["buttons"]] == ["", "@other"]
         assert b["procedureAddress"] == "@rig.arm"
-        assert c["query"] == "@rig::queries::video"
+        assert c["query"] == "::queries::video"
         assert d["filter"]["address"] == "@rig:all"
         assert e["particleAddress"] is None
 

@@ -357,3 +357,22 @@ def test_pin_widget_addresses_reaches_a_widget_on_a_tab_page() -> None:
 
     page = pinned["layout"][0]["widgets"][0]["tabs"][0]
     assert page["layout"][0]["widgets"][0]["address"] == "@rig.arm"
+
+
+def test_pin_widget_addresses_leaves_a_default_address_following_the_workspace() -> None:
+    data = {
+        "layout": [
+            {
+                "widgets": [
+                    {"id": "a", "type": "button", "buttons": [{"address": ""}]},
+                    {"id": "b", "type": "procedures", "procedureAddress": None},
+                ]
+            }
+        ]
+    }
+
+    pinned = pin_widget_addresses(data, Address("@rig"))
+
+    a, b = pinned["layout"][0]["widgets"]
+    assert a["buttons"][0]["address"] == ""
+    assert b["procedureAddress"] is None

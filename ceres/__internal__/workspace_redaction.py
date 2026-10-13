@@ -180,11 +180,8 @@ def redact_workspace_data(
 
 def _pin(value: Any, scope: Address) -> Any:
     """Resolve one relative address value against `scope`, leaving anything else as it was."""
-    if not isinstance(value, str):
+    if not isinstance(value, str) or value == "":
         return value
-
-    if value == "":
-        return value if scope.is_engine else str(scope)
 
     try:
         return str(AddressSelector(value).as_absolute(scope))
@@ -219,8 +216,9 @@ def pin_widget_addresses(data: dict[str, Any], scope: Address) -> dict[str, Any]
 
     A relative address means something only against the placement it was written on, so a
     workspace leaving that placement keeps pointing at the same components once its addresses
-    are absolute. An unset address is left unset, since it stands for whatever placement the
-    workspace has rather than for a component. Values that fail to parse are left alone.
+    are absolute. An unset or empty address is left as it is, since it stands for whatever
+    placement the workspace has rather than for a component. Values that fail to parse are left
+    alone.
     """
     result = deepcopy(data)
     for widgets, index in _iter_widget_slots(result):

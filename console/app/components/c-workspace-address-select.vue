@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import { createReusableTemplate } from '@vueuse/core'
 import { watch } from 'vue'
 
 import { useEngine } from '@/api/engine'
@@ -81,10 +82,29 @@ const options = $computed<Option[]>(() => {
     })
 })
 
-const selected = $computed(() => options.find((option) => option.value === modelValue))
+// An unset value follows the workspace's own component, so it shows as that default row rather
+// than as an empty field, and picking the default row unsets it again.
+const selected = $computed(() =>
+  modelValue == null
+    ? options.find((option) => option.isDefault)
+    : options.find((option) => option.value === modelValue),
+)
+
+function choose(option: Option | undefined) {
+  emit('update:modelValue', option == null || option.isDefault ? null : option.value)
+}
+
+const [DefineOptionLabel, OptionLabel] = createReusableTemplate<{ option: Option }>()
 </script>
 
 <template>
+  <DefineOptionLabel v-slot="{ option }">
+    <template v-if="option.isDefault">
+      <span class="opacity-80">{{ option.label }}</span>
+      <span class="ml-1.5 opacity-55">(Default)</span>
+    </template>
+    <template v-else>{{ option.label }}</template>
+  </DefineOptionLabel>
   <div class="flex items-center gap-2">
     <div class="min-w-0 grow">
       <c-text class="text-muted mb-1" variant="mono-sm">Component</c-text>
@@ -95,16 +115,17 @@ const selected = $computed(() => options.find((option) => option.value === model
         placeholder="Component"
         :search-input="{ placeholder: 'Filter...' }"
         size="sm"
-        @update:model-value="
-          (option: Option | undefined) => emit('update:modelValue', option?.value ?? null)
-        "
+        @update:model-value="choose"
       >
+        <!-- The field reads exactly as the row it stands for, the default one included. -->
+        <template #default="{ ui }">
+          <span v-if="selected != null" :class="ui.value()" data-slot="value">
+            <OptionLabel :option="selected" />
+          </span>
+          <span v-else :class="ui.placeholder()" data-slot="placeholder">Component</span>
+        </template>
         <template #item-label="{ item }">
-          <template v-if="item.isDefault">
-            <span class="opacity-80">{{ item.label }}</span>
-            <span class="ml-1.5 opacity-55">(Default)</span>
-          </template>
-          <template v-else>{{ item.label }}</template>
+          <OptionLabel :option="item" />
         </template>
         <template #trailing>
           <c-button

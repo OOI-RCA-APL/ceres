@@ -2,7 +2,13 @@ import { omit, orderBy } from 'lodash-es'
 import { v7 } from 'uuid'
 import * as z from 'zod'
 
-import { Address, AddressModel, AddressSelectorModel, engineRoot } from '@/api/address'
+import {
+  Address,
+  AddressModel,
+  AddressSelector,
+  AddressSelectorModel,
+  engineRoot,
+} from '@/api/address'
 import { AlertFilterModel } from '@/api/alerts'
 import { ProcedureTypeModel } from '@/api/components'
 import { LogEntryFilterModel } from '@/api/logs'
@@ -698,6 +704,22 @@ export const WorkspaceEditModel = z.object({
   workspace_id: z.string(),
   data: WorkspaceDataModel,
 })
+
+/** The absolute address a widget's component field names in a workspace placed at `scope`.
+
+An unset or empty field names the workspace's own component, wherever the workspace is, and
+nothing in a workspace at the engine root.
+*/
+export function resolveWidgetAddress(
+  value: string | AddressSelector | null | undefined,
+  scope: Address | null,
+): AddressSelector | null {
+  if (value == null || value.toString() === '') {
+    return scope != null && !scope.isEngine ? AddressSelector.parse(scope.toString()) : null
+  }
+
+  return AddressSelector.parse(value).asAbsolute(scope)
+}
 
 /** The one component a widget is pointed at, or null when it is pointed at none.
 

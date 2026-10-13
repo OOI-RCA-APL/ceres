@@ -111,16 +111,20 @@ const key = $computed(() => {
 })
 
 // The address of the one component the widget is a view of, resolved through the scope, or null
-// when it is a view of none.
+// when it is a view of none or of the workspace's own component, whose page holds the workspace.
 const targetAddress = $computed(() => {
   const raw = widgetTargetSelector(widget)
   if (raw == null) {
     return null
   }
 
-  const resolved = workspace.resolveAddress(raw)
-  const text = resolved?.toString() ?? null
-  return text != null && text.startsWith('@') && !text.includes(':') ? text : null
+  const text = workspace.resolveAddress(raw)?.toString() ?? null
+  return text != null &&
+    text.startsWith('@') &&
+    !text.includes(':') &&
+    text !== workspace.scope?.toString()
+    ? text
+    : null
 })
 
 // A press on the header either picks the widget out or takes hold of it. Held with a modifier it

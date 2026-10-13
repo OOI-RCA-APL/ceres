@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { Address } from '@/api/address'
 import { isStructurallyEqual } from '@/utilities'
 import {
   ChartWidgetModel,
@@ -9,9 +10,30 @@ import {
   defaultWidgetName,
   type MeterWidget,
   pagesOf,
+  resolveWidgetAddress,
   type Widget,
   WorkspaceDataModel,
 } from '@/workspace'
+
+describe('resolveWidgetAddress', () => {
+  const resolved = (value: string | null, scope: string) =>
+    resolveWidgetAddress(value, Address.parse(scope))?.toString() ?? null
+
+  it("defaults an unset or empty field to the workspace's component", () => {
+    expect(resolved(null, '@rig')).toBe('@rig')
+    expect(resolved('', '@rig')).toBe('@rig')
+  })
+
+  it('defaults to nothing at the engine root', () => {
+    expect(resolved(null, '~')).toBeNull()
+    expect(resolved('', '~')).toBeNull()
+  })
+
+  it('resolves a relative field under the workspace and keeps an absolute one', () => {
+    expect(resolved('arm', '@rig')).toBe('@rig.arm')
+    expect(resolved('@other', '@rig')).toBe('@other')
+  })
+})
 
 describe('defaultWidgetName', () => {
   it('says what each kind is called before anything is made of it', () => {

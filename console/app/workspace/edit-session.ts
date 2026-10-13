@@ -45,6 +45,7 @@ import {
 import {
   comparableWorkspaceData,
   type PagesWidgetType,
+  resolveWidgetAddress,
   widgetWidthSubdivisions,
   withoutMeta,
   type Widget,
@@ -149,19 +150,15 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     return access.canManage(workspace.scope.toString())
   }
 
-  function resolveAddress(
-    value: string | AddressSelector | null | undefined,
-  ): AddressSelector | null {
-    if (value == null) {
-      return null
-    }
-
-    return AddressSelector.parse(value).asAbsolute(scope)
-  }
-
   // Whether this workspace is bound to a component rather than the engine root. The root
   // contains every component so a workspace placed there restricts nothing.
   const isBound = $computed(() => scope != null && !scope.isEngine)
+
+  function resolveAddress(
+    value: string | AddressSelector | null | undefined,
+  ): AddressSelector | null {
+    return resolveWidgetAddress(value, scope)
+  }
 
   /** Whether an address falls within this workspace's placement.
    *

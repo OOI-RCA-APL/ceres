@@ -42,12 +42,12 @@ let isMeantToPlay = $ref(false)
 // Whether a pause or reload in flight is the widget's own doing rather than the viewer's.
 let isReloading = false
 
-// The query field encodes a component address as `@component::queries::name` (or a relative
-// address in place of `@component` inside a scoped workspace). Only the leading address portion
-// resolves through the scope, the rest names a query on that component.
+// The query field encodes a component address as `@component::queries::name`, a relative address
+// or nothing in place of `@component` naming one under or at the workspace's own component. Only
+// the leading address portion resolves, the rest names a query on that component.
 const queryComponent = $computed(() => {
   const raw = widget.query?.split('::')?.[0]
-  if (raw == null || raw === '') {
+  if (raw == null) {
     return null
   }
 

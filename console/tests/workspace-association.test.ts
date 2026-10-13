@@ -13,7 +13,7 @@ function widgetsOf(raw: Record<string, unknown>) {
 }
 
 describe('pinWidgetAddresses', () => {
-  it('resolves every relative address against the old placement', () => {
+  it('resolves every relative address against the old placement, leaving defaults to follow', () => {
     const data = dataOf(
       { id: 'a', type: 'controls', buttons: [{ address: '' }, { address: '@other' }] },
       { id: 'b', type: 'procedures', procedureAddress: 'arm' },
@@ -25,11 +25,11 @@ describe('pinWidgetAddresses', () => {
     const [a, b, c, d, e] = widgetsOf(pinWidgetAddresses(data, Address.parse('@rig')))
 
     expect((a!.buttons as { address: string }[]).map((button) => button.address)).toEqual([
-      '@rig',
+      '',
       '@other',
     ])
     expect(b!.procedureAddress).toBe('@rig.arm')
-    expect(c!.query).toBe('@rig::queries::video')
+    expect(c!.query).toBe('::queries::video')
     expect((d!.filter as { address: string }).address).toBe('@rig:all')
     expect(e!.particleAddress).toBeNull()
   })
