@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use ceres_config::ServerWebrtcConfig;
 use ceres_media::{RtspServer, RtspServerOptions};
-use ceres_webrtc::{LiveSource, WebrtcError, WebrtcServer};
+use ceres_webrtc::{LiveSource, NO_ICE_TIMEOUT, WebrtcError, WebrtcServer};
 use str0m::change::{SdpAnswer, SdpPendingOffer};
 use str0m::media::{Direction, MediaKind};
 use str0m::net::{Protocol, Receive};
@@ -55,6 +55,18 @@ async fn a_browser_connecting_late_starts_from_the_picture_held_for_it() {
 
     let picture = tokio::task::spawn_blocking(move || browser.first_picture());
     assert_eq!(picture.await.unwrap(), Some(true));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_browser_that_never_connects_gives_up_its_slot() {
+    let camera = camera("h264");
+    let server = server(1);
+    let (_silent, offer) = Browser::offer();
+    let answer = server.open(source(&camera), &offer).await.unwrap();
+    tokio::time::sleep(NO_ICE_TIMEOUT + Duration::from_secs(1)).await;
+    assert!(!server.close(&answer.id).await);
+    let (_next, offer) = Browser::offer();
+    server.open(source(&camera), &offer).await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]

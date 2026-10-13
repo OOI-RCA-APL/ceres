@@ -1,7 +1,7 @@
 //! One browser's connection, fed the packets of one live source.
 
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use ceres_media::{MediaCodec, MediaPacket, OwnedTrack, PacketItem, PacketStream};
 use str0m::change::SdpOffer;
@@ -19,6 +19,10 @@ use crate::socket::MediaSockets;
 /// A large keyframe packetizes to a few hundred datagrams, well under it.
 const MAX_OUTPUTS: usize = 8192;
 
+/// How long a session waits for its browser to connect, since a browser that never does
+/// holds a slot and a source connection until then.
+pub const NO_ICE_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// A session's ID, shared with the thread reading its packets.
 pub(crate) type SessionId = Arc<str>;
 
@@ -31,6 +35,7 @@ pub(crate) struct Session {
     track: Arc<OwnedTrack>,
     /// When str0m next expects a timeout input.
     pub(crate) timeout: Instant,
+    opened: Instant,
     connected: bool,
     /// The packets since the source's last keyframe, held until the browser connects, since
     /// str0m sends media written before then late and the picture can start only at a keyframe.
@@ -67,6 +72,7 @@ impl Session {
             pt,
             track,
             timeout: Instant::now(),
+            opened: Instant::now(),
             connected: false,
             pending: Vec::new(),
             pending_bytes: 0,
@@ -83,10 +89,22 @@ impl Session {
             log::warn!("WebRTC session {} failed: {error}", self.id);
             return false;
         }
+        let connect_by = self.opened + NO_ICE_TIMEOUT;
+        if !self.connected && Instant::now() >= connect_by {
+            log::info!(
+                "WebRTC session {} ended, its browser did not connect within {NO_ICE_TIMEOUT:?}",
+                self.id
+            );
+            return false;
+        }
         for _ in 0..MAX_OUTPUTS {
             match self.rtc.poll_output() {
                 Ok(Output::Timeout(timeout)) => {
-                    self.timeout = timeout;
+                    self.timeout = if self.connected {
+                        timeout
+                    } else {
+                        timeout.min(connect_by)
+                    };
                     return self.rtc.is_alive();
                 }
                 Ok(Output::Transmit(transmit)) => {
