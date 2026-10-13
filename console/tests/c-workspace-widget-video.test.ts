@@ -77,4 +77,31 @@ describe('c-workspace-widget-video', () => {
     await video.find('video').trigger('loadeddata')
     expect(video.text()).not.toContain('Reconnecting')
   })
+
+  it('jumps a live picture that has fallen behind back to the newest frame', () => {
+    const element = playing(render(false), { currentTime: 10, newest: 20 })
+    vi.advanceTimersByTime(1000)
+    expect(element.currentTime).toBe(19.5)
+  })
+
+  it('leaves a picture a moment behind alone', () => {
+    const element = playing(render(false), { currentTime: 18, newest: 20 })
+    vi.advanceTimersByTime(1000)
+    expect(element.currentTime).toBe(18)
+  })
 })
+
+/** The widget's video element, made to read as playing at `currentTime` with frames buffered up
+to `newest`. */
+function playing(
+  video: ReturnType<typeof render>,
+  { currentTime, newest }: { currentTime: number; newest: number },
+) {
+  const element = video.find('video').element as HTMLVideoElement
+  Object.defineProperty(element, 'paused', { value: false })
+  Object.defineProperty(element, 'buffered', {
+    value: { length: 1, start: () => 0, end: () => newest },
+  })
+  element.currentTime = currentTime
+  return element
+}

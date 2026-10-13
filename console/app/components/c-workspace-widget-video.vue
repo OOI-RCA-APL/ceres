@@ -322,6 +322,23 @@ useIntervalFn(() => {
   }
 }, 1000)
 
+// Every time playback waits on the network the picture falls that much further behind, and the
+// element never makes the time up, so a live view left open drifts minutes behind the camera.
+const MAX_LAG_SECONDS = 3
+// How far short of the newest frame a jump lands, so the next fragment arrives before it is needed.
+const CATCH_UP_MARGIN_SECONDS = 0.5
+
+useIntervalFn(() => {
+  if (!isStreamingOutput || element == null || element.paused || element.buffered.length === 0) {
+    return
+  }
+
+  const newest = element.buffered.end(element.buffered.length - 1)
+  if (newest - element.currentTime > MAX_LAG_SECONDS) {
+    element.currentTime = newest - CATCH_UP_MARGIN_SECONDS
+  }
+}, 1000)
+
 // A first connection gets the same deadline as a retry, so one that never answers is retried too.
 watch(
   () => [url == null, widget.reconnect] as const,
