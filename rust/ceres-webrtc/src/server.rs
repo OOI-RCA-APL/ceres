@@ -49,6 +49,8 @@ pub struct WebrtcAnswer {
     pub id: String,
     /// The SDP answer to the browser's offer.
     pub sdp: String,
+    /// Resolves once the session ends, for whatever reason.
+    pub closed: oneshot::Receiver<()>,
 }
 
 /// The media port, serving live sources to browsers over WebRTC.
@@ -132,12 +134,14 @@ impl WebrtcServer {
             .accept_offer(offer)
             .map_err(|error| WebrtcError::Offer(error.to_string()))?;
         let id = uuid::Uuid::new_v4().to_string();
-        let session = Session::new(id.as_str().into(), rtc, mid, stream, track, slot)?;
+        let (ended, closed) = oneshot::channel();
+        let session = Session::new(id.as_str().into(), rtc, mid, stream, track, slot, ended)?;
         // The event loop ends only with the server, which `self` keeps alive.
         let _ = self.commands.send(Command::Open(Box::new(session))).await;
         Ok(WebrtcAnswer {
             id,
             sdp: answer.to_sdp_string(),
+            closed,
         })
     }
 

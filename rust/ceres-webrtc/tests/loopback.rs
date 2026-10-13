@@ -28,6 +28,29 @@ async fn a_browser_receives_the_sources_keyframe() {
     );
     assert!(server.close(&answer.id).await);
     assert!(!server.close(&answer.id).await);
+    ended(answer.closed).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_session_ends_with_its_source() {
+    let camera = RtspServer::start(
+        "127.0.0.1:0".parse().unwrap(),
+        RtspServerOptions {
+            clips: vec!["h264".into()],
+            drop_after: Some(Duration::from_secs(1)),
+            ..RtspServerOptions::default()
+        },
+    )
+    .unwrap();
+    let server = server(4);
+    let (browser, offer) = Browser::offer();
+    let source = LiveSource {
+        reconnect: false,
+        ..source(&camera)
+    };
+    let answer = server.open(source, &offer).await.unwrap();
+    let _browser = browser.accept(&answer.sdp);
+    ended(answer.closed).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -107,6 +130,12 @@ async fn an_unreachable_source_is_refused() {
         matches!(refused, Err(WebrtcError::Source(_))),
         "{refused:?}"
     );
+}
+
+/// Waits for a session's `closed` to resolve, failing after ten seconds.
+async fn ended(closed: tokio::sync::oneshot::Receiver<()>) {
+    let waited = tokio::time::timeout(Duration::from_secs(10), closed).await;
+    assert!(waited.is_ok(), "the session did not end");
 }
 
 fn camera(clip: &str) -> RtspServer {

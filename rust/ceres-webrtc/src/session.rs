@@ -8,7 +8,7 @@ use str0m::change::SdpOffer;
 use str0m::format::{Codec, PayloadParams};
 use str0m::media::{Direction, MediaTime, Mid, Pt};
 use str0m::{Event, IceConnectionState, Input, Output, Rtc};
-use tokio::sync::OwnedSemaphorePermit;
+use tokio::sync::{OwnedSemaphorePermit, oneshot};
 
 use crate::WebrtcError;
 use crate::h264::with_parameter_sets;
@@ -47,6 +47,8 @@ pub(crate) struct Session {
     /// changes, since a picture can start only there.
     awaiting_key: bool,
     _slot: OwnedSemaphorePermit,
+    /// Dropped with the session, which resolves the receiver the server's caller holds.
+    _ended: oneshot::Sender<()>,
 }
 
 impl Session {
@@ -58,6 +60,7 @@ impl Session {
         stream: Arc<PacketStream>,
         track: Arc<OwnedTrack>,
         slot: OwnedSemaphorePermit,
+        ended: oneshot::Sender<()>,
     ) -> Result<Self, WebrtcError> {
         let pt = rtc
             .writer(mid)
@@ -82,6 +85,7 @@ impl Session {
             pending_bytes: 0,
             awaiting_key: true,
             _slot: slot,
+            _ended: ended,
         })
     }
 
