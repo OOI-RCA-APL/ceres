@@ -71,7 +71,11 @@ async def _build_engine() -> tuple[Engine, User]:
             Config,
             {
                 "components": [],
-                "server": {"http": {"port": 0}, "authentication": {"secret": SECRET}},
+                "server": {
+                    "http": {"port": 0},
+                    "webrtc": {"port": 0},
+                    "authentication": {"secret": SECRET},
+                },
             },
         ),
         checks=(),
