@@ -374,7 +374,7 @@ impl Dispatch {
             // A described response carries the status the output declared so a route's
             // own created-status override does not apply to it.
             Answer::Served(served) => Ok(served.serve(&state.host).await),
-            Answer::Live(_) => Err(HostError::Internal(format!(
+            Answer::Live { .. } => Err(HostError::Internal(format!(
                 "the {operation:?} operation answered with a live source"
             ))
             .into()),

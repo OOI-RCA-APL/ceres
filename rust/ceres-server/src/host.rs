@@ -78,7 +78,12 @@ pub enum Answer {
     /// A body the server produces itself, which only a media output returns.
     Served(Served),
     /// The live camera behind a procedure's output, which only `procedures.live` returns.
-    Live(LiveSource),
+    Live {
+        source: LiveSource,
+        /// The handle the server closes once the camera stops playing, which ends the
+        /// procedure call that returned the output.
+        handle: u64,
+    },
 }
 
 /// Why a stream refused to open or stopped early.
@@ -217,7 +222,7 @@ pub trait Host: Send + Sync + 'static {
     async fn payload(&self, operation: &str, arguments: Value) -> Result<String, HostError> {
         match self.operate(operation, arguments).await? {
             Answer::Payload(payload) => Ok(payload),
-            Answer::Served(_) | Answer::Live(_) => Err(HostError::Internal(format!(
+            Answer::Served(_) | Answer::Live { .. } => Err(HostError::Internal(format!(
                 "the {operation:?} operation answered with a body of its own"
             ))),
         }

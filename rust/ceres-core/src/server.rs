@@ -263,21 +263,26 @@ struct Live {
     reconnect: bool,
     /// Seconds, `None` to wait on a silent camera forever.
     stall_timeout: Option<f64>,
+    handle: u64,
 }
 
 impl Live {
-    fn into_source(self) -> Result<LiveSource, HostError> {
+    fn into_answer(self) -> Result<Answer, HostError> {
         let stall_timeout = self
             .stall_timeout
             .map(Duration::try_from_secs_f64)
             .transpose()
             .map_err(|error| HostError::Internal(format!("unusable stall timeout. {error}")))?;
-        Ok(LiveSource {
+        let source = LiveSource {
             url: self.url,
             transport: self.transport,
             copy: self.copy,
             reconnect: self.reconnect,
             stall_timeout,
+        };
+        Ok(Answer::Live {
+            source,
+            handle: self.handle,
         })
     }
 }
@@ -342,7 +347,7 @@ impl<'a> Envelope<'a> {
             }));
         }
         if let Some(live) = self.live {
-            return Ok(Answer::Live(live.into_source()?));
+            return live.into_answer();
         }
 
         Ok(Answer::Payload(

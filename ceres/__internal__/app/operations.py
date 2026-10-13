@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from dataclasses import asdict
 from typing import TYPE_CHECKING, Annotated, Any, cast
 from uuid import UUID
 
@@ -21,7 +20,7 @@ from ceres.__internal__.app.handlers import permissions as permission_handlers
 from ceres.__internal__.app.handlers import settings as setting_handlers
 from ceres.__internal__.app.handlers import workspace_edits as edit_handlers
 from ceres.__internal__.app.handlers import workspaces as workspace_handlers
-from ceres.__internal__.app.host import Host, Live, Raw, operation, stream
+from ceres.__internal__.app.host import Host, Raw, operation, stream
 from ceres.__internal__.app.shared import RECORD_TABLES, Actor, Limit, exclude_recursively
 from ceres.__internal__.core import RecordBatch
 from ceres.__internal__.live import LiveOutput
@@ -562,9 +561,9 @@ for _namespace in ("procedures", "queries", "actions"):
 async def procedures_live(host: Host, arguments: dict[str, Any]) -> Any:
     """Call a procedure as its call by query does, answering with the camera it reads.
 
-    A browser plays the camera over WebRTC instead of reading the output, so the output is
-    never opened, and only its `on_exit` runs. A result without a camera answers `None`,
-    which the server refuses as not live.
+    A browser plays the camera over WebRTC instead of reading the output, so the output's
+    bytes are never read. A result without a camera closes at once and answers `None`, which
+    the server refuses as not live.
     """
     result = await component_handlers.call_natively(
         engine=host.engine,
@@ -575,11 +574,15 @@ async def procedures_live(host: Host, arguments: dict[str, Any]) -> Any:
         namespace="procedures",
         method="GET",
     )
-    if isinstance(result, FileOutput | StreamingOutput) and result.on_exit is not None:
-        await result.on_exit()
-
     if isinstance(result, LiveOutput):
-        return Live(asdict(result.source))
+        return host.live(result)
+
+    # Closing ends the procedure call the output was returned from.
+    if isinstance(result, StreamingOutput):
+        async with result:
+            pass
+    elif isinstance(result, FileOutput) and result.on_exit is not None:
+        await result.on_exit()
 
     return None
 

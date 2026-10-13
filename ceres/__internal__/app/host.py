@@ -18,7 +18,7 @@ import asyncio
 import json
 from collections.abc import AsyncIterator, Callable
 from contextlib import AsyncExitStack
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from itertools import count
 from typing import TYPE_CHECKING, Any
 
@@ -41,6 +41,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Mapping
     from uuid import UUID
 
+    from ceres.__internal__.live import LiveOutput
     from ceres.component import BaseOutput, FileOutput, StreamingOutput
     from ceres.engine import Engine
 
@@ -72,7 +73,7 @@ class Live:
     """
 
     source: dict[str, Any]
-    """The camera's URL, transport, and the reading options its output was made with."""
+    """The camera's URL, transport, reading options, and the handle to release once it stops."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -251,6 +252,21 @@ class Host:
             )
 
         return Served({**description, "handle": handle})
+
+    def live(self, output: LiveOutput) -> Live:
+        """Describe the camera a live output reads, for the server to play over WebRTC.
+
+        The output stays registered under the description's handle, which the server closes
+        once the camera stops playing so the procedure call that returned it ends then.
+        """
+        handle = next(self._handles)
+
+        async def close() -> None:
+            async with output:
+                pass
+
+        self._releases[handle] = close
+        return Live({**asdict(output.source), "handle": handle})
 
     async def next_chunk(self, handle: int) -> bytes | None:
         """Await the next chunk of a served body, `None` once it ends."""

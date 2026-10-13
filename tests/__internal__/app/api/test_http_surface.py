@@ -667,7 +667,7 @@ async def _offer(client: httpx.AsyncClient, procedure: str) -> httpx.Response:
 
 
 async def test_a_camera_output_answers_a_webrtc_offer_until_deleted() -> None:
-    """The procedure's camera plays over WebRTC, its output never opened."""
+    """The procedure's camera plays over WebRTC, and its call ends with the session."""
     async with rtsp_server() as url, _serve(media=True) as (_, client):
         _media["camera"] = url
         response = await _offer(client, "camera")
@@ -675,19 +675,22 @@ async def test_a_camera_output_answers_a_webrtc_offer_until_deleted() -> None:
         assert response.status_code == 201, response.text
         assert response.headers["content-type"] == "application/sdp"
         assert response.text.startswith("v=0")
+        assert "camera" not in [name for name, _ in _media.get("ended", [])]
         session = response.headers["location"]
         assert (await client.delete(session)).status_code == 200
+        assert await _ended("camera") == ["procedure-cancelled"]
         assert (await client.delete(session)).status_code == 404
 
 
 async def test_an_output_without_a_camera_is_not_live() -> None:
-    """A stream that reads no camera refuses WebRTC, still running its exit hook."""
+    """A stream that reads no camera refuses WebRTC, its call ended and exit hook run."""
     async with _serve(media=True) as (_, client):
         response = await _offer(client, "rows")
 
         assert response.status_code == 409
         assert response.json()["reason"] == "not-live"
         assert await _exited("rows")
+        assert await _ended("rows") == ["procedure-cancelled"]
 
 
 async def test_config_routes_gate_by_admin_and_scrub_credentials() -> None:

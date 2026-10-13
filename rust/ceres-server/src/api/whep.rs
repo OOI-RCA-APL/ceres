@@ -52,16 +52,29 @@ async fn open(
     let offer = std::str::from_utf8(&body).map_err(|_| ApiError::http(StatusCode::BAD_REQUEST))?;
 
     let call = Dispatch::procedure("procedures.live", address, name);
-    let source = match call.answer(&state, &headers, query).await? {
-        Answer::Live(source) => source,
+    // The host holds the procedure's output open under the handle until told it is done.
+    let (source, handle) = match call.answer(&state, &headers, query).await? {
+        Answer::Live { source, handle } => (source, handle),
         Answer::Payload(_) => return Err(refusal(StatusCode::CONFLICT, "not-live")),
         Answer::Served(served) => {
-            // The host holds the output open for the handle until told it is done.
             state.host.stream_close(served.handle).await;
             return Err(refusal(StatusCode::CONFLICT, "not-live"));
         }
     };
-    let answer = webrtc.open(source, offer).await.map_err(refused)?;
+    let answer = match webrtc.open(source, offer).await {
+        Ok(answer) => answer,
+        Err(error) => {
+            state.host.stream_close(handle).await;
+            return Err(refused(error));
+        }
+    };
+    let host = Arc::clone(&state.host);
+    let closed = answer.closed;
+    tokio::spawn(async move {
+        // A dropped sender resolves the wait too, so the handle closes however the session ends.
+        let _ = closed.await;
+        host.stream_close(handle).await;
+    });
     let location = format!("{}/{}", uri.path(), answer.id);
     Ok((
         StatusCode::CREATED,
@@ -147,6 +160,26 @@ mod tests {
         served: bool,
         calls: Mutex<Vec<Value>>,
         closed: Mutex<Vec<u64>>,
+        closing: tokio::sync::Notify,
+    }
+
+    impl LiveHost {
+        /// The handles the host was told to close, once it was told to close any.
+        async fn closed(&self) -> Vec<u64> {
+            let told = async {
+                loop {
+                    let closing = self.closing.notified();
+                    if !self.closed.lock().unwrap().is_empty() {
+                        break;
+                    }
+                    closing.await;
+                }
+            };
+            tokio::time::timeout(Duration::from_secs(10), told)
+                .await
+                .unwrap();
+            self.closed.lock().unwrap().clone()
+        }
     }
 
     #[async_trait::async_trait]
@@ -176,7 +209,10 @@ mod tests {
             assert_eq!(operation, "procedures.live");
             self.calls.lock().unwrap().push(arguments);
             match &self.live {
-                Some(live) => Ok(Answer::Live(live.clone())),
+                Some(live) => Ok(Answer::Live {
+                    source: live.clone(),
+                    handle: 7,
+                }),
                 None if self.served => Ok(Answer::Served(Served {
                     status: 200,
                     headers: Vec::new(),
@@ -190,6 +226,7 @@ mod tests {
 
         async fn stream_close(&self, handle: u64) {
             self.closed.lock().unwrap().push(handle);
+            self.closing.notify_one();
         }
     }
 
@@ -215,7 +252,8 @@ mod tests {
             url: camera.url(),
             transport: "tcp".into(),
             copy: true,
-            reconnect: true,
+            // A camera that stops ends the session, so its output closes.
+            reconnect: false,
             stall_timeout: Some(Duration::from_secs(5)),
         });
         Arc::new(LiveHost {
@@ -284,9 +322,29 @@ mod tests {
         let call = host.calls.lock().unwrap()[0].clone();
         assert_eq!(call["path"], json!({"address": "abc", "name": "video"}));
         assert_eq!(call["query"], json!([["zoom", "2"]]));
+        assert!(host.closed.lock().unwrap().is_empty());
 
         assert_eq!(delete(&app, &location).await, StatusCode::OK);
+        assert_eq!(host.closed().await, [7]);
         assert_eq!(delete(&app, &location).await, StatusCode::NOT_FOUND);
+        assert_eq!(host.closed().await, [7]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_session_whose_camera_stops_closes_its_procedure_output() {
+        let options = RtspServerOptions {
+            clips: vec!["h264".into()],
+            drop_after: Some(Duration::from_secs(1)),
+            ..RtspServerOptions::default()
+        };
+        let camera = RtspServer::start("127.0.0.1:0".parse().unwrap(), options).unwrap();
+        let host = host(Some(&camera));
+        let app = app(&host, true);
+        assert_eq!(
+            post(&app, PROCEDURE, SDP).await.status(),
+            StatusCode::CREATED
+        );
+        assert_eq!(host.closed().await, [7]);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -305,9 +363,11 @@ mod tests {
         assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
 
         let camera = camera("h265");
-        let h265 = app(&host(Some(&camera)), true);
+        let h265 = host(Some(&camera));
         let codec = (StatusCode::CONFLICT, json!("codec"));
-        assert_eq!(refused(post(&h265, PROCEDURE, SDP).await).await, codec);
+        let response = post(&app(&h265, true), PROCEDURE, SDP).await;
+        assert_eq!(refused(response).await, codec);
+        assert_eq!(*h265.closed.lock().unwrap(), [7]);
     }
 
     #[tokio::test(flavor = "multi_thread")]
