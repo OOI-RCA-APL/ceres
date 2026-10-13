@@ -74,12 +74,15 @@ async fn open(
         .into_response())
 }
 
+/// Ends a session, admitting whoever holds its URL.
+///
+/// The session's ID is a v4 UUID, 122 random bits that only the browser it was answered to
+/// knows, so it is the capability, and the most it grants is ending that one session.
 async fn close(
     Path((_, _, session)): Path<(String, String, String)>,
     State(state): State<Arc<AppState>>,
 ) -> Result<StatusCode, ApiError> {
     let webrtc = server(&state)?;
-    // The session's ID is a v4 UUID, so anything else names no session.
     if session.parse::<Uuid>().is_err() || !webrtc.close(&session).await {
         return Err(ApiError::not_found());
     }
