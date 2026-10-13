@@ -15,9 +15,9 @@ log = "0.4"
 # socket bound to the wildcard address cannot do through the standard library.
 quinn-udp = { version = "0.6", default-features = false, features = ["log"] }
 socket2 = "0.6"
-# `rust-crypto` runs DTLS and SRTP in pure Rust. Its certificate generation still builds
-# `aws-lc-sys` through `dimpl`'s `rcgen` feature.
-str0m = { version = "0.24", default-features = false, features = ["rust-crypto"] }
+# Every str0m crypto backend builds `aws-lc-sys`, so its own backend keeps one crypto stack
+# and a C toolchain is required on every wheel builder.
+str0m = { version = "0.24", default-features = false, features = ["aws-lc-rs"] }
 thiserror = "2"
 tokio = { version = "1", default-features = false, features = ["macros", "net", "rt", "sync", "time"] }
 uuid = { version = "1", features = ["v4"] }
