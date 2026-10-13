@@ -35,6 +35,7 @@ __all__ = [
     "ServerConfig",
     "ServerHTTPConfig",
     "ServerHTTPSConfig",
+    "ServerWebRTCConfig",
     "ServiceConfig",
     "Store",
     "TursoDatabaseConfig",
@@ -1109,6 +1110,11 @@ class ServerConfig:
         r"""
         Response compression settings.
         """
+    @property
+    def webrtc(self) -> ServerWebRTCConfig | None:
+        r"""
+        Live video over WebRTC, on unless disabled.
+        """
     def __new__(
         cls,
         *,
@@ -1118,6 +1124,7 @@ class ServerConfig:
         authentication: ServerAuthenticationConfig | dict[str, Any] | None = None,
         cors: ServerCORSConfig | dict[str, Any] | None = None,
         compression: ServerCompressionConfig | dict[str, Any] | None = None,
+        webrtc: ServerWebRTCConfig | dict[str, Any] | None = None,
     ) -> Self: ...
     def __to_dict__(self) -> dict[str, Any]:
         r"""
@@ -1209,6 +1216,64 @@ class ServerHTTPSConfig:
         port: int | None = None,
         certificate: str | dict[str, Any] | None = None,
         min_version: str | None = None,
+    ) -> Self: ...
+    def __to_dict__(self) -> dict[str, Any]:
+        r"""
+        Return the configuration as a plain dictionary of JSON-compatible values.
+
+        Called through `ceres.data.to_dict` rather than directly.
+        """
+    def __replace__(self, **changes: Any) -> Self:
+        r"""
+        Return a copy of this configuration with the given fields replaced.
+
+        Called through `copy.replace` and `ceres.data.replace` rather than
+        directly. The replacement is built through the constructor, so a change
+        that does not validate is refused here rather than later.
+        """
+    @staticmethod
+    def __json_schema__() -> dict[str, Any]:
+        r"""
+        Return the JSON Schema describing this configuration section.
+
+        Called through `ceres.data.to_json_schema` rather than directly.
+        """
+    def __eq__(self, other: Any) -> bool: ...
+    def __repr__(self) -> str: ...
+
+class ServerWebRTCConfig:
+    r"""
+    Live video over WebRTC, which a browser plays with less delay than the MP4 stream it
+    falls back to.
+    """
+    @property
+    def enabled(self) -> bool:
+        r"""
+        Whether live video is offered over WebRTC.
+        """
+    @property
+    def port(self) -> int:
+        r"""
+        UDP port every WebRTC session's media passes through.
+        """
+    @property
+    def hosts(self) -> list[str]:
+        r"""
+        Addresses browsers are told to reach the media port at, besides those of every
+        non-loopback interface.
+        """
+    @property
+    def max_sessions(self) -> int:
+        r"""
+        Most WebRTC sessions served at once.
+        """
+    def __new__(
+        cls,
+        *,
+        enabled: bool | None = None,
+        port: int | None = None,
+        hosts: list[str] | None = None,
+        max_sessions: int | None = None,
     ) -> Self: ...
     def __to_dict__(self) -> dict[str, Any]:
         r"""

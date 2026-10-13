@@ -31,6 +31,7 @@ from ceres.__internal__.core import ServerConfig as _CoreServerConfig
 from ceres.__internal__.core import ServerCORSConfig as _CoreServerCORSConfig
 from ceres.__internal__.core import ServerHTTPConfig as _CoreServerHTTPConfig
 from ceres.__internal__.core import ServerHTTPSConfig as _CoreServerHTTPSConfig
+from ceres.__internal__.core import ServerWebRTCConfig as _CoreServerWebRTCConfig
 from ceres.__internal__.core import ServiceConfig as _CoreServiceConfig
 from ceres.__internal__.core import SQLiteDatabaseConfig as _CoreSQLiteDatabaseConfig
 from ceres.__internal__.core import TursoDatabaseConfig as _CoreTursoDatabaseConfig
@@ -800,6 +801,15 @@ class ServerCompressionConfig(RustConfigModel, _CoreServerCompressionConfig):
     The fields and their validation live in the native
     `ceres.__internal__.core.ServerCompressionConfig`, this subclass only wires the class
     into Pydantic.
+    """
+
+
+class ServerWebRTCConfig(RustConfigModel, _CoreServerWebRTCConfig):
+    """Live video over WebRTC, which a browser plays with less delay than the MP4 stream.
+
+    The fields and their validation live in the native
+    `ceres.__internal__.core.ServerWebRTCConfig`, this subclass only wires the class into
+    Pydantic.
     """
 
 

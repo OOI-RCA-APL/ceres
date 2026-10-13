@@ -703,6 +703,70 @@ impl TryFrom<RawServerCompressionConfig> for ServerCompressionConfig {
     }
 }
 
+/// Live video over WebRTC, which a browser plays with less delay than the MP4 stream it falls
+/// back to.
+#[kebab_aliases]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, JsonSchema)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
+#[schemars(title = "ServerWebRTCConfig")]
+pub struct RawServerWebrtcConfig {
+    /// Whether live video is offered over WebRTC, true when omitted.
+    pub enabled: Option<bool>,
+
+    /// UDP port every WebRTC session's media passes through, 8189 when omitted.
+    pub port: Option<u16>,
+
+    /// Addresses browsers are told to reach the media port at, besides those of every
+    /// non-loopback interface, such as the public address of a host behind NAT.
+    pub hosts: Option<Vec<IpAddr>>,
+
+    /// Most WebRTC sessions served at once, 32 when omitted.
+    pub max_sessions: Option<u64>,
+}
+
+/// Validated WebRTC settings for the engine's HTTP server.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ServerWebrtcConfig {
+    pub enabled: bool,
+    pub port: u16,
+    pub hosts: Vec<IpAddr>,
+    pub max_sessions: u64,
+}
+
+impl Default for ServerWebrtcConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            port: 8189,
+            hosts: Vec::new(),
+            max_sessions: 32,
+        }
+    }
+}
+
+impl TryFrom<RawServerWebrtcConfig> for ServerWebrtcConfig {
+    type Error = Problems;
+
+    fn try_from(raw: RawServerWebrtcConfig) -> Result<Self, Problems> {
+        let defaults = Self::default();
+        let mut problems = Problems::default();
+        let max_sessions = raw.max_sessions.unwrap_or(defaults.max_sessions);
+        if max_sessions == 0 {
+            problems.push(Problem::new(
+                "max_sessions",
+                "must be greater than zero, set `enabled: false` to turn WebRTC off.",
+            ));
+        }
+
+        problems.into_result(Self {
+            enabled: raw.enabled.unwrap_or(defaults.enabled),
+            port: raw.port.unwrap_or(defaults.port),
+            hosts: raw.hosts.unwrap_or(defaults.hosts),
+            max_sessions,
+        })
+    }
+}
+
 /// Configuration for the engine's HTTP server.
 #[kebab_aliases]
 #[derive(Debug, Clone, Default, PartialEq, Deserialize, JsonSchema)]
@@ -721,6 +785,7 @@ pub struct RawServerConfig {
     pub authentication: Option<RawServerAuthenticationConfig>,
     pub cors: Option<RawServerCorsConfig>,
     pub compression: Option<RawServerCompressionConfig>,
+    pub webrtc: Option<RawServerWebrtcConfig>,
 }
 
 /// Validated configuration for the engine's HTTP server.
@@ -732,6 +797,7 @@ pub struct ServerConfig {
     pub authentication: Option<ServerAuthenticationConfig>,
     pub cors: Option<ServerCorsConfig>,
     pub compression: Option<ServerCompressionConfig>,
+    pub webrtc: Option<ServerWebrtcConfig>,
 }
 
 impl Default for ServerConfig {
@@ -743,6 +809,7 @@ impl Default for ServerConfig {
             authentication: None,
             cors: None,
             compression: None,
+            webrtc: None,
         }
     }
 }
@@ -802,6 +869,7 @@ impl TryFrom<RawServerConfig> for ServerConfig {
         let authentication = validate_nested(raw.authentication, "authentication", &mut problems);
         let cors = validate_nested(raw.cors, "cors", &mut problems);
         let compression = validate_nested(raw.compression, "compression", &mut problems);
+        let webrtc = validate_nested(raw.webrtc, "webrtc", &mut problems);
 
         if let Some(http) = &http {
             // A redirect to a plain HTTP origin would loop, so the HTTPS listener must exist.
@@ -827,6 +895,7 @@ impl TryFrom<RawServerConfig> for ServerConfig {
             authentication,
             cors,
             compression,
+            webrtc,
         })
     }
 }
@@ -1156,6 +1225,52 @@ mod tests {
         ] {
             let result: Result<RawServerConfig, _> = yaml_serde::from_str(document);
             assert!(result.is_err(), "{document:?} reads");
+        }
+    }
+
+    #[test]
+    fn webrtc_takes_its_defaults_and_settings() {
+        assert_eq!(server("").unwrap().webrtc, None);
+        assert_eq!(
+            server("webrtc: {}\n").unwrap().webrtc,
+            Some(ServerWebrtcConfig::default())
+        );
+        let defaults = ServerWebrtcConfig::default();
+        assert!(defaults.enabled);
+        assert_eq!((defaults.port, defaults.max_sessions), (8189, 32));
+        assert!(defaults.hosts.is_empty());
+        let webrtc = server(
+            "webrtc:\n  enabled: false\n  port: 9000\n  hosts: [10.0.0.1, '::1']\n  max-sessions: 4\n",
+        )
+        .unwrap()
+        .webrtc
+        .unwrap();
+        assert!(!webrtc.enabled);
+        assert_eq!(webrtc.port, 9000);
+        assert_eq!(
+            webrtc.hosts,
+            [
+                "10.0.0.1".parse::<IpAddr>().unwrap(),
+                "::1".parse().unwrap()
+            ]
+        );
+        assert_eq!(webrtc.max_sessions, 4);
+    }
+
+    #[test]
+    fn webrtc_refuses_what_it_cannot_serve() {
+        assert_eq!(
+            problem_location("webrtc:\n  max-sessions: 0\n"),
+            "webrtc.max_sessions"
+        );
+        for refused in [
+            "webrtc:\n  hosts: [camctrl.local]\n",
+            "webrtc:\n  ports: 1\n",
+        ] {
+            assert!(
+                yaml_serde::from_str::<RawServerConfig>(refused).is_err(),
+                "{refused:?}"
+            );
         }
     }
 
