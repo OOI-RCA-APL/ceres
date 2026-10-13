@@ -20,12 +20,12 @@ from ceres.__internal__.app.handlers import permissions as permission_handlers
 from ceres.__internal__.app.handlers import settings as setting_handlers
 from ceres.__internal__.app.handlers import workspace_edits as edit_handlers
 from ceres.__internal__.app.handlers import workspaces as workspace_handlers
-from ceres.__internal__.app.host import Host, Raw, operation, stream
+from ceres.__internal__.app.host import Host, Live, Raw, operation, stream
 from ceres.__internal__.app.shared import RECORD_TABLES, Actor, Limit, exclude_recursively
 from ceres.__internal__.core import RecordBatch
 from ceres.address import Address
 from ceres.alert import Alert
-from ceres.component import BaseOutput, ComponentFilter
+from ceres.component import BaseOutput, ComponentFilter, FileOutput, StreamingOutput
 from ceres.data import Name, to_json, validate, validate_yaml
 from ceres.error import (
     HTTPError,
@@ -554,6 +554,32 @@ def _calls(namespace: str):
 
 for _namespace in ("procedures", "queries", "actions"):
     _calls(_namespace)
+
+
+@operation("procedures.live")
+async def procedures_live(host: Host, arguments: dict[str, Any]) -> Any:
+    """Call a procedure as its call by query does, answering with the camera it reads.
+
+    A browser plays the camera over WebRTC instead of reading the output, so the output is
+    never opened, and only its `on_exit` runs. A result without a camera answers `None`,
+    which the server refuses as not live.
+    """
+    result = await component_handlers.call_natively(
+        engine=host.engine,
+        actor=await _actor(host, arguments),
+        address=_address(arguments),
+        procedure=validate(Name, _path(arguments, "name")),
+        arguments=_called_with(arguments),
+        namespace="procedures",
+        method="GET",
+    )
+    if isinstance(result, FileOutput | StreamingOutput) and result.on_exit is not None:
+        await result.on_exit()
+
+    if isinstance(result, StreamingOutput) and result._live is not None:  # noqa: SLF001
+        return Live(result._live)  # noqa: SLF001
+
+    return None
 
 
 async def _require_group(host: Host, id: UUID) -> None:

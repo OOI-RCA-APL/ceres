@@ -6,8 +6,9 @@ and query-layer code itself so filters, permissions, and wire shapes keep their 
 behavior whatever the transport.
 
 Results cross the boundary as one JSON envelope per call, `{"ok": ...}` for a payload,
-`{"error": {"status", "envelope"}}` for a typed refusal, and `{"response": ...}` for a
-media output the server serves as a body of its own, which it serves verbatim. Streams
+`{"error": {"status", "envelope"}}` for a typed refusal, `{"response": ...}` for a
+media output the server serves as a body of its own, which it serves verbatim, and
+`{"live": ...}` for the camera a WebRTC session plays. Streams
 open under a handle and yield one pre-serialized message at a time.
 """
 
@@ -61,6 +62,17 @@ class Served:
 
     description: dict[str, Any]
     """The status, headers, body source, and the handle to release once the body ends."""
+
+
+@dataclass(frozen=True, slots=True)
+class Live:
+    """The camera a procedure's output reads, for the server to play over WebRTC.
+
+    It travels in its own envelope for the same reason a `Served` description does.
+    """
+
+    source: dict[str, Any]
+    """The camera's URL, transport, and the reading options its output was made with."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,6 +159,9 @@ class Host:
             payload = await handler(self, json.loads(arguments))
             if isinstance(payload, Served):
                 return json.dumps({"response": payload.description})
+
+            if isinstance(payload, Live):
+                return json.dumps({"live": payload.source})
 
             if isinstance(payload, Raw):
                 return '{"ok":' + payload.text + "}"

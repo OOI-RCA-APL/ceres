@@ -1,14 +1,9 @@
 """`rtsp` read against the `ceres-rtsp-server` test server, run as a subprocess."""
 
 import asyncio
-import json
 import struct
-import subprocess
 from collections.abc import AsyncIterator, Iterator
-from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from functools import cache
-from pathlib import Path
 from typing import override
 
 import pytest
@@ -22,40 +17,7 @@ from ceres.event import (
     StreamReconnectScheduledEvent,
 )
 from ceres.rtsp import rtsp
-
-
-@cache
-def rtsp_server_executable() -> str:
-    """Build the test server once per process, returning the path cargo reports for it."""
-    messages = subprocess.run(
-        ["cargo", "build", "-p", "ceres-rtsp-server", "--message-format=json"],
-        cwd=Path(__file__).parents[1] / "rust",
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout
-    return next(
-        message["executable"]
-        for message in map(json.loads, messages.splitlines())
-        if message.get("reason") == "compiler-artifact"
-        and message["target"]["name"] == "ceres-rtsp-server"
-    )
-
-
-@asynccontextmanager
-async def rtsp_server(*flags: str) -> AsyncIterator[str]:
-    """Serve test clips over RTSP on a free port with `flags`, yielding the stream URL."""
-    process = await asyncio.create_subprocess_exec(
-        *(rtsp_server_executable(), "--port", "0", *flags),
-        stdout=asyncio.subprocess.PIPE,
-    )
-    try:
-        assert process.stdout is not None
-        line = await asyncio.wait_for(process.stdout.readline(), 30)
-        yield line.decode().strip()
-    finally:
-        process.kill()
-        await process.wait()
+from tests.testing import rtsp_server
 
 
 def boxes(data: bytes) -> Iterator[tuple[bytes, bytes]]:

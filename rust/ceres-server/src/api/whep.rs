@@ -19,7 +19,7 @@ use uuid::Uuid;
 use crate::api::dispatch::Dispatch;
 use crate::app::AppState;
 use crate::error::ApiError;
-use crate::host::{Answer, HostError};
+use crate::host::Answer;
 
 /// The route a browser posts its offer to.
 pub(crate) const OPEN: &str = "/api/components/{id}/procedures/{second}/whep";
@@ -54,10 +54,8 @@ async fn open(
     let call = Dispatch::procedure("procedures.live", address, name);
     let source = match call.answer(&state, &headers, query).await? {
         Answer::Live(source) => source,
-        // The operation refuses a procedure without a live source as a typed error itself.
         Answer::Payload(_) | Answer::Served(_) => {
-            let error = "the \"procedures.live\" operation answered without a live source";
-            return Err(HostError::Internal(error.into()).into());
+            return Err(refusal(StatusCode::CONFLICT, "not-live"));
         }
     };
     let answer = webrtc.open(source, offer).await.map_err(refused)?;
@@ -130,7 +128,7 @@ mod tests {
 
     use super::*;
     use crate::app::{AppConfig, build_router};
-    use crate::host::{Host, UserRecord};
+    use crate::host::{Host, HostError, UserRecord};
 
     const PROCEDURE: &str = "/api/components/abc/procedures/video/whep";
 
@@ -169,12 +167,8 @@ mod tests {
             self.calls.lock().unwrap().push(arguments);
             match &self.live {
                 Some(live) => Ok(Answer::Live(live.clone())),
-                None => Err(HostError::Typed {
-                    status: 409,
-                    envelope:
-                        r#"{"__error__":true,"type":"http-error","status":409,"reason":"not-live"}"#
-                            .into(),
-                }),
+                // What the operation answers for a procedure whose output reads no camera.
+                None => Ok(Answer::Payload("null".into())),
             }
         }
     }

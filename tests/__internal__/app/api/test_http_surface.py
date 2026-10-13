@@ -26,7 +26,9 @@ from ceres.event import (
     ProcedureExceptionEvent,
 )
 from ceres.particle import Particle
+from ceres.rtsp import rtsp
 from ceres.user import User
+from tests.testing import rtsp_server
 
 ADMIN_PASSWORD = "correct horse battery staple"
 VIEWER_PASSWORD = "viewer password"
@@ -98,6 +100,10 @@ class _Media(Component):
 
         return StreamingOutput(chunks, "application/octet-stream", on_exit=_exit("broken"))
 
+    @query(permit="public", media="video/mp4")
+    async def camera(self) -> StreamingOutput:
+        return await rtsp(_media["camera"])
+
 
 async def _ended(procedure: str) -> list[str]:
     """How a served procedure's call ended, giving the release its moment to arrive."""
@@ -159,6 +165,7 @@ async def _serve(
         }
 
     server["http"] = {"port": 0}
+    server["webrtc"] = {"port": 0}
     configuration: dict[str, Any] = {"components": [], "server": server}
     if database_path is not None:
         # A file-backed database carries a native record store so its record routes and
@@ -625,6 +632,62 @@ async def test_a_stream_failing_mid_body_ends_its_call_with_the_exception() -> N
 
         assert await _exited("broken")
         assert await _ended("broken") == ["procedure-exception"]
+
+
+_OFFER = "\r\n".join(
+    [
+        "v=0",
+        "o=- 1 2 IN IP4 127.0.0.1",
+        "s=-",
+        "t=0 0",
+        "a=group:BUNDLE 0",
+        "a=fingerprint:sha-256 " + ":".join(["AB"] * 32),
+        "m=video 9 UDP/TLS/RTP/SAVPF 96",
+        "c=IN IP4 0.0.0.0",
+        "a=mid:0",
+        "a=ice-ufrag:abcd",
+        "a=ice-pwd:abcdabcdabcdabcdabcdabcd",
+        "a=setup:actpass",
+        "a=recvonly",
+        "a=rtcp-mux",
+        "a=rtpmap:96 H264/90000",
+        "a=fmtp:96 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f",
+        "",
+    ]
+)
+"""A browser's offer to receive one H.264 video track."""
+
+
+async def _offer(client: httpx.AsyncClient, procedure: str) -> httpx.Response:
+    return await client.post(
+        f"/api/components/@media/procedures/{procedure}/whep",
+        content=_OFFER,
+        headers={"Content-Type": "application/sdp"},
+    )
+
+
+async def test_a_camera_output_answers_a_webrtc_offer_until_deleted() -> None:
+    """The procedure's camera plays over WebRTC, its output never opened."""
+    async with rtsp_server() as url, _serve(media=True) as (_, client):
+        _media["camera"] = url
+        response = await _offer(client, "camera")
+
+        assert response.status_code == 201, response.text
+        assert response.headers["content-type"] == "application/sdp"
+        assert response.text.startswith("v=0")
+        session = response.headers["location"]
+        assert (await client.delete(session)).status_code == 200
+        assert (await client.delete(session)).status_code == 404
+
+
+async def test_an_output_without_a_camera_is_not_live() -> None:
+    """A stream that reads no camera refuses WebRTC, still running its exit hook."""
+    async with _serve(media=True) as (_, client):
+        response = await _offer(client, "rows")
+
+        assert response.status_code == 409
+        assert response.json()["reason"] == "not-live"
+        assert await _exited("rows")
 
 
 async def test_config_routes_gate_by_admin_and_scrub_credentials() -> None:

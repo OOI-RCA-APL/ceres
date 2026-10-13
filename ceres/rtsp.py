@@ -50,6 +50,10 @@ async def rtsp(
     seconds after its last viewer leaves, so a viewer coming straight back finds it open. Only
     the camera's video is streamed, audio is dropped.
 
+    Returned from a procedure, the output also lets the console play the camera over WebRTC,
+    with lower latency, sharing the same connection. The console falls back to the MP4 when
+    WebRTC cannot connect, or when copying video that is not H.264.
+
     When the camera drops, the connection is reopened and its packets are placed after the
     last one sent, so clients holding open video connections keep decoding one continuous
     stream across the gap. A camera that comes back with a picture the MP4 already sent cannot
@@ -122,6 +126,13 @@ async def rtsp(
             session.close()
 
     output = StreamingOutput(stream, "video/mp4")
+    output._live = {  # noqa: SLF001
+        "url": url,
+        "transport": transport,
+        "copy": copy,
+        "reconnect": reconnect,
+        "stall_timeout": stall_timeout,
+    }
     return output
 
 
