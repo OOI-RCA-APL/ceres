@@ -145,11 +145,13 @@ python_config! {
         /// UDP port every WebRTC session's media passes through.
         port: u16,
         /// Addresses browsers are told to reach the media port at, besides those of every
-        /// non-loopback interface.
+        /// interface.
         #[python(any = "list[str]")]
         hosts: Vec<std::net::IpAddr>,
         /// Most WebRTC sessions served at once.
         max_sessions: u64,
+        /// How long a session waits for its browser to connect before giving up its slot.
+        no_ice_timeout: TimeDelta,
     }
 
     /// Configuration for the engine's HTTP server.

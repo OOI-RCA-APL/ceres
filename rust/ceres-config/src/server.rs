@@ -723,6 +723,10 @@ pub struct RawServerWebrtcConfig {
 
     /// Most WebRTC sessions served at once, 32 when omitted.
     pub max_sessions: Option<u64>,
+
+    /// How long a session waits for its browser to connect before giving up its slot, 10
+    /// seconds when omitted.
+    pub no_ice_timeout: Option<TimeDelta>,
 }
 
 /// Validated WebRTC settings for the engine's HTTP server.
@@ -732,6 +736,7 @@ pub struct ServerWebrtcConfig {
     pub port: u16,
     pub hosts: Vec<IpAddr>,
     pub max_sessions: u64,
+    pub no_ice_timeout: TimeDelta,
 }
 
 impl Default for ServerWebrtcConfig {
@@ -741,6 +746,7 @@ impl Default for ServerWebrtcConfig {
             port: 8189,
             hosts: Vec::new(),
             max_sessions: 32,
+            no_ice_timeout: TimeDelta::from_secs(10),
         }
     }
 }
@@ -758,12 +764,20 @@ impl TryFrom<RawServerWebrtcConfig> for ServerWebrtcConfig {
                 "must be greater than zero, set `enabled: false` to turn WebRTC off.",
             ));
         }
+        let no_ice_timeout = raw.no_ice_timeout.unwrap_or(defaults.no_ice_timeout);
+        if no_ice_timeout.duration().is_zero() {
+            problems.push(Problem::new(
+                "no_ice_timeout",
+                "must be greater than zero, since no browser connects at once.",
+            ));
+        }
 
         problems.into_result(Self {
             enabled: raw.enabled.unwrap_or(defaults.enabled),
             port: raw.port.unwrap_or(defaults.port),
             hosts: raw.hosts.unwrap_or(defaults.hosts),
             max_sessions,
+            no_ice_timeout,
         })
     }
 }
@@ -1240,8 +1254,9 @@ mod tests {
         assert!(defaults.enabled);
         assert_eq!((defaults.port, defaults.max_sessions), (8189, 32));
         assert!(defaults.hosts.is_empty());
+        assert_eq!(defaults.no_ice_timeout, TimeDelta::from_secs(10));
         let webrtc = server(
-            "webrtc:\n  enabled: false\n  port: 9000\n  hosts: [10.0.0.1, '::1']\n  max-sessions: 4\n",
+            "webrtc:\n  enabled: false\n  port: 9000\n  hosts: [10.0.0.1, '::1']\n  max-sessions: 4\n  no-ice-timeout: 2\n",
         )
         .unwrap()
         .webrtc
@@ -1256,6 +1271,7 @@ mod tests {
             ]
         );
         assert_eq!(webrtc.max_sessions, 4);
+        assert_eq!(webrtc.no_ice_timeout, TimeDelta::from_secs(2));
     }
 
     #[test]
@@ -1263,6 +1279,10 @@ mod tests {
         assert_eq!(
             problem_location("webrtc:\n  max-sessions: 0\n"),
             "webrtc.max_sessions"
+        );
+        assert_eq!(
+            problem_location("webrtc:\n  no-ice-timeout: 0\n"),
+            "webrtc.no_ice_timeout"
         );
         for refused in [
             "webrtc:\n  hosts: [camctrl.local]\n",

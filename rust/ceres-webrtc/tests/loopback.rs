@@ -4,9 +4,9 @@ use std::net::{SocketAddr, UdpSocket};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use ceres_config::ServerWebrtcConfig;
+use ceres_config::{ServerWebrtcConfig, TimeDelta};
 use ceres_media::{RtspServer, RtspServerOptions};
-use ceres_webrtc::{LiveSource, NO_ICE_TIMEOUT, WebrtcError, WebrtcServer};
+use ceres_webrtc::{LiveSource, WebrtcError, WebrtcServer};
 use str0m::change::{SdpAnswer, SdpPendingOffer};
 use str0m::media::{Direction, MediaKind};
 use str0m::net::{Protocol, Receive};
@@ -83,10 +83,15 @@ async fn a_browser_connecting_late_starts_from_the_picture_held_for_it() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_browser_that_never_connects_gives_up_its_slot() {
     let camera = camera("h264");
-    let server = server(1);
+    let no_ice_timeout = TimeDelta::from_secs(1);
+    let config = ServerWebrtcConfig {
+        no_ice_timeout,
+        ..config(1)
+    };
+    let server = WebrtcServer::bind(&config).unwrap();
     let (_silent, offer) = Browser::offer();
     let answer = server.open(source(&camera), &offer).await.unwrap();
-    tokio::time::sleep(NO_ICE_TIMEOUT + Duration::from_secs(1)).await;
+    tokio::time::sleep(no_ice_timeout.duration() + Duration::from_millis(500)).await;
     assert!(!server.close(&answer.id).await);
     let (_next, offer) = Browser::offer();
     server.open(source(&camera), &offer).await.unwrap();
@@ -147,12 +152,15 @@ fn camera(clip: &str) -> RtspServer {
 }
 
 fn server(max_sessions: u64) -> WebrtcServer {
-    let config = ServerWebrtcConfig {
+    WebrtcServer::bind(&config(max_sessions)).unwrap()
+}
+
+fn config(max_sessions: u64) -> ServerWebrtcConfig {
+    ServerWebrtcConfig {
         port: 0,
         max_sessions,
         ..ServerWebrtcConfig::default()
-    };
-    WebrtcServer::bind(&config).unwrap()
+    }
 }
 
 fn source(camera: &RtspServer) -> LiveSource {

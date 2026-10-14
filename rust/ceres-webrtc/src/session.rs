@@ -20,10 +20,6 @@ use crate::socket::MediaSockets;
 /// A large keyframe packetizes to a few hundred datagrams, well under it.
 const MAX_OUTPUTS: usize = 8192;
 
-/// How long a session waits for its browser to connect, since a browser that never does
-/// holds a slot and a source connection until then.
-pub const NO_ICE_TIMEOUT: Duration = Duration::from_secs(10);
-
 /// A session's ID, shared with the thread reading its packets.
 pub(crate) type SessionId = Arc<str>;
 
@@ -36,7 +32,9 @@ pub(crate) struct Session {
     track: Arc<OwnedTrack>,
     /// When str0m next expects a timeout input.
     pub(crate) timeout: Instant,
-    opened: Instant,
+    /// When the session ends unless its browser has connected, since a browser that never
+    /// does holds a slot and a source connection until then.
+    connect_by: Instant,
     connected: bool,
     /// The packets since the source's last keyframe, held until the browser connects, since
     /// str0m sends media written before then late and the picture can start only at a keyframe.
@@ -52,7 +50,8 @@ pub(crate) struct Session {
 }
 
 impl Session {
-    /// Returns a session sending `track` over the `mid` video `rtc` answered.
+    /// Returns a session sending `track` over the `mid` video `rtc` answered, and a receiver
+    /// resolving once the session ends.
     pub(crate) fn new(
         id: SessionId,
         mut rtc: Rtc,
@@ -60,8 +59,8 @@ impl Session {
         stream: Arc<PacketStream>,
         track: Arc<OwnedTrack>,
         slot: OwnedSemaphorePermit,
-        ended: oneshot::Sender<()>,
-    ) -> Result<Self, WebrtcError> {
+        no_ice_timeout: Duration,
+    ) -> Result<(Self, oneshot::Receiver<()>), WebrtcError> {
         let pt = rtc
             .writer(mid)
             .and_then(|writer| {
@@ -71,22 +70,25 @@ impl Session {
                     .map(PayloadParams::pt)
             })
             .ok_or_else(|| WebrtcError::Codec("the answer agreed on no H.264 payload".into()))?;
-        Ok(Self {
+        let (ended, closed) = oneshot::channel();
+        let now = Instant::now();
+        let session = Self {
             id,
             rtc,
             stream,
             mid,
             pt,
             track,
-            timeout: Instant::now(),
-            opened: Instant::now(),
+            timeout: now,
+            connect_by: now + no_ice_timeout,
             connected: false,
             pending: Vec::new(),
             pending_bytes: 0,
             awaiting_key: true,
             _slot: slot,
             _ended: ended,
-        })
+        };
+        Ok((session, closed))
     }
 
     /// Hands str0m whatever is due and sends what it returns, `false` once the session is over.
@@ -97,10 +99,9 @@ impl Session {
             log::warn!("WebRTC session {} failed: {error}", self.id);
             return false;
         }
-        let connect_by = self.opened + NO_ICE_TIMEOUT;
-        if !self.connected && Instant::now() >= connect_by {
+        if !self.connected && Instant::now() >= self.connect_by {
             log::info!(
-                "WebRTC session {} ended, its browser did not connect within {NO_ICE_TIMEOUT:?}",
+                "WebRTC session {} ended, its browser did not connect in time",
                 self.id
             );
             return false;
@@ -111,7 +112,7 @@ impl Session {
                     self.timeout = if self.connected {
                         timeout
                     } else {
-                        timeout.min(connect_by)
+                        timeout.min(self.connect_by)
                     };
                     return self.rtc.is_alive();
                 }

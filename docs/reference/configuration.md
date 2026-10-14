@@ -112,6 +112,7 @@ Live video over WebRTC, which a browser plays with less delay than the MP4 strea
 | `port` | integer |  | UDP port every WebRTC session's media passes through, 8189 when omitted. When the port cannot be bound the server logs it and video plays over HTTP. |
 | `hosts` | list of string |  | Addresses browsers are told to reach the media port at, besides those of every interface, such as the public address of a host behind NAT. |
 | `max-sessions` | integer |  | Most WebRTC sessions served at once, 32 when omitted. |
+| `no-ice-timeout` | number or string |  | How long a session waits for its browser to connect before giving up its slot, 10 seconds when omitted. |
 
 ### `ServerCertificateConfig`
 

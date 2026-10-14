@@ -63,6 +63,7 @@ pub struct WebrtcServer {
     crypto: Arc<CryptoProvider>,
     hosts: Vec<IpAddr>,
     port: u16,
+    no_ice_timeout: Duration,
     /// Whether the port has a working IPv6 socket, without which IPv6 candidates reach
     /// nothing. The event loop clears it when the socket fails.
     v6: Arc<AtomicBool>,
@@ -95,6 +96,7 @@ impl WebrtcServer {
             crypto: Arc::new(str0m::crypto::from_feature_flags()),
             hosts: config.hosts.clone(),
             port,
+            no_ice_timeout: config.no_ice_timeout.duration(),
             v6,
         })
     }
@@ -138,8 +140,15 @@ impl WebrtcServer {
             .accept_offer(offer)
             .map_err(|error| WebrtcError::Offer(error.to_string()))?;
         let id = uuid::Uuid::new_v4().to_string();
-        let (ended, closed) = oneshot::channel();
-        let session = Session::new(id.as_str().into(), rtc, mid, stream, track, slot, ended)?;
+        let (session, closed) = Session::new(
+            id.as_str().into(),
+            rtc,
+            mid,
+            stream,
+            track,
+            slot,
+            self.no_ice_timeout,
+        )?;
         // The event loop ends only with the server, which `self` keeps alive.
         let _ = self.commands.send(Command::Open(Box::new(session))).await;
         Ok(WebrtcAnswer {

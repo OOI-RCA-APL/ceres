@@ -1261,12 +1261,17 @@ class ServerWebRTCConfig:
     def hosts(self) -> list[str]:
         r"""
         Addresses browsers are told to reach the media port at, besides those of every
-        non-loopback interface.
+        interface.
         """
     @property
     def max_sessions(self) -> int:
         r"""
         Most WebRTC sessions served at once.
+        """
+    @property
+    def no_ice_timeout(self) -> timedelta:
+        r"""
+        How long a session waits for its browser to connect before giving up its slot.
         """
     def __new__(
         cls,
@@ -1275,6 +1280,7 @@ class ServerWebRTCConfig:
         port: int | None = None,
         hosts: list[str] | None = None,
         max_sessions: int | None = None,
+        no_ice_timeout: timedelta | int | float | str | None = None,
     ) -> Self: ...
     def __to_dict__(self) -> dict[str, Any]:
         r"""
