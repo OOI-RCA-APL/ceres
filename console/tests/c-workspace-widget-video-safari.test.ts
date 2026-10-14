@@ -1,4 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import CWorkspaceWidgetVideo from '@/components/c-workspace-widget-video.vue'
@@ -96,6 +97,7 @@ async function streamed(chunks: number, currentTime: number) {
 
 describe('c-workspace-widget-video on Safari', () => {
   beforeEach(() => {
+    setActivePinia(createPinia())
     buffer = new FakeSourceBuffer()
     vi.stubGlobal('MediaSource', FakeMediaSource)
     vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:video')
