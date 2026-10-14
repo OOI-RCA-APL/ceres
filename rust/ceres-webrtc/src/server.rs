@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::io;
 use std::net::IpAddr;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use ceres_config::ServerWebrtcConfig;
@@ -62,8 +63,9 @@ pub struct WebrtcServer {
     crypto: Arc<CryptoProvider>,
     hosts: Vec<IpAddr>,
     port: u16,
-    /// Whether the port has an IPv6 socket, without which IPv6 candidates reach nothing.
-    v6: bool,
+    /// Whether the port has a working IPv6 socket, without which IPv6 candidates reach
+    /// nothing. The event loop clears it when the socket fails.
+    v6: Arc<AtomicBool>,
 }
 
 enum Command {
@@ -81,10 +83,11 @@ impl WebrtcServer {
     pub fn bind(config: &ServerWebrtcConfig) -> io::Result<Self> {
         let sockets = MediaSockets::bind(config.port)?;
         let port = sockets.port();
-        let v6 = sockets.v6.is_some();
+        let v6 = Arc::new(AtomicBool::new(sockets.v6.is_some()));
         let max_sessions = usize::try_from(config.max_sessions).unwrap_or(usize::MAX);
         let (commands, receiver) = mpsc::channel(max_sessions.min(64));
-        tokio::spawn(EventLoop::new(sockets, max_sessions).run(receiver));
+        let event_loop = EventLoop::new(sockets, Arc::clone(&v6), max_sessions);
+        tokio::spawn(event_loop.run(receiver));
         log::info!("WebRTC media is served on UDP port {port}");
         Ok(Self {
             commands,
@@ -126,7 +129,8 @@ impl WebrtcServer {
         }
 
         let mut rtc = self.rtc();
-        for candidate in candidates(self.port, &local_addresses(), &self.hosts, self.v6) {
+        let v6 = self.v6.load(Ordering::Relaxed);
+        for candidate in candidates(self.port, &local_addresses(), &self.hosts, v6) {
             rtc.add_local_candidate(candidate);
         }
         let answer = rtc
@@ -199,6 +203,8 @@ struct EventLoop {
     sockets: MediaSockets,
     v4_buffers: ReceiveBuffers,
     v6_buffers: Option<ReceiveBuffers>,
+    /// Shared with the server, which offers IPv6 candidates only while it is set.
+    v6: Arc<AtomicBool>,
     /// Bounded by the server's session slots.
     sessions: HashMap<SessionId, Session>,
     reads: mpsc::Sender<SourceRead>,
@@ -206,11 +212,12 @@ struct EventLoop {
 }
 
 impl EventLoop {
-    fn new(sockets: MediaSockets, max_sessions: usize) -> Self {
+    fn new(sockets: MediaSockets, v6: Arc<AtomicBool>, max_sessions: usize) -> Self {
         let (reads, reads_receiver) = mpsc::channel(PACKET_BACKLOG);
         Self {
             v4_buffers: sockets.v4.buffers(),
             v6_buffers: sockets.v6.as_ref().map(MediaSocket::buffers),
+            v6,
             sockets,
             sessions: HashMap::with_capacity(max_sessions.min(64)),
             reads,
@@ -238,6 +245,7 @@ impl EventLoop {
                     Ok(()) => self.receive(true),
                     Err(error) => {
                         log::error!("WebRTC media over IPv6 stopped, its socket failed: {error}");
+                        self.v6.store(false, Ordering::Relaxed);
                         self.sockets.v6 = None;
                         self.v6_buffers = None;
                     }
