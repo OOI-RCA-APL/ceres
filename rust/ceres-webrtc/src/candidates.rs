@@ -9,24 +9,34 @@ use str0m::Candidate;
 ///
 /// A configured host that is not a local address, such as the public address of a host
 /// behind NAT, is offered as server reflexive, since datagrams sent to it arrive at a local
-/// address and str0m answers only at a host candidate's address. IPv6 addresses are offered
-/// only when `v6` says the port has an IPv6 socket to arrive at.
+/// address and str0m answers only at a host candidate's address. A local address is offered
+/// only when a socket receives at it, `receiving` holding each socket's address, and a host
+/// only when a socket of its family is left.
 pub(crate) fn candidates(
     port: u16,
     local: &[IpAddr],
     hosts: &[IpAddr],
-    v6: bool,
+    receiving: &[IpAddr],
 ) -> Vec<Candidate> {
-    let reachable = |ip: &&IpAddr| ip.is_ipv4() || v6;
+    let received = |ip: &&IpAddr| {
+        receiving.iter().any(|socket| {
+            socket.is_ipv4() == ip.is_ipv4() && (socket.is_unspecified() || socket == *ip)
+        })
+    };
+    let family_served = |ip: &&IpAddr| {
+        receiving
+            .iter()
+            .any(|socket| socket.is_ipv4() == ip.is_ipv4())
+    };
     let mut offered: Vec<Candidate> = local
         .iter()
-        .filter(reachable)
+        .filter(received)
         .filter(|ip| !link_local(**ip))
         .filter_map(|ip| Candidate::host(SocketAddr::new(*ip, port), "udp").ok())
         .collect();
     for host in hosts
         .iter()
-        .filter(reachable)
+        .filter(family_served)
         .filter(|host| !local.contains(host))
     {
         let base = offered
@@ -75,12 +85,12 @@ mod tests {
     use super::*;
 
     fn offered(local: &[&str], hosts: &[&str]) -> Vec<String> {
-        offered_over(true, local, hosts)
+        offered_over(&["0.0.0.0", "::"], local, hosts)
     }
 
-    fn offered_over(v6: bool, local: &[&str], hosts: &[&str]) -> Vec<String> {
+    fn offered_over(receiving: &[&str], local: &[&str], hosts: &[&str]) -> Vec<String> {
         let parse = |ips: &[&str]| ips.iter().map(|ip| ip.parse().unwrap()).collect::<Vec<_>>();
-        candidates(8189, &parse(local), &parse(hosts), v6)
+        candidates(8189, &parse(local), &parse(hosts), &parse(receiving))
             .iter()
             .map(|candidate| format!("{:?} {}", candidate.kind(), candidate.addr()))
             .collect()
@@ -90,9 +100,21 @@ mod tests {
     fn without_an_ipv6_socket_only_ipv4_is_offered() {
         assert_eq!(
             offered_over(
-                false,
+                &["0.0.0.0"],
                 &["10.0.0.2", "fd00::2"],
                 &["203.0.113.5", "2001:db8::5"]
+            ),
+            ["Host 10.0.0.2:8189", "ServerReflexive 203.0.113.5:8189"]
+        );
+    }
+
+    #[test]
+    fn a_socket_bound_to_one_address_offers_only_that_address() {
+        assert_eq!(
+            offered_over(
+                &["10.0.0.2"],
+                &["127.0.0.1", "10.0.0.2", "10.0.0.3", "fd00::2"],
+                &["203.0.113.5"]
             ),
             ["Host 10.0.0.2:8189", "ServerReflexive 203.0.113.5:8189"]
         );

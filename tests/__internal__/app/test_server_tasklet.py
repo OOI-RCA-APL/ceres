@@ -29,10 +29,6 @@ from ceres.config import ConfigCheckType
 if TYPE_CHECKING:
     import pytest
 
-# Each web server binds its WebRTC media port, and parallel test runs would collide on the
-# default one.
-_WEBRTC_FREE_PORT = "  webrtc:\n    port: 0\n"
-
 
 async def _load(
     tmp_path: Path,
@@ -89,9 +85,7 @@ async def test_the_server_tasklet_keeps_the_web_server_answering(tmp_path: Path)
     lands is what proves it is really serving rather than only having bound a port.
     """
     failures: list[BaseException] = []
-    engine = await _load(
-        tmp_path, failures, server=f"server:\n  http:\n    port: 0\n{_WEBRTC_FREE_PORT}"
-    )
+    engine = await _load(tmp_path, failures, server="server:\n  http:\n    port: 0\n")
     server = engine.server
     assert server is not None
 
@@ -129,7 +123,6 @@ async def test_the_http_listener_redirects_to_the_bound_https_one(tmp_path: Path
             f"  https:\n    port: 0\n    certificate:\n      path: {tls / 'server.crt'}\n"
             f"      key: {tls / 'server.key'}\n"
             "  http:\n    port: 0\n    redirect: true\n"
-            f"{_WEBRTC_FREE_PORT}"
         ),
     )
     server = engine.server
@@ -176,7 +169,6 @@ async def test_startup_issues_a_managed_certificate_clients_can_trust(
             "server:\n  bind: 127.0.0.1\n"
             "  https:\n    port: 0\n    certificate: auto\n"
             "  http:\n    port: 0\n    redirect: true\n"
-            f"{_WEBRTC_FREE_PORT}"
         ),
         checks=(ConfigCheckType.SERVER,),
     )
@@ -230,10 +222,7 @@ async def test_an_overridden_server_binds_only_what_the_override_answers(tmp_pat
     engine = await _load(
         tmp_path,
         failures,
-        server=(
-            "server:\n  bind: 127.0.0.1\n  https: {}\n  http:\n    redirect: true\n"
-            f"{_WEBRTC_FREE_PORT}"
-        ),
+        server=("server:\n  bind: 127.0.0.1\n  https: {}\n  http:\n    redirect: true\n"),
         engine=overridden,
         checks=ConfigCheckType.all(),
     )

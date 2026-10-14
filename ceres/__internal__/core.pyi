@@ -511,7 +511,7 @@ class NativeServer:
         The HTTPS listener issues a managed certificate first when it is due and renews it
         while serving, telling `log` what it issued and when renewal fails. Either listener
         offers the managed certificate's authority at `/ca.crt`, and both share one WebRTC
-        media port, telling `log` when it cannot be bound.
+        media port when `webrtc` is set.
         """
     @staticmethod
     def redirect(config: ServerConfig, https_port: int) -> NativeServer:
@@ -1084,7 +1084,7 @@ class ServerConfig:
     @property
     def bind(self) -> str:
         r"""
-        Address both listeners bind.
+        Address every listener binds, the WebRTC media port included.
         """
     @property
     def https(self) -> ServerHTTPSConfig | None:
@@ -1114,7 +1114,8 @@ class ServerConfig:
     @property
     def webrtc(self) -> ServerWebRTCConfig | None:
         r"""
-        Live video over WebRTC, on unless disabled.
+        WebRTC media port, bound beside the web listeners. Live video plays over HTTP
+        when `webrtc` is not set.
         """
     def __new__(
         cls,
@@ -1248,14 +1249,10 @@ class ServerWebRTCConfig:
     falls back to.
     """
     @property
-    def enabled(self) -> bool:
-        r"""
-        Whether live video is offered over WebRTC.
-        """
-    @property
     def port(self) -> int:
         r"""
-        UDP port every WebRTC session's media passes through.
+        UDP port every WebRTC session's media passes through at the server's `bind`
+        address.
         """
     @property
     def hosts(self) -> list[str]:
@@ -1276,7 +1273,6 @@ class ServerWebRTCConfig:
     def __new__(
         cls,
         *,
-        enabled: bool | None = None,
         port: int | None = None,
         hosts: list[str] | None = None,
         max_sessions: int | None = None,

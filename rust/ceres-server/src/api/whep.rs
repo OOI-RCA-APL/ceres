@@ -131,6 +131,7 @@ fn refusal(status: StatusCode, reason: &str) -> ApiError {
 
 #[cfg(test)]
 mod tests {
+    use std::net::Ipv4Addr;
     use std::sync::Mutex;
     use std::time::{Duration, Instant};
 
@@ -243,7 +244,9 @@ mod tests {
             host: Arc::clone(host) as Arc<dyn Host>,
             version: "0.0.0".to_string(),
             authority: None,
-            webrtc: webrtc.then(|| Arc::new(WebrtcServer::bind(&config).unwrap())),
+            webrtc: webrtc.then(|| {
+                Arc::new(WebrtcServer::bind(Ipv4Addr::LOCALHOST.into(), &config).unwrap())
+            }),
         })
     }
 

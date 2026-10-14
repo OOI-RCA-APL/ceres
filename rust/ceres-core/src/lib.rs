@@ -140,9 +140,8 @@ python_config! {
     /// Live video over WebRTC, which a browser plays with less delay than the MP4 stream it
     /// falls back to.
     ServerWebRTCConfig(ceres_config::ServerWebrtcConfig, ceres_config::RawServerWebrtcConfig) {
-        /// Whether live video is offered over WebRTC.
-        enabled: bool,
-        /// UDP port every WebRTC session's media passes through.
+        /// UDP port every WebRTC session's media passes through at the server's `bind`
+        /// address.
         port: u16,
         /// Addresses browsers are told to reach the media port at, besides those of every
         /// interface.
@@ -156,7 +155,7 @@ python_config! {
 
     /// Configuration for the engine's HTTP server.
     ServerConfig(ceres_config::ServerConfig, ceres_config::RawServerConfig) {
-        /// Address both listeners bind.
+        /// Address every listener binds, the WebRTC media port included.
         bind: String,
         /// HTTPS listener. The server is off when neither `https` nor `http` is set.
         #[python(nested = ServerHTTPSConfig)]
@@ -173,7 +172,8 @@ python_config! {
         /// Response compression settings.
         #[python(nested = ServerCompressionConfig)]
         compression: Option<ceres_config::ServerCompressionConfig>,
-        /// Live video over WebRTC, on unless disabled.
+        /// WebRTC media port, bound beside the web listeners. Live video plays over HTTP
+        /// when `webrtc` is not set.
         #[python(nested = ServerWebRTCConfig)]
         webrtc: Option<ceres_config::ServerWebrtcConfig>,
     }

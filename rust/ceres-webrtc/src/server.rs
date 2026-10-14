@@ -3,8 +3,7 @@
 use std::collections::HashMap;
 use std::io;
 use std::net::IpAddr;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use ceres_config::ServerWebrtcConfig;
@@ -64,9 +63,9 @@ pub struct WebrtcServer {
     hosts: Vec<IpAddr>,
     port: u16,
     no_ice_timeout: Duration,
-    /// Whether the port has a working IPv6 socket, without which IPv6 candidates reach
-    /// nothing. The event loop clears it when the socket fails.
-    v6: Arc<AtomicBool>,
+    /// The addresses of the sockets still serving, which bound the candidates offered. The
+    /// event loop drops a socket's address when it fails.
+    receiving: Arc<Mutex<Vec<IpAddr>>>,
 }
 
 enum Command {
@@ -78,16 +77,16 @@ enum Command {
 }
 
 impl WebrtcServer {
-    /// Binds the media port and starts serving it.
+    /// Binds the media port at `address`, the server's `bind`, and starts serving it.
     ///
     /// Must be called within a Tokio runtime.
-    pub fn bind(config: &ServerWebrtcConfig) -> io::Result<Self> {
-        let sockets = MediaSockets::bind(config.port)?;
+    pub fn bind(address: IpAddr, config: &ServerWebrtcConfig) -> io::Result<Self> {
+        let sockets = MediaSockets::bind(address, config.port)?;
         let port = sockets.port();
-        let v6 = Arc::new(AtomicBool::new(sockets.v6.is_some()));
+        let receiving = Arc::new(Mutex::new(sockets.addresses().collect()));
         let max_sessions = usize::try_from(config.max_sessions).unwrap_or(usize::MAX);
         let (commands, receiver) = mpsc::channel(max_sessions.min(64));
-        let event_loop = EventLoop::new(sockets, Arc::clone(&v6), max_sessions);
+        let event_loop = EventLoop::new(sockets, Arc::clone(&receiving), max_sessions);
         tokio::spawn(event_loop.run(receiver));
         log::info!("WebRTC media is served on UDP port {port}");
         Ok(Self {
@@ -97,7 +96,7 @@ impl WebrtcServer {
             hosts: config.hosts.clone(),
             port,
             no_ice_timeout: config.no_ice_timeout.duration(),
-            v6,
+            receiving,
         })
     }
 
@@ -131,8 +130,15 @@ impl WebrtcServer {
         }
 
         let mut rtc = self.rtc();
-        let v6 = self.v6.load(Ordering::Relaxed);
-        for candidate in candidates(self.port, &local_addresses(), &self.hosts, v6) {
+        let local = local_addresses();
+        let offered = {
+            let receiving = self
+                .receiving
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            candidates(self.port, &local, &self.hosts, &receiving)
+        };
+        for candidate in offered {
             rtc.add_local_candidate(candidate);
         }
         let answer = rtc
@@ -210,10 +216,10 @@ type SourceRead = (SessionId, Option<Result<PacketItem, MediaError>>);
 /// lock.
 struct EventLoop {
     sockets: MediaSockets,
-    v4_buffers: ReceiveBuffers,
+    v4_buffers: Option<ReceiveBuffers>,
     v6_buffers: Option<ReceiveBuffers>,
-    /// Shared with the server, which offers IPv6 candidates only while it is set.
-    v6: Arc<AtomicBool>,
+    /// Shared with the server, which offers candidates only at these addresses.
+    receiving: Arc<Mutex<Vec<IpAddr>>>,
     /// Bounded by the server's session slots.
     sessions: HashMap<SessionId, Session>,
     reads: mpsc::Sender<SourceRead>,
@@ -221,12 +227,12 @@ struct EventLoop {
 }
 
 impl EventLoop {
-    fn new(sockets: MediaSockets, v6: Arc<AtomicBool>, max_sessions: usize) -> Self {
+    fn new(sockets: MediaSockets, receiving: Arc<Mutex<Vec<IpAddr>>>, max_sessions: usize) -> Self {
         let (reads, reads_receiver) = mpsc::channel(PACKET_BACKLOG);
         Self {
-            v4_buffers: sockets.v4.buffers(),
+            v4_buffers: sockets.v4.as_ref().map(MediaSocket::buffers),
             v6_buffers: sockets.v6.as_ref().map(MediaSocket::buffers),
-            v6,
+            receiving,
             sockets,
             sessions: HashMap::with_capacity(max_sessions.min(64)),
             reads,
@@ -243,23 +249,19 @@ impl EventLoop {
                     None => break,
                 },
                 Some((id, read)) = self.reads_receiver.recv() => self.read(&id, read),
-                ready = self.sockets.v4.readable() => match ready {
+                ready = readable(self.sockets.v4.as_ref()) => match ready {
                     Ok(()) => self.receive(false),
-                    Err(error) => {
-                        log::error!("WebRTC media stopped, its IPv4 socket failed: {error}");
-                        break;
-                    }
+                    Err(error) => self.fail(false, &error),
                 },
                 ready = readable(self.sockets.v6.as_ref()) => match ready {
                     Ok(()) => self.receive(true),
-                    Err(error) => {
-                        log::error!("WebRTC media over IPv6 stopped, its socket failed: {error}");
-                        self.v6.store(false, Ordering::Relaxed);
-                        self.sockets.v6 = None;
-                        self.v6_buffers = None;
-                    }
+                    Err(error) => self.fail(true, &error),
                 },
                 () = sleep_until(deadline) => self.timeouts(),
+            }
+            if self.sockets.v4.is_none() && self.sockets.v6.is_none() {
+                log::error!("WebRTC media stopped, every socket failed");
+                break;
             }
         }
         for (_, session) in self.sessions.drain() {
@@ -320,6 +322,25 @@ impl EventLoop {
         }
     }
 
+    /// Drops the socket of one family, which stops offering its address.
+    fn fail(&mut self, v6: bool, error: &io::Error) {
+        let (socket, buffers) = if v6 {
+            (self.sockets.v6.take(), &mut self.v6_buffers)
+        } else {
+            (self.sockets.v4.take(), &mut self.v4_buffers)
+        };
+        *buffers = None;
+        let Some(socket) = socket else {
+            return;
+        };
+        let address = socket.address();
+        log::error!("WebRTC media at {address} stopped, its socket failed: {error}");
+        self.receiving
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|receiving| *receiving != address);
+    }
+
     fn receive(&mut self, v6: bool) {
         let Self {
             sockets,
@@ -328,10 +349,13 @@ impl EventLoop {
             sessions,
             ..
         } = self;
-        let (socket, buffers) = match (v6, sockets.v6.as_ref(), v6_buffers.as_mut()) {
-            (false, ..) => (&sockets.v4, v4_buffers),
-            (true, Some(socket), Some(buffers)) => (socket, buffers),
-            (true, ..) => return,
+        let (socket, buffers) = if v6 {
+            (sockets.v6.as_ref(), v6_buffers.as_mut())
+        } else {
+            (sockets.v4.as_ref(), v4_buffers.as_mut())
+        };
+        let (Some(socket), Some(buffers)) = (socket, buffers) else {
+            return;
         };
         let mut ended = Vec::new();
         socket.receive(buffers, |source, destination, datagram| {

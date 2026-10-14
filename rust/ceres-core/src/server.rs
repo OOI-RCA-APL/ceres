@@ -10,6 +10,7 @@
 //! `{"response": ...}` describing a body the server produces itself, and `{"live": ...}`
 //! naming the camera a WebRTC session plays.
 
+use std::net::ToSocketAddrs;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
 use std::time::Duration;
 
@@ -465,46 +466,40 @@ fn reporting(
 /// It closes with the last listener holding it, so a restarted engine binds afresh.
 static WEBRTC: Mutex<Weak<WebrtcServer>> = Mutex::new(Weak::new());
 
-/// Returns the shared WebRTC server, binding it when no listener holds one, or `None` when
-/// `config` turns WebRTC off or its port cannot be bound.
+/// Returns the shared WebRTC server, binding it at `bind` when no listener holds one, or `None`
+/// when `config` is not set.
 ///
-/// A port another process holds warns on `log` and serves without WebRTC, since the console
-/// then plays every stream over HTTP.
+/// A port that cannot be bound fails the listener, as an HTTP port does. A name resolving to
+/// several addresses binds the first that works, as `TcpListener::bind` does.
 fn shared_webrtc(
+    bind: &str,
     config: Option<&ServerWebrtcConfig>,
-    log: Option<&Py<PyAny>>,
-) -> Option<Arc<WebrtcServer>> {
-    let config = config.cloned().unwrap_or_default();
-    if !config.enabled {
-        return None;
-    }
+) -> PyResult<Option<Arc<WebrtcServer>>> {
+    let Some(config) = config else {
+        return Ok(None);
+    };
     let mut shared = WEBRTC.lock().unwrap_or_else(PoisonError::into_inner);
     if let Some(server) = shared.upgrade() {
-        return Some(server);
+        return Ok(Some(server));
     }
+    let port = config.port;
+    let refused = |error: std::io::Error| {
+        to_value_error(format!("cannot bind UDP {bind}:{port} for WebRTC. {error}"))
+    };
     // The server's event loop runs on the runtime the listeners serve on.
     let _runtime = pyo3_async_runtimes::tokio::get_runtime().enter();
-    match WebrtcServer::bind(&config) {
-        Ok(server) => {
-            let server = Arc::new(server);
-            *shared = Arc::downgrade(&server);
-            Some(server)
-        }
-        Err(error) => {
-            let port = config.port;
-            let message = format!(
-                "WebRTC is off, UDP port {port} could not be bound: {error}. Video plays over HTTP."
-            );
-            if let Some(log) = log {
-                Python::attach(|py| {
-                    if let Err(error) = log.call_method1(py, "warning", (message,)) {
-                        error.write_unraisable(py, None);
-                    }
-                });
+    let mut failure = std::io::Error::from(std::io::ErrorKind::AddrNotAvailable);
+    for address in (bind, port).to_socket_addrs().map_err(refused)? {
+        match WebrtcServer::bind(address.ip(), config) {
+            Ok(server) => {
+                let server = Arc::new(server);
+                *shared = Arc::downgrade(&server);
+                return Ok(Some(server));
             }
-            None
+            Err(error) => failure = error,
         }
     }
+    Err(refused(failure))
 }
 
 impl NativeServer {
@@ -582,7 +577,7 @@ impl NativeServer {
     /// The HTTPS listener issues a managed certificate first when it is due and renews it
     /// while serving, telling `log` what it issued and when renewal fails. Either listener
     /// offers the managed certificate's authority at `/ca.crt`, and both share one WebRTC
-    /// media port, telling `log` when it cannot be bound.
+    /// media port when `webrtc` is set.
     #[staticmethod]
     #[pyo3(signature = (host, config, console_directory, favicon_ico, favicon_png, favicon_svg, *, tls, records=None, log=None))]
     #[allow(clippy::too_many_arguments)]
@@ -598,7 +593,7 @@ impl NativeServer {
         #[gen_stub(override_type(type_repr = "typing.Any"))] log: Option<Py<PyAny>>,
     ) -> PyResult<Self> {
         let config = &config.inner;
-        let webrtc = shared_webrtc(config.webrtc.as_ref(), log.as_ref());
+        let webrtc = shared_webrtc(&config.bind, config.webrtc.as_ref())?;
         let (port, tls) = if tls {
             let https = config
                 .https

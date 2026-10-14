@@ -1,7 +1,7 @@
 //! The UDP sockets every session's media goes through.
 
 use std::io::{self, IoSliceMut};
-use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use quinn_udp::{BATCH_SIZE, RecvMeta, UdpSocketState};
 use socket2::{Domain, Socket, Type};
@@ -15,39 +15,59 @@ const DATAGRAM_SIZE: usize = 2048;
 /// task and a flood on the socket would starve its timeouts and source reads.
 const MAX_BATCHES_PER_WAKE: usize = 8;
 
-/// The media port's sockets, one per address family.
+/// The media port's sockets, at most one per address family and at least one.
 ///
 /// A dual-stack socket reports IPv4 destinations as mapped IPv6 addresses, which match no IPv4
 /// candidate, so IPv4 gets a socket of its own.
 pub(crate) struct MediaSockets {
-    pub(crate) v4: MediaSocket,
+    pub(crate) v4: Option<MediaSocket>,
     pub(crate) v6: Option<MediaSocket>,
+    port: u16,
 }
 
 impl MediaSockets {
-    /// Binds `port` on every interface, IPv6 too where the host has it.
+    /// Binds `port` at `address` the way the HTTP listeners bind it, so the IPv6 wildcard
+    /// serves IPv4 too.
     ///
-    /// Port 0 binds a free port, which both families share. Must be called within a Tokio
-    /// runtime.
-    pub(crate) fn bind(port: u16) -> io::Result<Self> {
-        let v4 = MediaSocket::bind(SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), port))?;
-        let v6 = SocketAddr::new(Ipv6Addr::UNSPECIFIED.into(), v4.port());
-        let v6 = MediaSocket::bind(v6)
-            .inspect_err(|error| {
-                log::warn!("WebRTC serves IPv4 alone, binding {v6} failed: {error}");
-            })
-            .ok();
-        Ok(Self { v4, v6 })
+    /// Port 0 binds a free port, which both families share, though another process may take
+    /// the IPv6 one between the two binds. Must be called within a Tokio runtime.
+    pub(crate) fn bind(address: IpAddr, port: u16) -> io::Result<Self> {
+        let (v4, v6) = match address {
+            IpAddr::V6(ip) if ip.is_unspecified() => {
+                let v4 = MediaSocket::bind(SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), port))?;
+                let v6 = MediaSocket::bind(SocketAddr::new(address, v4.port()))?;
+                (Some(v4), Some(v6))
+            }
+            IpAddr::V4(_) => (
+                Some(MediaSocket::bind(SocketAddr::new(address, port))?),
+                None,
+            ),
+            IpAddr::V6(_) => (
+                None,
+                Some(MediaSocket::bind(SocketAddr::new(address, port))?),
+            ),
+        };
+        let port = v4.as_ref().or(v6.as_ref()).map_or(port, MediaSocket::port);
+        Ok(Self { v4, v6, port })
     }
 
     pub(crate) fn port(&self) -> u16 {
-        self.v4.port()
+        self.port
+    }
+
+    /// The addresses the sockets receive at, a wildcard standing for every local address of
+    /// its family.
+    pub(crate) fn addresses(&self) -> impl Iterator<Item = IpAddr> {
+        [&self.v4, &self.v6]
+            .into_iter()
+            .flatten()
+            .map(MediaSocket::address)
     }
 
     /// Sends `contents` to `destination` from the local address `source`.
     pub(crate) fn send(&self, source: SocketAddr, destination: SocketAddr, contents: &[u8]) {
         let socket = if source.is_ipv4() {
-            Some(&self.v4)
+            self.v4.as_ref()
         } else {
             self.v6.as_ref()
         };
@@ -57,8 +77,8 @@ impl MediaSockets {
     }
 }
 
-/// A UDP socket of one address family, bound to the wildcard address so it serves every
-/// interface, that reports which local address each datagram arrived at.
+/// A UDP socket of one address family that reports which local address each datagram
+/// arrived at, since a wildcard socket serves every interface of its family.
 pub(crate) struct MediaSocket {
     socket: UdpSocket,
     state: UdpSocketState,
@@ -85,6 +105,11 @@ impl MediaSocket {
 
     fn port(&self) -> u16 {
         self.local.port()
+    }
+
+    /// The address this socket is bound to, a wildcard when it serves its whole family.
+    pub(crate) fn address(&self) -> IpAddr {
+        self.local.ip()
     }
 
     pub(crate) async fn readable(&self) -> io::Result<()> {
@@ -155,3 +180,39 @@ impl MediaSocket {
 
 /// The buffers one socket's reads land in, allocated once.
 pub(crate) struct ReceiveBuffers([Vec<u8>; BATCH_SIZE]);
+
+#[cfg(test)]
+mod tests {
+    use std::net::Ipv6Addr;
+
+    use super::*;
+
+    fn bound(address: IpAddr) -> Vec<IpAddr> {
+        MediaSockets::bind(address, 0)
+            .unwrap()
+            .addresses()
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn a_specific_address_binds_one_socket_of_its_family() {
+        let v4 = Ipv4Addr::LOCALHOST.into();
+        let v6 = Ipv6Addr::LOCALHOST.into();
+        assert_eq!(bound(v4), [v4]);
+        assert_eq!(bound(v6), [v6]);
+    }
+
+    #[tokio::test]
+    async fn the_ipv6_wildcard_binds_both_families_on_one_port() {
+        let sockets = MediaSockets::bind(Ipv6Addr::UNSPECIFIED.into(), 0).unwrap();
+        assert_eq!(
+            sockets.addresses().collect::<Vec<_>>(),
+            [
+                IpAddr::from(Ipv4Addr::UNSPECIFIED),
+                Ipv6Addr::UNSPECIFIED.into()
+            ]
+        );
+        let ports = [&sockets.v4, &sockets.v6].map(|socket| socket.as_ref().unwrap().port());
+        assert_eq!(ports, [sockets.port(); 2]);
+    }
+}

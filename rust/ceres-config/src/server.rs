@@ -710,11 +710,8 @@ impl TryFrom<RawServerCompressionConfig> for ServerCompressionConfig {
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 #[schemars(title = "ServerWebRTCConfig")]
 pub struct RawServerWebrtcConfig {
-    /// Whether live video is offered over WebRTC, true when omitted.
-    pub enabled: Option<bool>,
-
-    /// UDP port every WebRTC session's media passes through, 8189 when omitted. When the
-    /// port cannot be bound the server logs it and video plays over HTTP.
+    /// UDP port every WebRTC session's media passes through at the server's `bind` address,
+    /// 8189 when omitted.
     pub port: Option<u16>,
 
     /// Addresses browsers are told to reach the media port at, besides those of every
@@ -732,7 +729,6 @@ pub struct RawServerWebrtcConfig {
 /// Validated WebRTC settings for the engine's HTTP server.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ServerWebrtcConfig {
-    pub enabled: bool,
     pub port: u16,
     pub hosts: Vec<IpAddr>,
     pub max_sessions: u64,
@@ -742,7 +738,6 @@ pub struct ServerWebrtcConfig {
 impl Default for ServerWebrtcConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
             port: 8189,
             hosts: Vec::new(),
             max_sessions: 32,
@@ -761,7 +756,7 @@ impl TryFrom<RawServerWebrtcConfig> for ServerWebrtcConfig {
         if max_sessions == 0 {
             problems.push(Problem::new(
                 "max_sessions",
-                "must be greater than zero, set `enabled: false` to turn WebRTC off.",
+                "must be greater than zero, leave out `webrtc` to turn WebRTC off.",
             ));
         }
         let no_ice_timeout = raw.no_ice_timeout.unwrap_or(defaults.no_ice_timeout);
@@ -773,7 +768,6 @@ impl TryFrom<RawServerWebrtcConfig> for ServerWebrtcConfig {
         }
 
         problems.into_result(Self {
-            enabled: raw.enabled.unwrap_or(defaults.enabled),
             port: raw.port.unwrap_or(defaults.port),
             hosts: raw.hosts.unwrap_or(defaults.hosts),
             max_sessions,
@@ -788,7 +782,8 @@ impl TryFrom<RawServerWebrtcConfig> for ServerWebrtcConfig {
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 #[schemars(title = "ServerConfig")]
 pub struct RawServerConfig {
-    /// Address both listeners bind, `0.0.0.0` when omitted.
+    /// Address every listener binds, the WebRTC media port included, `0.0.0.0` when omitted.
+    /// `::` serves IPv6 and IPv4 both.
     pub bind: Option<String>,
 
     /// HTTPS listener. The server is off when neither `https` nor `http` is set.
@@ -800,6 +795,9 @@ pub struct RawServerConfig {
     pub authentication: Option<RawServerAuthenticationConfig>,
     pub cors: Option<RawServerCorsConfig>,
     pub compression: Option<RawServerCompressionConfig>,
+
+    /// WebRTC media port, bound beside the web listeners. Live video plays over HTTP when
+    /// `webrtc` is not set.
     pub webrtc: Option<RawServerWebrtcConfig>,
 }
 
@@ -1251,17 +1249,15 @@ mod tests {
             Some(ServerWebrtcConfig::default())
         );
         let defaults = ServerWebrtcConfig::default();
-        assert!(defaults.enabled);
         assert_eq!((defaults.port, defaults.max_sessions), (8189, 32));
         assert!(defaults.hosts.is_empty());
         assert_eq!(defaults.no_ice_timeout, TimeDelta::from_secs(10));
         let webrtc = server(
-            "webrtc:\n  enabled: false\n  port: 9000\n  hosts: [10.0.0.1, '::1']\n  max-sessions: 4\n  no-ice-timeout: 2\n",
+            "webrtc:\n  port: 9000\n  hosts: [10.0.0.1, '::1']\n  max-sessions: 4\n  no-ice-timeout: 2\n",
         )
         .unwrap()
         .webrtc
         .unwrap();
-        assert!(!webrtc.enabled);
         assert_eq!(webrtc.port, 9000);
         assert_eq!(
             webrtc.hosts,

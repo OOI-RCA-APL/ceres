@@ -1,6 +1,6 @@
 //! Sessions served to a str0m peer standing in for a browser, over loopback.
 
-use std::net::{SocketAddr, UdpSocket};
+use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -88,7 +88,7 @@ async fn a_browser_that_never_connects_gives_up_its_slot() {
         no_ice_timeout,
         ..config(1)
     };
-    let server = WebrtcServer::bind(&config).unwrap();
+    let server = bound(&config);
     let (_silent, offer) = Browser::offer();
     let answer = server.open(source(&camera), &offer).await.unwrap();
     tokio::time::sleep(no_ice_timeout.duration() + Duration::from_millis(500)).await;
@@ -152,7 +152,11 @@ fn camera(clip: &str) -> RtspServer {
 }
 
 fn server(max_sessions: u64) -> WebrtcServer {
-    WebrtcServer::bind(&config(max_sessions)).unwrap()
+    bound(&config(max_sessions))
+}
+
+fn bound(config: &ServerWebrtcConfig) -> WebrtcServer {
+    WebrtcServer::bind(Ipv4Addr::LOCALHOST.into(), config).unwrap()
 }
 
 fn config(max_sessions: u64) -> ServerWebrtcConfig {
