@@ -6,6 +6,7 @@ import icons from '@/icons'
 import { useNavigation } from '@/navigation'
 import { usePreferences } from '@/preferences'
 import { keepFocusWhile } from '@/utilities'
+import type { WidgetStatus } from '@/widget-status'
 import {
   createWidget,
   getWidgetInfo,
@@ -53,6 +54,8 @@ const settingsComponent = $computed(() => {
 })
 
 let isShowingSettingsDialog = $ref(false)
+/** A short note the widget sends up for the header, such as the video's transport. */
+let status = $ref<WidgetStatus | null>(null)
 let isShowingGroupDialog = $ref(false)
 
 // Bumped through the workspace so a reload asked of a selection reaches every widget in it.
@@ -354,6 +357,7 @@ const menuItems = $computed<MenuItem[][]>(() => {
             </button>
           </c-dropdown-menu>
           <div class="flex-1" />
+          <c-widget-status v-if="status != null && !container.collapsed" class="mr-1" :status />
           <button
             class="flex items-center rounded-full p-0.5 opacity-60 hover:opacity-100"
             type="button"
@@ -400,6 +404,7 @@ const menuItems = $computed<MenuItem[][]>(() => {
             :widget="widget"
             @reload-requested="onReloadRequested"
             @settings-requested="onSettingsRequested"
+            @status="(next: WidgetStatus | null) => (status = next)"
           />
         </div>
       </template>

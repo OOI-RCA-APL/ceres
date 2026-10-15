@@ -3,8 +3,9 @@ import { useEventListener, useIntervalFn } from '@vueuse/core'
 import { onBeforeUnmount, watch, watchEffect } from 'vue'
 
 import { useEngine } from '@/api/engine'
-import { isMediaSourceSupported, isSafari } from '@/environment'
+import { isMediaSourceSupported } from '@/environment'
 import icons from '@/icons'
+import { readInitSegment } from '@/mp4'
 import { useReconnectSchedule } from '@/reconnect'
 import { getHttpUrl } from '@/utilities'
 import {
@@ -14,6 +15,7 @@ import {
   type VideoTransport,
   type WhepSession,
 } from '@/whep'
+import type { WidgetStatus } from '@/widget-status'
 import { useWorkspace } from '@/workspace'
 import type { VideoWidget } from '@/workspace'
 
@@ -24,6 +26,8 @@ const { widget } = defineProps<{
 const emit = defineEmits<{
   reloadRequested: []
   settingsRequested: []
+  /** A short note for the widget's header, or `null` to clear it. */
+  status: [status: WidgetStatus | null]
 }>()
 
 const engine = useEngine()
@@ -88,7 +92,10 @@ const whepUrl = $computed(() => {
     return null
   }
 
-  return getHttpUrl(`/api/components/${queryComponent}/procedures/${queryName}/whep`)
+  // Same-origin, unlike the video's own URL, since a posted offer is a CORS request the
+  // engine's port refuses in development while the dev proxy forwards it.
+  const path = `/api/components/${queryComponent}/procedures/${queryName}/whep`
+  return new URL(path, window.location.href).toString()
 })
 
 const transports = useVideoTransports()
@@ -106,11 +113,39 @@ const url = $computed(() => {
   return getHttpUrl(attempt === 0 ? path : `${path}#attempt=${attempt}`)
 })
 
-// Safari requires byte range support on a video response, which a live stream cannot offer, so
-// there the stream is downloaded and fed to a `MediaSource` instead.
+// Whether this attempt plays the stream straight from its URL, because it turned out not to be one
+// a `MediaSource` can take. The next attempt tries a `MediaSource` again.
+let isPlayingDirectly = $ref(false)
+
+// A streaming output over HTTP is downloaded and fed to a `MediaSource` rather than played
+// straight from its URL. Safari plays no video without byte ranges, which an endless stream cannot
+// offer, and elsewhere the element reads ahead into its own cache, so neither the lag behind the
+// camera nor whether the stream is live can be told. A file plays directly, finished and rangeable,
+// and so does a stream a `MediaSource` cannot take.
 const isUsingMediaSourceBuffer = $computed(
-  () => transport === 'http' && isStreamingOutput && isSafari && isMediaSourceSupported,
+  () => transport === 'http' && isStreamingOutput && isMediaSourceSupported && !isPlayingDirectly,
 )
+
+// The duration a `MediaSource` reported once its metadata loaded, `null` before then.
+let bufferedDuration = $ref<number | null>(null)
+
+// Whether the video is live rather than a recording, `null` while that is not known. A live stream
+// has no end, so the media itself reports an infinite duration. Only a `MediaSource` reports the
+// container's own, where an element playing a URL directly estimates one from the bytes so far and
+// so calls a live stream finite.
+const isLive = $computed(() => {
+  if (queryInfo?.output.type === 'file') {
+    return false
+  }
+  if (transport === 'webrtc') {
+    return true
+  }
+  if (!isUsingMediaSourceBuffer || bufferedDuration == null) {
+    return null
+  }
+
+  return bufferedDuration === Infinity
+})
 
 let mediaSource: MediaSource | null = $shallowRef(null)
 
@@ -126,26 +161,45 @@ const src = $computed(() => {
   return url
 })
 
-/** The buffer type for a response's content type, or null when the browser cannot play it. */
-function mediaSourceBufferType(contentType: string) {
-  let bufferType: string
-  switch (contentType) {
-    case 'video/mp4':
-      bufferType = 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"'
-      break
-    case 'video/webm':
-      bufferType = 'video/webm'
-      break
-    default:
-      bufferType = contentType
-      break
+/** Give up on the `MediaSource` for this attempt and let the element play the URL itself. */
+function playDirectly(reason: string) {
+  console.info(`Playing ${url} directly. ${reason}`)
+  mediaSourceRequest?.abort()
+  mediaSourceRequest = null
+  mediaSource = null
+  isPlayingDirectly = true
+}
+
+/** Concatenate two byte arrays. */
+function joined(first: Uint8Array, second: Uint8Array) {
+  const bytes = new Uint8Array(first.length + second.length)
+  bytes.set(first)
+  bytes.set(second, first.length)
+  return bytes
+}
+
+/** The buffer type for a stream, read from its init segment for MP4, or `null` when the browser's
+`MediaSource` cannot take it. `head` is `null` while more of the stream is needed to tell. */
+function mediaSourceBufferType(contentType: string, head: Uint8Array) {
+  const mediaType = contentType.split(';')[0]!.trim()
+  let bufferType = contentType
+  if (mediaType === 'video/mp4' && !contentType.includes('codecs=')) {
+    const segment = readInitSegment(head)
+    if (segment.type === 'partial') {
+      return undefined
+    }
+    if (segment.type === 'unknown') {
+      return null
+    }
+    bufferType = `video/mp4; codecs="${segment.codecs}"`
   }
 
   return MediaSource.isTypeSupported(bufferType) ? bufferType : null
 }
 
-// How much already played video the `MediaSource` keeps, enough for a short seek back.
-const KEPT_SECONDS = 30
+// How much already played video the `MediaSource` keeps, enough for a short seek back. Chromium
+// gives a page about 150 MB of buffer, which a few 1080p streams at half a minute each would fill.
+const KEPT_SECONDS = 10
 
 // The request feeding the current `MediaSource`, aborted when a newer one replaces it.
 let mediaSourceRequest: AbortController | null = null
@@ -154,6 +208,7 @@ let mediaSourceRequest: AbortController | null = null
 async function syncMediaSource(url: string | null | undefined) {
   mediaSourceRequest?.abort()
   mediaSourceRequest = null
+  bufferedDuration = null
 
   if (url == null) {
     mediaSource = null
@@ -165,9 +220,14 @@ async function syncMediaSource(url: string | null | undefined) {
   mediaSourceRequest = request
   state = 'loading'
 
+  // Read through the page's own origin. A `fetch`, unlike the element, is bound by CORS, which the
+  // engine does not answer when the dev console serves the page from a port of its own.
+  const { pathname, hash } = new URL(url)
   let result: Response
   try {
-    result = await fetch(url, { signal: request.signal })
+    result = await fetch(new URL(`${pathname}${hash}`, window.location.href), {
+      signal: request.signal,
+    })
   } catch (error) {
     if (!request.signal.aborted) {
       fail(`The video request failed. ${String(error)}`)
@@ -186,12 +246,6 @@ async function syncMediaSource(url: string | null | undefined) {
     return
   }
 
-  const bufferType = mediaSourceBufferType(contentType)
-  if (bufferType == null) {
-    fail(`Unsupported video content type: "${contentType}"`)
-    return
-  }
-
   const reader = result.body?.getReader()
   if (reader == null) {
     fail('No data in response.')
@@ -199,6 +253,23 @@ async function syncMediaSource(url: string | null | undefined) {
   }
 
   try {
+    // The bytes read before the buffer exists, held for its first append.
+    let head = new Uint8Array(new ArrayBuffer(0))
+    let bufferType: string | null | undefined
+    while ((bufferType = mediaSourceBufferType(contentType, head)) === undefined) {
+      const { value: chunk } = await reader.read()
+      if (chunk == null) {
+        fail('The video stream ended before its first frame.')
+        return
+      }
+      head = joined(head, chunk)
+    }
+
+    if (bufferType == null) {
+      playDirectly(`This browser cannot buffer "${contentType}" itself.`)
+      return
+    }
+
     const boundMediaSource = new MediaSource()
     mediaSource = boundMediaSource
 
@@ -206,20 +277,30 @@ async function syncMediaSource(url: string | null | undefined) {
     await new Promise((resolve) => boundMediaSource.addEventListener('sourceopen', resolve, once))
 
     const buffer = boundMediaSource.addSourceBuffer(bufferType)
+    let pending: Uint8Array<ArrayBuffer> | null = head
     while (boundMediaSource === mediaSource && element?.src === src) {
-      const { value: chunk } = await reader.read()
+      const chunk: Uint8Array<ArrayBuffer> | undefined = pending ?? (await reader.read()).value
+      pending = null
       if (chunk == null) {
-        // The engine ended the stream, which a live view counts as losing it.
-        if (boundMediaSource === mediaSource) {
+        // A recording has finished downloading, where a live view counts that as losing it.
+        if (isLive === false) {
+          if (boundMediaSource.readyState === 'open') {
+            boundMediaSource.endOfStream()
+          }
+        } else if (boundMediaSource === mediaSource) {
           fail('The video stream ended.')
         }
         break
       }
 
-      // A `SourceBuffer` keeps every fragment until told otherwise, so a view left open for hours
-      // fills it and the next append throws.
+      // A `SourceBuffer` keeps every fragment until told otherwise, so a live view left open for
+      // hours fills it and the next append throws. A recording keeps all of it to seek over.
       const playedUntil = (element?.currentTime ?? 0) - KEPT_SECONDS
-      if (buffer.buffered.length > 0 && buffer.buffered.start(0) < playedUntil) {
+      if (
+        isLive !== false &&
+        buffer.buffered.length > 0 &&
+        buffer.buffered.start(0) < playedUntil
+      ) {
         buffer.remove(buffer.buffered.start(0), playedUntil)
         await new Promise((resolve) => buffer.addEventListener('updateend', resolve, once))
       }
@@ -285,12 +366,20 @@ async function playWhep(target: string) {
     })
     whep = session
     transport = 'webrtc'
-    transports.remember(target, 'webrtc')
+    if (widget.transport === 'auto') {
+      transports.remember(target, 'webrtc')
+    }
     if (element != null) {
       element.srcObject = session.stream
     }
   } catch (error) {
     if (request.signal.aborted) {
+      return
+    }
+
+    if (widget.transport === 'webrtc') {
+      // Held to WebRTC, so its failure shows rather than being hidden by a fallback.
+      fail(`WebRTC failed. ${String(error)}`)
       return
     }
 
@@ -314,6 +403,7 @@ async function playWhep(target: string) {
 const reconnect = useReconnectSchedule(() => {
   holdLastFrame()
   isReloading = true
+  isPlayingDirectly = false
   attempt += 1
 })
 
@@ -337,8 +427,9 @@ function fail(reason: string) {
   }
 
   const error = element?.error
+  const at = transport === 'webrtc' ? `${whepUrl} over WebRTC` : `${url} over HTTP`
   console.warn(
-    `Lost the video at ${url} (attempt ${attempt}). ${reason}`,
+    `Lost the video at ${at} (attempt ${attempt}). ${reason}`,
     error != null ? { code: error.code, message: error.message } : '',
   )
 
@@ -350,14 +441,31 @@ function fail(reason: string) {
 }
 
 function onError() {
+  // A stream refused before its first metadata is one the buffer cannot take, such as an MP4 with
+  // its index at the end, which the element can still play from the URL.
+  if (isUsingMediaSourceBuffer && bufferedDuration == null) {
+    playDirectly(`The buffer refused the stream. ${element?.error?.message ?? ''}`)
+    return
+  }
+
   fail('The video element reported an error.')
 }
 
 function onEnded() {
+  // A recording has played to its end, where a live view counts that as losing the stream.
+  if (isLive === false) {
+    isMeantToPlay = false
+    return
+  }
+
   fail('The video stream ended.')
 }
 
 async function onLoad() {
+  if (isUsingMediaSourceBuffer && element != null) {
+    bufferedDuration = element.duration
+  }
+
   if (element != null && (widget.autoplay || isMeantToPlay)) {
     try {
       await element.play()
@@ -374,10 +482,19 @@ function onPlay() {
 }
 
 function onPause() {
-  if (!isReloading && !isDisposed) {
+  // A browser pauses muted video in a hidden tab on its own, which is not a choice to stop it.
+  if (!isReloading && !isDisposed && document.visibilityState === 'visible') {
     isMeantToPlay = false
   }
 }
+
+// A paused live stream is frozen rather than buffering, and a browser does not always resume
+// what it paused while hidden, so the widget does once the tab is back.
+useEventListener(document, 'visibilitychange', () => {
+  if (document.visibilityState === 'visible' && element?.paused && isMeantToPlay) {
+    element.play().catch((error) => console.warn('Resuming the video failed.', error))
+  }
+})
 
 /** Frames are arriving again, so whatever reconnecting there was is over. The first frame of a
 paused video counts too, so a paused widget does not retry a connection that already came back. */
@@ -387,15 +504,18 @@ function onFrames() {
   reconnect.recovered()
 }
 
-// A playing video whose time stands still for this long has lost its stream without saying so.
+// A playing video that shows no new frame for this long has lost its stream without saying so.
+// Frames are counted rather than time, which a WebRTC stream's clock keeps running without them.
 const STALL_SECONDS = 10
-let lastTime = -1
+let lastFrames = -1
 let stillFor = 0
 
-// Only watched while in sight, since browsers pause or starve video in a hidden tab.
+// Only watched while in sight, since browsers pause or starve video in a hidden tab. A recording
+// standing still is only waiting on its download.
 useIntervalFn(() => {
   const isWatching =
     widget.reconnect &&
+    isLive !== false &&
     element != null &&
     !element.paused &&
     isMeantToPlay &&
@@ -406,8 +526,9 @@ useIntervalFn(() => {
     return
   }
 
-  if (element.currentTime !== lastTime) {
-    lastTime = element.currentTime
+  const frames = element.getVideoPlaybackQuality().totalVideoFrames
+  if (frames !== lastFrames) {
+    lastFrames = frames
     stillFor = 0
     return
   }
@@ -421,22 +542,72 @@ useIntervalFn(() => {
 
 // Every time playback waits on the network the picture falls that much further behind, and the
 // element never makes the time up, so a live view left open drifts minutes behind the camera.
+// A lagging video plays a little fast until it is back near the newest frame, which nobody
+// watching a camera notices, and only a lag too long to play off that way is jumped.
+/** How far short of the newest frame playback is steered, so the next fragment is there in time. */
+const TARGET_LAG_SECONDS = 0.5
+/** The lag past the target that starts a catch-up, so a passing hiccup does not. */
+const CATCH_UP_AFTER_SECONDS = 0.5
+/** The catch-up's speed, closing a second of lag in ten without motion looking hurried. */
+const CATCH_UP_RATE = 1.1
+/** A lag past this would take most of half a minute to play off, so it is jumped instead. */
 const MAX_LAG_SECONDS = 3
-// How far short of the newest frame a jump lands, so the next fragment arrives before it is needed.
-const CATCH_UP_MARGIN_SECONDS = 0.5
+
+// Whether the playback rate is the catch-up's, so only that is undone and a speed the viewer
+// picked for a recording stays.
+let isCatchingUp = false
+
+function stopCatchingUp() {
+  if (isCatchingUp && element != null) {
+    element.playbackRate = 1
+  }
+  isCatchingUp = false
+}
+
+/** Whether a live picture is paused or lagging, which grays its live dot in the header. */
+let isBehindLive = $ref(false)
 
 useIntervalFn(() => {
-  // WebRTC plays each frame as it arrives, so only the HTTP stream falls behind.
-  const isBuffering = isStreamingOutput && transport === 'http'
-  if (!isBuffering || element == null || element.paused || element.buffered.length === 0) {
+  if (element == null || isLive !== true) {
+    isBehindLive = false
+    stopCatchingUp()
     return
   }
 
-  const newest = element.buffered.end(element.buffered.length - 1)
-  if (newest - element.currentTime > MAX_LAG_SECONDS) {
-    element.currentTime = newest - CATCH_UP_MARGIN_SECONDS
+  if (element.paused) {
+    isBehindLive = true
+    stopCatchingUp()
+    return
   }
-}, 1000)
+
+  // WebRTC plays each frame as it arrives, so only a live stream over HTTP lags or is steered.
+  const { buffered, seekable } = element
+  if (transport !== 'http' || buffered.length === 0) {
+    isBehindLive = false
+    stopCatchingUp()
+    return
+  }
+
+  const newest = buffered.end(buffered.length - 1)
+  const lag = newest - element.currentTime
+  const live = newest - TARGET_LAG_SECONDS
+  // Trimming can leave playback behind what is still buffered, where it would wait forever.
+  const isBeforeBuffer = element.currentTime < buffered.start(0)
+  // A jump to a time that cannot be sought lands back at the start.
+  const canJump = [...Array(seekable.length).keys()].some(
+    (index) => seekable.start(index) <= live && live <= seekable.end(index),
+  )
+  isBehindLive = lag > TARGET_LAG_SECONDS + CATCH_UP_AFTER_SECONDS
+  if ((lag > MAX_LAG_SECONDS || isBeforeBuffer) && canJump) {
+    element.currentTime = live
+    stopCatchingUp()
+  } else if (lag > TARGET_LAG_SECONDS + CATCH_UP_AFTER_SECONDS) {
+    element.playbackRate = CATCH_UP_RATE
+    isCatchingUp = true
+  } else if (lag <= TARGET_LAG_SECONDS) {
+    stopCatchingUp()
+  }
+}, 250)
 
 // A first connection gets the same deadline as a retry, so one that never answers is retried too.
 watch(
@@ -451,12 +622,13 @@ watch(
   { immediate: true },
 )
 
-// A new query starts over, from a first attempt with nothing held.
+// A new query or transport starts over, from a first attempt with nothing held.
 watch(
-  () => widget.query,
+  () => [widget.query, widget.transport] as const,
   () => {
     reconnect.recovered()
     attempt = 0
+    isPlayingDirectly = false
     isHoldingFrame = false
     state = 'loading'
     if (widget.reconnect && widget.autoplay) {
@@ -467,19 +639,69 @@ watch(
 
 // Each attempt over WebRTC negotiates a new session, where HTTP takes a new `src` instead.
 watch(
-  () => [whepUrl, attempt] as const,
-  ([target]) => {
+  () => [whepUrl, attempt, widget.transport] as const,
+  ([target, , forced]) => {
     closeWhep()
-    if (target == null) {
+    if (forced === 'webrtc' && target == null) {
+      // No retry could change that, so this skips the reconnecting that `fail` would start.
+      transport = null
+      reconnect.stop()
+      console.warn(`The video at ${url} cannot play over WebRTC.`)
+      state = 'error'
+      return
+    }
+
+    if (target == null || forced === 'http') {
       transport = 'http'
       return
     }
 
-    transport = transports.verdict(target)
+    // A forced transport neither reads nor writes what an automatic choice remembers.
+    transport = forced === 'auto' ? transports.verdict(target) : null
     if (transport !== 'http' && !isDisposed) {
       void playWhep(target)
     }
   },
+  { immediate: true },
+)
+
+/** The transport in use, named so a fallback to HTTP is visible. */
+const transportLabel = $computed(() => {
+  if (transport == null || url == null) {
+    return null
+  }
+
+  return transport === 'webrtc' ? 'WebRTC' : 'HTTP'
+})
+
+/** Play live video from its newest frame, resuming it if paused. */
+function goLive() {
+  if (element == null) {
+    return
+  }
+
+  const { buffered } = element
+  if (transport === 'http' && buffered.length > 0) {
+    element.currentTime = buffered.end(buffered.length - 1) - TARGET_LAG_SECONDS
+  }
+  isMeantToPlay = true
+  element.play().catch((error) => console.warn('Resuming the video failed.', error))
+}
+
+const status = $computed((): WidgetStatus | null => {
+  if (transportLabel == null) {
+    return null
+  }
+
+  return isLive === true
+    ? { text: transportLabel, live: isBehindLive ? 'behind' : 'live', goLive }
+    : { text: transportLabel }
+})
+
+// The header lives in the parent widget, so the status is sent up rather than computed there.
+watch(
+  () => status,
+  (current) => emit('status', current),
   { immediate: true },
 )
 
@@ -518,7 +740,7 @@ useEventListener('beforeunload', () => {
       :muted="isMuted"
       playsinline
       :src="src"
-      :style="src == null ? { display: 'none' } : {}"
+      :style="src == null && transport !== 'webrtc' ? { display: 'none' } : {}"
       @ended="onEnded"
       @error="onError"
       @loadeddata="onFrames"
@@ -532,14 +754,13 @@ useEventListener('beforeunload', () => {
       ref="lastFrame"
       class="pointer-events-none absolute inset-0 h-full w-full object-contain"
     />
-    <!-- Names the transport in use so a fallback to HTTP is visible, clear of the controls. -->
-    <span
-      v-if="transport != null && url != null"
-      class="text-muted pointer-events-none absolute top-2 left-2 text-[10px] opacity-60"
+    <!-- A frameless widget has no header to carry the status, so it sits over the picture. -->
+    <c-widget-status
+      v-if="widget.frameless && status != null"
+      class="absolute top-2 left-2"
       data-transport
-    >
-      {{ transport === 'webrtc' ? 'WebRTC' : 'HTTP' }}
-    </span>
+      :status
+    />
     <div
       v-if="reconnect.isReconnecting && !isUnloading"
       class="bg-default/80 text-muted absolute top-2 right-2 flex items-center gap-1 rounded-md px-2 py-1 text-[11px]"

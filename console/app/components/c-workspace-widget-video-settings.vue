@@ -43,6 +43,13 @@ const possibleQueryNames = $computed(() =>
   ),
 )
 
+const transportHints: Record<VideoWidget['transport'], string> = {
+  auto: 'WebRTC when it can, HTTP when it cannot.',
+  webrtc:
+    'Lowest latency. Shows an error rather than switching to HTTP when the network blocks it.',
+  http: 'Higher latency, but gets through any network that loads this page.',
+}
+
 // A browser only autoplays muted video, so the two settings hold each other to that.
 watch(
   () => widget.autoplay,
@@ -104,6 +111,15 @@ watch(
           :show-type="false"
         />
       </div>
+      <c-schema-form-value
+        v-model="widget.transport"
+        :schema="{
+          type: 'string',
+          title: 'Transport',
+          description: transportHints[widget.transport],
+          enum: ['auto', 'webrtc', 'http'],
+        }"
+      />
     </div>
   </c-workspace-widget-settings>
 </template>

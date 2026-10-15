@@ -177,6 +177,8 @@ export const VideoWidgetModel = BaseWidgetModel.extend({
   showControls: z.boolean().default(true).catch(true),
   /** Reconnect on its own when the stream drops, keeping the last frame up meanwhile. */
   reconnect: z.boolean().default(true).catch(true),
+  /** Plays over one transport only, `auto` trying WebRTC first and falling back to HTTP. */
+  transport: z.enum(['auto', 'webrtc', 'http']).default('auto').catch('auto'),
 })
 
 /** A stored control color, in the vocabulary the old console wrote and the engine still holds. */

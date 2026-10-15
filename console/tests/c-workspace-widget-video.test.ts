@@ -5,16 +5,15 @@ import { nextTick } from 'vue'
 
 import CWorkspaceWidgetVideo from '@/components/c-workspace-widget-video.vue'
 import { WhepRefusal } from '@/whep'
+import type { WidgetStatus } from '@/widget-status'
 import { VideoWidgetModel } from '@/workspace/models'
 
+// The query's output, a stream unless a test makes it a file.
+const output = vi.hoisted(() => ({ type: 'streaming', media: 'video/mp4' }))
 vi.mock('@/api/engine', () => ({
   useEngine: () => ({
     components: {
-      get: () => ({
-        procedures: [
-          { name: 'video', type: 'query', output: { type: 'streaming', media: 'video/mp4' } },
-        ],
-      }),
+      get: () => ({ procedures: [{ name: 'video', type: 'query', output }] }),
     },
   }),
 }))
@@ -23,7 +22,9 @@ vi.mock('@/workspace', () => ({
   useWorkspace: () => ({ resolveAddress: (raw: string) => raw }),
 }))
 
-vi.mock('@/environment', () => ({ isSafari: false, isMediaSourceSupported: true }))
+// Without a `MediaSource` every video plays straight from its URL. The buffered path has its own
+// tests, in `c-workspace-widget-video-buffer.test.ts`.
+vi.mock('@/environment', () => ({ isMediaSourceSupported: false }))
 
 const openWhep = vi.hoisted(() => vi.fn())
 vi.mock('@/whep', async (original) => ({ ...(await original<object>()), openWhep }))
@@ -47,8 +48,26 @@ function render(reconnect: boolean) {
   })
   return mount(CWorkspaceWidgetVideo, {
     props: { widget },
-    global: { stubs: { 'c-text': true, 'c-button': true, 'c-tooltip': true, 'c-icon': true } },
+    global: {
+      stubs: {
+        'c-text': true,
+        'c-button': true,
+        'c-tooltip': true,
+        'c-icon': true,
+        'c-widget-status': true,
+      },
+    },
   })
+}
+
+/** The status the widget last sent up for its header. */
+function status(video: ReturnType<typeof render>) {
+  return video.emitted<[WidgetStatus | null]>('status')?.at(-1)?.[0]
+}
+
+/** The transport label the widget last sent up for its header. */
+function transport(video: ReturnType<typeof render>) {
+  return status(video)?.text
 }
 
 describe('c-workspace-widget-video', () => {
@@ -69,7 +88,7 @@ describe('c-workspace-widget-video', () => {
   it('plays over HTTP in a browser without WebRTC', () => {
     const video = render(false)
 
-    expect(video.find('[data-transport]').text()).toBe('HTTP')
+    expect(transport(video)).toBe('HTTP')
     expect(openWhep).not.toHaveBeenCalled()
   })
 
@@ -78,7 +97,7 @@ describe('c-workspace-widget-video', () => {
     const video = render(false)
     await flushPromises()
 
-    expect(video.find('[data-transport]').text()).toBe('WebRTC')
+    expect(transport(video)).toBe('WebRTC')
     expect(video.find('video').attributes('src')).toBeUndefined()
     expect(openWhep.mock.calls[0]?.[0]).toContain('/api/components/@camera/procedures/video/whep')
   })
@@ -88,12 +107,12 @@ describe('c-workspace-widget-video', () => {
     const first = render(false)
     await flushPromises()
 
-    expect(first.find('[data-transport]').text()).toBe('HTTP')
+    expect(transport(first)).toBe('HTTP')
     expect(first.find('video').attributes('src')).toContain('/queries/video/call')
 
     const second = render(false)
     await flushPromises()
-    expect(second.find('[data-transport]').text()).toBe('HTTP')
+    expect(transport(second)).toBe('HTTP')
     expect(openWhep).toHaveBeenCalledTimes(1)
   })
 
@@ -101,12 +120,12 @@ describe('c-workspace-widget-video', () => {
     webrtc(full)
     const first = render(false)
     await flushPromises()
-    expect(first.find('[data-transport]').text()).toBe('HTTP')
+    expect(transport(first)).toBe('HTTP')
 
     webrtc(session)
     const second = render(false)
     await flushPromises()
-    expect(second.find('[data-transport]').text()).toBe('WebRTC')
+    expect(transport(second)).toBe('WebRTC')
   })
 
   it('stays on WebRTC when a session that played is lost', async () => {
@@ -120,7 +139,7 @@ describe('c-workspace-widget-video', () => {
     await flushPromises()
 
     expect(openWhep).toHaveBeenCalledTimes(2)
-    expect(video.find('[data-transport]').text()).toBe('WebRTC')
+    expect(transport(video)).toBe('WebRTC')
     expect(video.find('video').attributes('src')).toBeUndefined()
   })
 
@@ -128,7 +147,7 @@ describe('c-workspace-widget-video', () => {
     const video = render(false)
     await video.find('video').trigger('error')
 
-    expect(video.text()).toBe('HTTP')
+    expect(transport(video)).toBe('HTTP')
     expect(video.find('c-text-stub').exists()).toBe(true)
     expect(video.find('video').attributes('src')).not.toContain('attempt=')
   })
@@ -155,30 +174,32 @@ describe('c-workspace-widget-video', () => {
     expect(video.text()).not.toContain('Reconnecting')
   })
 
-  it('jumps a live picture that has fallen behind back to the newest frame', () => {
-    const element = playing(render(false), { currentTime: 10, newest: 20 })
+  it('never steers a stream played from its URL, which cannot tell live from recorded', () => {
+    const element = render(false).find('video').element as HTMLVideoElement
+    Object.defineProperty(element, 'paused', { value: false })
+    Object.defineProperty(element, 'buffered', {
+      value: { length: 1, start: () => 0, end: () => 20 },
+    })
+    Object.defineProperty(element, 'seekable', {
+      value: { length: 1, start: () => 0, end: () => 20 },
+    })
+    element.currentTime = 10
+
     vi.advanceTimersByTime(1000)
-    expect(element.currentTime).toBe(19.5)
+    expect(element.currentTime).toBe(10)
+    expect(element.playbackRate).toBe(1)
   })
 
-  it('leaves a picture a moment behind alone', () => {
-    const element = playing(render(false), { currentTime: 18, newest: 20 })
-    vi.advanceTimersByTime(1000)
-    expect(element.currentTime).toBe(18)
+  it('lets a file play to its end without reconnecting', async () => {
+    output.type = 'file'
+    try {
+      const video = render(true)
+      await video.find('video').trigger('ended')
+
+      expect(video.find('video').attributes('src')).not.toContain('attempt=')
+      expect(video.find('c-text-stub').exists()).toBe(false)
+    } finally {
+      output.type = 'streaming'
+    }
   })
 })
-
-/** The widget's video element, made to read as playing at `currentTime` with frames buffered up
-to `newest`. */
-function playing(
-  video: ReturnType<typeof render>,
-  { currentTime, newest }: { currentTime: number; newest: number },
-) {
-  const element = video.find('video').element as HTMLVideoElement
-  Object.defineProperty(element, 'paused', { value: false })
-  Object.defineProperty(element, 'buffered', {
-    value: { length: 1, start: () => 0, end: () => newest },
-  })
-  element.currentTime = currentTime
-  return element
-}
