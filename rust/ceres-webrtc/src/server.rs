@@ -113,23 +113,34 @@ impl WebrtcServer {
             .map_err(|_| WebrtcError::Full)?;
         let offer = SdpOffer::from_sdp_string(offer)
             .map_err(|error| WebrtcError::Offer(error.to_string()))?;
-        let Some(mid) = offered_video(&offer) else {
+        let sendable = [MediaCodec::H264, MediaCodec::H265];
+        if !sendable
+            .iter()
+            .any(|codec| offered_video(&offer, *codec).is_some())
+        {
             return Err(WebrtcError::Codec(
-                "the offer has no H.264 video to answer".into(),
+                "the offer has no H.264 or H.265 video to answer".into(),
             ));
-        };
+        }
         let options = source.options();
         let stream = PacketStream::shared(source.key(), || source.connection(), options);
         let stream = Arc::new(stream);
         let track = first_track(&stream).await?;
-        if track.codec() != MediaCodec::H264 {
-            let codec = track.codec();
-            return Err(WebrtcError::Codec(format!(
-                "{codec:?} video cannot be sent over WebRTC"
-            )));
+        let codec = track.codec();
+        if !sendable.contains(&codec) {
+            return Err(WebrtcError::Codec(
+                "the source's video is neither H.264 nor H.265".into(),
+            ));
         }
+        // A browser offers only the codecs it can decode, so one without the source's plays
+        // it over HTTP instead.
+        let Some(mid) = offered_video(&offer, codec) else {
+            return Err(WebrtcError::Codec(format!(
+                "the offer cannot receive the source's {codec:?} video"
+            )));
+        };
 
-        let mut rtc = self.rtc();
+        let mut rtc = self.rtc(codec);
         let local = local_addresses();
         let offered = {
             let receiving = self
@@ -174,13 +185,15 @@ impl WebrtcServer {
         self.commands.send(command).await.is_ok() && receiver.await.unwrap_or(false)
     }
 
-    fn rtc(&self) -> Rtc {
+    /// A connection answering with `codec` alone, the one the source sends.
+    fn rtc(&self, codec: MediaCodec) -> Rtc {
         // The browser drives ICE, so the server answers its checks and sends none.
         RtcConfig::new()
             .set_crypto_provider(Arc::clone(&self.crypto))
             .set_ice_lite(true)
             .clear_codecs()
-            .enable_h264(true)
+            .enable_h264(codec == MediaCodec::H264)
+            .enable_h265(codec == MediaCodec::H265)
             .build(Instant::now())
     }
 }

@@ -52,7 +52,8 @@ async def rtsp(
 
     Returned from a procedure, the output also lets the console play the camera over WebRTC,
     with lower latency, sharing the same connection. The console falls back to the MP4 when
-    WebRTC cannot connect, or when copying video that is not H.264.
+    WebRTC cannot connect, when copying video that is neither H.264 nor H.265, or when the
+    browser cannot decode the camera's H.265 over WebRTC.
 
     When the camera drops, the connection is reopened and its packets are placed after the
     last one sent, so clients holding open video connections keep decoding one continuous

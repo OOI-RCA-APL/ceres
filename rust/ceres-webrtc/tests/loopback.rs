@@ -109,7 +109,24 @@ async fn a_session_past_the_limit_is_refused() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn an_h265_source_or_a_bad_offer_is_refused() {
+async fn an_h265_source_reaches_a_browser_that_decodes_it() {
+    let camera = camera("h265");
+    let server = server(4);
+    let (browser, offer) = Browser::offer_with_h265();
+    let answer = server.open(source(&camera), &offer).await.unwrap();
+    let browser = browser.accept(&answer.sdp);
+
+    let picture = tokio::task::spawn_blocking(move || browser.first_picture());
+    assert_eq!(
+        picture.await.unwrap(),
+        Some(true),
+        "the first picture is not a keyframe"
+    );
+    assert!(server.close(&answer.id).await);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_h265_source_to_a_browser_without_it_or_a_bad_offer_is_refused() {
     let server = server(4);
     let (_browser, offer) = Browser::offer();
     let refused = server.open(source(&camera("h265")), &offer).await;
@@ -185,13 +202,24 @@ struct Browser {
 }
 
 impl Browser {
-    /// Returns the peer and its offer to receive one video track.
+    /// Returns the peer and its offer to receive one H.264 video track, as a browser that
+    /// cannot decode H.265 makes.
     fn offer() -> (Self, String) {
+        Self::offering(false)
+    }
+
+    /// As [`Browser::offer`], offering H.265 as well.
+    fn offer_with_h265() -> (Self, String) {
+        Self::offering(true)
+    }
+
+    fn offering(h265: bool) -> (Self, String) {
         let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
         let mut rtc = RtcConfig::new()
             .set_crypto_provider(Arc::new(str0m::crypto::from_feature_flags()))
             .clear_codecs()
             .enable_h264(true)
+            .enable_h265(h265)
             .build(Instant::now());
         let candidate = Candidate::host(socket.local_addr().unwrap(), "udp").unwrap();
         rtc.add_local_candidate(candidate);

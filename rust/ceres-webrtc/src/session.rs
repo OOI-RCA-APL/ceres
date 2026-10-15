@@ -11,7 +11,7 @@ use str0m::{Event, IceConnectionState, Input, Output, Rtc};
 use tokio::sync::{OwnedSemaphorePermit, oneshot};
 
 use crate::WebrtcError;
-use crate::h264::with_parameter_sets;
+use crate::parameter_sets::with_parameter_sets;
 use crate::socket::MediaSockets;
 
 /// The most outputs one input may produce before the session is ended, since every session
@@ -61,15 +61,18 @@ impl Session {
         slot: OwnedSemaphorePermit,
         no_ice_timeout: Duration,
     ) -> Result<(Self, oneshot::Receiver<()>), WebrtcError> {
+        let codec = track.codec();
         let pt = rtc
             .writer(mid)
             .and_then(|writer| {
                 let mut params = writer.payload_params();
                 params
-                    .find(|params| is_sendable(params))
+                    .find(|params| is_sendable(params, codec))
                     .map(PayloadParams::pt)
             })
-            .ok_or_else(|| WebrtcError::Codec("the answer agreed on no H.264 payload".into()))?;
+            .ok_or_else(|| {
+                WebrtcError::Codec(format!("the answer agreed on no {codec:?} payload"))
+            })?;
         let (ended, closed) = oneshot::channel();
         let now = Instant::now();
         let session = Self {
@@ -150,7 +153,7 @@ impl Session {
     /// Takes one read of the source, `false` when it ended the session.
     pub(crate) fn feed(&mut self, item: PacketItem) -> bool {
         match item {
-            PacketItem::Track(track) if track.codec() != MediaCodec::H264 => {
+            PacketItem::Track(track) if track.codec() != self.track.codec() => {
                 log::warn!("WebRTC session {} ended, the source changed codec", self.id);
                 return false;
             }
@@ -192,7 +195,12 @@ impl Session {
         let Some(pts) = packet.timing().pts else {
             return;
         };
-        let data = with_parameter_sets(packet.data(), self.track.extradata(), packet.is_key());
+        let data = with_parameter_sets(
+            packet.data(),
+            self.track.extradata(),
+            self.track.codec(),
+            packet.is_key(),
+        );
         let time = MediaTime::from_90khz(pts.max(0).unsigned_abs());
         let Some(writer) = self.rtc.writer(self.mid) else {
             return;
@@ -218,20 +226,26 @@ impl Drop for Session {
     }
 }
 
-/// Returns the first media in `offer` that would receive H.264 video.
+/// Returns the first media in `offer` that would receive `codec` video.
 ///
 /// str0m reports media only once DTLS is up, so the offer is the one place to learn it in time
 /// to refuse a browser that cannot play the source.
-pub(crate) fn offered_video(offer: &SdpOffer) -> Option<Mid> {
+pub(crate) fn offered_video(offer: &SdpOffer, codec: MediaCodec) -> Option<Mid> {
     let line = offer.media_lines.iter().find(|line| {
         let receives = matches!(line.direction(), Direction::RecvOnly | Direction::SendRecv);
-        !line.disabled && receives && line.rtp_params().iter().any(is_sendable)
+        let params = line.rtp_params();
+        !line.disabled && receives && params.iter().any(|params| is_sendable(params, codec))
     })?;
     Some(line.mid())
 }
 
-/// Whether `params` is H.264 as the packetizer writes it, fragmented, which is mode 1.
-fn is_sendable(params: &PayloadParams) -> bool {
+/// Whether `params` is `codec` as its packetizer writes it. H.264 must be fragmented, which is
+/// mode 1, and H.265 has only the one mode.
+fn is_sendable(params: &PayloadParams, codec: MediaCodec) -> bool {
     let spec = params.spec();
-    spec.codec == Codec::H264 && spec.format.packetization_mode == Some(1)
+    match codec {
+        MediaCodec::H264 => spec.codec == Codec::H264 && spec.format.packetization_mode == Some(1),
+        MediaCodec::H265 => spec.codec == Codec::H265,
+        MediaCodec::Other => false,
+    }
 }
