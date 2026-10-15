@@ -273,9 +273,11 @@ mod tests {
         RtspServer::start("127.0.0.1:0".parse().unwrap(), options).unwrap()
     }
 
-    /// A browser's offer to receive one video track.
+    /// An offer to receive one H.264 video track, from a browser that cannot decode H.265.
     fn offer() -> String {
         let mut rtc = RtcConfig::new()
+            .clear_codecs()
+            .enable_h264(true)
             .set_crypto_provider(Arc::new(str0m::crypto::from_feature_flags()))
             .build(Instant::now());
         let mut changes = rtc.sdp_api();
