@@ -200,6 +200,23 @@ and rebuilding the extension first when its Rust crates change.
 `CERES_NO_DEVELOPMENT_SOURCE` environment variable turns it off for a whole session,
 either flag beating both variables.
 
+### A Camera for Local Video Work
+
+`rust/ceres-rtsp-server` serves a looping test clip over RTSP, so video work needs no real
+camera. The omnibus example's `video` query streams it from `rtsp://127.0.0.1:8554/stream`,
+and its server enables WebRTC. Run the camera beside the example:
+
+```sh
+cd examples/omnibus
+cargo run --manifest-path ../../rust/Cargo.toml -p ceres-rtsp-server -- --clip h265
+ceres run all --watch --development-source ../..
+```
+
+`--clip` takes `h264`, `h265`, or a video file, and repeating it gives successive sessions
+successive clips, which exercises a camera changing codec. `--drop-after`, `--stall-after`,
+`--refuse`, `--max-sessions`, and `--restart-after` inject network faults, and `--help`
+describes each.
+
 ## Testing
 
 Run the full test suite:
