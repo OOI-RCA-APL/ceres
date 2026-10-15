@@ -70,8 +70,9 @@ const canOperate = $computed(
   () => resolvedAddress != null && access.canOperate(resolvedAddress.toString()),
 )
 
-// A fresh button holds no action yet so pressing it opens the settings that give it one.
-const isConfigured = $computed(() => button.address != null && button.action != null)
+// A fresh button holds no action yet so pressing it opens the settings that give it one. An unset
+// address is the workspace's own component, so it is the resolved one that must be there.
+const isConfigured = $computed(() => resolvedAddress != null && button.action != null)
 
 const color = $computed(() => semanticColor(button.color))
 
