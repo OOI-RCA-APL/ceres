@@ -20,6 +20,7 @@ const defaultPaddingClass = 'p-2'
 
 type WidgetOptionsInput = {
   minHeight?: number
+  framelessMinHeight?: number
   initialHeight?: number
   paddingClass?: string | string[]
   fullHeight?: boolean
@@ -28,6 +29,8 @@ type WidgetOptionsInput = {
 
 type WidgetOptions = {
   minHeight: number
+  /** The least height without the frame's header and padding, at most `minHeight`. */
+  framelessMinHeight: number
   /** The height a row created for this widget opens at, at least `minHeight`. */
   initialHeight: number
   paddingClass: string | string[]
@@ -38,6 +41,7 @@ type WidgetOptions = {
 function widgetOptions(options: WidgetOptionsInput): WidgetOptions {
   return {
     minHeight: options.minHeight ?? defaultMinHeight,
+    framelessMinHeight: options.framelessMinHeight ?? options.minHeight ?? defaultMinHeight,
     initialHeight: options.initialHeight ?? options.minHeight ?? defaultMinHeight,
     paddingClass: options.paddingClass ?? defaultPaddingClass,
     fullHeight: options.fullHeight ?? true,
@@ -163,7 +167,10 @@ export const widgetInfos = {
     component: defineAsyncComponent(() => import('@/components/c-workspace-widget-controls.vue')),
     // No settings dialog. Each control is configured from the control itself.
     options: widgetOptions({
-      minHeight: 90,
+      minHeight: 75,
+      // One 34px row of buttons and the 10px of menu dots hanging under it, rounded to the 5px
+      // step the row's resize handle moves in.
+      framelessMinHeight: 45,
       fullHeight: false,
     }),
   },
@@ -186,6 +193,12 @@ export type WidgetComponent = (typeof widgetInfos)[WidgetType]['component']
 export function getWidgetInfo(type: WidgetType): WidgetInfo {
   // A stored widget can carry a kind this console has no model for, whatever its type claims.
   return (widgetInfos as Partial<Record<string, WidgetInfo>>)[type] ?? unknownWidgetInfo
+}
+
+/** The least height of a row holding `widget`, lower without the frame's header and padding. */
+export function widgetMinHeight(widget: Widget): number {
+  const { options } = getWidgetInfo(widget.type)
+  return widget.frameless ? options.framelessMinHeight : options.minHeight
 }
 
 /** The default name for a widget of `type`.

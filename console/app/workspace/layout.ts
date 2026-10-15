@@ -9,7 +9,7 @@ import {
   widgetWidthSubdivisions,
   withPages,
 } from '@/workspace/models'
-import { createWidget, getWidgetInfo } from '@/workspace/registry'
+import { createWidget, getWidgetInfo, widgetMinHeight } from '@/workspace/registry'
 
 // The narrowest a width may be squeezed to. A zero or negative width stores a widget nothing can
 // grab and draws its neighbours past the row's edge.
@@ -706,10 +706,7 @@ export function planWidgetsInsert(
   }
 
   destinationRow.widgets.splice(placement.column, 0, ...widgets.map((widget) => widget.id))
-  destinationRow.height = Math.max(
-    destinationRow.height,
-    ...widgets.map((widget) => getWidgetInfo(widget.type).options.minHeight),
-  )
+  destinationRow.height = Math.max(destinationRow.height, ...widgets.map(widgetMinHeight))
 
   // Each arriving widget claims at most an even share of the row it joins, and the widgets
   // already there give up the difference. Arriving widths are read from the widgets in hand

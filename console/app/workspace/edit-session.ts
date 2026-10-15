@@ -61,7 +61,7 @@ import {
   type WorkspaceInput,
   WorkspaceModel,
 } from '@/workspace/models'
-import { createWidget, getWidgetInfo, openedRowFor } from '@/workspace/registry'
+import { createWidget, getWidgetInfo, openedRowFor, widgetMinHeight } from '@/workspace/registry'
 
 export type WorkspaceContext = ReturnType<typeof createWorkspaceContext>
 
@@ -390,7 +390,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     } else if (rowObject == null) {
       layout.set([...rows, openedRow(widgets, widget)])
     } else {
-      const minHeight = getWidgetInfo(widget.type).options.minHeight
+      const minHeight = widgetMinHeight(widget)
       if (rowObject.height < minHeight) {
         rowObject.height = minHeight
       }
