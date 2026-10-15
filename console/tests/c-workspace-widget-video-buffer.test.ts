@@ -84,12 +84,12 @@ class FakeMediaSource extends EventTarget {
   }
 }
 
-/** Let every pending promise and microtask run. */
 /** The status the widget last sent up for its header. */
 function status(video: VueWrapper) {
   return video.emitted<[WidgetStatus | null]>('status')?.at(-1)?.[0]
 }
 
+/** Let every pending promise and microtask run. */
 async function settle() {
   for (let index = 0; index < 20; index++) {
     await flushPromises()
@@ -150,6 +150,12 @@ async function streamed(head: Uint8Array) {
     /** End the response, as the engine does once a recording is all sent. */
     async close() {
       controller.close()
+      await settle()
+    },
+    /** Fail the element with the `MediaError` `code`. */
+    async error(code: number) {
+      Object.defineProperty(element, 'error', { value: { code, message: '' } })
+      await video.find('video').trigger('error')
       await settle()
     },
     /** Load the media's metadata, which reports `duration`. */
@@ -241,6 +247,17 @@ describe('c-workspace-widget-video through a MediaSource', () => {
     )
   })
 
+  // Chromium reloads a source left on the element, which a used `MediaSource` fails as a format
+  // error, so a reconnect must not hold on to the lost one while its request is answered.
+  it('lets go of a lost stream while reconnecting', async () => {
+    const { element, load, close } = await streamed(initSegment(hevc))
+    await load(Infinity)
+    expect(element.getAttribute('src')).toBe('blob:video')
+
+    await close()
+    expect(element.hasAttribute('src')).toBe(false)
+  })
+
   it('jumps a live picture that has fallen behind back to the newest frame', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
     const { element, load } = await streamed(initSegment(hevc))
@@ -320,10 +337,20 @@ describe('c-workspace-widget-video through a MediaSource', () => {
   })
 
   it('plays a stream the buffer refuses straight from its URL', async () => {
-    const { video } = await streamed(initSegment(hevc))
-    await video.find('video').trigger('error')
-    await settle()
+    const { video, error } = await streamed(initSegment(hevc))
+    await error(MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED)
 
     expect(video.find('video').attributes('src')).toContain('/queries/video')
+  })
+
+  it('reconnects a stream that fails to decode, buffering it again', async () => {
+    const { video, error } = await streamed(initSegment(hevc))
+    await error(MediaError.MEDIA_ERR_DECODE)
+
+    expect(console.warn).toHaveBeenCalledWith(
+      expect.stringContaining('The video element reported an error.'),
+      expect.anything(),
+    )
+    expect(video.find('video').attributes('src')).toBeUndefined()
   })
 })

@@ -161,6 +161,16 @@ const src = $computed(() => {
   return url
 })
 
+// A blob URL keeps its `MediaSource` alive until revoked, so each one replaced would leak.
+watch(
+  () => src,
+  (_, previous) => {
+    if (previous?.startsWith('blob:')) {
+      URL.revokeObjectURL(previous)
+    }
+  },
+)
+
 /** Give up on the `MediaSource` for this attempt and let the element play the URL itself. */
 function playDirectly(reason: string) {
   console.info(`Playing ${url} directly. ${reason}`)
@@ -179,7 +189,7 @@ function joined(first: Uint8Array, second: Uint8Array) {
 }
 
 /** The buffer type for a stream, read from its init segment for MP4, or `null` when the browser's
-`MediaSource` cannot take it. `head` is `null` while more of the stream is needed to tell. */
+`MediaSource` cannot take it. `undefined` while `head` holds too little of the stream to tell. */
 function mediaSourceBufferType(contentType: string, head: Uint8Array) {
   const mediaType = contentType.split(';')[0]!.trim()
   let bufferType = contentType
@@ -209,9 +219,10 @@ async function syncMediaSource(url: string | null | undefined) {
   mediaSourceRequest?.abort()
   mediaSourceRequest = null
   bufferedDuration = null
+  // A `MediaSource` attaches only once, so a reload of the element meanwhile would fail on it.
+  mediaSource = null
 
   if (url == null) {
-    mediaSource = null
     state = 'ok'
     return
   }
@@ -343,7 +354,8 @@ function closeWhep() {
   whepRequest = null
   whep?.close()
   whep = null
-  if (element != null) {
+  // Setting `srcObject`, even to the value it holds, reloads the element from its `src`.
+  if (element?.srcObject != null) {
     element.srcObject = null
   }
 }
@@ -442,8 +454,9 @@ function fail(reason: string) {
 
 function onError() {
   // A stream refused before its first metadata is one the buffer cannot take, such as an MP4 with
-  // its index at the end, which the element can still play from the URL.
-  if (isUsingMediaSourceBuffer && bufferedDuration == null) {
+  // its index at the end, which the element can still play from the URL. A decode error is not.
+  const isRefused = element?.error?.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED
+  if (isUsingMediaSourceBuffer && bufferedDuration == null && isRefused) {
     playDirectly(`The buffer refused the stream. ${element?.error?.message ?? ''}`)
     return
   }
@@ -710,6 +723,9 @@ function dispose() {
   reconnect.stop()
   mediaSourceRequest?.abort()
   closeWhep()
+  if (src?.startsWith('blob:')) {
+    URL.revokeObjectURL(src)
+  }
   if (element != null) {
     element.pause()
     isDisposed = true
