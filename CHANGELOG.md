@@ -8,6 +8,8 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+## [0.49.2] - 2026-10-16
+
 **Engine**
 
 - WebRTC paces its media at the bandwidth it estimates the path to the browser has, rather than
