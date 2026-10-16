@@ -8,6 +8,8 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+## [0.49.1] - 2026-10-15
+
 **Engine**
 
 - Websockets open over HTTPS again. A browser on an HTTP/2 connection opens its sockets with
