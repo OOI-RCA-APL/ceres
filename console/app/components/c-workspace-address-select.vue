@@ -98,14 +98,15 @@ const [DefineOptionLabel, OptionLabel] = createReusableTemplate<{ option: Option
 </script>
 
 <template>
-  <DefineOptionLabel v-slot="{ option }">
-    <template v-if="option.isDefault">
-      <span class="opacity-80">{{ option.label }}</span>
-      <span class="ml-1.5 opacity-55">(Default)</span>
-    </template>
-    <template v-else>{{ option.label }}</template>
-  </DefineOptionLabel>
+  <!-- One root, so a class given to the field (`grow`, a width) lands on it. -->
   <div class="flex items-center gap-2">
+    <DefineOptionLabel v-slot="{ option }">
+      <template v-if="option.isDefault">
+        <span class="opacity-80">{{ option.label }}</span>
+        <span class="ml-1.5 opacity-55">(Default)</span>
+      </template>
+      <template v-else>{{ option.label }}</template>
+    </DefineOptionLabel>
     <div class="min-w-0 grow">
       <c-text class="text-muted mb-1" variant="mono-sm">Component</c-text>
       <c-select-menu
