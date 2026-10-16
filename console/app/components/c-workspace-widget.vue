@@ -229,12 +229,14 @@ const menuItems = $computed<MenuItem[][]>(() => {
   arranging.push({
     label: 'Group',
     icon: icons.groupWidgets,
+    kbds: ['meta', 'G'],
     onSelect: () => (isShowingGroupDialog = true),
   })
   if (conversions.length > 0) {
     arranging.push({
       label: 'Ungroup',
       icon: icons.ungroupWidgets,
+      kbds: ['meta', 'shift', 'G'],
       onSelect: () => workspace.ungroupWidget(widget.id),
     })
   }
@@ -253,7 +255,14 @@ const menuItems = $computed<MenuItem[][]>(() => {
   return [
     [...single, ...arranging],
     framing,
-    [{ label: 'Delete', icon: icons.delete, onSelect: () => workspace.deleteWidgets(menuTargets) }],
+    [
+      {
+        label: 'Delete',
+        icon: icons.delete,
+        kbds: ['backspace'],
+        onSelect: () => workspace.deleteWidgets(menuTargets),
+      },
+    ],
   ]
 })
 </script>

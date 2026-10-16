@@ -263,6 +263,14 @@ const footerRowClass =
           </div>
           <c-separator />
           <div class="p-3">
+            <c-switch
+              v-model="preferences.isPrivateCommitConfirmationEnabled"
+              description="Shared workspaces always ask, since everyone with access sees the commit."
+              label="Confirm Private Workspace Commits"
+            />
+          </div>
+          <c-separator />
+          <div class="p-3">
             <c-form-field
               description="The time over which statistics, like alert counts, are calculated."
               label="Statistics Duration"
