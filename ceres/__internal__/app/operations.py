@@ -559,10 +559,10 @@ for _namespace in ("procedures", "queries", "actions"):
 
 @operation("procedures.live")
 async def procedures_live(host: Host, arguments: dict[str, Any]) -> Any:
-    """Call a procedure as its call by query does, answering with the camera it reads.
+    """Call a procedure as its call by query does, answering with the source it reads.
 
-    A browser plays the camera over WebRTC instead of reading the output, so the output's
-    bytes are never read. A result without a camera closes at once and answers `None`, which
+    A browser plays the source over WebRTC instead of reading the output, so the output's
+    bytes are never read. A result without a live source closes at once and answers `None`, which
     the server refuses as not live.
     """
     result = await component_handlers.call_natively(

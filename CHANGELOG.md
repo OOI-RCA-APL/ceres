@@ -56,17 +56,28 @@ written, and the release workflow refuses a version that has no entry here.
   fingerprint, and steps for trusting it on each operating system.
 - Ceres keeps machine-local state in a `.ceres` directory next to `ceres.yaml`, which carries
   its own `.gitignore`.
-- `rtsp()` streams of one camera share one connection to it when they use the same `copy`,
-  `transport`, and `stall_timeout`, so a camera allowing few sessions serves any number of
+- `rtsp()` streams of one source share one connection to it when they use the same `copy`,
+  `transport`, and `stall_timeout`, so a source allowing few sessions serves any number of
   viewers. A viewer joining starts from the latest keyframe, a viewer reading too slowly skips
-  to the next keyframe instead of holding up the others, and the connection stays open three
+  to the next keyframe and holds up no one else, and the connection stays open three
   seconds after its last viewer leaves so a reloaded page finds it open. A stream without
-  `reconnect` ends on a lost camera while the others reconnect.
-- `rtsp()` streams report what happens to the camera as events: `StreamLostEvent` once per
+  `reconnect` ends on a lost source while the others reconnect.
+- `rtsp()` streams report what happens to the source as events: `StreamLostEvent` once per
   outage, `StreamReconnectScheduledEvent` for its first reconnect attempt,
   `StreamReconnectedEvent` with the attempts and length of the outage, and `StreamEndedEvent`
   when the stream ends on its own. A stream returned from a procedure reports on that
   procedure's component. Code reading `rtsp()` itself passes `component=` to get them.
+- Live video plays over WebRTC when the new `server.webrtc` section is present: `port` (UDP
+  8189 at `server.bind`), `hosts` to advertise, `max-sessions` (32), and `no-ice-timeout`
+  (10 s). A browser posts its offer to `/api/components/{id}/procedures/{name}/whep` for a
+  procedure returning an `rtsp()` stream, and H.264 and H.265 are sent as the source sends them.
+  Open the UDP port in the firewall, or every video plays over HTTP.
+- WebRTC refuses a source whose frames arrive out of display order, as B-frames make them, with
+  409 `reordered`, since a browser would play them back and forth. `?reordered=drop` drops the
+  frames nothing references and sends the rest at a lower frame rate.
+- Moving a workspace to another component, or to the engine root, needs view on the destination
+  for a private workspace and manage for a shared one. Widget addresses relative to the old
+  component are rewritten so they keep pointing at the same components.
 
 **CLI**
 
@@ -101,6 +112,22 @@ written, and the release workflow refuses a version that has no entry here.
 - The workspaces section says "No workspaces yet." with a create button for each kind of
   workspace on one line when it is empty, and an empty group shrinks to one line naming what
   it lacks. Create buttons sit beside their group's label.
+- A workspace's "Move" picks its location, the engine root or any component, and dragging a
+  workspace onto a component in the sidebar moves it there.
+- A "Section" widget groups widgets under a collapsible header, beside tabs and carousel.
+- Live video plays over WebRTC where the server and browser allow, for the lowest latency, and
+  otherwise over HTTP. A "Transport" setting picks "Automatic", "WebRTC", or "HTTP". The
+  header names the transport, and clicking it cycles the setting. On "Automatic" the settings
+  say why HTTP was chosen.
+- Live video over HTTP stays within seconds of its source. It plays faster, up to 3x, when
+  behind, and jumps forward when more than five seconds behind.
+- Video widgets have their own controls: play, mute, a seek bar over the buffered video, a
+  "Live" button that returns to the newest frame, and fullscreen. Space toggles play.
+- A video in a codec the browser cannot decode says which codec and what to try.
+- Cmd/Ctrl+S commits a workspace. A private workspace's commit can skip its confirmation, from
+  the dialog or Preferences.
+- A widget with no component set uses its workspace's component, shown as "(Default)", and
+  follows the workspace when it moves.
 
 **Fixes**
 

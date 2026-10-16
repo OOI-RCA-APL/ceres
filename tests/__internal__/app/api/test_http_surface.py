@@ -96,13 +96,13 @@ class _Media(Component):
     async def broken(self) -> StreamingOutput:
         async def chunks() -> AsyncIterator[bytes]:
             yield b"x" * 4096
-            raise ConnectionError("the camera is gone")
+            raise ConnectionError("the source is gone")
 
         return StreamingOutput(chunks, "application/octet-stream", on_exit=_exit("broken"))
 
     @query(permit="public", media="video/mp4")
-    async def camera(self) -> StreamingOutput:
-        return await rtsp(_media["camera"])
+    async def video(self) -> StreamingOutput:
+        return await rtsp(_media["video"])
 
 
 async def _ended(procedure: str) -> list[str]:
@@ -666,24 +666,24 @@ async def _offer(client: httpx.AsyncClient, procedure: str) -> httpx.Response:
     )
 
 
-async def test_a_camera_output_answers_a_webrtc_offer_until_deleted() -> None:
-    """The procedure's camera plays over WebRTC, and its call ends with the session."""
+async def test_a_live_output_answers_a_webrtc_offer_until_deleted() -> None:
+    """The procedure's source plays over WebRTC, and its call ends with the session."""
     async with rtsp_server() as url, _serve(media=True) as (_, client):
-        _media["camera"] = url
-        response = await _offer(client, "camera")
+        _media["video"] = url
+        response = await _offer(client, "video")
 
         assert response.status_code == 201, response.text
         assert response.headers["content-type"] == "application/sdp"
         assert response.text.startswith("v=0")
-        assert "camera" not in [name for name, _ in _media.get("ended", [])]
+        assert "video" not in [name for name, _ in _media.get("ended", [])]
         session = response.headers["location"]
         assert (await client.delete(session)).status_code == 200
-        assert await _ended("camera") == ["procedure-cancelled"]
+        assert await _ended("video") == ["procedure-cancelled"]
         assert (await client.delete(session)).status_code == 404
 
 
-async def test_an_output_without_a_camera_is_not_live() -> None:
-    """A stream that reads no camera refuses WebRTC, its call ended and exit hook run."""
+async def test_an_output_without_a_live_source_is_not_live() -> None:
+    """A stream that reads no live source refuses WebRTC, its call ended and exit hook run."""
     async with _serve(media=True) as (_, client):
         response = await _offer(client, "rows")
 

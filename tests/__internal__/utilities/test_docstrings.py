@@ -12,11 +12,11 @@ def test_missing_or_empty_docstring_is_empty():
 
 def test_prose_is_kept_as_written():
     docstring = parse_docstring(
-        """Take a picture.
+        """Write a report.
 
-        The picture is **saved** to disk:
+        The report is **saved** to disk:
 
-        - one per camera
+        - one per run
         - named by time
 
             indented code stays indented
@@ -25,9 +25,9 @@ def test_prose_is_kept_as_written():
         """
     )
     assert docstring.description == (
-        "Take a picture.\n\n"
-        "The picture is **saved** to disk:\n\n"
-        "- one per camera\n"
+        "Write a report.\n\n"
+        "The report is **saved** to disk:\n\n"
+        "- one per run\n"
         "- named by time\n\n"
         "    indented code stays indented\n\n"
         "Note: prose with a colon is not a field."

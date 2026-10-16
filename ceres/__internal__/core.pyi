@@ -744,12 +744,12 @@ class RtspNotice:
     @property
     def reason(self) -> str | None:
         r"""
-        Why the camera was lost or the stream ended, if known.
+        Why the source was lost or the stream ended, if known.
         """
     @property
     def delay(self) -> float | None:
         r"""
-        Seconds until the first attempt to reach a lost camera again, for `"retrying"`.
+        Seconds until the first attempt to reach a lost source again, for `"retrying"`.
         """
     @property
     def attempts(self) -> int | None:
@@ -765,10 +765,10 @@ class RtspNotice:
 @final
 class RtspStream:
     r"""
-    An RTSP camera remuxed into a fragmented MP4 stream.
+    An RTSP source remuxed into a fragmented MP4 stream.
 
-    Streams of one camera with the same `transport`, `copy`, and `stall_timeout` share its
-    connection, so a camera allowing few sessions serves any number of them.
+    Streams of one source with the same `transport`, `copy`, and `stall_timeout` share its
+    connection, so a source allowing few sessions serves any number of them.
     """
     def __new__(
         cls,
@@ -782,10 +782,10 @@ class RtspStream:
         stall_timeout: float | None,
     ) -> Self:
         r"""
-        Connects to `url` and starts remuxing, reconnecting a lost camera when `reconnect`.
+        Connects to `url` and starts remuxing, reconnecting a lost source when `reconnect`.
 
         Without `copy` the video is re-encoded as H.264. `transport` is `"tcp"` or `"udp"`.
-        Durations are in seconds, and a `stall_timeout` of `None` waits on a silent camera
+        Durations are in seconds, and a `stall_timeout` of `None` waits on a silent source
         forever.
         """
     def next(self) -> Any:
@@ -793,7 +793,7 @@ class RtspStream:
         The next chunk of the MP4 stream as `bytes`, or an `RtspNotice`, `None` once the stream
         ends.
 
-        Waiting blocks a thread of its own so a quiet camera leaves the event loop free.
+        Waiting blocks a thread of its own so a quiet source leaves the event loop free.
         """
     def close(self) -> None:
         r"""

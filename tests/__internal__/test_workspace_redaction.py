@@ -46,8 +46,8 @@ def test_iter_widget_targets_extracts_video_query_address() -> None:
 
 
 def test_iter_widget_targets_resolves_video_query_relative_against_scope() -> None:
-    widget = {"id": "w1", "type": "video", "query": "camera::queries::stream", "width": 60}
-    assert list(iter_widget_targets(widget, Address("@rig"))) == [Address("@rig.camera")]
+    widget = {"id": "w1", "type": "video", "query": "device::queries::stream", "width": 60}
+    assert list(iter_widget_targets(widget, Address("@rig"))) == [Address("@rig.device")]
 
 
 def test_iter_widget_targets_reads_filter_address() -> None:

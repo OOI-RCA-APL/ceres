@@ -8,7 +8,7 @@ behavior whatever the transport.
 Results cross the boundary as one JSON envelope per call, `{"ok": ...}` for a payload,
 `{"error": {"status", "envelope"}}` for a typed refusal, `{"response": ...}` for a
 media output the server serves as a body of its own, which it serves verbatim, and
-`{"live": ...}` for the camera a WebRTC session plays. Streams
+`{"live": ...}` for the live source a WebRTC session plays. Streams
 open under a handle and yield one pre-serialized message at a time.
 """
 
@@ -67,13 +67,13 @@ class Served:
 
 @dataclass(frozen=True, slots=True)
 class Live:
-    """The camera a procedure's output reads, for the server to play over WebRTC.
+    """The live source a procedure's output reads, for the server to play over WebRTC.
 
     It travels in its own envelope for the same reason a `Served` description does.
     """
 
     source: dict[str, Any]
-    """The camera's URL, transport, reading options, and the handle to release once it stops."""
+    """The source's URL, transport, reading options, and the handle to release once it stops."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -254,10 +254,10 @@ class Host:
         return Served({**description, "handle": handle})
 
     def live(self, output: LiveOutput) -> Live:
-        """Describe the camera a live output reads, for the server to play over WebRTC.
+        """Describe the source a live output reads, for the server to play over WebRTC.
 
         The output stays registered under the description's handle, which the server closes
-        once the camera stops playing so the procedure call that returned it ends then.
+        once the source stops playing so the procedure call that returned it ends then.
         """
         handle = next(self._handles)
 
