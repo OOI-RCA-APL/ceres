@@ -239,6 +239,42 @@ mod tests {
         serving.await.unwrap().unwrap();
     }
 
+    #[tokio::test]
+    async fn websockets_open_over_an_h2_connection() {
+        let directory = tempfile::tempdir().unwrap();
+        let https = crate::tls::tests::https(directory.path(), None, |key| key);
+        let server = BoundServer::bind("127.0.0.1", 0)
+            .unwrap()
+            .with_tls(&https, Arc::new(|_| {}))
+            .unwrap();
+        let port = server.port();
+        let stopper = server.stopper();
+        let serving = tokio::spawn(server.serve(test_router()));
+
+        // A browser opens a socket over HTTP/2 with an extended CONNECT, never a GET.
+        let (client, _) = h2_connect(&https.certificate.path, port).await;
+        let mut client = client.ready().await.unwrap();
+        let mut request = axum::http::Request::connect(
+            "https://localhost/api/components/@probe/procedures/ping/subscribe",
+        )
+        .header("sec-websocket-version", "13")
+        .body(())
+        .unwrap();
+        request
+            .extensions_mut()
+            .insert(h2::ext::Protocol::from_static("websocket"));
+        let (response, _) = client.send_request(request, false).unwrap();
+        let response = response.await.unwrap();
+        assert_eq!(response.status(), 200);
+
+        // The socket carries frames, here the close this host sends for a stream it lacks.
+        let frame = response.into_body().data().await.unwrap().unwrap();
+        assert!(frame.ends_with(br#"this host does not stream "procedures.subscribe""#));
+
+        stopper.stop(Duration::from_millis(100));
+        serving.await.unwrap().unwrap();
+    }
+
     /// Open an h2 connection to `port`, answering it and the certificate it was shown.
     async fn h2_connect(
         trusted: &std::path::Path,

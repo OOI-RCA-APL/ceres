@@ -8,6 +8,12 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+**Engine**
+
+- Websockets open over HTTPS again. A browser on an HTTP/2 connection opens its sockets with
+  an extended CONNECT, which every socket route answered 405, so the web console showed no
+  statuses or live updates when served over HTTPS.
+
 ## [0.49.0] - 2026-10-15
 
 **Breaking**
