@@ -8,6 +8,8 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+## [0.49.0] - 2026-10-15
+
 **Breaking**
 
 - The `server` section names its listeners. `server.bind` replaces `server.host`,
