@@ -369,6 +369,14 @@ impl EventLoop {
                     Ok(()) => self.receive(true),
                     Err(error) => self.fail(true, &error),
                 },
+                ready = drained(self.sockets.v4.as_ref()) => match ready {
+                    Ok(socket) => socket.flush(),
+                    Err(error) => self.fail(false, &error),
+                },
+                ready = drained(self.sockets.v6.as_ref()) => match ready {
+                    Ok(socket) => socket.flush(),
+                    Err(error) => self.fail(true, &error),
+                },
                 () = sleep_until(deadline) => self.timeouts(),
             }
             if self.sockets.v4.is_none() && self.sockets.v6.is_none() {
@@ -525,6 +533,15 @@ async fn readable(socket: Option<&MediaSocket>) -> io::Result<()> {
     match socket {
         Some(socket) => socket.readable().await,
         None => std::future::pending().await,
+    }
+}
+
+/// Waits for a socket holding datagrams back to take more, and never for one holding none,
+/// which is writable nearly always.
+async fn drained(socket: Option<&MediaSocket>) -> io::Result<&MediaSocket> {
+    match socket {
+        Some(socket) if socket.is_queueing() => socket.writable().await.map(|()| socket),
+        _ => std::future::pending().await,
     }
 }
 

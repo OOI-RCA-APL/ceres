@@ -12,7 +12,7 @@ pub(crate) const REPORT_INTERVAL: Duration = Duration::from_secs(1);
 #[derive(Debug)]
 pub(crate) struct Delivery {
     started: Instant,
-    /// The datagrams the socket dropped for a full send buffer.
+    /// The datagrams the socket dropped once its queue was full.
     dropped: u64,
     /// The packets the session sent, resends included.
     sent: u64,
@@ -92,7 +92,7 @@ impl Delivery {
             .map_or_else(|| "none".into(), |estimate| estimate.to_string());
         format!(
             "sent {} packets in {seconds} s, the browser lost {} and asked for {} again, {} \
-             never left this host for a full send buffer, last bandwidth estimate {estimate}",
+             never left this host, last bandwidth estimate {estimate}",
             self.sent, self.lost, self.nacks, self.dropped
         )
     }

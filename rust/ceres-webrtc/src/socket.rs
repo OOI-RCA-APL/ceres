@@ -1,7 +1,9 @@
 //! The UDP sockets every session's media goes through.
 
+use std::collections::VecDeque;
 use std::io::{self, IoSliceMut};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::sync::{Mutex, PoisonError};
 
 use quinn_udp::{BATCH_SIZE, RecvMeta, UdpSocketState};
 use socket2::{Domain, Socket, Type};
@@ -15,9 +17,15 @@ const DATAGRAM_SIZE: usize = 2048;
 /// task and a flood on the socket would starve its timeouts and source reads.
 const MAX_BATCHES_PER_WAKE: usize = 8;
 
-/// The send buffer each socket asks for, room for several sessions' keyframes at once, since the
-/// socket drops a datagram that finds its buffer full. The system default holds about one.
+/// The send buffer each socket asks for, room for several sessions' keyframes at once. A smaller
+/// one costs only trips through the socket's queue, so the socket takes whatever the system
+/// grants.
 const SEND_BUFFER_BYTES: usize = 4 * 1024 * 1024;
+
+/// The most bytes a socket holds back while its send buffer is full. A queue this deep means
+/// the host's own network cannot keep up, and a datagram past it goes, as the network would
+/// drop it.
+const QUEUE_BYTES: usize = 4 * 1024 * 1024;
 
 /// The media port's sockets, at most one per address family and at least one.
 ///
@@ -69,7 +77,7 @@ impl MediaSockets {
     }
 
     /// Sends `contents` to `destination` from the local address `source`, `false` when the
-    /// socket dropped it for a full send buffer.
+    /// socket's queue is full and it drops the datagram.
     pub(crate) fn send(
         &self,
         source: SocketAddr,
@@ -91,6 +99,23 @@ pub(crate) struct MediaSocket {
     socket: UdpSocket,
     state: UdpSocketState,
     local: SocketAddr,
+    /// A mutex rather than a cell, since the event loop's futures hold the socket across
+    /// awaits on a task that may move between threads. Only that task locks it.
+    queue: Mutex<Queue>,
+}
+
+/// The datagrams a socket holds back while its send buffer is full, sent in order once it
+/// drains.
+#[derive(Default)]
+struct Queue {
+    datagrams: VecDeque<Datagram>,
+    bytes: usize,
+}
+
+struct Datagram {
+    source: SocketAddr,
+    destination: SocketAddr,
+    contents: Vec<u8>,
 }
 
 impl MediaSocket {
@@ -109,30 +134,15 @@ impl MediaSocket {
             socket,
             state,
             local,
+            queue: Mutex::default(),
         })
     }
 
-    /// Asks for `SEND_BUFFER_BYTES` of send buffer, warning when the system grants less.
-    ///
-    /// Linux caps the request at `net.core.wmem_max` without failing, and reports twice what
-    /// it granted, its own bookkeeping included.
+    /// Asks for `SEND_BUFFER_BYTES` of send buffer. Linux caps the request at
+    /// `net.core.wmem_max` without failing, which the queue makes up for.
     fn grow_send_buffer(socket: &Socket, address: SocketAddr) {
         if let Err(error) = socket.set_send_buffer_size(SEND_BUFFER_BYTES) {
-            log::warn!("Growing the WebRTC send buffer on {address} failed: {error}");
-            return;
-        }
-        let granted = socket.send_buffer_size().unwrap_or(0);
-        let granted = if cfg!(target_os = "linux") {
-            granted / 2
-        } else {
-            granted
-        };
-        if granted < SEND_BUFFER_BYTES {
-            log::warn!(
-                "The WebRTC socket on {address} got a send buffer of {granted} bytes, short of \
-                 the {SEND_BUFFER_BYTES} it asked for, so video may lose packets in bursts. On \
-                 Linux, raise `net.core.wmem_max` to at least {SEND_BUFFER_BYTES}."
-            );
+            log::debug!("Growing the WebRTC send buffer on {address} failed: {error}");
         }
     }
 
@@ -192,9 +202,56 @@ impl MediaSocket {
         }
     }
 
-    /// Sends `contents`, `false` when the socket's buffer is full and the socket drops it, as the
-    /// network would.
+    /// Sends `contents`, holding it back behind the datagrams already queued or while the send
+    /// buffer is full. `false` when the queue is full too and the socket drops it.
     fn send(&self, source: SocketAddr, destination: SocketAddr, contents: &[u8]) -> bool {
+        let mut queue = self.queue.lock().unwrap_or_else(PoisonError::into_inner);
+        if queue.datagrams.is_empty() && self.try_send(source, destination, contents) {
+            return true;
+        }
+        if queue.bytes + contents.len() > QUEUE_BYTES {
+            return false;
+        }
+        queue.bytes += contents.len();
+        queue.datagrams.push_back(Datagram {
+            source,
+            destination,
+            contents: contents.to_vec(),
+        });
+        true
+    }
+
+    /// Whether the socket holds datagrams back, which it sends once it turns writable.
+    pub(crate) fn is_queueing(&self) -> bool {
+        !self
+            .queue
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .datagrams
+            .is_empty()
+    }
+
+    pub(crate) async fn writable(&self) -> io::Result<()> {
+        self.socket.writable().await
+    }
+
+    /// Sends the queued datagrams in order, until the send buffer fills again.
+    pub(crate) fn flush(&self) {
+        let mut queue = self.queue.lock().unwrap_or_else(PoisonError::into_inner);
+        while let Some(datagram) = queue.datagrams.front() {
+            if !self.try_send(datagram.source, datagram.destination, &datagram.contents) {
+                return;
+            }
+            let sent = queue
+                .datagrams
+                .pop_front()
+                .map_or(0, |datagram| datagram.contents.len());
+            queue.bytes -= sent;
+        }
+    }
+
+    /// Sends one datagram now, `false` when the send buffer is full.
+    fn try_send(&self, source: SocketAddr, destination: SocketAddr, contents: &[u8]) -> bool {
         let transmit = quinn_udp::Transmit {
             destination,
             ecn: None,
@@ -266,5 +323,58 @@ mod tests {
             grown > plain,
             "{grown} bytes is no more than the default {plain}"
         );
+    }
+
+    // Linux only, since macOS never refuses a UDP send for a full buffer, and so never queues.
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn a_burst_past_a_small_send_buffer_waits_rather_than_drops() {
+        const COUNT: usize = 400;
+        let address = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0);
+        let media = MediaSocket::bind(address).unwrap();
+        socket2::SockRef::from(&media.socket)
+            .set_send_buffer_size(8 * 1024)
+            .unwrap();
+        let peer = std::net::UdpSocket::bind(address).unwrap();
+        socket2::SockRef::from(&peer)
+            .set_recv_buffer_size(4 * 1024 * 1024)
+            .unwrap();
+        peer.set_nonblocking(true).unwrap();
+        let destination = peer.local_addr().unwrap();
+        let source = media.socket.local_addr().unwrap();
+        // Until the runtime first sees the socket writable, every send queues, which would pass
+        // without the send buffer ever filling.
+        media.writable().await.unwrap();
+
+        for index in 0..COUNT {
+            let contents = [u8::try_from(index % 256).unwrap(); 1200];
+            assert!(media.send(source, destination, &contents));
+        }
+        assert!(
+            media.is_queueing(),
+            "the burst never filled the send buffer"
+        );
+
+        let mut received = Vec::new();
+        let mut buffer = [0; DATAGRAM_SIZE];
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+        while received.len() < COUNT && tokio::time::Instant::now() < deadline {
+            while let Ok(read) = peer.recv(&mut buffer) {
+                assert_eq!(read, 1200);
+                received.push(buffer[0]);
+            }
+            if media.is_queueing() {
+                let _ =
+                    tokio::time::timeout(std::time::Duration::from_millis(10), media.writable())
+                        .await;
+                media.flush();
+            } else {
+                tokio::task::yield_now().await;
+            }
+        }
+        let expected: Vec<u8> = (0..COUNT)
+            .map(|index| u8::try_from(index % 256).unwrap())
+            .collect();
+        assert_eq!(received, expected);
     }
 }

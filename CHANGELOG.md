@@ -12,11 +12,11 @@ written, and the release workflow refuses a version that has no entry here.
 
 - WebRTC paces its media at the bandwidth it estimates the path to the browser has, rather than
   sending each keyframe at once, so a constrained path loses fewer packets and shows fewer
-  freezes. Each media socket asks for a 4 MB send buffer, which a Linux host grants in full
-  only once `net.core.wmem_max` allows it, and each session keeps 4096 sent packets to resend
-  the ones the browser reports lost. A session logs a warning when its socket drops a packet,
-  and one line on close with the packets it sent, the packets the browser lost, and its
-  requests to resend them.
+  freezes. A packet that finds the socket's send buffer full waits for it to drain rather than
+  being dropped, and each session keeps 4096 sent packets to resend the ones the browser
+  reports lost. A session logs a warning when its host's network falls so far behind that it
+  drops a packet anyway, and one line on close with the packets it sent, the packets the
+  browser lost, and its requests to resend them.
 - The WebRTC server's log lines reach the engine log, at the levels `logging.output` and
   `logging.store` keep. They went nowhere before, so a session that failed, ended, or never
   connected left no trace.

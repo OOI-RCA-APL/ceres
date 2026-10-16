@@ -262,14 +262,7 @@ server:
   webrtc: {}
 ```
 
-Each session paces its packets at the bandwidth it estimates the path to the browser has, and its socket asks the system for a 4 MB send buffer to hold a keyframe while it goes out. Linux caps the buffer at `net.core.wmem_max`, about 200 KB by default, and the engine logs a warning at startup when it gets less than it asked for. Raise the cap once, as root:
-
-```sh
-echo 'net.core.wmem_max = 4194304' > /etc/sysctl.d/90-ceres.conf
-sysctl --system
-```
-
-A session also logs one line when it closes, with the packets it sent, the packets the browser lost, and its requests to resend them, which tells a lossy network from a busy host.
+Each session paces its packets at the bandwidth it estimates the path to the browser has. When the socket's send buffer fills anyway, the engine holds the packets back and sends them once it drains, so the host needs no tuning. A session logs one line when it closes, with the packets it sent, the packets the browser lost, and its requests to resend them, which tells a lossy network from a busy host.
 
 ### CLI Queries
 

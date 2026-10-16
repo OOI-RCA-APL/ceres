@@ -145,7 +145,7 @@ impl Session {
                     if !sent && self.delivery.drop_datagram() {
                         log::warn!(
                             "WebRTC session {} is losing packets before they leave this host, \
-                             the socket's send buffer being full",
+                             which sends media faster than its network takes it",
                             self.id
                         );
                     }
