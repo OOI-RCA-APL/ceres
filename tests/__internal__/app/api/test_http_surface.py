@@ -718,7 +718,8 @@ async def test_a_webrtc_session_writes_to_the_engine_log() -> None:
             while not any("browser lost" in message for _, message in log.lines):
                 await asyncio.sleep(0.02)
 
-    assert all(message.startswith("WebRTC") for _, message in log.lines), log.lines
+    # Linux grants a smaller send buffer than the socket asks for, and warns `The WebRTC socket`.
+    assert all("WebRTC" in message for _, message in log.lines), log.lines
     assert all(level != "debug" for level, _ in log.lines), log.lines
 
 
