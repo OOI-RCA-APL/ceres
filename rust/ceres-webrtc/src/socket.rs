@@ -118,6 +118,47 @@ struct Datagram {
     contents: Vec<u8>,
 }
 
+impl Queue {
+    /// Sends `contents` through `try_send`, which reports `false` while the send buffer is
+    /// full, holding it back behind the datagrams already queued or while the buffer refuses
+    /// it. `false` when the queue is full too and it drops the datagram.
+    fn send(
+        &mut self,
+        source: SocketAddr,
+        destination: SocketAddr,
+        contents: &[u8],
+        mut try_send: impl FnMut(SocketAddr, SocketAddr, &[u8]) -> bool,
+    ) -> bool {
+        if self.datagrams.is_empty() && try_send(source, destination, contents) {
+            return true;
+        }
+        if self.bytes + contents.len() > QUEUE_BYTES {
+            return false;
+        }
+        self.bytes += contents.len();
+        self.datagrams.push_back(Datagram {
+            source,
+            destination,
+            contents: contents.to_vec(),
+        });
+        true
+    }
+
+    /// Sends the queued datagrams through `try_send` in order, until it refuses one.
+    fn flush(&mut self, mut try_send: impl FnMut(SocketAddr, SocketAddr, &[u8]) -> bool) {
+        while let Some(datagram) = self.datagrams.front() {
+            if !try_send(datagram.source, datagram.destination, &datagram.contents) {
+                return;
+            }
+            let sent = self
+                .datagrams
+                .pop_front()
+                .map_or(0, |datagram| datagram.contents.len());
+            self.bytes -= sent;
+        }
+    }
+}
+
 impl MediaSocket {
     fn bind(address: SocketAddr) -> io::Result<Self> {
         let socket = Socket::new(Domain::for_address(address), Type::DGRAM, None)?;
@@ -205,20 +246,15 @@ impl MediaSocket {
     /// Sends `contents`, holding it back behind the datagrams already queued or while the send
     /// buffer is full. `false` when the queue is full too and the socket drops it.
     fn send(&self, source: SocketAddr, destination: SocketAddr, contents: &[u8]) -> bool {
-        let mut queue = self.queue.lock().unwrap_or_else(PoisonError::into_inner);
-        if queue.datagrams.is_empty() && self.try_send(source, destination, contents) {
-            return true;
-        }
-        if queue.bytes + contents.len() > QUEUE_BYTES {
-            return false;
-        }
-        queue.bytes += contents.len();
-        queue.datagrams.push_back(Datagram {
-            source,
-            destination,
-            contents: contents.to_vec(),
-        });
-        true
+        self.queue
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .send(
+                source,
+                destination,
+                contents,
+                |source, destination, contents| self.try_send(source, destination, contents),
+            )
     }
 
     /// Whether the socket holds datagrams back, which it sends once it turns writable.
@@ -237,17 +273,10 @@ impl MediaSocket {
 
     /// Sends the queued datagrams in order, until the send buffer fills again.
     pub(crate) fn flush(&self) {
-        let mut queue = self.queue.lock().unwrap_or_else(PoisonError::into_inner);
-        while let Some(datagram) = queue.datagrams.front() {
-            if !self.try_send(datagram.source, datagram.destination, &datagram.contents) {
-                return;
-            }
-            let sent = queue
-                .datagrams
-                .pop_front()
-                .map_or(0, |datagram| datagram.contents.len());
-            queue.bytes -= sent;
-        }
+        self.queue
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .flush(|source, destination, contents| self.try_send(source, destination, contents));
     }
 
     /// Sends one datagram now, `false` when the send buffer is full.
@@ -325,56 +354,74 @@ mod tests {
         );
     }
 
-    // Linux only, since macOS never refuses a UDP send for a full buffer, and so never queues.
-    #[cfg(target_os = "linux")]
-    #[tokio::test]
-    async fn a_burst_past_a_small_send_buffer_waits_rather_than_drops() {
-        const COUNT: usize = 400;
-        let address = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0);
-        let media = MediaSocket::bind(address).unwrap();
-        socket2::SockRef::from(&media.socket)
-            .set_send_buffer_size(8 * 1024)
-            .unwrap();
-        let peer = std::net::UdpSocket::bind(address).unwrap();
-        socket2::SockRef::from(&peer)
-            .set_recv_buffer_size(4 * 1024 * 1024)
-            .unwrap();
-        peer.set_nonblocking(true).unwrap();
-        let destination = peer.local_addr().unwrap();
-        let source = media.socket.local_addr().unwrap();
-        // Until the runtime first sees the socket writable, every send queues, which would pass
-        // without the send buffer ever filling.
-        media.writable().await.unwrap();
+    /// A send buffer with room for `room` datagrams, which keeps what it takes in `sent`.
+    ///
+    /// No real socket stands in, since no test can fill one: Linux frees a datagram sent over
+    /// loopback from the send buffer as it sends it, and macOS never refuses a UDP send.
+    struct Buffer {
+        room: usize,
+        sent: Vec<u8>,
+    }
 
-        for index in 0..COUNT {
-            let contents = [u8::try_from(index % 256).unwrap(); 1200];
-            assert!(media.send(source, destination, &contents));
+    impl Buffer {
+        fn try_send(&mut self, _: SocketAddr, _: SocketAddr, contents: &[u8]) -> bool {
+            if self.room == 0 {
+                return false;
+            }
+            self.room -= 1;
+            self.sent.push(contents[0]);
+            true
         }
+    }
+
+    fn address() -> SocketAddr {
+        SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 8189)
+    }
+
+    #[test]
+    fn a_burst_past_a_full_send_buffer_waits_and_leaves_in_order() {
+        let mut queue = Queue::default();
+        let mut buffer = Buffer {
+            room: 3,
+            sent: Vec::new(),
+        };
+        for index in 0..10 {
+            let sent = queue.send(
+                address(),
+                address(),
+                &[index; 1200],
+                |source, to, contents| buffer.try_send(source, to, contents),
+            );
+            assert!(sent);
+        }
+        assert_eq!(buffer.sent, [0, 1, 2]);
+        assert_eq!(queue.bytes, 7 * 1200);
+
+        buffer.room = 4;
+        queue.flush(|source, to, contents| buffer.try_send(source, to, contents));
+        assert_eq!(buffer.sent, [0, 1, 2, 3, 4, 5, 6]);
+
+        // A datagram sent while others wait goes behind them, even with room for it.
+        buffer.room = 10;
         assert!(
-            media.is_queueing(),
-            "the burst never filled the send buffer"
+            queue.send(address(), address(), &[10; 1200], |source, to, contents| {
+                buffer.try_send(source, to, contents)
+            })
         );
+        assert_eq!(buffer.sent, [0, 1, 2, 3, 4, 5, 6]);
+        queue.flush(|source, to, contents| buffer.try_send(source, to, contents));
+        assert_eq!(buffer.sent, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+        assert_eq!(queue.bytes, 0);
+    }
 
-        let mut received = Vec::new();
-        let mut buffer = [0; DATAGRAM_SIZE];
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
-        while received.len() < COUNT && tokio::time::Instant::now() < deadline {
-            while let Ok(read) = peer.recv(&mut buffer) {
-                assert_eq!(read, 1200);
-                received.push(buffer[0]);
-            }
-            if media.is_queueing() {
-                let _ =
-                    tokio::time::timeout(std::time::Duration::from_millis(10), media.writable())
-                        .await;
-                media.flush();
-            } else {
-                tokio::task::yield_now().await;
-            }
-        }
-        let expected: Vec<u8> = (0..COUNT)
-            .map(|index| u8::try_from(index % 256).unwrap())
-            .collect();
-        assert_eq!(received, expected);
+    #[test]
+    fn a_full_queue_drops_the_datagram() {
+        let mut queue = Queue::default();
+        let refuse = |_: SocketAddr, _: SocketAddr, _: &[u8]| false;
+        let contents = vec![0; QUEUE_BYTES / 2];
+        assert!(queue.send(address(), address(), &contents, refuse));
+        assert!(queue.send(address(), address(), &contents, refuse));
+        assert!(!queue.send(address(), address(), &[0], refuse));
+        assert_eq!(queue.datagrams.len(), 2);
     }
 }
