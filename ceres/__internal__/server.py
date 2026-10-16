@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Final, override
 
 from ceres.concurrency import concurrently
 from ceres.data import DataObject, uuid4
+from ceres.level import Level
 from ceres.tasklet import Tasklet
 
 if TYPE_CHECKING:
@@ -155,6 +156,11 @@ class Server(Tasklet):
                     "Run `make console` in the Ceres checkout to build it."
                 )
 
+            # The native crates' records go to the engine's log at the lowest level it shows or
+            # stores, which the log itself then sorts.
+            logging = self._engine.get_resolved_logging_config()
+            log_level = Level.INFO if logging is None else min(logging.output, logging.store)
+
             def web(*, tls: bool) -> Native:
                 return NativeServer.web(
                     host,
@@ -166,6 +172,7 @@ class Server(Tasklet):
                     tls=tls,
                     records=records,
                     log=self._engine.log,
+                    log_level=log_level.value,
                 )
 
             if serves_https:

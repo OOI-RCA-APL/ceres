@@ -142,6 +142,7 @@ async def _serve(
     media: bool = False,
     cli_token: str | None = None,
     database_path: Path | None = None,
+    log: object = None,
 ) -> AsyncIterator[tuple[Engine, httpx.AsyncClient]]:
     """Serve an engine natively on a loopback port and yield a client against it.
 
@@ -198,6 +199,7 @@ async def _serve(
             console / "favicon.svg",
             tls=False,
             records=records,
+            log=log,
         )
     else:
         native = NativeServer.cli(host, engine.config.server, cli_token, records)
@@ -680,6 +682,44 @@ async def test_a_live_output_answers_a_webrtc_offer_until_deleted() -> None:
         assert (await client.delete(session)).status_code == 200
         assert await _ended("video") == ["procedure-cancelled"]
         assert (await client.delete(session)).status_code == 404
+
+
+class _Log:
+    """A log that keeps every line written to it, with the level it was written at."""
+
+    def __init__(self) -> None:
+        self.lines: list[tuple[str, str]] = []
+
+    def debug(self, message: str) -> None:
+        self.lines.append(("debug", message))
+
+    def info(self, message: str) -> None:
+        self.lines.append(("info", message))
+
+    def warning(self, message: str) -> None:
+        self.lines.append(("warning", message))
+
+    def error(self, message: str) -> None:
+        self.lines.append(("error", message))
+
+
+async def test_a_webrtc_session_writes_to_the_engine_log() -> None:
+    """The WebRTC server's own log lines reach the log the listener serves with."""
+    import asyncio
+
+    log = _Log()
+    async with rtsp_server() as url, _serve(media=True, log=log) as (_, client):
+        _media["video"] = url
+        response = await _offer(client, "video")
+        assert response.status_code == 201, response.text
+        assert (await client.delete(response.headers["location"])).status_code == 200
+
+        async with asyncio.timeout(3):
+            while not any("browser lost" in message for _, message in log.lines):
+                await asyncio.sleep(0.02)
+
+    assert all(message.startswith("WebRTC") for _, message in log.lines), log.lines
+    assert all(level != "debug" for level, _ in log.lines), log.lines
 
 
 async def test_an_output_without_a_live_source_is_not_live() -> None:

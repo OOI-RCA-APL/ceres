@@ -20,6 +20,7 @@ ceres-macros = { version = "0.0.0", path = "../ceres-macros" }
 ceres-media = { path = "../ceres-media" }
 chrono = "0.4"
 half = "2"
+log = "0.4"
 async-trait = "0.1"
 mimalloc = "0.1"
 ceres-server = { path = "../ceres-server" }

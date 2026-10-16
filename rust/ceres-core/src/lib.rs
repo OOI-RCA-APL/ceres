@@ -184,6 +184,7 @@ python_config! {
 // `ceres_core`, which `ceres-stubs` links against.
 #[pymodule(name = "core", gil_used = false)]
 fn ceres_core(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    logging::install_logger();
     module.add_class::<ServiceConfig>()?;
     module.add_class::<ConsoleConfig>()?;
     module.add_class::<ServerHTTPSConfig>()?;
