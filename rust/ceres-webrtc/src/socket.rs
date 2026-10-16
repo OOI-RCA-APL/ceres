@@ -238,6 +238,9 @@ impl MediaSocket {
     /// Sends the queued datagrams in order, until the send buffer fills again.
     pub(crate) fn flush(&self) {
         let mut queue = self.queue.lock().unwrap_or_else(PoisonError::into_inner);
+        // Fail proof only: drop the queue instead of draining it.
+        queue.datagrams.clear();
+        queue.bytes = 0;
         while let Some(datagram) = queue.datagrams.front() {
             if !self.try_send(datagram.source, datagram.destination, &datagram.contents) {
                 return;
