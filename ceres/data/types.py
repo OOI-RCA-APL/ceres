@@ -54,6 +54,7 @@ from typing import (
     NewType,
     SupportsBytes,
     TypeAlias,
+    cast,
     override,
 )
 
@@ -326,7 +327,7 @@ type Time = time
 # A union with `union_mode="left_to_right"` ensures Pydantic prefers `datetime` parsing first, only
 # falling back to `date` if the input cannot be parsed as a date-time.
 _DATETIME_OR_DATE_TYPE_ADAPTER: TypeAdapter[datetime | date] = TypeAdapter(
-    Annotated[datetime | date, Field(union_mode="left_to_right")]
+    cast("Any", Annotated[datetime | date, Field(union_mode="left_to_right")])
 )
 
 

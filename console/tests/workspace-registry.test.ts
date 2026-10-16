@@ -39,6 +39,7 @@ describe('the widget registry', () => {
   it('opens a pages widget on a page, since one with none has no layout to drop into', () => {
     expect(pagesOf(createWidget('tabs'))).toHaveLength(1)
     expect(pagesOf(createWidget('carousel'))).toHaveLength(1)
+    expect(pagesOf(createWidget('section'))).toHaveLength(1)
   })
 
   it('opens every other kind with no pages at all', () => {
@@ -47,26 +48,52 @@ describe('the widget registry', () => {
 })
 
 describe('converting between the pages widget kinds', () => {
-  it('carries the pages across untouched, in both directions', () => {
-    for (const type of ['tabs', 'carousel'] as const) {
-      const original = pagesWidget(type)
-      const converted = convertedPagesWidget(original)
-      expect(converted?.type).toBe(type === 'tabs' ? 'carousel' : 'tabs')
+  it('carries the pages across untouched between tabs and a carousel', () => {
+    for (const [from, to] of [
+      ['tabs', 'carousel'],
+      ['carousel', 'tabs'],
+    ] as const) {
+      const original = pagesWidget(from)
+      const converted = convertedPagesWidget(original, to)
+      expect(converted?.type).toBe(to)
       expect(pagesOf(converted as Widget)).toStrictEqual(pagesOf(original))
     }
   })
 
+  it('folds every page into the one a section holds, keeping the first page ID', () => {
+    const original = pagesWidget('tabs')
+    const section = convertedPagesWidget(original, 'section') as Widget
+    expect(pagesOf(section)).toStrictEqual([
+      { id: 'page-1', name: '', layout: pagesOf(original).flatMap((page) => page.layout) },
+    ])
+  })
+
+  it('turns a section into a single unnamed page of the other kinds', () => {
+    const section = convertedPagesWidget(pagesWidget('tabs'), 'section') as Widget
+    const tabs = convertedPagesWidget(section, 'tabs') as Widget
+    expect(pagesOf(tabs)).toStrictEqual(pagesOf(section))
+  })
+
+  it('carries over how the leftover height is spread', () => {
+    const original = { ...pagesWidget('tabs'), expand: 'even', shrink: true } as Widget
+    expect(convertedPagesWidget(original, 'section')).toMatchObject({
+      expand: 'even',
+      shrink: true,
+    })
+  })
+
   it('replaces a name that was only ever the old kind default', () => {
-    const converted = convertedPagesWidget(pagesWidget('tabs'))
+    const converted = convertedPagesWidget(pagesWidget('tabs'), 'carousel')
     expect(converted?.name).toBe(defaultWidgetName('carousel'))
   })
 
   it('keeps a name that was chosen', () => {
     const named = { ...pagesWidget('carousel'), name: 'Instrument Views' }
-    expect(convertedPagesWidget(named)?.name).toBe('Instrument Views')
+    expect(convertedPagesWidget(named, 'section')?.name).toBe('Instrument Views')
   })
 
-  it('declines a widget that holds no pages', () => {
-    expect(convertedPagesWidget(createWidget('meter'))).toBeNull()
+  it('declines a widget that holds no pages, or is already of that kind', () => {
+    expect(convertedPagesWidget(createWidget('meter'), 'tabs')).toBeNull()
+    expect(convertedPagesWidget(pagesWidget('tabs'), 'tabs')).toBeNull()
   })
 })

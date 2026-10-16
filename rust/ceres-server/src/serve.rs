@@ -153,6 +153,7 @@ mod tests {
     fn test_router() -> Router {
         build_router(AppConfig {
             authority: None,
+            webrtc: None,
             console: None,
             cli_token: None,
             auth: None,

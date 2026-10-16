@@ -9,6 +9,7 @@ use std::path::PathBuf;
 
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use ceres_webrtc::LiveSource;
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -76,6 +77,13 @@ pub enum Answer {
     Payload(String),
     /// A body the server produces itself, which only a media output returns.
     Served(Served),
+    /// The live source behind a procedure's output, which only `procedures.live` returns.
+    Live {
+        source: LiveSource,
+        /// The handle the server closes once the source stops playing, which ends the
+        /// procedure call that returned the output.
+        handle: u64,
+    },
 }
 
 /// Why a stream refused to open or stopped early.
@@ -208,13 +216,13 @@ pub trait Host: Send + Sync + 'static {
 
     /// Run an operation that returns a payload.
     ///
-    /// Only the procedure call routes reach an operation that can describe a response
-    /// so every other route asks for the payload and treats a description as a failure
+    /// Only the procedure call and WHEP routes reach an operation that can describe a
+    /// response so every other route asks for the payload and treats a description as a failure
     /// of the host rather than carrying a branch that cannot be taken.
     async fn payload(&self, operation: &str, arguments: Value) -> Result<String, HostError> {
         match self.operate(operation, arguments).await? {
             Answer::Payload(payload) => Ok(payload),
-            Answer::Served(_) => Err(HostError::Internal(format!(
+            Answer::Served(_) | Answer::Live { .. } => Err(HostError::Internal(format!(
                 "the {operation:?} operation answered with a body of its own"
             ))),
         }

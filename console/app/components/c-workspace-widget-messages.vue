@@ -208,7 +208,7 @@ async function submit() {
           <input
             v-model="widget.commandText"
             class="min-w-0 grow bg-transparent py-1.5 font-mono text-xs outline-none"
-            :disabled="widget.commandAddress == null || !isConnected"
+            :disabled="resolvedCommandAddress == null || !isConnected"
             placeholder="Send Message"
             spellcheck="false"
             type="text"

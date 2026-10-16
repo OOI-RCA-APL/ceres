@@ -1,5 +1,7 @@
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, get_type_hints, overload
+from typing import TYPE_CHECKING, Annotated, Any, get_type_hints, overload
+
+from ceres.__internal__.utilities.docstrings import parse_docstring
 
 if TYPE_CHECKING:
     from pydantic import BaseModel, ConfigDict
@@ -157,6 +159,15 @@ def get_args_model(
 
     parameters: dict[str, Any] = {**positional_parameters, **keyword_only_parameters}
 
+    # The docstring's text for each parameter becomes its field's description, unless the field
+    # already declares one. Only names in the signature count, so text for a parameter that no
+    # longer exists goes nowhere.
+    docstring = parse_docstring(function.__doc__)
+    for name, text in docstring.params.items():
+        if name in parameters and not _has_description(*parameters[name]):
+            annotation, default = parameters[name]
+            parameters[name] = (Annotated[annotation, Field(description=text)], default)
+
     # Allow extra arguments if there is a `**kwargs` parameter in the function signature.
     if kwargs_parameter_name and model_base is None:
         model_config = (
@@ -171,6 +182,24 @@ def get_args_model(
         **parameters,
     )
 
-    model.__doc__ = function.__doc__
+    # The prose alone, the parameters' text having gone to the fields.
+    model.__doc__ = docstring.description
 
     return model
+
+
+def _has_description(annotation: Any, default: Any) -> bool:
+    """Whether a parameter already declares a description, on its default's `Field` or in its
+    annotation's metadata."""
+    from typing import get_args, get_origin
+
+    from pydantic.fields import FieldInfo
+
+    candidates = [default]
+    if get_origin(annotation) is Annotated:
+        candidates.extend(get_args(annotation)[1:])
+
+    return any(
+        isinstance(candidate, FieldInfo) and candidate.description is not None
+        for candidate in candidates
+    )

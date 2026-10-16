@@ -95,13 +95,60 @@ const AVCodecParameters *ceres_input_parameters(const AVFormatContext *input, in
     return input->streams[stream]->codecpar;
 }
 
+// Copies `parameters` into a new allocation the caller frees with `ceres_parameters_free`.
+int ceres_parameters_copy(const AVCodecParameters *parameters, AVCodecParameters **copy) {
+    AVCodecParameters *made = avcodec_parameters_alloc();
+    if (!made) return AVERROR(ENOMEM);
+    int error = avcodec_parameters_copy(made, parameters);
+    if (error < 0) {
+        avcodec_parameters_free(&made);
+        return error;
+    }
+    *copy = made;
+    return 0;
+}
+
+void ceres_parameters_free(AVCodecParameters **parameters) { avcodec_parameters_free(parameters); }
+
+// The codec `parameters` describe, 1 for H.264, 2 for HEVC, and 0 for any other, so Rust names
+// codecs without mirroring FFmpeg's codec IDs.
+int ceres_parameters_codec(const AVCodecParameters *parameters) {
+    switch (parameters->codec_id) {
+    case AV_CODEC_ID_H264:
+        return 1;
+    case AV_CODEC_ID_HEVC:
+        return 2;
+    default:
+        return 0;
+    }
+}
+
+// Points `data` at the codec's out-of-band header and returns its size, 0 when there is none.
+int ceres_parameters_extradata(const AVCodecParameters *parameters, const uint8_t **data) {
+    *data = parameters->extradata;
+    return parameters->extradata_size;
+}
+
 AVPacket *ceres_packet_alloc(void) { return av_packet_alloc(); }
+
+// Makes `packet`, which must be blank, another reference to `source`'s data and properties.
+int ceres_packet_ref(AVPacket *packet, const AVPacket *source) {
+    return av_packet_ref(packet, source);
+}
 
 void ceres_packet_free(AVPacket **packet) { av_packet_free(packet); }
 
 void ceres_packet_unref(AVPacket *packet) { av_packet_unref(packet); }
 
 int ceres_packet_stream(const AVPacket *packet) { return packet->stream_index; }
+
+int ceres_packet_size(const AVPacket *packet) { return packet->size; }
+
+// Points `data` at the packet's payload and returns its size.
+int ceres_packet_data(const AVPacket *packet, const uint8_t **data) {
+    *data = packet->data;
+    return packet->size;
+}
 
 // Reads the packet's timing in its stream's time base, `AV_NOPTS_VALUE` where unset.
 void ceres_packet_timing(const AVPacket *packet, int64_t *pts, int64_t *dts, int64_t *duration) {
@@ -300,7 +347,7 @@ int ceres_transcoder_connect(CeresTranscoder *t, AVFormatContext *input, int str
         return error;
     }
     if (t->encoder == NULL) {
-        // RTP carries no frame rate, so a guess past any camera's means the estimate failed.
+        // RTP carries no frame rate, so a guess past any live source's means the estimate failed.
         AVRational rate = av_guess_frame_rate(input, source, NULL);
         t->frame_rate = rate.num > 0 && rate.den > 0 && av_q2d(rate) <= 120 ? rate
                                                                              : (AVRational){30, 1};

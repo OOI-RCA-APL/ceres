@@ -358,6 +358,7 @@ const configHighlighted = $computed(() =>
               collapsible
               :open-ids="scopedWorkspaces.map((workspace) => workspace.id)"
               :placement="address.toString()"
+              title="Workspaces"
               :workspaces="placedWorkspaces"
               @close="(id: string) => hostRef?.close(id)"
               @open="openListed"
@@ -381,6 +382,7 @@ const configHighlighted = $computed(() =>
               collapsible
               :open-ids="scopedWorkspaces.map((workspace) => workspace.id)"
               :placement="address.toString()"
+              title="Workspaces"
               :workspaces="placedWorkspaces"
               @close="(id: string) => hostRef?.close(id)"
               @open="openListed"

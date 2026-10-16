@@ -1,19 +1,27 @@
-//! Remuxing a live source into one fragmented MP4 stream that survives reconnects.
+//! Remuxing a live source into fragmented MP4 streams that survive reconnects.
+//!
+//! A reader thread holds the source's connection, reconnecting it as needed, and fans its packets
+//! out to every stream reading it. Each stream runs its own muxer on a thread of its own, so one
+//! source connection serves any number of viewers, each joining at the latest keyframe. A
+//! `PacketStream` reads the same packets unmuxed, for a consumer that frames them itself.
 
+mod order;
+mod packets;
+mod reader;
+mod subscriber;
 mod timeline;
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver};
+use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use self::timeline::Timeline;
-use crate::error::INPUT_CHANGED;
-use crate::{
-    Interrupt, MediaError, MediaInput, MediaOutput, MediaPacket, MediaTrack, MediaTranscoder,
-    TimeBase,
-};
+pub use self::order::FrameOrder;
+pub use self::packets::{PacketItem, PacketStream};
+use self::reader::{Feeding, Reader};
+use crate::{Interrupt, MediaError, MediaInput, TimeBase};
 
 /// The most bytes one chunk of the stream carries.
 const CHUNK_SIZE: usize = 65536;
@@ -21,10 +29,10 @@ const CHUNK_SIZE: usize = 65536;
 /// The time base re-encoded video is timed in, RTP's video clock.
 const TRANSCODE_TIME_BASE: TimeBase = TimeBase { num: 1, den: 90000 };
 
-/// How many chunks wait for the consumer before the session stops reading its source.
+/// How many chunks wait for the consumer before a stream stops muxing.
 ///
 /// A chunk is about one fragment, so eight absorb a few hundred milliseconds of consumer
-/// hiccup before the camera connection backs up, and hold at most 512 KiB per client.
+/// hiccup, and hold at most 512 KiB per client.
 const CHUNK_BACKLOG: usize = 8;
 
 /// Where a remux session gets its connections.
@@ -34,7 +42,7 @@ pub trait RemuxSource: Send + 'static {
     fn connect(&mut self, interrupt: Interrupt) -> Option<Result<MediaInput, MediaError>>;
 }
 
-/// An RTSP camera, reached over `transport`, `tcp` or `udp`.
+/// An RTSP source, reached over `transport`, `tcp` or `udp`.
 pub struct RtspSource {
     pub url: String,
     pub transport: String,
@@ -44,6 +52,52 @@ impl RemuxSource for RtspSource {
     fn connect(&mut self, interrupt: Interrupt) -> Option<Result<MediaInput, MediaError>> {
         let options = [("rtsp_transport", self.transport.as_str())];
         Some(MediaInput::open_with(&self.url, &options, Some(interrupt)))
+    }
+}
+
+/// A live RTSP source and how a shared connection to it is held.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LiveSource {
+    pub url: String,
+    /// `tcp` or `udp`.
+    pub transport: String,
+    pub copy: bool,
+    pub reconnect: bool,
+    pub stall_timeout: Option<Duration>,
+}
+
+impl LiveSource {
+    /// The key of the shared connection this source's streams join.
+    ///
+    /// It leaves out `reconnect`, which each stream applies on its own, so streams differing
+    /// only there still share one source connection.
+    pub fn key(&self) -> String {
+        let Self {
+            url,
+            transport,
+            copy,
+            stall_timeout,
+            ..
+        } = self;
+        format!("{transport} {copy} {stall_timeout:?} {url}")
+    }
+
+    /// The connection this source opens.
+    pub fn connection(&self) -> RtspSource {
+        RtspSource {
+            url: self.url.clone(),
+            transport: self.transport.clone(),
+        }
+    }
+
+    /// The default remux options with this source's own in place.
+    pub fn options(&self) -> RemuxOptions {
+        RemuxOptions {
+            copy: self.copy,
+            reconnect: self.reconnect,
+            stall_timeout: self.stall_timeout,
+            ..RemuxOptions::default()
+        }
     }
 }
 
@@ -83,6 +137,9 @@ impl RemuxBackoff {
 }
 
 /// How a remux session writes its stream and treats a lost source.
+///
+/// A shared source's reader takes `copy`, `stall_timeout`, `backoff`, and `linger` from the
+/// stream that started it, the rest are each stream's own.
 #[derive(Debug, Clone, Copy)]
 pub struct RemuxOptions {
     /// Whether the source's packets are copied as they are, rather than re-encoded as H.264.
@@ -96,6 +153,9 @@ pub struct RemuxOptions {
     /// How long the source may go without delivering a packet before it counts as lost.
     pub stall_timeout: Option<Duration>,
     pub backoff: RemuxBackoff,
+    /// How long a shared source stays connected after its last stream leaves, so a viewer
+    /// coming straight back finds it open rather than racing its teardown.
+    pub linger: Duration,
 }
 
 impl Default for RemuxOptions {
@@ -107,348 +167,124 @@ impl Default for RemuxOptions {
             reconnect: true,
             stall_timeout: Some(Duration::from_secs(10)),
             backoff: RemuxBackoff::default(),
+            linger: Duration::from_secs(3),
         }
     }
 }
 
-type Chunk = Result<Vec<u8>, MediaError>;
+/// What a remuxed stream reports besides its bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StreamNotice {
+    /// The source was lost, once per outage, with the error that lost it if there was one.
+    Lost { reason: Option<String> },
+    /// The first attempt to reach the lost source again is due after `delay`.
+    Retrying { delay: Duration },
+    /// The source's picture is back after an outage that took `attempts` connections and
+    /// lasted `outage`.
+    Reconnected { attempts: u32, outage: Duration },
+    /// The stream ended on its own, rather than its consumer stopping it.
+    Ended { reason: String },
+}
 
-/// A fragmented MP4 stream remuxed from a source on its own thread, read in chunks.
+/// One read from a remuxed stream.
+#[derive(Debug)]
+pub enum StreamItem {
+    Chunk(Vec<u8>),
+    Notice(StreamNotice),
+}
+
+type Chunk = Result<StreamItem, MediaError>;
+
+/// The readers of shared sources by key, each removing itself as it closes.
+static READERS: LazyLock<Mutex<HashMap<String, Arc<Reader>>>> = LazyLock::new(Mutex::default);
+
+fn readers() -> MutexGuard<'static, HashMap<String, Arc<Reader>>> {
+    READERS.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Joins a new stream to the shared reader of `key`, starting it from `source` when no stream
+/// reads it yet, or to a reader of its own when `key` is `None`.
+fn attach<S: RemuxSource>(
+    key: Option<String>,
+    source: impl FnOnce() -> S,
+    options: RemuxOptions,
+) -> (Arc<Reader>, Feeding) {
+    // The registry stays locked through the join, so the reader cannot close in between.
+    let mut registry = key.as_ref().map(|_| readers());
+    if let (Some(registry), Some(key)) = (&registry, &key)
+        && let Some(reader) = registry.get(key)
+    {
+        return (Arc::clone(reader), reader.join());
+    }
+    let reader = Reader::new(key.clone(), options);
+    if let (Some(registry), Some(key)) = (&mut registry, key) {
+        registry.insert(key, Arc::clone(&reader));
+    }
+    let feeding = reader.join();
+    reader.spawn(source());
+    (reader, feeding)
+}
+
+/// A fragmented MP4 stream remuxed from a source, read in chunks.
 ///
-/// Stopping or dropping the stream ends the session, interrupting any blocking FFmpeg call.
+/// Stopping or dropping the stream ends it, and its source closes once no stream reads it.
 pub struct RemuxStream {
     chunks: Mutex<Receiver<Chunk>>,
-    stop: Arc<AtomicBool>,
-    // Never sent on, dropping it wakes a session waiting out a backoff delay.
-    wake: Mutex<Option<SyncSender<()>>>,
+    reader: Arc<Reader>,
+    id: u64,
+    stopped: Arc<AtomicBool>,
 }
 
 impl RemuxStream {
-    /// Starts remuxing `source` on a new thread.
+    /// Starts remuxing `source` for this stream alone.
     pub fn start(source: impl RemuxSource, options: RemuxOptions) -> Self {
+        Self::mux(attach(None, || source, options), options)
+    }
+
+    /// Joins the stream to the source known as `key`, starting it from `source` when no stream
+    /// reads it yet.
+    pub fn shared<S: RemuxSource>(
+        key: String,
+        source: impl FnOnce() -> S,
+        options: RemuxOptions,
+    ) -> Self {
+        Self::mux(attach(Some(key), source, options), options)
+    }
+
+    fn mux((reader, feeding): (Arc<Reader>, Feeding), options: RemuxOptions) -> Self {
         let (chunk_sender, chunks) = mpsc::sync_channel(CHUNK_BACKLOG);
-        let (wake, wake_receiver) = mpsc::sync_channel(0);
-        let stop = Arc::new(AtomicBool::new(false));
-        let session = Session {
-            options,
-            chunks: chunk_sender,
-            wake: wake_receiver,
-            stop: Arc::clone(&stop),
-            started: Instant::now(),
-            touched: Arc::new(AtomicU64::new(0)),
-        };
+        let stopped = Arc::new(AtomicBool::new(false));
+        let id = feeding.id;
+        let muxing = subscriber::Subscriber::new(options, chunk_sender, Arc::clone(&stopped));
         thread::Builder::new()
             .name("ceres-remux".into())
-            .spawn(move || session.run(source))
+            .spawn(move || muxing.run(feeding))
             .expect("the remux thread spawns");
         Self {
             chunks: Mutex::new(chunks),
-            stop,
-            wake: Mutex::new(Some(wake)),
+            reader,
+            id,
+            stopped,
         }
     }
 
-    /// Blocks for the next chunk, `None` once the stream ends.
+    /// Blocks for the next chunk or notice, `None` once the stream ends.
     pub fn next(&self) -> Option<Chunk> {
         let chunks = self.chunks.lock().unwrap_or_else(PoisonError::into_inner);
         chunks.recv().ok()
     }
 
-    /// Ends the session, which closes the stream once any buffered chunks are read.
+    /// Ends the stream, which closes once any buffered chunks are read.
     pub fn stop(&self) {
-        self.stop.store(true, Ordering::Relaxed);
-        self.wake
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take();
+        if !self.stopped.swap(true, Ordering::Relaxed) {
+            self.reader.leave(self.id);
+        }
     }
 }
 
 impl Drop for RemuxStream {
     fn drop(&mut self) {
         self.stop();
-    }
-}
-
-/// Why one connection's relay ended.
-enum RelayEnd {
-    /// The connection closed, with the error that closed it, and a reconnect may continue
-    /// the stream.
-    Disconnected(Option<MediaError>),
-    /// The source's codec parameters changed, so the stream cannot continue the same track.
-    Changed,
-    /// The consumer is gone or the muxer failed, so the stream is over.
-    Fatal(Option<MediaError>),
-}
-
-struct Muxer {
-    output: MediaOutput,
-    time_base: TimeBase,
-    timeline: Timeline,
-}
-
-impl Muxer {
-    /// Writes `packet`, timed in `time_base`, onto the stream's timeline.
-    fn write(&mut self, packet: &mut MediaPacket, time_base: TimeBase) -> Result<(), MediaError> {
-        let timing = packet.timing().rescale(time_base, self.time_base);
-        packet.set_timing(self.timeline.place(timing));
-        self.output.write(0, packet, self.time_base)
-    }
-}
-
-/// A session's re-encoding state, which outlives each connection so the encoder's output stays
-/// one track.
-struct Transcode {
-    transcoder: MediaTranscoder,
-    /// Places each connection's packets on the decoder's timeline.
-    timeline: Timeline,
-}
-
-struct Session {
-    options: RemuxOptions,
-    chunks: SyncSender<Chunk>,
-    wake: Receiver<()>,
-    stop: Arc<AtomicBool>,
-    started: Instant,
-    // Milliseconds since `started` at the last sign of life from the source.
-    touched: Arc<AtomicU64>,
-}
-
-impl Session {
-    fn run(self, mut source: impl RemuxSource) {
-        let mut muxer = None;
-        let mut transcode = None;
-        let mut delay = self.options.backoff.initial;
-        loop {
-            let connected = Instant::now();
-            self.touch();
-            let end = match source.connect(self.interrupt()) {
-                // A source with nothing more to give ends the stream cleanly.
-                None => break,
-                Some(Err(error)) => RelayEnd::Disconnected(Some(error)),
-                Some(Ok(mut input)) if self.options.copy => self.copy(&mut input, &mut muxer),
-                Some(Ok(mut input)) => self.transcode(&mut input, &mut muxer, &mut transcode),
-            };
-            if self.stopped() {
-                return;
-            }
-            let reason = match end {
-                RelayEnd::Disconnected(error) if self.options.reconnect => error,
-                RelayEnd::Disconnected(Some(error)) if muxer.is_none() => {
-                    self.send(Err(error));
-                    return;
-                }
-                RelayEnd::Disconnected(_) | RelayEnd::Changed => break,
-                RelayEnd::Fatal(error) => {
-                    if let Some(error) = error {
-                        self.send(Err(error));
-                    }
-                    return;
-                }
-            };
-            delay = self.options.backoff.next(delay, connected.elapsed());
-            match reason {
-                Some(error) => {
-                    log::debug!("the source was lost, reconnecting in {delay:?}: {error}");
-                }
-                None => log::debug!("the source ended, reconnecting in {delay:?}"),
-            }
-            if !self.sleep(delay) {
-                return;
-            }
-            delay = self.options.backoff.grow(delay);
-        }
-        if let Some(muxer) = muxer
-            && !self.stopped()
-            && let Err(error) = muxer.output.finish()
-        {
-            self.send(Err(error));
-        }
-    }
-
-    /// Copies `input`'s video into the muxer until the connection ends.
-    fn copy(&self, input: &mut MediaInput, muxer: &mut Option<Muxer>) -> RelayEnd {
-        let video = match input.video_stream() {
-            Ok(video) => video,
-            Err(error) => return RelayEnd::Disconnected(Some(error)),
-        };
-        let track = input.track(video);
-        let muxer = match muxer {
-            Some(muxer) => match muxer.output.matches(0, &track) {
-                Ok(true) => {
-                    muxer.timeline.reconnect();
-                    muxer
-                }
-                Ok(false) => return RelayEnd::Changed,
-                Err(error) => return RelayEnd::Fatal(Some(error)),
-            },
-            None => match self.open(&track) {
-                Ok(opened) => muxer.insert(opened),
-                Err(error) => return self.fatal(error),
-            },
-        };
-        let time_base = track.time_base();
-        let mut packet = MediaPacket::new();
-        loop {
-            if let Err(end) = self.read(input, video, &mut packet) {
-                return end;
-            }
-            if let Err(error) = muxer.write(&mut packet, time_base) {
-                return self.fatal(error);
-            }
-        }
-    }
-
-    /// Decodes `input`'s video and re-encodes it into the muxer until the connection ends.
-    ///
-    /// The encoder lasts the session, so the muxer's track continues across connections for as
-    /// long as the source's picture keeps its size and format.
-    fn transcode(
-        &self,
-        input: &mut MediaInput,
-        muxer: &mut Option<Muxer>,
-        transcode: &mut Option<Transcode>,
-    ) -> RelayEnd {
-        let video = match input.video_stream() {
-            Ok(video) => video,
-            Err(error) => return RelayEnd::Disconnected(Some(error)),
-        };
-        let transcode = match transcode {
-            Some(transcode) => {
-                transcode.timeline.reconnect();
-                transcode
-            }
-            None => match MediaTranscoder::open(TRANSCODE_TIME_BASE) {
-                Ok(transcoder) => transcode.insert(Transcode {
-                    transcoder,
-                    timeline: Timeline::default(),
-                }),
-                Err(error) => return self.fatal(error),
-            },
-        };
-        // A source whose codec has no decoder fails the same way on every connection.
-        if let Err(error) = transcode.transcoder.connect(input, video) {
-            return self.fatal(error);
-        }
-        let source = input.time_base(video);
-        let mut packet = MediaPacket::new();
-        loop {
-            if let Err(end) = self.read(input, video, &mut packet) {
-                return end;
-            }
-            let timing = packet.timing().rescale(source, TRANSCODE_TIME_BASE);
-            packet.set_timing(transcode.timeline.place(timing));
-            if let Err(error) = transcode.transcoder.send(&mut packet) {
-                return self.fatal(error);
-            }
-            loop {
-                match transcode.transcoder.receive(&mut packet) {
-                    Ok(true) => {}
-                    Ok(false) => break,
-                    Err(error) if error.code == INPUT_CHANGED => return RelayEnd::Changed,
-                    Err(error) => return self.fatal(error),
-                }
-                let muxer = match muxer {
-                    Some(muxer) => muxer,
-                    None => {
-                        let track = transcode.transcoder.track().expect("an encoded packet");
-                        match self.open(&track) {
-                            Ok(opened) => muxer.insert(opened),
-                            Err(error) => return self.fatal(error),
-                        }
-                    }
-                };
-                if let Err(error) = muxer.write(&mut packet, TRANSCODE_TIME_BASE) {
-                    return self.fatal(error);
-                }
-            }
-        }
-    }
-
-    /// Reads `input`'s next packet of stream `video`, or how the connection ended.
-    fn read(
-        &self,
-        input: &mut MediaInput,
-        video: usize,
-        packet: &mut MediaPacket,
-    ) -> Result<(), RelayEnd> {
-        loop {
-            self.touch();
-            match input.read(packet) {
-                Ok(true) if packet.stream() == video => return Ok(()),
-                Ok(true) => {}
-                Ok(false) => return Err(RelayEnd::Disconnected(None)),
-                Err(error) => return Err(RelayEnd::Disconnected(Some(error))),
-            }
-        }
-    }
-
-    fn open(&self, track: &MediaTrack<'_>) -> Result<Muxer, MediaError> {
-        let movflags = if self.options.dash {
-            "+empty_moov+default_base_moof+dash"
-        } else {
-            "+empty_moov+default_base_moof"
-        };
-        let fragment = self.options.fragment_duration.as_micros().to_string();
-        let options = [
-            ("movflags", movflags),
-            ("frag_duration", fragment.as_str()),
-            ("flush_packets", "1"),
-        ];
-        let chunks = self.chunks.clone();
-        let sink = Box::new(move |bytes: &[u8]| {
-            chunks
-                .send(Ok(bytes.to_vec()))
-                .map_err(|_| std::io::Error::from(std::io::ErrorKind::BrokenPipe))
-        });
-        let output = MediaOutput::open("mp4", &options, &[*track], CHUNK_SIZE, sink)?;
-        let time_base = output.time_base(0)?;
-        Ok(Muxer {
-            output,
-            time_base,
-            timeline: Timeline::default(),
-        })
-    }
-
-    /// Ends the stream on a muxer failure, quietly when the consumer caused it by leaving.
-    fn fatal(&self, error: MediaError) -> RelayEnd {
-        RelayEnd::Fatal((!self.stopped()).then_some(error))
-    }
-
-    fn interrupt(&self) -> Interrupt {
-        let stop = Arc::clone(&self.stop);
-        let touched = Arc::clone(&self.touched);
-        let started = self.started;
-        let timeout = self.options.stall_timeout;
-        Box::new(move || {
-            stop.load(Ordering::Relaxed)
-                || timeout.is_some_and(|timeout| {
-                    let last = Duration::from_millis(touched.load(Ordering::Relaxed));
-                    started.elapsed().saturating_sub(last) > timeout
-                })
-        })
-    }
-
-    fn touch(&self) {
-        let now = u64::try_from(self.started.elapsed().as_millis()).unwrap_or(u64::MAX);
-        self.touched.store(now, Ordering::Relaxed);
-    }
-
-    fn stopped(&self) -> bool {
-        self.stop.load(Ordering::Relaxed)
-    }
-
-    fn send(&self, chunk: Chunk) {
-        // A consumer that left has no use for the chunk.
-        let _ = self.chunks.send(chunk);
-    }
-
-    /// Waits `delay`, false when the consumer left meanwhile.
-    fn sleep(&self, delay: Duration) -> bool {
-        match self.wake.recv_timeout(delay) {
-            Err(RecvTimeoutError::Timeout) => !self.stopped(),
-            Ok(()) | Err(RecvTimeoutError::Disconnected) => false,
-        }
     }
 }
 

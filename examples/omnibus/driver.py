@@ -21,6 +21,7 @@ from ceres import (
     ParticleData,
     GroupedRegexParticle,
     SplitByLine,
+    StreamingOutput,
     action,
     listener,
     query,
@@ -31,6 +32,7 @@ from ceres import (
 from ceres.concurrency import sleep
 from ceres.data import DataObject, Number, PositiveTimeDelta
 from ceres.event import ConnectedEvent, DisconnectedEvent, ParticleEvent
+from ceres.rtsp import rtsp
 
 
 # `ParticleData` defines the structured fields extracted from raw instrument
@@ -137,6 +139,9 @@ class OmnibusDriver(Component):
     temperature_limits: TemperatureLimits
 
     health_check_interval: PositiveTimeDelta = timedelta(minutes=1)
+
+    # RTSP URL of the submarine's video source, which the `video` query streams.
+    stream: str
 
     @override
     def __setup__(self) -> None:
@@ -284,6 +289,13 @@ class OmnibusDriver(Component):
             }
             for particle in particles
         ]
+
+    # `rtsp` proxies an RTSP source as a live MP4 stream. Returned from a query, the console plays it
+    # in a video widget, over WebRTC when the server enables it.
+
+    @query(media="video")
+    async def video(self) -> StreamingOutput:
+        return await rtsp(self.stream)
 
     # `@action` exposes a mutating RPC endpoint. Actions can modify state, send
     # commands to instruments, or perform side effects. Like queries, they are

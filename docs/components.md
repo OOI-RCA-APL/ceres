@@ -168,6 +168,43 @@ Both decorators accept a `permit` parameter controlling who can call them. It ta
 `@query` also takes `poll`, how often the console refreshes the value, defaulting to five
 seconds. Both decorators take `media` to declare a response content type.
 
+The method's docstring documents it in the console. Its prose shows above the arguments, rendered
+as Markdown and cut to a few lines with a "Show more". The text it gives each argument shows
+under that argument's field, and what it says about the return value and the exceptions raised
+shows beside the result. Both Google sections and Sphinx fields are read:
+
+```python
+@action
+async def move(self, x: float, y: float = 0.0) -> bool:
+    """Move the stage to a position.
+
+    Args:
+        x: Where to go along x, in millimetres.
+        y: Where to go along y.
+
+    Returns:
+        Whether the stage arrived.
+
+    Raises:
+        ValueError: If the position is out of range.
+    """
+```
+
+```python
+@action
+async def move(self, x: float, y: float = 0.0) -> bool:
+    """Move the stage to a position.
+
+    :param x: Where to go along x, in millimetres.
+    :param y: Where to go along y.
+    :returns: Whether the stage arrived.
+    :raises ValueError: If the position is out of range.
+    """
+```
+
+Only arguments in the signature are documented, and types written in the docstring are ignored in
+favour of the signature's. An argument declaring its own `Field(description=...)` keeps it.
+
 ## Events
 
 All components emit events. Events are objects with a `type`, `address`, and `timestamp` that propagate up through the component tree. This means parent components automatically receive events from their children.
@@ -182,7 +219,9 @@ Ceres emits these events automatically:
 
 **Job events:** `JobStartedEvent`, `JobCompletedEvent`, `JobExceptionEvent`, `JobRetryEvent`
 
-**Procedure events:** `ProcedureCalledEvent`, `ProcedureCompletedEvent`, `ProcedureExceptionEvent`
+**Procedure events:** `ProcedureCalledEvent`, `ProcedureCompletedEvent`, `ProcedureCancelledEvent`, `ProcedureExceptionEvent`. A procedure returning a `StreamingOutput` ends its call when the output first closes, completed when the stream ran out, an exception when reading it raised, and cancelled when it closed early. A returned `FileOutput` completes the call at once.
+
+**Stream events:** `StreamLostEvent`, `StreamReconnectScheduledEvent`, `StreamReconnectedEvent`, `StreamEndedEvent`, emitted by `rtsp()` streams on the component whose procedure returned them, or on the `component=` they were given.
 
 **Message events:** `MessageReceivedEvent`, `MessageSentEvent`
 

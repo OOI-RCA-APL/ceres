@@ -26,6 +26,7 @@ __all__ = [
     "RecordTable",
     "RecordWriter",
     "RowChunks",
+    "RtspNotice",
     "RtspStream",
     "SQLiteDatabaseConfig",
     "ServerAuthenticationConfig",
@@ -34,6 +35,7 @@ __all__ = [
     "ServerConfig",
     "ServerHTTPConfig",
     "ServerHTTPSConfig",
+    "ServerWebRTCConfig",
     "ServiceConfig",
     "Store",
     "TursoDatabaseConfig",
@@ -508,7 +510,8 @@ class NativeServer:
 
         The HTTPS listener issues a managed certificate first when it is due and renews it
         while serving, telling `log` what it issued and when renewal fails. Either listener
-        offers the managed certificate's authority at `/ca.crt`.
+        offers the managed certificate's authority at `/ca.crt`, and both share one WebRTC
+        media port when `webrtc` is set.
         """
     @staticmethod
     def redirect(config: ServerConfig, https_port: int) -> NativeServer:
@@ -729,9 +732,43 @@ class RowChunks:
         """
 
 @final
+class RtspNotice:
+    r"""
+    Something an `RtspStream` reports besides its bytes.
+    """
+    @property
+    def kind(self) -> str:
+        r"""
+        `"lost"`, `"retrying"`, `"reconnected"`, or `"ended"`.
+        """
+    @property
+    def reason(self) -> str | None:
+        r"""
+        Why the source was lost or the stream ended, if known.
+        """
+    @property
+    def delay(self) -> float | None:
+        r"""
+        Seconds until the first attempt to reach a lost source again, for `"retrying"`.
+        """
+    @property
+    def attempts(self) -> int | None:
+        r"""
+        How many connections the outage took, for `"reconnected"`.
+        """
+    @property
+    def outage(self) -> float | None:
+        r"""
+        Seconds the outage lasted, for `"reconnected"`.
+        """
+
+@final
 class RtspStream:
     r"""
-    An RTSP camera remuxed into one fragmented MP4 stream on a thread of its own.
+    An RTSP source remuxed into a fragmented MP4 stream.
+
+    Streams of one source with the same `transport`, `copy`, and `stall_timeout` share its
+    connection, so a source allowing few sessions serves any number of them.
     """
     def __new__(
         cls,
@@ -745,17 +782,18 @@ class RtspStream:
         stall_timeout: float | None,
     ) -> Self:
         r"""
-        Connects to `url` and starts remuxing, reconnecting a lost camera when `reconnect`.
+        Connects to `url` and starts remuxing, reconnecting a lost source when `reconnect`.
 
         Without `copy` the video is re-encoded as H.264. `transport` is `"tcp"` or `"udp"`.
-        Durations are in seconds, and a `stall_timeout` of `None` waits on a silent camera
+        Durations are in seconds, and a `stall_timeout` of `None` waits on a silent source
         forever.
         """
     def next(self) -> Any:
         r"""
-        The next chunk of the MP4 stream as `bytes`, `None` once the stream ends.
+        The next chunk of the MP4 stream as `bytes`, or an `RtspNotice`, `None` once the stream
+        ends.
 
-        Waiting blocks a thread of its own so a quiet camera leaves the event loop free.
+        Waiting blocks a thread of its own so a quiet source leaves the event loop free.
         """
     def close(self) -> None:
         r"""
@@ -1046,7 +1084,7 @@ class ServerConfig:
     @property
     def bind(self) -> str:
         r"""
-        Address both listeners bind.
+        Address every listener binds, the WebRTC media port included.
         """
     @property
     def https(self) -> ServerHTTPSConfig | None:
@@ -1073,6 +1111,12 @@ class ServerConfig:
         r"""
         Response compression settings.
         """
+    @property
+    def webrtc(self) -> ServerWebRTCConfig | None:
+        r"""
+        WebRTC media port, bound beside the web listeners. Live video plays over HTTP
+        when `webrtc` is not set.
+        """
     def __new__(
         cls,
         *,
@@ -1082,6 +1126,7 @@ class ServerConfig:
         authentication: ServerAuthenticationConfig | dict[str, Any] | None = None,
         cors: ServerCORSConfig | dict[str, Any] | None = None,
         compression: ServerCompressionConfig | dict[str, Any] | None = None,
+        webrtc: ServerWebRTCConfig | dict[str, Any] | None = None,
     ) -> Self: ...
     def __to_dict__(self) -> dict[str, Any]:
         r"""
@@ -1173,6 +1218,65 @@ class ServerHTTPSConfig:
         port: int | None = None,
         certificate: str | dict[str, Any] | None = None,
         min_version: str | None = None,
+    ) -> Self: ...
+    def __to_dict__(self) -> dict[str, Any]:
+        r"""
+        Return the configuration as a plain dictionary of JSON-compatible values.
+
+        Called through `ceres.data.to_dict` rather than directly.
+        """
+    def __replace__(self, **changes: Any) -> Self:
+        r"""
+        Return a copy of this configuration with the given fields replaced.
+
+        Called through `copy.replace` and `ceres.data.replace` rather than
+        directly. The replacement is built through the constructor, so a change
+        that does not validate is refused here rather than later.
+        """
+    @staticmethod
+    def __json_schema__() -> dict[str, Any]:
+        r"""
+        Return the JSON Schema describing this configuration section.
+
+        Called through `ceres.data.to_json_schema` rather than directly.
+        """
+    def __eq__(self, other: Any) -> bool: ...
+    def __repr__(self) -> str: ...
+
+class ServerWebRTCConfig:
+    r"""
+    Live video over WebRTC, which a browser plays with less delay than the MP4 stream it
+    falls back to.
+    """
+    @property
+    def port(self) -> int:
+        r"""
+        UDP port every WebRTC session's media passes through at the server's `bind`
+        address.
+        """
+    @property
+    def hosts(self) -> list[str]:
+        r"""
+        Addresses browsers are told to reach the media port at, besides those of every
+        interface.
+        """
+    @property
+    def max_sessions(self) -> int:
+        r"""
+        Most WebRTC sessions served at once.
+        """
+    @property
+    def no_ice_timeout(self) -> timedelta:
+        r"""
+        How long a session waits for its browser to connect before giving up its slot.
+        """
+    def __new__(
+        cls,
+        *,
+        port: int | None = None,
+        hosts: list[str] | None = None,
+        max_sessions: int | None = None,
+        no_ice_timeout: timedelta | int | float | str | None = None,
     ) -> Self: ...
     def __to_dict__(self) -> dict[str, Any]:
         r"""

@@ -9,6 +9,7 @@ import { Failure } from '@/errors'
 import icons from '@/icons'
 import { useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
+import { usePreferences } from '@/preferences'
 import { deepClone } from '@/utilities'
 import { provideWidgetDrop } from '@/widget-drop'
 import {
@@ -46,6 +47,7 @@ const emit = defineEmits<{
 const dialogs = useDialogs()
 const navigation = useNavigation()
 const notify = useNotify()
+const preferences = usePreferences()
 
 const workspace = provideWorkspace(computed(() => id))
 
@@ -242,6 +244,22 @@ let groupDialogIds = $ref<string[] | null>(null)
 // Shortcuts that act on the workspace, skipped while the user is typing so a text field keeps its
 // own behavior.
 useEventListener(window, 'keydown', (event: KeyboardEvent) => {
+  // Save commits the working copy, from a text field too, and never falls through to the browser
+  // saving the page. With nothing to commit it does nothing.
+  if (
+    (event.metaKey || event.ctrlKey) &&
+    !event.altKey &&
+    !event.shiftKey &&
+    event.key.toLowerCase() === 's'
+  ) {
+    event.preventDefault()
+    if (workspace.edited && workspace.canEdit && !isViewingOriginal) {
+      promptCommit()
+    }
+
+    return
+  }
+
   if (isTyping(event.target)) {
     return
   }
@@ -353,17 +371,44 @@ function promptDelete() {
     })
 }
 
+// Set while the commit dialog is open, so a second save shortcut does not stack another on it.
+let isCommitPromptOpen = false
+
 function promptCommit() {
+  if (isCommitPromptOpen) {
+    return
+  }
+
+  if (workspace.isPrivate && !preferences.isPrivateCommitConfirmationEnabled) {
+    void commit()
+    return
+  }
+
+  isCommitPromptOpen = true
   dialogs
     .confirm({
       title: 'Commit Changes',
-      message: `Commit changes to workspace "${workspace.name}"?`,
-      note:
-        'This will update the current shared version of this workspace, allowing users with ' +
-        'access to see this version.',
+      message: `Commit changes to ${workspace.isPrivate ? 'private' : 'shared'} workspace "${workspace.name}"?`,
+      note: workspace.isPrivate
+        ? 'This will replace the saved version of this workspace, which only you can see.'
+        : 'This will update the current shared version of this workspace, allowing users with ' +
+          'access to see this version.',
       okLabel: 'Commit',
+      // Turned back on under Preferences.
+      stopAsking: workspace.isPrivate
+        ? {
+            label: "Don't ask again for private workspaces.",
+            stop: () => (preferences.isPrivateCommitConfirmationEnabled = false),
+          }
+        : undefined,
     })
-    .onOk(commit)
+    .onOk(async () => {
+      isCommitPromptOpen = false
+      await commit()
+    })
+    .onCancel(() => {
+      isCommitPromptOpen = false
+    })
 }
 
 /** Commit the working copy, reporting the outcome either way. The toast opens before the request
@@ -414,10 +459,12 @@ function promptRevert() {
   dialogs
     .confirm({
       title: 'Revert Changes',
-      message: 'Revert all personal changes to this workspace?',
-      note:
-        'This will discard your current working copy and replace it with the latest shared ' +
-        'version of the workspace. The workspace will not be modified for any other users.',
+      message: `Revert all personal changes to this ${workspace.isPrivate ? 'private' : 'shared'} workspace?`,
+      note: workspace.isPrivate
+        ? 'This will discard your current working copy and replace it with the saved version ' +
+          'of the workspace.'
+        : 'This will discard your current working copy and replace it with the latest shared ' +
+          'version of the workspace. The workspace will not be modified for any other users.',
       okLabel: 'Yes',
       okColor: 'warning',
     })
@@ -485,7 +532,9 @@ function promptRevert() {
     <div class="h-[250px]" :style="{ minHeight: bottomRoom }" />
     <!-- A working copy is normally an ongoing personal state rather than a staging area so the
     bar reads as neutral status. It appears only while one exists, and the same actions stay in the
-    tab's menu since this is a shortcut rather than the only route to them. -->
+    tab's menu since this is a shortcut rather than the only route to them. A shared workspace's bar
+    stands out and names its state, since everyone else keeps seeing the committed version until the
+    changes are committed. -->
     <!-- Fixed rather than sticky, since a workspace too short to scroll would drop the bar below
     the fold exactly when there is least reason to hunt for it. Its horizontal position is set
     inline, from the widgets it acts on. -->
@@ -493,12 +542,20 @@ function promptRevert() {
       v-if="workspace.edited && !stripDocked"
       :class="[
         'fixed bottom-0 z-4 flex w-fit -translate-x-1/2 items-center gap-1 rounded-t-lg px-2.5',
-        'py-1 opacity-85 shadow-[0_2px_10px_#00000033] backdrop-blur-[6px] transition-opacity',
+        'py-1 shadow-[0_2px_10px_#00000033] backdrop-blur-[6px] transition-opacity',
         'duration-150 hover:opacity-100 focus-within:opacity-100',
         'bg-[#ffffffd9] dark:bg-[#000000a6] dark:shadow-[0_2px_10px_#00000080]',
+        workspace.isPrivate ? 'opacity-85' : 'border border-b-0 border-warning',
       ]"
+      data-workspace-action-bar
       :style="actionBarStyle"
     >
+      <c-tooltip
+        v-if="!workspace.isPrivate"
+        text="Everyone else sees the committed version until you commit."
+      >
+        <c-text class="text-warning mr-1" variant="description">Uncommitted Changes</c-text>
+      </c-tooltip>
       <template v-if="isViewingOriginal">
         <c-tooltip text="Revert to Original Version">
           <c-button
@@ -529,11 +586,12 @@ function promptRevert() {
             @click="startViewingOriginal()"
           />
         </c-tooltip>
-        <c-tooltip text="Commit Changes">
+        <c-tooltip :kbds="['meta', 'S']" text="Commit Changes">
           <c-button
-            color="primary"
+            :color="workspace.isPrivate ? 'primary' : 'warning'"
             :disabled="!workspace.canEdit"
             :icon="icons.confirm"
+            :label="workspace.isPrivate ? undefined : 'Commit'"
             size="xs"
             @click="promptCommit()"
           />

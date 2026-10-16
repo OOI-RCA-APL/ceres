@@ -9,7 +9,12 @@ import { usePersisted } from '@/persistence'
 import { moved, usePointerReorder } from '@/reorder'
 import { afterMenuCloses } from '@/utilities'
 import { useWidgetDrop } from '@/widget-drop'
-import { convertedPagesWidget, layoutsWithin, useWorkspace } from '@/workspace'
+import {
+  layoutExpandOptions,
+  layoutsWithin,
+  pagesWidgetConversionItems,
+  useWorkspace,
+} from '@/workspace'
 import type { CarouselSlide, CarouselWidget, WidgetRow } from '@/workspace'
 
 const { widget, container } = defineProps<{
@@ -111,15 +116,6 @@ watch(
     persisted.slide = id
   },
 )
-
-// A slide is as tall as the carousel however little is on it so the height left at the bottom
-// goes somewhere. The last row is the default, being where a table or a chart wants the room.
-const expandOptions = [
-  { label: 'Last Widget Row', value: 'last' },
-  { label: 'First Widget Row', value: 'first' },
-  { label: 'All Widget Rows', value: 'even' },
-  { label: "Don't Fill", value: 'none' },
-]
 
 // Also held still for as long as something is actually in hand anywhere in the workspace. A drag
 // measures the layouts on screen once and aims at those measurements for the rest of it so a slide
@@ -263,18 +259,6 @@ function deleteSlide() {
   const removing = slide
   widget.slides = widget.slides.filter((current) => current !== removing)
   show(index)
-}
-
-/** Turn this carousel into a tab strip holding the same pages, in the same place.
-
-The pages travel as they are, under the names they already had, so what is on them and what a drop
-into any of them means are untouched. Only how they are reached changes.
-*/
-function convertToTabs() {
-  const tabs = convertedPagesWidget(widget)
-  if (tabs != null) {
-    workspace.replaceWidget(widget.id, tabs)
-  }
 }
 
 function moveSlide(by: number) {
@@ -426,7 +410,9 @@ const menuItems = $computed<DropdownMenuItem[][]>(() => [
       onSelect: deleteSlide,
     },
   ],
-  [{ label: 'Convert To Tabs', icon: icons.tab, onSelect: convertToTabs }],
+  // The slides travel as they are, so what is on them and what a drop into any of them means are
+  // untouched. Only how they are reached changes.
+  pagesWidgetConversionItems(widget, (converted) => workspace.replaceWidget(widget.id, converted)),
   [
     {
       label: 'Autoplay',
@@ -446,11 +432,11 @@ const menuItems = $computed<DropdownMenuItem[][]>(() => [
       : []),
     {
       label: 'Fill Slide Height',
-      children: expandOptions.map((option) => ({
+      children: layoutExpandOptions.map((option) => ({
         label: option.label,
         type: 'checkbox' as const,
         checked: widget.expand === option.value,
-        onUpdateChecked: () => (widget.expand = option.value as CarouselWidget['expand']),
+        onUpdateChecked: () => (widget.expand = option.value),
       })),
     },
   ],

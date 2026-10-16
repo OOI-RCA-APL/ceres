@@ -11,7 +11,12 @@ import { usePersisted } from '@/persistence'
 import { moved, usePointerReorder } from '@/reorder'
 import { keepFocusWhile } from '@/utilities'
 import { useWidgetDrop } from '@/widget-drop'
-import { convertedPagesWidget, useWorkspace, withFreshPage } from '@/workspace'
+import {
+  layoutExpandOptions,
+  pagesWidgetConversionItems,
+  useWorkspace,
+  withFreshPage,
+} from '@/workspace'
 import type { TabsWidget, WidgetPage, WidgetRow } from '@/workspace'
 
 const { widget, container } = defineProps<{
@@ -49,15 +54,6 @@ watch(
     persisted.tab = id
   },
 )
-
-// A tab is as tall as the strip's widget however little is on it so the height left at the bottom
-// goes somewhere. The last row is the default, being where a table or a chart wants the room.
-const expandOptions = [
-  { label: 'Last Widget Row', value: 'last' },
-  { label: 'First Widget Row', value: 'first' },
-  { label: 'All Widget Rows', value: 'even' },
-  { label: "Don't Fill", value: 'none' },
-]
 
 // Tabs can be taken away from under it so the position is kept inside what is actually there.
 watch(
@@ -339,17 +335,9 @@ function moveTab(at: number, by: number) {
   }
 }
 
-/** Turn this strip into a carousel holding the same tabs as its slides, in the same place. */
-function convertToCarousel() {
-  const carousel = convertedPagesWidget(widget)
-  if (carousel != null) {
-    workspace.replaceWidget(widget.id, carousel)
-  }
-}
-
 // How the strip is drawn, rather than what is on any one tab, which is why these sit below a rule.
 const stripMenuItems = $computed<DropdownMenuItem[][]>(() => [
-  [{ label: 'Convert To Carousel', icon: icons.carousel, onSelect: convertToCarousel }],
+  pagesWidgetConversionItems(widget, (converted) => workspace.replaceWidget(widget.id, converted)),
   [
     {
       label: 'Fill Width',
@@ -369,11 +357,11 @@ const stripMenuItems = $computed<DropdownMenuItem[][]>(() => [
       : []),
     {
       label: 'Fill Tab Height',
-      children: expandOptions.map((option) => ({
+      children: layoutExpandOptions.map((option) => ({
         label: option.label,
         type: 'checkbox' as const,
         checked: widget.expand === option.value,
-        onUpdateChecked: () => (widget.expand = option.value as TabsWidget['expand']),
+        onUpdateChecked: () => (widget.expand = option.value),
       })),
     },
   ],

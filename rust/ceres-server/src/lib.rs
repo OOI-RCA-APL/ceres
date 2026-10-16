@@ -25,6 +25,7 @@ pub use api::schema::document as openapi_document;
 pub use app::{AppConfig, ConsolePaths, build_router};
 pub use auth::AuthSettings;
 pub use axum;
+pub use ceres_webrtc::{LiveSource, WebrtcServer};
 pub use host::{Answer, GateUser, Host, HostError, Served, StreamClose, UserRecord};
 pub use layers::{apply_compression, apply_cors};
 pub use redirect::redirect_router;
@@ -77,6 +78,7 @@ mod tests {
         std::fs::write(directory.join("favicon.ico"), b"icon bytes").unwrap();
         build_router(AppConfig {
             authority: None,
+            webrtc: None,
             console: Some(ConsolePaths {
                 directory: directory.to_path_buf(),
                 favicon_ico: directory.join("favicon.ico"),
@@ -152,6 +154,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let app = build_router(AppConfig {
             authority: None,
+            webrtc: None,
             console: Some(ConsolePaths {
                 directory: directory.path().to_path_buf(),
                 favicon_ico: directory.path().join("favicon.ico"),
@@ -312,6 +315,7 @@ mod tests {
     ) -> axum::Router {
         build_router(AppConfig {
             authority: None,
+            webrtc: None,
             console: None,
             cli_token: None,
             auth: Some(settings(allow_impersonate)),
@@ -326,6 +330,7 @@ mod tests {
     fn authenticated_app(user: uuid::Uuid, allow_impersonate: bool) -> axum::Router {
         build_router(AppConfig {
             authority: None,
+            webrtc: None,
             console: None,
             cli_token: None,
             auth: Some(settings(allow_impersonate)),
@@ -418,6 +423,7 @@ mod tests {
         // Login with authentication unconfigured refuses as disabled.
         let disabled = build_router(AppConfig {
             authority: None,
+            webrtc: None,
             console: None,
             cli_token: None,
             auth: None,
@@ -590,6 +596,7 @@ mod tests {
         // An unrestricted caller with no concrete user gets the bare envelope instead.
         let unrestricted = build_router(AppConfig {
             authority: None,
+            webrtc: None,
             console: None,
             cli_token: None,
             auth: None,
@@ -912,6 +919,7 @@ mod tests {
     async fn the_cli_app_requires_its_token_and_carries_no_console() {
         let app = build_router(AppConfig {
             authority: None,
+            webrtc: None,
             console: None,
             cli_token: Some("cli-test-token".to_string()),
             auth: None,

@@ -1,8 +1,13 @@
 import asyncio
 import contextvars
+import json
+import subprocess
 from asyncio import sleep
-from collections.abc import Awaitable, Callable, Iterable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from functools import cache
+from pathlib import Path
 from random import choice, randbytes, shuffle
 from string import ascii_letters, printable
 from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
@@ -46,6 +51,40 @@ if TYPE_CHECKING:
     from ceres.item import Item
     from ceres.particle import ParticleFilterArgs
     from ceres.record import Record
+
+
+@cache
+def rtsp_server_executable() -> str:
+    """Build the test server once per process, returning the path cargo reports for it."""
+    messages = subprocess.run(
+        ["cargo", "build", "-p", "ceres-rtsp-server", "--message-format=json"],
+        cwd=Path(__file__).parents[1] / "rust",
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    return next(
+        message["executable"]
+        for message in map(json.loads, messages.splitlines())
+        if message.get("reason") == "compiler-artifact"
+        and message["target"]["name"] == "ceres-rtsp-server"
+    )
+
+
+@asynccontextmanager
+async def rtsp_server(*flags: str) -> AsyncIterator[str]:
+    """Serve test clips over RTSP on a free port with `flags`, yielding the stream URL."""
+    process = await asyncio.create_subprocess_exec(
+        *(rtsp_server_executable(), "--port", "0", *flags),
+        stdout=asyncio.subprocess.PIPE,
+    )
+    try:
+        assert process.stdout is not None
+        line = await asyncio.wait_for(process.stdout.readline(), 30)
+        yield line.decode().strip()
+    finally:
+        process.kill()
+        await process.wait()
 
 
 async def wait_for_condition(

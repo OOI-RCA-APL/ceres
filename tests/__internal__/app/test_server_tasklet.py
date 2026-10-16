@@ -222,7 +222,7 @@ async def test_an_overridden_server_binds_only_what_the_override_answers(tmp_pat
     engine = await _load(
         tmp_path,
         failures,
-        server="server:\n  bind: 127.0.0.1\n  https: {}\n  http:\n    redirect: true\n",
+        server=("server:\n  bind: 127.0.0.1\n  https: {}\n  http:\n    redirect: true\n"),
         engine=overridden,
         checks=ConfigCheckType.all(),
     )

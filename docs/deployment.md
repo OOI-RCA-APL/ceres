@@ -213,7 +213,7 @@ server:
   https:
     certificate:
       auto:
-        ip: [10.20.1.230]
+        ip: [192.0.2.10]
         dns: [sensors.example.org]
         days: 365
         ca:

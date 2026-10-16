@@ -35,13 +35,21 @@ strip pin with `position: sticky` and the scroll-memory helpers read `window.scr
       <div class="flex-1" />
       <c-utc-clock />
     </header>
-    <c-drawer
-      v-if="drawer.isOpen"
-      class="fixed bottom-0 z-10"
-      :style="{ top: `${appHeaderHeight}px`, width: `${drawer.width}px` }"
-    />
-    <main :style="{ marginLeft: drawer.isOpen ? `${drawer.width}px` : undefined }">
-      <slot />
-    </main>
+    <div class="flex">
+      <!-- Sticky rather than fixed, so it rides the overscroll bounce with the header and the
+      page instead of holding still while they stretch. -->
+      <c-drawer
+        v-if="drawer.isOpen"
+        class="sticky z-10 shrink-0 self-start"
+        :style="{
+          top: `${appHeaderHeight}px`,
+          height: `calc(100dvh - ${appHeaderHeight}px)`,
+          width: `${drawer.width}px`,
+        }"
+      />
+      <main class="min-w-0 flex-1">
+        <slot />
+      </main>
+    </div>
   </div>
 </template>

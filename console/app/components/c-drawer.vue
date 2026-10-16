@@ -191,7 +191,9 @@ const footerRowClass =
       visibility="hidden"
     />
     <div class="grow overflow-y-auto">
-      <nuxt-link :class="[footerRowClass, 'py-3']" to="/">
+      <!-- A workspace row dropped here is made global, the same as one dropped on a component
+      below is associated with it. -->
+      <nuxt-link :class="[footerRowClass, 'py-3']" data-workspace-drop-placement="~" to="/">
         <c-icon class="size-5" :name="icons.home" />
         <span>Home</span>
       </nuxt-link>
@@ -257,6 +259,14 @@ const footerRowClass =
               v-if="isDevelopment"
               v-model="preferences.isDeveloperModeEnabled"
               label="Developer Mode"
+            />
+          </div>
+          <c-separator />
+          <div class="p-3">
+            <c-switch
+              v-model="preferences.isPrivateCommitConfirmationEnabled"
+              description="Shared workspaces always ask, since everyone with access sees the commit."
+              label="Confirm Private Workspace Commits"
             />
           </div>
           <c-separator />

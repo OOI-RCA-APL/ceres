@@ -6,10 +6,11 @@ import icons from '@/icons'
 import { useNavigation } from '@/navigation'
 import { usePreferences } from '@/preferences'
 import { keepFocusWhile } from '@/utilities'
+import type { WidgetStatus } from '@/widget-status'
 import {
-  convertedPagesWidget,
   createWidget,
   getWidgetInfo,
+  pagesWidgetConversionItems,
   useWorkspace,
   type Widget,
   widgetInfos,
@@ -53,6 +54,8 @@ const settingsComponent = $computed(() => {
 })
 
 let isShowingSettingsDialog = $ref(false)
+/** A short note the widget sends up for the header, such as the video's transport. */
+let status = $ref<WidgetStatus | null>(null)
 let isShowingGroupDialog = $ref(false)
 
 // Bumped through the workspace so a reload asked of a selection reaches every widget in it.
@@ -66,21 +69,12 @@ function onSettingsRequested() {
   isShowingSettingsDialog = true
 }
 
-/** The widget's pages under the other pages-widget kind, or null for a widget without pages.
-Offered from the header as well as from the strip itself because it changes the widget rather
+/** The widget's pages under each other pages-widget kind, none for a widget without pages.
+Offered from the header as well as from a strip itself because it changes the widget rather
 than any one of its pages. */
-const conversion = $computed(() => {
-  const converted = convertedPagesWidget(widget)
-  if (converted == null) {
-    return null
-  }
-
-  return {
-    widget: converted,
-    label: converted.type === 'tabs' ? 'Convert To Tabs' : 'Convert To Carousel',
-    icon: converted.type === 'tabs' ? icons.tab : icons.carousel,
-  }
-})
+const conversions = $computed(() =>
+  pagesWidgetConversionItems(widget, (converted) => workspace.replaceWidget(widget.id, converted)),
+)
 
 // The menu acts on everything picked out when this widget is among them, the same way
 // dragging does, and on this widget alone otherwise. Actions that only make sense for one
@@ -120,16 +114,20 @@ const key = $computed(() => {
 })
 
 // The address of the one component the widget is a view of, resolved through the scope, or null
-// when it is a view of none.
+// when it is a view of none or of the workspace's own component, whose page holds the workspace.
 const targetAddress = $computed(() => {
   const raw = widgetTargetSelector(widget)
   if (raw == null) {
     return null
   }
 
-  const resolved = workspace.resolveAddress(raw)
-  const text = resolved?.toString() ?? null
-  return text != null && text.startsWith('@') && !text.includes(':') ? text : null
+  const text = workspace.resolveAddress(raw)?.toString() ?? null
+  return text != null &&
+    text.startsWith('@') &&
+    !text.includes(':') &&
+    text !== workspace.scope?.toString()
+    ? text
+    : null
 })
 
 // A press on the header either picks the widget out or takes hold of it. Held with a modifier it
@@ -205,7 +203,7 @@ const menuItems = $computed<MenuItem[][]>(() => {
   }
   if (settingsComponent != null) {
     single.push({
-      label: 'Settings ...',
+      label: 'Settings',
       icon: icons.settings,
       onSelect: () => (isShowingSettingsDialog = true),
     })
@@ -223,27 +221,22 @@ const menuItems = $computed<MenuItem[][]>(() => {
       { label: 'Add Widget After', icon: icons.add, children: addWidgetItems(column + 1) },
     )
   }
-  if (conversion != null) {
-    const converted = conversion
-    arranging.push({
-      label: converted.label,
-      icon: converted.icon,
-      onSelect: () => workspace.replaceWidget(widget.id, converted.widget),
-    })
-  }
+  arranging.push(...conversions)
 
-  // Grouping puts the widget, or everything picked out with it, onto the pages of a fresh tabs
-  // or carousel widget standing in its place. Which kind and how the pages are dealt are ironed
-  // out in the dialog. Ungrouping is the inverse, for a widget that holds pages.
+  // Grouping puts the widget, or everything picked out with it, onto the pages of a fresh tabs,
+  // carousel, or section widget standing in its place. Which kind and how the pages are dealt are
+  // ironed out in the dialog. Ungrouping is the inverse, for a widget that holds pages.
   arranging.push({
-    label: 'Group ...',
+    label: 'Group',
     icon: icons.groupWidgets,
+    kbds: ['meta', 'G'],
     onSelect: () => (isShowingGroupDialog = true),
   })
-  if (conversion != null) {
+  if (conversions.length > 0) {
     arranging.push({
       label: 'Ungroup',
       icon: icons.ungroupWidgets,
+      kbds: ['meta', 'shift', 'G'],
       onSelect: () => workspace.ungroupWidget(widget.id),
     })
   }
@@ -262,7 +255,14 @@ const menuItems = $computed<MenuItem[][]>(() => {
   return [
     [...single, ...arranging],
     framing,
-    [{ label: 'Delete', icon: icons.delete, onSelect: () => workspace.deleteWidgets(menuTargets) }],
+    [
+      {
+        label: 'Delete',
+        icon: icons.delete,
+        kbds: ['backspace'],
+        onSelect: () => workspace.deleteWidgets(menuTargets),
+      },
+    ],
   ]
 })
 </script>
@@ -366,6 +366,7 @@ const menuItems = $computed<MenuItem[][]>(() => {
             </button>
           </c-dropdown-menu>
           <div class="flex-1" />
+          <c-widget-status v-if="status != null && !container.collapsed" class="mr-1" :status />
           <button
             class="flex items-center rounded-full p-0.5 opacity-60 hover:opacity-100"
             type="button"
@@ -412,6 +413,7 @@ const menuItems = $computed<MenuItem[][]>(() => {
             :widget="widget"
             @reload-requested="onReloadRequested"
             @settings-requested="onSettingsRequested"
+            @status="(next: WidgetStatus | null) => (status = next)"
           />
         </div>
       </template>

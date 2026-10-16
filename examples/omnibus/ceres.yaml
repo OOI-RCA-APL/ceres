@@ -8,6 +8,8 @@ server:
     port: 8080
   authentication:
     secret: omnibus-example-secret
+  # Plays live video over WebRTC on UDP port 8189, falling back to MP4 over HTTP.
+  webrtc: {}
 
 # SQLite database for storing messages, particles, logs, and alerts.
 database:
@@ -46,6 +48,9 @@ components:
         low: 0
         high: 25
       health-check-interval: 30s
+      # The test RTSP server, run beside the example from this directory with
+      # `cargo run --manifest-path ../../rust/Cargo.toml -p ceres-rtsp-server`.
+      stream: rtsp://127.0.0.1:8554/stream
 
     # Pruners automatically delete old records on a cron schedule. Uncomment
     # to enable periodic cleanup.

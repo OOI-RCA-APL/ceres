@@ -14,6 +14,9 @@ export const usePreferences = defineStore('preferences', () => {
         // on. Someone who works in private workspaces keeps getting private ones without saying so
         // every time.
         wasLastWorkspacePrivate: boolean().default(false),
+        // Whether committing a private workspace asks first. A shared one always asks, since the
+        // commit reaches everyone who can see it.
+        isPrivateCommitConfirmationEnabled: boolean().default(true),
         statisticsDuration: number().default(60 * 30),
       }),
     methods: [{ type: 'local-storage', key: ['store', 'preferences'] }],
@@ -36,6 +39,10 @@ export const usePreferences = defineStore('preferences', () => {
     wasLastWorkspacePrivate: computed({
       get: () => state.wasLastWorkspacePrivate,
       set: (value) => (state.wasLastWorkspacePrivate = value),
+    }),
+    isPrivateCommitConfirmationEnabled: computed({
+      get: () => state.isPrivateCommitConfirmationEnabled,
+      set: (value) => (state.isPrivateCommitConfirmationEnabled = value),
     }),
     statisticsDuration: computed({
       get: () => duration(state.statisticsDuration, 'seconds'),

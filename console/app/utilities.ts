@@ -193,6 +193,12 @@ export function getWebSocketUrl(relative: string) {
   return originUrl(window.location.protocol.startsWith('https') ? 'wss' : 'ws', relative)
 }
 
+/**
+ * The engine's own address for `relative`, which in development is a port other than the page's.
+ *
+ * For an element's `src` only. The engine answers no CORS, so a `fetch` of this address fails in
+ * development. A `fetch` takes `new URL(relative, window.location.href)`, through the dev proxy.
+ */
 export function getHttpUrl(relative: string) {
   return originUrl(window.location.protocol.startsWith('https') ? 'https' : 'http', relative)
 }

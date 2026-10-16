@@ -436,6 +436,22 @@ describe('planWidgetsGroup', () => {
     expect(pages[0]?.layout[0]?.height).toBe(250)
   })
 
+  it('opens a section alone in its row tall enough to show every row it took', () => {
+    const rows = [row('r1', widget('a')), row('r2', widget('b')), row('r3', widget('c'))]
+    const plan = planWidgetsGroup(rows, ['a', 'b'], 'section', 'none')
+
+    // Two 250 px rows, the gap between them, and the section's header and padding.
+    expect(plan?.rows.map((current) => current.height)).toEqual([250 + 8 + 250 + 48, 250])
+    expect(pagesOf(plan!.holder)).toHaveLength(1)
+  })
+
+  it('leaves a section sharing its row at the row height', () => {
+    const rows = [row('r1', widget('a', 60), widget('b', 60)), row('r2', widget('c'))]
+    const plan = planWidgetsGroup(rows, ['b', 'c'], 'section', 'none')
+
+    expect(plan?.rows[0]?.height).toBe(250)
+  })
+
   it('fills a shared page row in the proportions the widgets held', () => {
     const rows = [row('r1', widget('a', 40), widget('b', 20), widget('c', 60))]
     const plan = planWidgetsGroup(rows, ['a', 'b'], 'tabs', 'row')

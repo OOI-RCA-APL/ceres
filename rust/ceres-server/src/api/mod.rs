@@ -11,6 +11,7 @@ pub(crate) mod records;
 pub(crate) mod schema;
 pub(crate) mod served;
 pub(crate) mod streams;
+pub(crate) mod whep;
 
 /// Collect a raw query string into ordered pairs, percent-decoded.
 pub(crate) fn query_pairs(query: Option<String>) -> Vec<(String, String)> {
@@ -61,6 +62,10 @@ pub(crate) fn documented_routes() -> Vec<schema::Documented> {
         Get "/api/config/database" => "Serve the database configuration.", "config";
         Get "/api/config/console" => "Serve the console configuration.", "config", open: true;
         Get "/api/statuses" => "List component statuses, or stream them.", "statuses";
+        Post whep::OPEN => "Play a procedure's live video over WebRTC, access checked by the operation.",
+            "procedures", params("id", "second"), open: true;
+        Delete whep::CLOSE => "End a WebRTC session.", "procedures",
+            params("id", "second", "session"), open: true;
     };
 
     macro_rules! record_tables {

@@ -16,9 +16,21 @@ use tempfile::TempDir;
 use crate::MediaInput;
 
 /// The clips built into the server, by the name `RtspServerOptions::clips` takes.
-pub const RTSP_CLIPS: [(&str, &[u8]); 2] = [
+///
+/// `h264` and `h265-no-bframes` send their frames in display order. `h264-bframes` sends a
+/// B-frame nothing references between each pair of references, and `h265` sends B-frames that
+/// other B-frames reference.
+pub const RTSP_CLIPS: [(&str, &[u8]); 4] = [
     ("h264", include_bytes!("../../clips/h264.mp4")),
     ("h265", include_bytes!("../../clips/h265.mp4")),
+    (
+        "h264-bframes",
+        include_bytes!("../../clips/h264-bframes.mp4"),
+    ),
+    (
+        "h265-no-bframes",
+        include_bytes!("../../clips/h265-no-bframes.mp4"),
+    ),
 ];
 
 /// How often the accept loop and a paced stream check for a stop or a due fault.
@@ -37,6 +49,9 @@ pub struct RtspServerOptions {
     pub stall_after: Option<Duration>,
     /// Closes this many connections as soon as they are accepted.
     pub refuse: usize,
+    /// Closes each connection accepted while this many are already open, as a source limiting
+    /// its sessions does.
+    pub max_sessions: Option<usize>,
     /// Closes the listener and every session once, after the server has been up this long.
     pub restart_after: Option<Duration>,
     /// How long the server stays down on a restart.
@@ -51,6 +66,7 @@ impl Default for RtspServerOptions {
             drop_after: None,
             stall_after: None,
             refuse: 0,
+            max_sessions: None,
             restart_after: None,
             restart_downtime: Duration::from_secs(1),
         }
@@ -99,6 +115,7 @@ impl RtspServer {
             shared: Arc::clone(&shared),
             address,
             refuse: options.refuse,
+            max_sessions: options.max_sessions,
             restart: options
                 .restart_after
                 .map(|after| (after, options.restart_downtime)),
@@ -116,6 +133,11 @@ impl RtspServer {
 
     pub fn address(&self) -> SocketAddr {
         self.address
+    }
+
+    /// How many connections the server has served, refused ones aside.
+    pub fn sessions(&self) -> u64 {
+        self.shared.sessions.load(Ordering::Relaxed)
     }
 
     /// The URL clients open.
@@ -193,6 +215,7 @@ struct Accept {
     shared: Arc<Shared>,
     address: SocketAddr,
     refuse: usize,
+    max_sessions: Option<usize>,
     restart: Option<(Duration, Duration)>,
 }
 
@@ -219,6 +242,13 @@ impl Accept {
             match listener.accept() {
                 Ok((connection, _)) if self.refuse > 0 => {
                     self.refuse -= 1;
+                    drop(connection);
+                }
+                Ok((connection, _))
+                    if self
+                        .max_sessions
+                        .is_some_and(|max| self.shared.live().len() >= max) =>
+                {
                     drop(connection);
                 }
                 Ok((connection, _)) => {

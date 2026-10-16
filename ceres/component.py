@@ -57,6 +57,7 @@ from ceres.__internal__.utilities.algorithms import traverse
 from ceres.__internal__.utilities.caching import cached
 from ceres.__internal__.utilities.classes import cached_class_property
 from ceres.__internal__.utilities.collections import OrderedWeakSet, flatten, seq
+from ceres.__internal__.utilities.docstrings import parse_docstring
 from ceres.__internal__.utilities.functions import get_function_name, get_inner_function
 from ceres.__internal__.utilities.randomize import randstr
 from ceres.__internal__.utilities.text import reprify
@@ -669,6 +670,16 @@ ProcedureOutputInfo: TypeAlias = (
 )
 
 
+class ProcedureRaiseInfo(DataObject.Frozen):
+    """An exception a procedure's docstring says it raises."""
+
+    type: str | None
+    """The exception's name as the docstring writes it, or `None` when it names none."""
+
+    description: str
+    """When it is raised, as Markdown."""
+
+
 ProcedurePermissions = ComponentAccessLevel | Literal["public"]
 ProcedurePermissionsInput = ComponentAccessLevelInput | Literal["public"]
 
@@ -696,6 +707,12 @@ class _ProcedureBinding(DataObject.Frozen):
 
     output: ProcedureOutputInfo
     """Output metadata describing what the procedure returns."""
+
+    returns: str | None = None
+    """What the docstring says the procedure returns, as Markdown."""
+
+    raises: tuple[ProcedureRaiseInfo, ...] = ()
+    """The exceptions the docstring says the procedure raises."""
 
 
 class QueryBinding(_ProcedureBinding):
@@ -780,11 +797,20 @@ class StreamingOutput(BaseOutput):
     Leaving the block closes the stream, so the producer's cleanup runs even after an early
     `break`, and then awaits `on_exit`. A factory stream opens again on the next `async with`,
     while a plain async iterable is spent after one pass.
+
+    Returned from a procedure, the output ends that procedure call when it first closes, with
+    `ProcedureCompletedEvent` when the stream ran out, `ProcedureExceptionEvent` when reading it
+    raised, and `ProcedureCancelledEvent` when it closed before its end. That holds whoever
+    reads it, the server sending it as a response or Python code in an `async with` block. A
+    returned output that is never opened never ends its call, so no end event follows its
+    `ProcedureCalledEvent`.
     """
 
     __slots__ = (
         "_stream",
         "_iterator",
+        "_origin",
+        "_reported",
         "media",
         "http_status",
         "http_headers",
@@ -814,7 +840,11 @@ class StreamingOutput(BaseOutput):
             on_exit: Optional async callback run after the output closes.
         """
         self._stream = stream
-        self._iterator: AsyncIterator[DataStreamChunk] | None = None
+        self._iterator: _TrackedStream | None = None
+        # The component system and procedure whose call returned the output, if one did.
+        self._origin: tuple[ComponentSystem, str] | None = None
+        # Whether the output already reported how that call ended.
+        self._reported = False
         self.media = media
         self.http_status = http_status
         self.http_headers = http_headers
@@ -830,19 +860,54 @@ class StreamingOutput(BaseOutput):
         if self._iterator is not None:
             raise RuntimeError("The output is already open.")
         stream = self._stream() if callable(self._stream) else self._stream
-        self._iterator = aiter(stream)
+        self._iterator = _TrackedStream(aiter(stream))
         return self
 
     async def __aexit__(self, *exc_info: object) -> None:
-        """Close the stream so its producer's cleanup runs, then await `on_exit`."""
+        """Close the stream so its producer's cleanup runs, then await `on_exit`.
+
+        A first close of an output a procedure returned also reports how that call ended.
+        """
         iterator, self._iterator = self._iterator, None
         try:
-            close = getattr(iterator, "aclose", None)
-            if close is not None:
-                await close()
+            if iterator is not None:
+                await iterator.aclose()
         finally:
-            if self.on_exit is not None:
-                await self.on_exit()
+            try:
+                if iterator is not None:
+                    self.__report_end(iterator)
+            finally:
+                if self.on_exit is not None:
+                    await self.on_exit()
+
+    def _bind(self, system: ComponentSystem, procedure: str) -> None:
+        """Tie the output to the procedure call that returned it, which its first close ends."""
+        self._origin = (system, procedure)
+
+    @property
+    def _component(self) -> ComponentSystem | None:
+        """The component system whose procedure returned the output, if one did."""
+        return None if self._origin is None else self._origin[0]
+
+    @property
+    def _procedure(self) -> str | None:
+        """The name of the procedure that returned the output, if one did."""
+        return None if self._origin is None else self._origin[1]
+
+    def __report_end(self, iterator: _TrackedStream) -> None:
+        if self._origin is None or self._reported:
+            return
+
+        self._reported = True
+        system, procedure = self._origin
+        if iterator.error is not None:
+            system.events.emit(
+                ProcedureExceptionEvent, procedure=procedure, exception=trace(iterator.error)
+            )
+        elif iterator.exhausted:
+            system.events.emit(ProcedureCompletedEvent, procedure=procedure)
+        else:
+            system.events.emit(ProcedureCancelledEvent, procedure=procedure)
 
     def __aiter__(self) -> AsyncIterator[DataStreamChunk]:
         """Return the open stream's chunks.
@@ -853,6 +918,36 @@ class StreamingOutput(BaseOutput):
         if self._iterator is None:
             raise RuntimeError("Open the output with `async with` before iterating it.")
         return self._iterator
+
+
+class _TrackedStream:
+    """An open stream's chunks, noting whether they ran out or raised."""
+
+    __slots__ = ("_iterator", "exhausted", "error")
+
+    def __init__(self, iterator: AsyncIterator[DataStreamChunk]) -> None:
+        self._iterator = iterator
+        self.exhausted = False
+        self.error: Exception | None = None
+
+    def __aiter__(self) -> Self:
+        return self
+
+    async def __anext__(self) -> DataStreamChunk:
+        try:
+            return await anext(self._iterator)
+        except StopAsyncIteration:
+            self.exhausted = True
+            raise
+        except Exception as error:
+            self.error = error
+            raise
+
+    async def aclose(self) -> None:
+        """Close the underlying stream, if it can be closed."""
+        close = getattr(self._iterator, "aclose", None)
+        if close is not None:
+            await close()
 
 
 Output: TypeAlias = FileOutput | StreamingOutput
@@ -917,6 +1012,8 @@ def query[**P, T](
                 arguments=info.arguments,
                 output=info.output,
                 live=info.live,
+                returns=info.returns,
+                raises=info.raises,
                 poll=poll if isinstance(poll, timedelta) else timedelta(seconds=poll),
             ),
         )
@@ -978,6 +1075,8 @@ def action[**P, T](
                 arguments=validated.arguments,
                 output=validated.output,
                 live=validated.live,
+                returns=validated.returns,
+                raises=validated.raises,
             ),
         )
 
@@ -997,6 +1096,8 @@ class _ProcedureMethodInfo(DataObject.Frozen):
     arguments: ProcedureArgumentsInfo | None
     output: ProcedureOutputInfo
     live: bool
+    returns: str | None
+    raises: tuple[ProcedureRaiseInfo, ...]
 
 
 def _get_procedure_method_info(
@@ -1061,12 +1162,19 @@ def _get_procedure_method_info(
                 f"{exception}"
             )
 
+    docstring = parse_docstring(method.__doc__)
+
     return _ProcedureMethodInfo(
         name=_get_bound_name(method),
         method=get_function_name(method),
         arguments=arguments,
         output=output,
         live=live,
+        returns=docstring.returns,
+        raises=tuple(
+            ProcedureRaiseInfo(type=raised.type, description=raised.description)
+            for raised in docstring.raises
+        ),
     )
 
 
@@ -2489,37 +2597,45 @@ class ComponentSystem(Node, ComponentSource):
 
         output = await self.__invoke(procedure, arguments)
 
+        if isinstance(output, StreamingOutput):
+            # The stream's reader ends the call when it closes the output, whether the server
+            # sends it as a response or Python code reads it.
+            output._bind(self, procedure)  # noqa: SLF001
+            return output
+
         if isinstance(output, BaseOutput):
-            # File and streaming outputs are passed through verbatim, the server turns them
-            # into responses.
+            # A file is complete once returned, sending it is up to whoever serves it.
+            self.events.emit(ProcedureCompletedEvent, procedure=procedure)
             return output
 
         if not binding.live:
             self.events.emit(ProcedureCompletedEvent, procedure=procedure)
             return output
 
+        result: object | None = None
         try:
             match binding:
-                # A live query produces an iterable of values, return the first one and let the
+                # A live query produces an iterable of values, take the first one and let the
                 # generator be garbage collected.
                 case QueryBinding():
                     async for current in output:
-                        return current
-
-                    return None
-                # A live action is run to completion so all of its side effects happen, returning
+                        result = current
+                        break
+                # A live action is run to completion so all of its side effects happen, taking
                 # the final value.
                 case ActionBinding():
-                    last: object | None = None
                     async for current in output:
-                        last = current
-                    return last
+                        result = current
+        except CancelledError:
+            self.events.emit(ProcedureCancelledEvent, procedure=procedure)
+            raise
         except Exception as exception:
             info = trace(exception)
             self.events.emit(ProcedureExceptionEvent, procedure=procedure, exception=info)
             raise ProcedureInternalError(exception=info)
-        finally:
-            self.events.emit(ProcedureCompletedEvent, procedure=procedure)
+
+        self.events.emit(ProcedureCompletedEvent, procedure=procedure)
+        return result
 
     async def subscribe(
         self,

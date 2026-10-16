@@ -176,6 +176,7 @@ watch(
           collapsible
           :open-ids="homeWorkspaces.map((workspace) => workspace.id)"
           :placement="placement"
+          title="Global Workspaces"
           :workspaces="placedWorkspaces"
           @close="(id: string) => hostRef?.close(id)"
           @open="openListed"

@@ -159,6 +159,7 @@ function toggleExpanded() {
     <nuxt-link
       class="hover:bg-primary/14 group relative flex items-center overflow-hidden py-1 text-[13px]"
       :class="[isOpen && 'bg-primary/16 text-primary', !isOpen && isOnPath && 'text-toned']"
+      :data-workspace-drop-placement="address.toString()"
       :to="`/components/${address}`"
     >
       <!-- One column per level. The lines are drawn rather than the space merely being left, so

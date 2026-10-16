@@ -4,6 +4,7 @@
 # maturin in `release.yaml`, never through this file, so nothing here needs to.
 PROFILE ?= dev
 CARGO_PROFILE = $(if $(filter dev,$(PROFILE)),,--release)
+WORDS = cameras?|camctrl|nereus
 
 # Exported to every recipe, because a bare `uv run` resyncs, and a sync that disagrees
 # with the installed build's configuration rebuilds the extension from scratch.
@@ -69,11 +70,19 @@ release-check:
 	uv run ./scripts/release.py --dry-run
 test-all:
 	uv run ./scripts/test-all-python-versions.py
-lint:
+lint: words-check
 	uv run sh -c "ruff check . && ruff format --check . && pyright"
 	cd console && make lint
 	cd rust && cargo fmt --check && cargo clippy --all-targets -- -D warnings
 	cd rust && cargo clippy -p ceres-core --all-targets -- -D warnings
+# Ceres names no project built on it or that project's domain, in code, text, or docs.
+# Released changelog entries stay as published, so only the unreleased section is read.
+words-check:
+# A search exits 1 when it finds nothing, so any other status fails, an error included.
+	git grep --untracked -n -I -i -w -E '$(WORDS)' -- . ':!COVERAGE.md' ':!CHANGELOG.md' \
+		':!Makefile'; test $$? -eq 1
+	sed -n '/^## \[Unreleased\]/,/^## \[[0-9]/p' CHANGELOG.md | grep -n -i -w -E '$(WORDS)'; \
+		test $$? -eq 1
 fix:
 # Regenerated before the formatters run, the generator's output not being formatted to the
 # rules `make lint` then holds it to.

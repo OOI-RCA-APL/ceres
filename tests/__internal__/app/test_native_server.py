@@ -8,9 +8,11 @@ implementations.
 
 import asyncio
 import json
+import socket
 from typing import TYPE_CHECKING, Any
 
 import httpx
+import pytest
 
 from ceres import Engine
 from ceres.__internal__.core import NativeServer
@@ -71,7 +73,10 @@ async def _build_engine() -> tuple[Engine, User]:
             Config,
             {
                 "components": [],
-                "server": {"http": {"port": 0}, "authentication": {"secret": SECRET}},
+                "server": {
+                    "http": {"port": 0},
+                    "authentication": {"secret": SECRET},
+                },
             },
         ),
         checks=(),
@@ -134,6 +139,27 @@ async def test_the_native_server_serves_the_engine_over_tcp(tmp_path: Path) -> N
         server.stop(0.2)
         await serving
         await engine.database.dispose()
+
+
+def test_a_held_webrtc_port_refuses_the_server(tmp_path: Path) -> None:
+    """A WebRTC port another socket holds fails the server, as a taken HTTP port does."""
+    from ceres.config import ServerConfig
+
+    console = _build_console(tmp_path)
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as held:
+        held.bind(("127.0.0.1", 0))
+        port = held.getsockname()[1]
+        config = ServerConfig(bind="127.0.0.1", http={"port": 0}, webrtc={"port": port})
+        with pytest.raises(ValueError, match=f"cannot bind UDP 127.0.0.1:{port} for WebRTC"):
+            NativeServer.web(
+                object(),
+                config,
+                console,
+                console / "favicon.ico",
+                console / "favicon.png",
+                console / "favicon.svg",
+                tls=False,
+            )
 
 
 async def test_the_redirect_server_points_at_the_https_server() -> None:

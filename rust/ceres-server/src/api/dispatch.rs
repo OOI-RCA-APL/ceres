@@ -22,7 +22,7 @@ use uuid::Uuid;
 use crate::app::{AppState, Resolution};
 use crate::auth::{Actor, Gate};
 use crate::error::{ApiError, Problem};
-use crate::host::Answer;
+use crate::host::{Answer, HostError};
 
 /// How a path parameter forwards to the host.
 #[derive(Clone, Copy, PartialEq)]
@@ -315,7 +315,7 @@ impl Actor {
 }
 
 /// One request bound for a host operation, as the route table declared it.
-struct Dispatch {
+pub(crate) struct Dispatch {
     gate: Gate,
     operation: &'static str,
     parameters: Vec<PathValue>,
@@ -328,6 +328,19 @@ struct Dispatch {
 }
 
 impl Dispatch {
+    /// A bodiless call of `operation` on the procedure `name` of the component at `address`,
+    /// open to every actor as the procedure call routes are, since the operation checks access.
+    pub(crate) fn procedure(operation: &'static str, address: String, name: String) -> Self {
+        Self {
+            gate: Gate::Open,
+            operation,
+            parameters: vec![("address", address, Kind::Raw), ("name", name, Kind::Raw)],
+            body: None,
+            status: 200,
+            scrub: false,
+        }
+    }
+
     /// Gate, assemble, and forward the request, serving what the operation answers.
     async fn respond(
         self,
@@ -335,6 +348,46 @@ impl Dispatch {
         headers: &HeaderMap,
         query: Option<String>,
     ) -> Result<Response, ApiError> {
+        let Self {
+            status,
+            scrub,
+            operation,
+            ..
+        } = self;
+        match self.answer(state, headers, query).await? {
+            Answer::Payload(payload) => {
+                // An operation answering with configuration drops its credentials
+                // because reading the configuration is not permission to take the
+                // signing secret.
+                let payload = if scrub {
+                    crate::scrub::scrub_json(&payload)
+                } else {
+                    payload
+                };
+                Ok((
+                    StatusCode::from_u16(status).unwrap_or(StatusCode::OK),
+                    [(header::CONTENT_TYPE, "application/json")],
+                    payload,
+                )
+                    .into_response())
+            }
+            // A described response carries the status the output declared so a route's
+            // own created-status override does not apply to it.
+            Answer::Served(served) => Ok(served.serve(&state.host).await),
+            Answer::Live { .. } => Err(HostError::Internal(format!(
+                "the {operation:?} operation answered with a live source"
+            ))
+            .into()),
+        }
+    }
+
+    /// Gate, assemble, and forward the request, returning what the operation answers.
+    pub(crate) async fn answer(
+        &self,
+        state: &AppState,
+        headers: &HeaderMap,
+        query: Option<String>,
+    ) -> Result<Answer, ApiError> {
         // Path parameters first, a UUID that fails to parse means no route matched.
         let mut path = Map::new();
         for (host_name, value, kind) in &self.parameters {
@@ -371,26 +424,6 @@ impl Dispatch {
             "body": body,
         });
 
-        match state.host.operate(self.operation, arguments).await? {
-            Answer::Payload(payload) => {
-                // An operation answering with configuration drops its credentials
-                // because reading the configuration is not permission to take the
-                // signing secret.
-                let payload = if self.scrub {
-                    crate::scrub::scrub_json(&payload)
-                } else {
-                    payload
-                };
-                Ok((
-                    StatusCode::from_u16(self.status).unwrap_or(StatusCode::OK),
-                    [(header::CONTENT_TYPE, "application/json")],
-                    payload,
-                )
-                    .into_response())
-            }
-            // A described response carries the status the output declared so a route's
-            // own created-status override does not apply to it.
-            Answer::Served(served) => Ok(served.serve(&state.host).await),
-        }
+        Ok(state.host.operate(self.operation, arguments).await?)
     }
 }

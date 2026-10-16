@@ -44,6 +44,8 @@ import {
 } from '@/workspace/layout'
 import {
   comparableWorkspaceData,
+  type PagesWidgetType,
+  resolveWidgetAddress,
   widgetWidthSubdivisions,
   withoutMeta,
   type Widget,
@@ -59,7 +61,7 @@ import {
   type WorkspaceInput,
   WorkspaceModel,
 } from '@/workspace/models'
-import { createWidget, getWidgetInfo, openedRowFor } from '@/workspace/registry'
+import { createWidget, getWidgetInfo, openedRowFor, widgetMinHeight } from '@/workspace/registry'
 
 export type WorkspaceContext = ReturnType<typeof createWorkspaceContext>
 
@@ -148,19 +150,15 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     return access.canManage(workspace.scope.toString())
   }
 
-  function resolveAddress(
-    value: string | AddressSelector | null | undefined,
-  ): AddressSelector | null {
-    if (value == null) {
-      return null
-    }
-
-    return AddressSelector.parse(value).asAbsolute(scope)
-  }
-
   // Whether this workspace is bound to a component rather than the engine root. The root
   // contains every component so a workspace placed there restricts nothing.
   const isBound = $computed(() => scope != null && !scope.isEngine)
+
+  function resolveAddress(
+    value: string | AddressSelector | null | undefined,
+  ): AddressSelector | null {
+    return resolveWidgetAddress(value, scope)
+  }
 
   /** Whether an address falls within this workspace's placement.
    *
@@ -392,7 +390,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     } else if (rowObject == null) {
       layout.set([...rows, openedRow(widgets, widget)])
     } else {
-      const minHeight = getWidgetInfo(widget.type).options.minHeight
+      const minHeight = widgetMinHeight(widget)
       if (rowObject.height < minHeight) {
         rowObject.height = minHeight
       }
@@ -522,7 +520,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
   /** Group the widgets named by `ids` under a fresh widget of `type`, standing in their place. */
   function groupWidgets(
     ids: string[],
-    type: 'tabs' | 'carousel',
+    type: PagesWidgetType,
     split: GroupSplit = 'widget',
     frameless: boolean = false,
   ) {

@@ -960,7 +960,7 @@ mod tests {
         let project = Project::new();
         let names = [
             SubjectName::Dns("localhost".into()),
-            SubjectName::Ip("10.20.1.230".parse().unwrap()),
+            SubjectName::Ip("192.0.2.10".parse().unwrap()),
         ];
         let managed = project.ensure(&names, now()).unwrap();
         assert!(managed.created_authority);
@@ -1037,7 +1037,7 @@ mod tests {
         )
         .build()
         .unwrap();
-        for name in ["localhost", "10.20.1.230"] {
+        for name in ["localhost", "192.0.2.10"] {
             verifier
                 .verify_server_cert(
                     &chain[0],
@@ -1174,13 +1174,13 @@ mod tests {
 
         let wider = [
             SubjectName::Dns("localhost".into()),
-            SubjectName::Ip("10.20.1.230".parse().unwrap()),
+            SubjectName::Ip("192.0.2.10".parse().unwrap()),
         ];
         let renewed = project.ensure(&wider, now()).unwrap();
         assert_eq!(
             renewed.issued,
             Some(Renewal::MissingNames(vec![SubjectName::Ip(
-                "10.20.1.230".parse().unwrap()
+                "192.0.2.10".parse().unwrap()
             )]))
         );
         assert_eq!(carried_names(&parse(&project.leaf())), wider);
@@ -1525,8 +1525,8 @@ mod tests {
                 "::1".parse().unwrap(),
                 "169.254.3.4".parse().unwrap(),
                 "fe80::1".parse().unwrap(),
-                "10.20.1.230".parse().unwrap(),
-                "10.20.1.230".parse().unwrap(),
+                "192.0.2.10".parse().unwrap(),
+                "192.0.2.10".parse().unwrap(),
                 "fd00::5".parse().unwrap(),
             ],
         );
@@ -1537,7 +1537,7 @@ mod tests {
                 SubjectName::Ip("127.0.0.1".parse().unwrap()),
                 SubjectName::Ip("::1".parse().unwrap()),
                 SubjectName::Dns("studio-mac".into()),
-                SubjectName::Ip("10.20.1.230".parse().unwrap()),
+                SubjectName::Ip("192.0.2.10".parse().unwrap()),
                 SubjectName::Ip("fd00::5".parse().unwrap()),
             ]
         );
@@ -1547,7 +1547,7 @@ mod tests {
     #[test]
     fn configured_names_replace_detected_ones() {
         let configured = ServerCertificateAutoConfig {
-            ip: vec!["10.20.1.230".parse().unwrap()],
+            ip: vec!["192.0.2.10".parse().unwrap()],
             dns: vec!["Ceres.example".into()],
             ..ServerCertificateAutoConfig::default()
         };
@@ -1555,7 +1555,7 @@ mod tests {
         assert_eq!(
             SubjectName::required(&configured, detect),
             [
-                SubjectName::Ip("10.20.1.230".parse().unwrap()),
+                SubjectName::Ip("192.0.2.10".parse().unwrap()),
                 SubjectName::Dns("ceres.example".into()),
             ]
         );

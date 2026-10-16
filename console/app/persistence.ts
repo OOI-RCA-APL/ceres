@@ -69,6 +69,15 @@ function storageSet(key: string, value: unknown) {
   localStorage.setItem(key, JSON.stringify(value))
 }
 
+/** Read what is stored under a key, or null when nothing parses there. */
+export function readStored(key: KeyInput): unknown {
+  return storageGet(resolveKey(key))
+}
+
+export function writeStored(key: KeyInput, value: unknown) {
+  storageSet(resolveKey(key), value)
+}
+
 export function usePersisted<TData extends BaseData<TSchema>, TSchema extends BaseSchema>(
   options: UsePersistedOptions<TData, TSchema>,
 ): TData {

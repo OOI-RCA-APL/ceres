@@ -9,6 +9,9 @@ replaces any widget whose target the viewer cannot view with a restricted stub.
 Only named component addresses are treated as targets. Wildcard selectors such as `@:all`
 name no component, so their widgets carry nothing to hide and pass through unredacted, the
 data they display is still gated per component by the record APIs at fetch time.
+
+The same walk serves `pin_widget_addresses`, which makes those addresses absolute when a
+workspace changes placement.
 """
 
 from collections.abc import Callable, Iterator
@@ -20,6 +23,7 @@ from ceres.address import Address, AddressSelector
 __all__ = [
     "iter_widget_targets",
     "merge_redacted_widgets",
+    "pin_widget_addresses",
     "redact_workspace_data",
 ]
 
@@ -32,6 +36,7 @@ _ADDRESS_KEYS = (
 """Widget configuration keys that hold a component address or selector."""
 
 _PAGE_KEYS = (
+    "pages",
     "slides",
     "tabs",
 )
@@ -169,6 +174,55 @@ def redact_workspace_data(
                 "width": widget.get("width"),
                 "restricted": True,
             }
+
+    return result
+
+
+def _pin(value: Any, scope: Address) -> Any:
+    """Resolve one relative address value against `scope`, leaving anything else as it was."""
+    if not isinstance(value, str) or value == "":
+        return value
+
+    try:
+        return str(AddressSelector(value).as_absolute(scope))
+    except ValueError:
+        return value
+
+
+def _pin_widget(widget: dict[str, Any], scope: Address) -> None:
+    for key in _ADDRESS_KEYS:
+        if key in widget:
+            widget[key] = _pin(widget[key], scope)
+
+    query_value = widget.get("query")
+    if isinstance(query_value, str) and "::" in query_value:
+        address, rest = query_value.split("::", 1)
+        widget["query"] = f"{_pin(address, scope)}::{rest}"
+
+    filter_value = widget.get("filter")
+    if isinstance(filter_value, dict) and "address" in filter_value:
+        filter_value["address"] = _pin(filter_value["address"], scope)
+
+    for key in ("buttons", "particles"):
+        entries = widget.get(key)
+        if isinstance(entries, list):
+            for entry in entries:
+                if isinstance(entry, dict) and "address" in entry:
+                    entry["address"] = _pin(entry["address"], scope)
+
+
+def pin_widget_addresses(data: dict[str, Any], scope: Address) -> dict[str, Any]:
+    """Return a copy of `data` with every relative widget address resolved against `scope`.
+
+    A relative address means something only against the placement it was written on, so a
+    workspace leaving that placement keeps pointing at the same components once its addresses
+    are absolute. An unset or empty address is left as it is, since it stands for whatever
+    placement the workspace has rather than for a component. Values that fail to parse are left
+    alone.
+    """
+    result = deepcopy(data)
+    for widgets, index in _iter_widget_slots(result):
+        _pin_widget(widgets[index], scope)
 
     return result
 

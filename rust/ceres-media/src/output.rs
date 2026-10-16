@@ -34,7 +34,78 @@ impl MediaTrack<'_> {
     pub fn time_base(&self) -> TimeBase {
         self.time_base
     }
+
+    /// A copy of the track that owns its parameters, so it outlives the input or transcoder.
+    pub fn to_owned(&self) -> Result<OwnedTrack, MediaError> {
+        let mut copy = ptr::null_mut();
+        // SAFETY: The track's parameters are live, and the shim sets `copy` only on success.
+        let code = unsafe { ffi::ceres_parameters_copy(self.parameters.as_ptr(), &raw mut copy) };
+        MediaError::check(code)?;
+        Ok(OwnedTrack {
+            parameters: NonNull::new(copy).expect("the shim set the copy"),
+            time_base: self.time_base,
+        })
+    }
 }
+
+/// The codec and time base of one stream, copied out of whatever produced it.
+pub struct OwnedTrack {
+    parameters: NonNull<ffi::AVCodecParameters>,
+    time_base: TimeBase,
+}
+
+impl OwnedTrack {
+    /// The track borrowed for an output to open or match against.
+    pub fn track(&self) -> MediaTrack<'_> {
+        // SAFETY: The parameters live and stay unchanged as long as `self`.
+        unsafe { MediaTrack::new(self.parameters.as_ptr(), self.time_base) }
+    }
+
+    pub fn codec(&self) -> MediaCodec {
+        // SAFETY: The parameters are live, and the shim only reads the codec ID.
+        match unsafe { ffi::ceres_parameters_codec(self.parameters.as_ptr()) } {
+            1 => MediaCodec::H264,
+            2 => MediaCodec::H265,
+            _ => MediaCodec::Other,
+        }
+    }
+
+    /// The codec's out-of-band header, an `avcC` or `hvcC` record from MP4 or the parameter
+    /// sets in Annex B from RTSP, empty when the stream carries them only in band.
+    pub fn extradata(&self) -> &[u8] {
+        let mut data = ptr::null();
+        // SAFETY: The parameters are live and unchanged for as long as `self`.
+        unsafe {
+            let size = ffi::ceres_parameters_extradata(self.parameters.as_ptr(), &raw mut data);
+            ffi::bytes(data, size)
+        }
+    }
+
+    pub fn time_base(&self) -> TimeBase {
+        self.time_base
+    }
+}
+
+/// The video codecs a track can be told apart by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MediaCodec {
+    H264,
+    H265,
+    Other,
+}
+
+impl Drop for OwnedTrack {
+    fn drop(&mut self) {
+        let mut parameters = self.parameters.as_ptr();
+        // SAFETY: The parameters came from `ceres_parameters_copy` and are freed only here.
+        unsafe { ffi::ceres_parameters_free(&raw mut parameters) };
+    }
+}
+
+// SAFETY: Nothing mutates the parameters after the copy, so any thread may read them.
+unsafe impl Send for OwnedTrack {}
+// SAFETY: As above, shared access only reads.
+unsafe impl Sync for OwnedTrack {}
 
 struct SinkState {
     sink: MediaSink,
@@ -216,15 +287,7 @@ fn error(state: &mut SinkState, code: c_int) -> MediaError {
 unsafe extern "C" fn write_sink(opaque: *mut c_void, data: *const u8, size: c_int) -> c_int {
     // SAFETY: `opaque` is the `SinkState` boxed in the `MediaOutput` that owns this muxer, and
     // FFmpeg passes `size` readable bytes.
-    let (state, data) = unsafe {
-        let size = usize::try_from(size).unwrap_or(0);
-        let data = if data.is_null() || size == 0 {
-            &[][..]
-        } else {
-            std::slice::from_raw_parts(data, size)
-        };
-        (&mut *opaque.cast::<SinkState>(), data)
-    };
+    let (state, data) = unsafe { (&mut *opaque.cast::<SinkState>(), ffi::bytes(data, size)) };
     if state.error.is_some() {
         return EIO;
     }

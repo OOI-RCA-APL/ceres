@@ -70,11 +70,12 @@ function duplicateButton(at: number) {
 
 <template>
   <!-- Wrapping lets the widget hold any number of buttons at any width, with the controls of
-  every kind centered in the room the widget gives them. -->
+  every kind centered in the room the widget gives them. The row gap fits the menu dots that
+  hang under each button, so a wrapped row never covers them. -->
   <div
     :class="
       widget.buttons.length > 0
-        ? ['group/bar flex flex-wrap items-center justify-center gap-1.5']
+        ? ['group/bar flex flex-wrap items-center justify-center gap-x-1.5 gap-y-3']
         : ['flex min-h-[34px] flex-col items-center justify-center']
     "
   >

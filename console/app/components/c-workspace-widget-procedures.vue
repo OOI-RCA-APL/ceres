@@ -60,9 +60,10 @@ watchEffect(() => {
 
 <template>
   <div>
-    <div class="flex gap-2">
+    <!-- One line when the widget is wide enough, else the procedure wraps under the rest. -->
+    <div class="flex flex-wrap items-end gap-x-3 gap-y-2">
       <c-workspace-address-select
-        class="grow"
+        class="min-w-[240px] flex-1"
         :model-value="widget.procedureAddress?.toString() ?? null"
         @update:model-value="
           (value) =>
@@ -80,18 +81,19 @@ watchEffect(() => {
           optional: true,
         }"
       />
-    </div>
-    <c-separator class="my-2" />
-    <template v-if="procedures.length > 0">
       <c-schema-form-value
+        v-if="procedures.length > 0"
         v-model="widget.procedureName"
-        class="mb-3"
+        class="min-w-[240px] flex-[2]"
         :schema="{
           type: 'string',
           title: upperFirst(widget.procedureType ?? 'procedure'),
           enum: procedures.map((procedure) => procedure.name),
         }"
       />
+    </div>
+    <c-separator class="my-2" />
+    <template v-if="procedures.length > 0">
       <c-procedure
         v-if="selected != null && component != null"
         :key="selected.name"

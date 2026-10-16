@@ -5,12 +5,12 @@ import { onMounted } from 'vue'
 import icons from '@/icons'
 import { useWidgetDrop } from '@/widget-drop'
 import {
-  getWidgetInfo,
   type LayoutExpand,
   resolveWidgetWidths,
   useWorkspace,
   type Widget,
   widgetInfos,
+  widgetMinHeight,
   type WidgetRow,
   widgetWidthSubdivisions,
 } from '@/workspace'
@@ -258,12 +258,7 @@ defineExpose({ element: $$(element) })
           v-if="!drop.active && !row.collapsed"
           class="absolute -bottom-[4.5px] left-0 z-[1]"
           direction="vertical"
-          :min="
-            Math.max(
-              ...row.widgets.map((widget) => getWidgetInfo(widget.type).options.minHeight ?? 50),
-              50,
-            )
-          "
+          :min="Math.max(...row.widgets.map(widgetMinHeight))"
           :model-value="row.height"
           :readout="false"
           :step="5"

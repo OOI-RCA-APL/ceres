@@ -35,12 +35,13 @@ Configuration for the engine's HTTP server.
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
-| `bind` | string |  | Address both listeners bind, `0.0.0.0` when omitted. |
+| `bind` | string |  | Address every listener binds, the WebRTC media port included, `0.0.0.0` when omitted. `::` serves IPv6 and IPv4 both. |
 | `https` | [`ServerHttpsConfig`](#serverhttpsconfig) |  | HTTPS listener. The server is off when neither `https` nor `http` is set. |
 | `http` | [`ServerHttpConfig`](#serverhttpconfig) |  | Plain HTTP listener. The server is off when neither `https` nor `http` is set. |
 | `authentication` | [`ServerAuthenticationConfig`](#serverauthenticationconfig) |  |  |
 | `cors` | [`ServerCorsConfig`](#servercorsconfig) |  |  |
 | `compression` | [`ServerCompressionConfig`](#servercompressionconfig) |  |  |
+| `webrtc` | [`ServerWebRTCConfig`](#serverwebrtcconfig) |  | WebRTC media port, bound beside the web listeners. Live video plays over HTTP when `webrtc` is not set. |
 
 ### `ServerHttpsConfig`
 
@@ -100,6 +101,17 @@ Response compression settings for the engine's HTTP server.
 | `brotli-quality` | integer |  |  |
 | `gzip` | boolean |  |  |
 | `gzip-level` | integer |  |  |
+
+### `ServerWebRTCConfig`
+
+Live video over WebRTC, which a browser plays with less delay than the MP4 stream it falls back to.
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `port` | integer |  | UDP port every WebRTC session's media passes through at the server's `bind` address, 8189 when omitted. |
+| `hosts` | list of string |  | Addresses browsers are told to reach the media port at, besides those of every interface, such as the public address of a host behind NAT. |
+| `max-sessions` | integer |  | Most WebRTC sessions served at once, 32 when omitted. |
+| `no-ice-timeout` | number or string |  | How long a session waits for its browser to connect before giving up its slot, 10 seconds when omitted. |
 
 ### `ServerCertificateConfig`
 

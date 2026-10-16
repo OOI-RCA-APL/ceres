@@ -570,6 +570,8 @@ _DATA_OBJECT_DEFAULT_CONFIG = DataObjectConfigDict(
     arbitrary_types_allowed=True,
     validate_by_name=True,
     validate_by_alias=True,
+    # Written out under the names the YAML and the API read, such as `class` for `cls`.
+    serialize_by_alias=True,
 )
 
 

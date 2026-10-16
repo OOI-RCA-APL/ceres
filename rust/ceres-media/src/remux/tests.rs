@@ -1,9 +1,11 @@
 use std::collections::VecDeque;
 use std::io::Write;
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{self, Sender};
+use std::thread;
+use std::time::Instant;
 
 use super::*;
-use crate::{RtspServer, RtspServerOptions, fixture};
+use crate::{MediaCodec, MediaPacket, RtspServer, RtspServerOptions, fixture};
 
 enum Attempt {
     Clip(&'static str),
@@ -50,18 +52,36 @@ fn options(reconnect: bool) -> RemuxOptions {
     }
 }
 
-/// Reads the stream until it ends or `deadline` passes, returning its bytes and the error
-/// that ended it.
-fn drain(stream: &RemuxStream, deadline: Option<Instant>) -> (Vec<u8>, Option<MediaError>) {
-    let mut bytes = Vec::new();
+/// Everything a stream gave until it ended or a deadline passed.
+#[derive(Default)]
+struct Drained {
+    bytes: Vec<u8>,
+    notices: Vec<StreamNotice>,
+    error: Option<MediaError>,
+}
+
+/// Reads the stream until it ends or `deadline` passes.
+fn drain_all(stream: &RemuxStream, deadline: Option<Instant>) -> Drained {
+    let mut drained = Drained::default();
     while deadline.is_none_or(|deadline| Instant::now() < deadline) {
         match stream.next() {
-            Some(Ok(chunk)) => bytes.extend(chunk),
-            Some(Err(error)) => return (bytes, Some(error)),
+            Some(Ok(StreamItem::Chunk(chunk))) => drained.bytes.extend(chunk),
+            Some(Ok(StreamItem::Notice(notice))) => drained.notices.push(notice),
+            Some(Err(error)) => {
+                drained.error = Some(error);
+                break;
+            }
             None => break,
         }
     }
-    (bytes, None)
+    drained
+}
+
+/// Reads the stream until it ends or `deadline` passes, returning its bytes and the error
+/// that ended it.
+fn drain(stream: &RemuxStream, deadline: Option<Instant>) -> (Vec<u8>, Option<MediaError>) {
+    let drained = drain_all(stream, deadline);
+    (drained.bytes, drained.error)
 }
 
 /// The decode timestamp of every packet in `bytes`, read back through the demuxer.
@@ -252,7 +272,10 @@ fn dropping_the_stream_interrupts_the_source() {
         stall_timeout: None,
         ..options(true)
     };
-    drop(RemuxStream::start(Hanging(interrupted), options));
+    let stream = RemuxStream::start(Hanging(interrupted), options);
+    // Dropped once the reader is inside the blocking connect.
+    thread::sleep(Duration::from_millis(50));
+    drop(stream);
     receiver.recv_timeout(Duration::from_secs(5)).unwrap();
 }
 
@@ -270,4 +293,342 @@ fn stopping_the_stream_ends_a_pending_read() {
     thread::sleep(Duration::from_millis(50));
     stream.stop();
     assert!(ended.recv_timeout(Duration::from_secs(5)).unwrap());
+}
+
+/// A stream of `server`'s video joined to the source every other stream of it shares.
+fn shared(server: &RtspServer, options: RemuxOptions) -> RemuxStream {
+    RemuxStream::shared(server.url(), || rtsp(server), options)
+}
+
+/// Whether the first packet of `bytes` is a keyframe.
+fn starts_with_keyframe(bytes: &[u8]) -> bool {
+    let mut file = tempfile::Builder::new().suffix(".mp4").tempfile().unwrap();
+    file.write_all(bytes).unwrap();
+    let mut input = MediaInput::open(file.path().to_str().unwrap()).unwrap();
+    let mut packet = MediaPacket::new();
+    input.read(&mut packet).unwrap() && packet.is_key()
+}
+
+/// Reads `stream` on a thread of its own for `duration`.
+fn drain_for(stream: RemuxStream, duration: Duration) -> thread::JoinHandle<Drained> {
+    thread::spawn(move || drain_all(&stream, Some(Instant::now() + duration)))
+}
+
+#[test]
+fn streams_of_one_source_share_its_session() {
+    let server = serve(RtspServerOptions {
+        max_sessions: Some(1),
+        ..RtspServerOptions::default()
+    });
+    let first = drain_for(shared(&server, options(true)), Duration::from_secs(3));
+    thread::sleep(Duration::from_millis(700));
+    let second = drain_for(shared(&server, options(true)), Duration::from_secs(2));
+    for drained in [first.join().unwrap(), second.join().unwrap()] {
+        assert!(drained.error.is_none(), "{:?}", drained.error);
+        assert!(drained.notices.is_empty(), "{:?}", drained.notices);
+        let stamps = decode_timestamps(&drained.bytes);
+        assert!(stamps.len() > 25, "{} packets", stamps.len());
+        assert!(stamps.is_sorted_by(|a, b| a < b));
+        assert!(starts_with_keyframe(&drained.bytes));
+    }
+    assert_eq!(server.sessions(), 1);
+}
+
+#[test]
+fn a_source_stays_connected_briefly_after_its_last_stream() {
+    let server = serve(RtspServerOptions::default());
+    let options = RemuxOptions {
+        linger: Duration::from_millis(500),
+        ..options(true)
+    };
+    let (bytes, _) = drain(
+        &shared(&server, options),
+        Some(Instant::now() + Duration::from_secs(1)),
+    );
+    assert!(!bytes.is_empty());
+    let (bytes, _) = drain(
+        &shared(&server, options),
+        Some(Instant::now() + Duration::from_secs(1)),
+    );
+    assert!(!bytes.is_empty());
+    assert_eq!(server.sessions(), 1);
+    drop(shared(&server, options));
+    thread::sleep(Duration::from_millis(1500));
+    let (bytes, _) = drain(
+        &shared(&server, options),
+        Some(Instant::now() + Duration::from_secs(1)),
+    );
+    assert!(!bytes.is_empty());
+    assert_eq!(server.sessions(), 2);
+}
+
+#[test]
+fn an_unread_stream_holds_up_no_other() {
+    let server = serve(RtspServerOptions::default());
+    let idle = shared(&server, options(true));
+    let read = drain_for(shared(&server, options(true)), Duration::from_secs(3));
+    let drained = read.join().unwrap();
+    let stamps = decode_timestamps(&drained.bytes);
+    // The clip runs at 25 frames a second.
+    assert!(stamps.len() > 50, "{} packets", stamps.len());
+    // The stream left unread catches up from a keyframe, its timeline unbroken.
+    let drained = drain_all(&idle, Some(Instant::now() + Duration::from_secs(2)));
+    let stamps = decode_timestamps(&drained.bytes);
+    assert!(stamps.len() > 25, "{} packets", stamps.len());
+    assert!(stamps.is_sorted_by(|a, b| a < b));
+}
+
+#[test]
+fn a_stream_without_reconnect_ends_while_others_reconnect() {
+    let server = serve(RtspServerOptions {
+        drop_after: Some(Duration::from_secs(1)),
+        ..RtspServerOptions::default()
+    });
+    let once = drain_for(shared(&server, options(false)), Duration::from_secs(5));
+    let always = drain_for(shared(&server, options(true)), Duration::from_secs(5));
+    let once = once.join().unwrap();
+    assert!(once.error.is_none(), "{:?}", once.error);
+    assert!(
+        matches!(once.notices.as_slice(), [StreamNotice::Ended { .. }]),
+        "{:?}",
+        once.notices
+    );
+    let always = always.join().unwrap();
+    assert!(always.error.is_none(), "{:?}", always.error);
+    let stamps = decode_timestamps(&always.bytes);
+    assert!(
+        stamps.len() > 50,
+        "{} packets, {:?}",
+        stamps.len(),
+        always.notices
+    );
+}
+
+#[test]
+fn a_lost_source_is_reported_once_per_outage() {
+    let server = serve(RtspServerOptions {
+        restart_after: Some(Duration::from_secs(1)),
+        restart_downtime: Duration::from_millis(500),
+        ..RtspServerOptions::default()
+    });
+    let drained = drain_all(
+        &shared(&server, options(true)),
+        Some(Instant::now() + Duration::from_secs(4)),
+    );
+    assert!(drained.error.is_none(), "{:?}", drained.error);
+    let kinds = drained
+        .notices
+        .iter()
+        .map(|notice| match notice {
+            StreamNotice::Lost { .. } => "lost",
+            StreamNotice::Retrying { .. } => "retrying",
+            StreamNotice::Reconnected { .. } => "reconnected",
+            StreamNotice::Ended { .. } => "ended",
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(kinds, ["lost", "retrying", "reconnected"]);
+    let Some(StreamNotice::Reconnected { attempts, outage }) = drained.notices.last() else {
+        unreachable!();
+    };
+    assert!(*attempts >= 1);
+    assert!(*outage >= Duration::from_millis(400), "{outage:?}");
+}
+
+#[test]
+fn a_stream_joining_during_an_outage_starts_with_the_next_connection() {
+    let server = serve(RtspServerOptions {
+        restart_after: Some(Duration::from_secs(1)),
+        restart_downtime: Duration::from_secs(1),
+        ..RtspServerOptions::default()
+    });
+    let first = drain_for(shared(&server, options(true)), Duration::from_secs(4));
+    thread::sleep(Duration::from_millis(1400));
+    let joined = drain_for(shared(&server, options(false)), Duration::from_millis(2500));
+    let joined = joined.join().unwrap();
+    assert!(joined.error.is_none(), "{:?}", joined.error);
+    assert!(joined.notices.is_empty(), "{:?}", joined.notices);
+    assert!(decode_timestamps(&joined.bytes).len() > 10);
+    assert!(starts_with_keyframe(&joined.bytes));
+    assert!(first.join().unwrap().error.is_none());
+}
+
+#[test]
+fn a_changed_picture_ends_the_streams_that_cannot_continue() {
+    let stream = RemuxStream::start(Attempts([Clip("h264"), Clip("h265")].into()), options(true));
+    let drained = drain_all(&stream, None);
+    assert!(drained.error.is_none(), "{:?}", drained.error);
+    assert!(
+        matches!(drained.notices.last(), Some(StreamNotice::Ended { .. })),
+        "{:?}",
+        drained.notices
+    );
+    assert_eq!(decode_timestamps(&drained.bytes).len(), 100);
+}
+
+/// One item read from a packet stream, without its payload.
+#[derive(Debug, PartialEq, Eq)]
+enum Read {
+    Track(MediaCodec),
+    Packet { key: bool, dts: i64 },
+}
+
+/// Everything a packet stream gave until it ended or a deadline passed.
+#[derive(Default)]
+struct ReadPackets {
+    reads: Vec<Read>,
+    notices: Vec<StreamNotice>,
+    error: Option<MediaError>,
+}
+
+impl ReadPackets {
+    fn dts(&self) -> Vec<i64> {
+        self.reads
+            .iter()
+            .filter_map(|read| match read {
+                Read::Packet { dts, .. } => Some(*dts),
+                Read::Track(_) => None,
+            })
+            .collect()
+    }
+
+    fn tracks(&self) -> usize {
+        self.reads
+            .iter()
+            .filter(|read| matches!(read, Read::Track(_)))
+            .count()
+    }
+}
+
+/// Reads the packet stream until it ends or `deadline` passes.
+fn read_packets(stream: &PacketStream, deadline: Option<Instant>) -> ReadPackets {
+    let mut read = ReadPackets::default();
+    while deadline.is_none_or(|deadline| Instant::now() < deadline) {
+        match stream.next() {
+            Some(Ok(PacketItem::Track(track))) => read.reads.push(Read::Track(track.codec())),
+            Some(Ok(PacketItem::Packet(packet))) => read.reads.push(Read::Packet {
+                key: packet.is_key(),
+                dts: packet.timing().dts.unwrap(),
+            }),
+            Some(Ok(PacketItem::Notice(notice))) => read.notices.push(notice),
+            Some(Err(error)) => read.error = Some(error),
+            None => break,
+        }
+    }
+    read
+}
+
+fn packets<const N: usize>(attempts: [Attempt; N], options: RemuxOptions) -> ReadPackets {
+    read_packets(
+        &PacketStream::start(Attempts(attempts.into()), options),
+        None,
+    )
+}
+
+#[test]
+fn a_packet_stream_starts_with_its_track_and_a_keyframe() {
+    let read = packets([Clip("h264")], options(false));
+    assert!(read.error.is_none(), "{:?}", read.error);
+    assert_eq!(read.reads[0], Read::Track(MediaCodec::H264));
+    assert!(matches!(read.reads[1], Read::Packet { key: true, .. }));
+    assert_eq!(read.dts().len(), 100);
+    assert!(
+        matches!(read.notices.as_slice(), [StreamNotice::Ended { .. }]),
+        "{:?}",
+        read.notices
+    );
+}
+
+#[test]
+fn a_packet_stream_is_timed_in_rtp_ticks_on_one_timeline() {
+    let read = packets([Clip("h264"), Clip("h264")], options(true));
+    assert!(read.error.is_none(), "{:?}", read.error);
+    assert_eq!(read.tracks(), 2);
+    let dts = read.dts();
+    assert_eq!(dts.len(), 200);
+    // The clip runs at 25 frames a second, 3600 ticks of the 90 kHz clock apart.
+    assert_eq!(dts[..3], [0, 3600, 7200]);
+    assert!(dts.is_sorted_by(|a, b| a < b));
+}
+
+#[test]
+fn a_reencoded_packet_stream_is_h264() {
+    let options = RemuxOptions {
+        copy: false,
+        ..options(false)
+    };
+    let read = packets([Clip("h265")], options);
+    assert!(read.error.is_none(), "{:?}", read.error);
+    assert_eq!(read.reads[0], Read::Track(MediaCodec::H264));
+    assert!(read.dts().len() > 90, "{} packets", read.dts().len());
+}
+
+#[test]
+fn a_packet_stream_that_never_connects_is_an_error() {
+    let read = packets([Fail, Clip("h264")], options(false));
+    assert!(read.reads.is_empty());
+    assert!(read.error.unwrap().message.contains("abc"));
+}
+
+#[test]
+fn an_unread_packet_stream_holds_at_most_its_backlog() {
+    let attempts = [Clip("h264"), Clip("h264"), Clip("h264"), Clip("h264")];
+    let stream = PacketStream::start(Attempts(attempts.into()), options(true));
+    // The clips are read from disk at once, far faster than nobody reads them.
+    thread::sleep(Duration::from_millis(500));
+    let read = read_packets(&stream, None);
+    assert_eq!(read.dts().len(), reader::FEED_BACKLOG);
+}
+
+#[test]
+fn a_packet_stream_joining_late_starts_at_the_last_keyframe() {
+    let server = serve(RtspServerOptions {
+        max_sessions: Some(1),
+        ..RtspServerOptions::default()
+    });
+    let muxed = drain_for(shared(&server, options(true)), Duration::from_secs(3));
+    // The clip has a keyframe each second, so this joins mid-picture.
+    thread::sleep(Duration::from_millis(700));
+    let stream = PacketStream::shared(server.url(), || rtsp(&server), options(true));
+    let read = read_packets(&stream, Some(Instant::now() + Duration::from_secs(2)));
+    assert!(read.error.is_none(), "{:?}", read.error);
+    assert!(read.notices.is_empty(), "{:?}", read.notices);
+    assert_eq!(read.reads[0], Read::Track(MediaCodec::H264));
+    assert!(matches!(read.reads[1], Read::Packet { key: true, .. }));
+    // The snapshot's frames since the keyframe arrive at once, then the rest at 25 a second.
+    assert!(read.dts().len() > 50, "{} packets", read.dts().len());
+    assert!(read.dts().is_sorted_by(|a, b| a < b));
+    assert!(muxed.join().unwrap().error.is_none());
+    assert_eq!(server.sessions(), 1);
+}
+
+#[test]
+fn a_reconnected_packet_stream_continues_its_timeline() {
+    let server = serve(RtspServerOptions {
+        drop_after: Some(Duration::from_secs(1)),
+        ..RtspServerOptions::default()
+    });
+    let stream = PacketStream::start(rtsp(&server), options(true));
+    let read = read_packets(&stream, Some(Instant::now() + Duration::from_secs(4)));
+    assert!(read.error.is_none(), "{:?}", read.error);
+    assert!(read.tracks() > 1);
+    assert!(matches!(
+        read.notices.first(),
+        Some(StreamNotice::Lost { .. })
+    ));
+    let dts = read.dts();
+    assert!(dts.len() > 50, "{} packets", dts.len());
+    assert!(dts.is_sorted_by(|a, b| a < b));
+}
+
+#[test]
+fn dropping_a_packet_stream_interrupts_the_source() {
+    let (interrupted, receiver) = mpsc::channel();
+    let options = RemuxOptions {
+        stall_timeout: None,
+        ..options(true)
+    };
+    let stream = PacketStream::start(Hanging(interrupted), options);
+    thread::sleep(Duration::from_millis(50));
+    drop(stream);
+    receiver.recv_timeout(Duration::from_secs(5)).unwrap();
 }

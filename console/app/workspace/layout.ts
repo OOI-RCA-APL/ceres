@@ -2,17 +2,24 @@ import { v7 } from 'uuid'
 
 import {
   pagesOf,
+  type PagesWidgetType,
   type Widget,
   type WidgetPage,
   type WidgetRow,
   widgetWidthSubdivisions,
   withPages,
 } from '@/workspace/models'
-import { createWidget, getWidgetInfo } from '@/workspace/registry'
+import { createWidget, getWidgetInfo, widgetMinHeight } from '@/workspace/registry'
 
 // The narrowest a width may be squeezed to. A zero or negative width stores a widget nothing can
 // grab and draws its neighbours past the row's edge.
 const minWidthUnits = 1
+
+// The space between two rows of a layout, matching `c-workspace-layout.vue`'s row gap.
+const layoutRowGap = 8
+
+// What a section takes beyond its rows, its header and its layout's padding above and below.
+const sectionChromeHeight = 48
 
 /** Spread a row's widths back over `widgetWidthSubdivisions`, without touching any widget.
 
@@ -175,7 +182,7 @@ without their frames. Returns null when none of the named widgets stand in `rows
 export function planWidgetsGroup(
   rows: WidgetRow[],
   ids: string[],
-  type: 'tabs' | 'carousel',
+  type: PagesWidgetType,
   split: GroupSplit,
   frameless: boolean = false,
 ): { rows: WidgetRow[]; holder: Widget } | null {
@@ -238,6 +245,16 @@ export function planWidgetsGroup(
   )
   const holder: Widget = { ...withPages(base, pages), width }
 
+  // A section shows its rows one under another, so a section alone in its row opens tall enough
+  // to show them all without scrolling. One sharing its row keeps the row's height, since
+  // growing the row would grow its neighbors too.
+  const sectionHeight =
+    type === 'section' && first.staying.length === 0
+      ? sectionChromeHeight +
+        groupList.reduce((sum, { row }) => sum + row.height, 0) +
+        layoutRowGap * (groupList.length - 1)
+      : null
+
   const result: WidgetRow[] = []
   for (const row of rows) {
     const group = groups.get(row)
@@ -249,7 +266,7 @@ export function planWidgetsGroup(
       const at = row.widgets.findIndex((widget) => taking.has(widget.id))
       const widgets = [...group.staying]
       widgets.splice(at, 0, holder)
-      result.push({ ...row, widgets })
+      result.push({ ...row, height: sectionHeight ?? row.height, widgets })
     } else if (group.staying.length > 0) {
       const widths = resolveWidths(group.staying.map((widget) => widget.width))
       result.push({
@@ -689,10 +706,7 @@ export function planWidgetsInsert(
   }
 
   destinationRow.widgets.splice(placement.column, 0, ...widgets.map((widget) => widget.id))
-  destinationRow.height = Math.max(
-    destinationRow.height,
-    ...widgets.map((widget) => getWidgetInfo(widget.type).options.minHeight),
-  )
+  destinationRow.height = Math.max(destinationRow.height, ...widgets.map(widgetMinHeight))
 
   // Each arriving widget claims at most an even share of the row it joins, and the widgets
   // already there give up the difference. Arriving widths are read from the widgets in hand

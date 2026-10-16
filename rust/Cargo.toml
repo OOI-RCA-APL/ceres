@@ -12,6 +12,7 @@ members = [
     "ceres-rtsp-server",
     "ceres-server",
     "ceres-stubs",
+    "ceres-webrtc",
 ]
 
 # The extension module builds through maturin and as `ceres-stubs`'s build dependency. Leaving
@@ -28,6 +29,7 @@ default-members = [
     "ceres-rtsp-server",
     "ceres-server",
     "ceres-stubs",
+    "ceres-webrtc",
 ]
 
 [workspace.package]

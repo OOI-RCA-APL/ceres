@@ -14,13 +14,21 @@ from uuid import uuid4
 
 import httpx
 
-from ceres import Component, Engine, query
+from ceres import Component, Engine, listener, query
 from ceres.address import Address
 from ceres.component import FileOutput, StreamingOutput
-from ceres.config import Config
+from ceres.config import ComponentConfig, Config
 from ceres.data import to_json, validate
+from ceres.event import (
+    Event,
+    ProcedureCancelledEvent,
+    ProcedureCompletedEvent,
+    ProcedureExceptionEvent,
+)
 from ceres.particle import Particle
+from ceres.rtsp import rtsp
 from ceres.user import User
+from tests.testing import rtsp_server
 
 ADMIN_PASSWORD = "correct horse battery staple"
 VIEWER_PASSWORD = "viewer password"
@@ -50,6 +58,13 @@ def _exit(name: str) -> Callable[[], Awaitable[None]]:
 class _Media(Component):
     """A component whose queries answer with media, for the described-response path."""
 
+    @listener(local=True)
+    def on__event(self, event: Event) -> None:
+        if isinstance(
+            event, ProcedureCompletedEvent | ProcedureCancelledEvent | ProcedureExceptionEvent
+        ):
+            _media.setdefault("ended", []).append((event.procedure, event.type))
+
     @query(permit="public")
     async def download(self) -> FileOutput:
         return FileOutput(_media["path"], http_filename="export.csv", on_exit=_exit("download"))
@@ -76,6 +91,33 @@ class _Media(Component):
                 _media.setdefault("exited", []).append("endless producer")
 
         return StreamingOutput(chunks, "application/octet-stream", on_exit=_exit("endless"))
+
+    @query(permit="public", media="application/octet-stream")
+    async def broken(self) -> StreamingOutput:
+        async def chunks() -> AsyncIterator[bytes]:
+            yield b"x" * 4096
+            raise ConnectionError("the source is gone")
+
+        return StreamingOutput(chunks, "application/octet-stream", on_exit=_exit("broken"))
+
+    @query(permit="public", media="video/mp4")
+    async def video(self) -> StreamingOutput:
+        return await rtsp(_media["video"])
+
+
+async def _ended(procedure: str) -> list[str]:
+    """How a served procedure's call ended, giving the release its moment to arrive."""
+    import asyncio
+
+    for _ in range(50):
+        await _media["component"].system.settle()
+        ended = [kind for name, kind in _media.get("ended", []) if name == procedure]
+        if ended:
+            return ended
+
+        await asyncio.sleep(0.02)
+
+    return []
 
 
 async def _exited(name: str) -> bool:
@@ -123,6 +165,7 @@ async def _serve(
         }
 
     server["http"] = {"port": 0}
+    server["webrtc"] = {"port": 0}
     configuration: dict[str, Any] = {"components": [], "server": server}
     if database_path is not None:
         # A file-backed database carries a native record store so its record routes and
@@ -136,7 +179,11 @@ async def _serve(
 
     if media:
         _media["exited"] = []
-        engine.attach(_Media(__with_name__="media"))
+        _media["ended"] = []
+        _media["component"] = _Media(__with_name__="media")
+        engine.attach(_media["component"])
+        # Started so its listener records how each call ended.
+        _media["component"].system.start()
 
     host = Host(engine)
     records = engine.database._reader()
@@ -165,6 +212,9 @@ async def _serve(
                 await asyncio.wait_for(serving, 3)
             except Exception:  # noqa: BLE001
                 pass
+
+            if media:
+                await _media["component"].system.stop()
 
             await engine.database.dispose()
 
@@ -313,6 +363,19 @@ async def test_single_component_statuses_are_reachable() -> None:
 
         response = await client.get("/api/statuses/@missing", headers=_bearer(identity))
         assert response.status_code == 404
+
+
+async def test_component_config_names_fields_as_the_yaml_does() -> None:
+    async with _serve() as (engine, client):
+        config = validate(ComponentConfig, {"name": "probe", "class": f"{__name__}._Probe"})
+        engine.attach(_Probe(__with_name__="probe", __with_config__=config))
+        await _create_user(engine, "admin", ADMIN_PASSWORD, admin=True)
+        identity = await _login(client, "admin", ADMIN_PASSWORD)
+
+        response = await client.get("/api/components/@probe/config", headers=_bearer(identity))
+
+        assert response.status_code == 200
+        assert response.json() == {"name": "probe", "class": f"{__name__}._Probe"}
 
 
 async def test_statuses_and_statistics_require_authentication() -> None:
@@ -516,6 +579,7 @@ async def test_a_file_output_serves_the_file_with_its_headers(tmp_path: Path) ->
         assert response.headers["content-length"] == "19"
         assert response.headers["content-disposition"] == 'attachment; filename="export.csv"'
         assert await _exited("download")
+        assert await _ended("download") == ["procedure-completed"]
 
 
 async def test_a_missing_file_refuses_rather_than_truncating() -> None:
@@ -540,6 +604,7 @@ async def test_a_streaming_output_serves_its_chunks() -> None:
         assert response.headers["content-disposition"] == 'attachment; filename="rows.csv"'
         assert "content-length" not in response.headers
         assert await _exited("rows")
+        assert await _ended("rows") == ["procedure-completed"]
 
 
 async def test_a_client_leaving_mid_stream_closes_the_producer_then_runs_the_exit_hook() -> None:
@@ -552,6 +617,80 @@ async def test_a_client_leaving_mid_stream_closes_the_producer_then_runs_the_exi
 
         assert await _exited("endless")
         assert _media["exited"][-2:] == ["endless producer", "endless"]
+        assert await _ended("endless") == ["procedure-cancelled"]
+
+
+async def test_a_stream_failing_mid_body_ends_its_call_with_the_exception() -> None:
+    """The body is cut short, and the procedure call reports the stream's exception."""
+    async with _serve(media=True) as (_, client):
+        try:
+            async with client.stream("GET", "/api/components/@media/queries/broken/call") as body:
+                async for _ in body.aiter_bytes():
+                    pass
+        except httpx.HTTPError:
+            pass
+
+        assert await _exited("broken")
+        assert await _ended("broken") == ["procedure-exception"]
+
+
+_OFFER = "\r\n".join(
+    [
+        "v=0",
+        "o=- 1 2 IN IP4 127.0.0.1",
+        "s=-",
+        "t=0 0",
+        "a=group:BUNDLE 0",
+        "a=fingerprint:sha-256 " + ":".join(["AB"] * 32),
+        "m=video 9 UDP/TLS/RTP/SAVPF 96",
+        "c=IN IP4 0.0.0.0",
+        "a=mid:0",
+        "a=ice-ufrag:abcd",
+        "a=ice-pwd:abcdabcdabcdabcdabcdabcd",
+        "a=setup:actpass",
+        "a=recvonly",
+        "a=rtcp-mux",
+        "a=rtpmap:96 H264/90000",
+        "a=fmtp:96 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f",
+        "",
+    ]
+)
+"""A browser's offer to receive one H.264 video track."""
+
+
+async def _offer(client: httpx.AsyncClient, procedure: str) -> httpx.Response:
+    return await client.post(
+        f"/api/components/@media/procedures/{procedure}/whep",
+        content=_OFFER,
+        headers={"Content-Type": "application/sdp"},
+    )
+
+
+async def test_a_live_output_answers_a_webrtc_offer_until_deleted() -> None:
+    """The procedure's source plays over WebRTC, and its call ends with the session."""
+    async with rtsp_server() as url, _serve(media=True) as (_, client):
+        _media["video"] = url
+        response = await _offer(client, "video")
+
+        assert response.status_code == 201, response.text
+        assert response.headers["content-type"] == "application/sdp"
+        assert response.text.startswith("v=0")
+        assert "video" not in [name for name, _ in _media.get("ended", [])]
+        session = response.headers["location"]
+        assert (await client.delete(session)).status_code == 200
+        assert await _ended("video") == ["procedure-cancelled"]
+        assert (await client.delete(session)).status_code == 404
+
+
+async def test_an_output_without_a_live_source_is_not_live() -> None:
+    """A stream that reads no live source refuses WebRTC, its call ended and exit hook run."""
+    async with _serve(media=True) as (_, client):
+        response = await _offer(client, "rows")
+
+        assert response.status_code == 409
+        assert response.json()["reason"] == "not-live"
+        assert await _exited("rows")
+        assert await _ended("rows") == ["procedure-cancelled"]
 
 
 async def test_config_routes_gate_by_admin_and_scrub_credentials() -> None:
