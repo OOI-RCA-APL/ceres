@@ -22,8 +22,14 @@ thiserror = "2"
 tokio = { version = "1", default-features = false, features = ["macros", "net", "rt", "sync", "time"] }
 uuid = { version = "1", features = ["v4"] }
 
+[features]
+# Lets the loopback tests make the sockets refuse sends, as a send buffer that never drains does,
+# which no real socket can be made to do on loopback.
+testing = []
+
 [dev-dependencies]
 ceres-media = { path = "../ceres-media", features = ["server"] }
+ceres-webrtc = { path = ".", features = ["testing"] }
 tokio = { version = "1", default-features = false, features = ["macros", "net", "rt", "rt-multi-thread", "sync", "time"] }
 
 [lints]

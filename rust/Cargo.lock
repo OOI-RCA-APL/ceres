@@ -918,6 +918,7 @@ version = "0.0.0"
 dependencies = [
  "ceres-config",
  "ceres-media",
+ "ceres-webrtc",
  "if-addrs",
  "log",
  "quinn-udp",

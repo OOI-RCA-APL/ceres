@@ -8,6 +8,13 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+**Engine**
+
+- WebRTC sends video at the source's rate instead of pacing it to a bandwidth estimate, which
+  held a 10 Mbit/s source 20 s behind live at fewer frames per second than HTTP. A network
+  narrower than the source now makes every session skip to its next keyframe once a second of
+  video waits to leave, so the picture stays within a second plus one keyframe interval of live.
+
 ## [0.49.2] - 2026-10-16
 
 **Engine**
