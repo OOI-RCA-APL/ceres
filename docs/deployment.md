@@ -253,6 +253,17 @@ Without `auto`, `ceres generate certificate` writes the configured paths once, s
 
 `ceres check` and engine startup fail when the certificate or key cannot be loaded, and name `ceres generate certificate` and `certificate: auto` when either file is missing. Without `auto`, both also warn once fewer than 30 days remain before the certificate expires, `ceres check` on its output and startup in the engine log. With `auto`, `ceres check` reports what startup is about to issue, without writing anything.
 
+### Live Video Over WebRTC
+
+With `server.webrtc` set, the console plays live video over WebRTC, which keeps it a fraction of a second behind its source, and falls back to HTTP when it cannot. The media passes through one UDP port, 8189 unless `server.webrtc.port` names another, so open that port to the browsers as well as the web listeners.
+
+```yaml
+server:
+  webrtc: {}
+```
+
+Each session paces its packets at the bandwidth it estimates the path to the browser has. When the socket's send buffer fills anyway, the engine holds the packets back and sends them once it drains, so the host needs no tuning. A session logs one line when it closes, with the packets it sent, the packets the browser lost, and its requests to resend them, which tells a lossy network from a busy host.
+
 ### CLI Queries
 
 Stream logs, alerts, or messages in real-time from the command line.

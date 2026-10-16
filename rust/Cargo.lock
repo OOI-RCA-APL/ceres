@@ -767,6 +767,7 @@ dependencies = [
  "ceres-server",
  "chrono",
  "half",
+ "log",
  "mimalloc",
  "pyo3",
  "pyo3-async-runtimes",

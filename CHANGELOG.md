@@ -8,6 +8,19 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+**Engine**
+
+- WebRTC paces its media at the bandwidth it estimates the path to the browser has, rather than
+  sending each keyframe at once, so a constrained path loses fewer packets and shows fewer
+  freezes. A packet that finds the socket's send buffer full waits for it to drain rather than
+  being dropped, and each session keeps 4096 sent packets to resend the ones the browser
+  reports lost. A session logs a warning when its host's network falls so far behind that it
+  drops a packet anyway, and one line on close with the packets it sent, the packets the
+  browser lost, and its requests to resend them.
+- The WebRTC server's log lines reach the engine log, at the levels `logging.output` and
+  `logging.store` keep. They went nowhere before, so a session that failed, ended, or never
+  connected left no trace.
+
 ## [0.49.1] - 2026-10-15
 
 **Engine**

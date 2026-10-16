@@ -6,13 +6,16 @@ use std::time::{Duration, Instant};
 use ceres_media::{
     FrameOrder, MediaCodec, MediaPacket, OwnedTrack, PacketItem, PacketStream, is_unreferenced,
 };
+use str0m::bwe::BweKind;
 use str0m::change::SdpOffer;
 use str0m::format::{Codec, PayloadParams};
 use str0m::media::{Direction, MediaTime, Mid, Pt};
+use str0m::stats::MediaEgressStats;
 use str0m::{Event, IceConnectionState, Input, Output, Rtc};
 use tokio::sync::{OwnedSemaphorePermit, oneshot};
 
 use crate::WebrtcError;
+use crate::delivery::Delivery;
 use crate::parameter_sets::with_parameter_sets;
 use crate::picture::Picture;
 use crate::socket::MediaSockets;
@@ -22,6 +25,10 @@ use crate::socket::MediaSockets;
 ///
 /// A large keyframe packetizes to a few hundred datagrams, well under it.
 const MAX_OUTPUTS: usize = 8192;
+
+/// How far past the source's rate the session asks the bandwidth estimate to reach, so the pacer,
+/// which sends at the estimate, keeps ahead of a source that cannot lower its rate.
+const ESTIMATE_HEADROOM: f64 = 1.5;
 
 /// A session's ID, shared with the thread reading its packets.
 pub(crate) type SessionId = Arc<str>;
@@ -48,6 +55,7 @@ pub(crate) struct Session {
     /// Whether frames nothing references are dropped, so the rest go out in display order. A
     /// source whose kept frames reorder too ends the session.
     dropping: bool,
+    delivery: Delivery,
     _slot: OwnedSemaphorePermit,
     /// Dropped with the session, which resolves the receiver the server's caller holds.
     _ended: oneshot::Sender<()>,
@@ -99,6 +107,7 @@ impl Session {
             pending: Picture::new(PacketStream::GOP_BYTES),
             awaiting_key: true,
             dropping,
+            delivery: Delivery::new(now),
             _slot: slot,
             _ended: ended,
         };
@@ -131,8 +140,20 @@ impl Session {
                     return self.rtc.is_alive();
                 }
                 Ok(Output::Transmit(transmit)) => {
-                    sockets.send(transmit.source, transmit.destination, &transmit.contents);
+                    let sent =
+                        sockets.send(transmit.source, transmit.destination, &transmit.contents);
+                    if !sent && self.delivery.drop_datagram() {
+                        log::warn!(
+                            "WebRTC session {} is losing packets before they leave this host, \
+                             which sends media faster than its network takes it",
+                            self.id
+                        );
+                    }
                 }
+                Ok(Output::Event(Event::MediaEgressStats(stats))) => self.report(&stats),
+                Ok(Output::Event(Event::EgressBitrateEstimate(BweKind::Twcc {
+                    estimate, ..
+                }))) => self.delivery.estimate(estimate),
                 Ok(Output::Event(Event::Connected)) => {
                     log::info!("WebRTC session {} connected", self.id);
                     self.connected = true;
@@ -226,8 +247,33 @@ impl Session {
         }
     }
 
+    /// Logs the loss since the last report, and asks the bandwidth estimate to reach past the rate
+    /// the session sent at.
+    fn report(&mut self, stats: &MediaEgressStats) {
+        let report = self.delivery.report(stats);
+        if report.lost > 0 || report.nacks > 0 {
+            log::debug!(
+                "WebRTC session {}: sent {} packets, the browser lost {} and asked for {} again",
+                self.id,
+                report.sent,
+                report.lost,
+                report.nacks
+            );
+        }
+        if let Some(rate) = report.rate
+            && !rate.is_zero()
+        {
+            self.rtc.bwe().set_desired_bitrate(rate * ESTIMATE_HEADROOM);
+        }
+    }
+
     /// Tells the browser the session is over.
     pub(crate) fn close(mut self, sockets: &MediaSockets) {
+        log::info!(
+            "WebRTC session {} {}",
+            self.id,
+            self.delivery.summary(Instant::now())
+        );
         self.rtc.disconnect();
         self.drive(None, sockets);
     }

@@ -11,10 +11,11 @@
 //! naming the live source a WebRTC session plays.
 
 use std::net::ToSocketAddrs;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
 use std::time::Duration;
 
-use ceres_config::ServerWebrtcConfig;
+use ceres_config::{Level, ServerWebrtcConfig};
 use ceres_database::{RecordFilter, RecordStore, RecordTable};
 use ceres_server::axum::Router;
 use ceres_server::{
@@ -30,6 +31,7 @@ use serde_json::value::RawValue;
 use uuid::Uuid;
 
 use crate::interop::to_value_error;
+use crate::logging::{LevelInput, LogSink, hold_log_sink, release_log_sink};
 
 /// What `NativeServer.certificate_status` answers: the expiry, startup's plan, and the
 /// authority's warning.
@@ -425,39 +427,21 @@ pub struct NativeServer {
     stopper: Stopper,
     port: u16,
     locals: Arc<OnceLock<pyo3_async_runtimes::TaskLocals>>,
+    /// Whether the server still holds the sink carrying the native crates' records to the
+    /// engine's log.
+    holds_log: AtomicBool,
 }
 
-/// Send a listener's certificate notices to `log`, anything with `info` and `warning`
-/// methods taking the message, dropping them without one.
-///
-/// Before serving a notice arrives on the thread that binds the listener. Once serving it
-/// arrives on a tokio thread, and goes to the event loop serving started on.
-fn reporting(
-    log: Option<Py<PyAny>>,
-    locals: Arc<OnceLock<pyo3_async_runtimes::TaskLocals>>,
-) -> Report {
+/// Send a listener's certificate notices to `sink`, dropping them without one.
+fn reporting(sink: Option<Arc<LogSink>>) -> Report {
     Arc::new(move |notice| {
-        let Some(log) = &log else {
+        let Some(sink) = &sink else {
             return;
         };
-        let (level, message) = match notice {
-            Notice::Info(message) => ("info", message),
-            Notice::Warning(message) => ("warning", message),
-        };
-        Python::attach(|py| {
-            let logged = match locals.get() {
-                Some(locals) => log.getattr(py, level).and_then(|method| {
-                    locals
-                        .event_loop(py)
-                        .call_method1("call_soon_threadsafe", (method, message))
-                        .map(drop)
-                }),
-                None => log.bind(py).call_method1(level, (message,)).map(drop),
-            };
-            if let Err(error) = logged {
-                error.write_unraisable(py, None);
-            }
-        });
+        match notice {
+            Notice::Info(message) => sink.write("info", message),
+            Notice::Warning(message) => sink.write("warning", message),
+        }
     })
 }
 
@@ -503,6 +487,13 @@ fn shared_webrtc(
 }
 
 impl NativeServer {
+    /// Lets go of the engine log's sink, once however often it is called.
+    fn release_log(&self) {
+        if self.holds_log.swap(false, Ordering::AcqRel) {
+            release_log_sink();
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn build(
         host: Py<PyAny>,
@@ -514,7 +505,9 @@ impl NativeServer {
         cli_token: Option<String>,
         authority: Option<Authority>,
         webrtc: Option<Arc<WebrtcServer>>,
-        tls: Option<(&ceres_config::ServerHttpsConfig, Option<Py<PyAny>>)>,
+        tls: Option<&ceres_config::ServerHttpsConfig>,
+        locals: Arc<OnceLock<pyo3_async_runtimes::TaskLocals>>,
+        sink: Option<Arc<LogSink>>,
     ) -> PyResult<Self> {
         let auth = config
             .authentication
@@ -530,7 +523,6 @@ impl NativeServer {
             })
             .transpose()?;
 
-        let locals = Arc::new(OnceLock::new());
         let router = build_router(AppConfig {
             authority,
             webrtc,
@@ -550,10 +542,11 @@ impl NativeServer {
         let router = apply_compression(router, config.compression.as_ref());
         let router = apply_cors(router, config.cors.as_ref());
 
+        let holds_log = sink.is_some();
         let mut server = BoundServer::bind(bind, port).map_err(to_value_error)?;
-        if let Some((https, log)) = tls {
+        if let Some(https) = tls {
             server = server
-                .with_tls(https, reporting(log, locals.clone()))
+                .with_tls(https, reporting(sink))
                 .map_err(to_value_error)?;
         }
 
@@ -564,6 +557,7 @@ impl NativeServer {
             stopper,
             port,
             locals,
+            holds_log: AtomicBool::new(holds_log),
         })
     }
 }
@@ -578,8 +572,11 @@ impl NativeServer {
     /// while serving, telling `log` what it issued and when renewal fails. Either listener
     /// offers the managed certificate's authority at `/ca.crt`, and both share one WebRTC
     /// media port when `webrtc` is set.
+    ///
+    /// While the listener serves, the native crates' log records at `log_level` and above go
+    /// to `log` too, until `stop`.
     #[staticmethod]
-    #[pyo3(signature = (host, config, console_directory, favicon_ico, favicon_png, favicon_svg, *, tls, records=None, log=None))]
+    #[pyo3(signature = (host, config, console_directory, favicon_ico, favicon_png, favicon_svg, *, tls, records=None, log=None, log_level=None))]
     #[allow(clippy::too_many_arguments)]
     fn web(
         #[gen_stub(override_type(type_repr = "typing.Any"))] host: Py<PyAny>,
@@ -591,39 +588,35 @@ impl NativeServer {
         tls: bool,
         records: Option<&crate::store::Store>,
         #[gen_stub(override_type(type_repr = "typing.Any"))] log: Option<Py<PyAny>>,
+        log_level: Option<LevelInput>,
     ) -> PyResult<Self> {
         let config = &config.inner;
-        let webrtc = shared_webrtc(&config.bind, config.webrtc.as_ref())?;
-        let (port, tls) = if tls {
-            let https = config
-                .https
-                .as_ref()
-                .ok_or_else(|| PyValueError::new_err("the HTTPS listener is not configured"))?;
-            (https.port, Some((https, log)))
-        } else {
-            let http = config
-                .http
-                .as_ref()
-                .ok_or_else(|| PyValueError::new_err("the HTTP listener is not configured"))?;
-            (http.port, None)
-        };
-        Self::build(
+        let locals = Arc::new(OnceLock::new());
+        // Held from before the WebRTC server binds, so the port it binds reaches the log.
+        let sink = log.map(|log| {
+            let sink = Arc::new(LogSink::new(log, locals.clone()));
+            hold_log_sink(sink.clone(), log_level.map_or(Level::Info, |level| level.0));
+            sink
+        });
+        let built = Self::web_holding(
             host,
-            records,
             config,
-            &config.bind,
-            port,
-            Some(ConsolePaths {
+            ConsolePaths {
                 directory: console_directory,
                 favicon_ico,
                 favicon_png,
                 favicon_svg,
-            }),
-            None,
-            config.https.as_ref().and_then(Authority::of),
-            webrtc,
+            },
             tls,
-        )
+            records,
+            locals,
+            sink.clone(),
+        );
+        // A server that never binds never stops, so it lets go of the sink here.
+        if built.is_err() && sink.is_some() {
+            release_log_sink();
+        }
+        built
     }
 
     /// Bind the plain HTTP listener that redirects every request to the HTTPS listener
@@ -646,9 +639,57 @@ impl NativeServer {
             stopper,
             port,
             locals: Arc::new(OnceLock::new()),
+            holds_log: AtomicBool::new(false),
         })
     }
+}
 
+impl NativeServer {
+    /// Binds the web application for `web`, once the engine log's sink is held.
+    #[allow(clippy::too_many_arguments)]
+    fn web_holding(
+        host: Py<PyAny>,
+        config: &ceres_config::ServerConfig,
+        console: ConsolePaths,
+        tls: bool,
+        records: Option<&crate::store::Store>,
+        locals: Arc<OnceLock<pyo3_async_runtimes::TaskLocals>>,
+        sink: Option<Arc<LogSink>>,
+    ) -> PyResult<Self> {
+        let webrtc = shared_webrtc(&config.bind, config.webrtc.as_ref())?;
+        let (port, tls) = if tls {
+            let https = config
+                .https
+                .as_ref()
+                .ok_or_else(|| PyValueError::new_err("the HTTPS listener is not configured"))?;
+            (https.port, Some(https))
+        } else {
+            let http = config
+                .http
+                .as_ref()
+                .ok_or_else(|| PyValueError::new_err("the HTTP listener is not configured"))?;
+            (http.port, None)
+        };
+        Self::build(
+            host,
+            records,
+            config,
+            &config.bind,
+            port,
+            Some(console),
+            None,
+            config.https.as_ref().and_then(Authority::of),
+            webrtc,
+            tls,
+            locals,
+            sink,
+        )
+    }
+}
+
+#[gen_stub_pymethods]
+#[pymethods]
+impl NativeServer {
     /// Read the HTTPS certificate the way the listener does, without writing anything, and
     /// answer when it expires, in seconds since the Unix epoch, what startup does to a
     /// managed one, and the warning a managed one's authority draws close to expiry.
@@ -694,6 +735,8 @@ impl NativeServer {
             None,
             None,
             None,
+            Arc::new(OnceLock::new()),
+            None,
         )
     }
 
@@ -724,8 +767,18 @@ impl NativeServer {
     }
 
     /// Stop the server, letting in-flight requests finish within the grace period.
+    ///
+    /// The native crates' records stop reaching the engine's log here, while its event loop
+    /// still runs, once no other listener carries them.
     #[pyo3(signature = (grace = 5.0))]
     fn stop(&self, grace: f64) {
+        self.release_log();
         self.stopper.stop(Duration::from_secs_f64(grace));
+    }
+}
+
+impl Drop for NativeServer {
+    fn drop(&mut self) {
+        self.release_log();
     }
 }

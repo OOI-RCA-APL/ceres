@@ -503,6 +503,7 @@ class NativeServer:
         tls: bool,
         records: Store | None = None,
         log: Any = None,
+        log_level: str | None = None,
     ) -> NativeServer:
         r"""
         Bind the web application, serving the console and API on the HTTPS listener when
@@ -512,6 +513,9 @@ class NativeServer:
         while serving, telling `log` what it issued and when renewal fails. Either listener
         offers the managed certificate's authority at `/ca.crt`, and both share one WebRTC
         media port when `webrtc` is set.
+
+        While the listener serves, the native crates' log records at `log_level` and above go
+        to `log` too, until `stop`.
         """
     @staticmethod
     def redirect(config: ServerConfig, https_port: int) -> NativeServer:
@@ -548,6 +552,9 @@ class NativeServer:
     def stop(self, grace: float = 5.0) -> None:
         r"""
         Stop the server, letting in-flight requests finish within the grace period.
+
+        The native crates' records stop reaching the engine's log here, while its event loop
+        still runs, once no other listener carries them.
         """
 
 @final
