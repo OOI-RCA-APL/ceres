@@ -7,6 +7,7 @@
 //! frames out of display order, unless it asks for the frames nothing references to be dropped.
 
 mod candidates;
+mod delivery;
 mod parameter_sets;
 mod picture;
 mod server;

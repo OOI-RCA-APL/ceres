@@ -11,6 +11,7 @@ use ceres_media::{
     FrameOrder, LiveSource, MediaCodec, MediaError, MediaPacket, OwnedTrack, PacketItem,
     PacketStream, is_unreferenced,
 };
+use str0m::bwe::Bitrate;
 use str0m::change::SdpOffer;
 use str0m::crypto::CryptoProvider;
 use str0m::net::{Protocol, Receive};
@@ -18,6 +19,7 @@ use str0m::{Input, Rtc, RtcConfig};
 use tokio::sync::{Semaphore, mpsc, oneshot};
 
 use crate::candidates::{candidates, local_addresses};
+use crate::delivery::REPORT_INTERVAL;
 use crate::picture::Picture;
 use crate::session::{Session, SessionId, offered_video};
 use crate::socket::{MediaSocket, MediaSockets, ReceiveBuffers};
@@ -43,6 +45,15 @@ pub const OPEN_TRACK_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// How many source reads wait for the event loop, across every session.
 const PACKET_BACKLOG: usize = 256;
+
+/// The bandwidth a session's estimate starts from, above what most live video sends. Nothing
+/// lowers a source's rate to fit, so an estimate starting under it holds the first seconds back.
+const INITIAL_ESTIMATE: Bitrate = Bitrate::mbps(20);
+
+/// The packets a session keeps for the browser to ask for again and for the pacer to hold,
+/// about four seconds of 10 Mbit/s video. str0m's default of 1000 is a second of it, less than
+/// the two seconds the pacer may queue.
+const SEND_BUFFER_PACKETS: usize = 4096;
 
 /// Why a session could not open.
 #[derive(Debug, thiserror::Error)]
@@ -224,13 +235,18 @@ impl WebrtcServer {
 
     /// A connection answering with `codec` alone, the one the source sends.
     fn rtc(&self, codec: MediaCodec) -> Rtc {
-        // The browser drives ICE, so the server answers its checks and sends none.
+        // The browser drives ICE, so the server answers its checks and sends none. The
+        // bandwidth estimate drives the pacer, which spreads each keyframe's packets out so no
+        // router on the path overflows.
         RtcConfig::new()
             .set_crypto_provider(Arc::clone(&self.crypto))
             .set_ice_lite(true)
             .clear_codecs()
             .enable_h264(codec == MediaCodec::H264)
             .enable_h265(codec == MediaCodec::H265)
+            .enable_bwe(Some(INITIAL_ESTIMATE))
+            .set_send_buffer_video(SEND_BUFFER_PACKETS)
+            .set_stats_interval(Some(REPORT_INTERVAL))
             .build(Instant::now())
     }
 }

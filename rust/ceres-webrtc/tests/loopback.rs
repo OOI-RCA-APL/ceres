@@ -225,8 +225,8 @@ async fn dropping_unreferenced_frames_sends_the_rest_in_display_order() {
         .await
         .unwrap();
     assert_eq!(pictures.len(), 25, "too few pictures arrived");
-    assert!(pictures[0].1, "the first picture is not a keyframe");
-    let times: Vec<u64> = pictures.iter().map(|(time, _)| *time).collect();
+    assert!(pictures[0].key, "the first picture is not a keyframe");
+    let times: Vec<u64> = pictures.iter().map(|picture| picture.time).collect();
     assert!(
         times.windows(2).all(|pair| pair[0] < pair[1]),
         "pictures arrived out of display order: {times:?}"
@@ -238,7 +238,7 @@ async fn dropping_unreferenced_frames_sends_the_rest_in_display_order() {
         pictures
             .windows(2)
             .skip(1)
-            .all(|pair| pair[1].1 || pair[1].0 - pair[0].0 == 7200),
+            .all(|pair| pair[1].key || pair[1].time - pair[0].time == 7200),
         "a picture was not dropped, or a reference was: {times:?}"
     );
 }
@@ -258,6 +258,33 @@ async fn a_source_whose_referenced_frames_reorder_is_refused_even_dropping() {
     assert!(
         matches!(refused, Err(WebrtcError::Reordered)),
         "{refused:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_session_sends_the_packets_a_browser_lost_again() {
+    let rtsp = source_server("h264");
+    let server = server(4);
+    let (browser, offer) = Browser::offer();
+    let answer = server
+        .open(source(&rtsp), &offer, ReorderedFrames::Refuse)
+        .await
+        .unwrap();
+    let browser = browser.accept(&answer.sdp).losing_every(10);
+
+    let pictures = tokio::task::spawn_blocking(move || browser.pictures(50))
+        .await
+        .unwrap();
+    assert_eq!(pictures.len(), 50, "too few pictures arrived");
+    // The 25 fps clip's frames are 3600 ticks apart, so a longer step is a lost frame. The source
+    // sends its first frame with no time of its own, and the clip restarts on a keyframe.
+    let times: Vec<u64> = pictures.iter().map(|picture| picture.time).collect();
+    assert!(
+        pictures
+            .windows(2)
+            .skip(1)
+            .all(|pair| pair[1].key || pair[1].time - pair[0].time == 3600),
+        "the session did not resend every lost packet: {times:?}"
     );
 }
 
@@ -325,6 +352,9 @@ struct Browser {
     rtc: Rtc,
     socket: UdpSocket,
     pending: Option<SdpPendingOffer>,
+    losing_every: Option<usize>,
+    /// The payload types the answer agreed on for media, without their resends.
+    media_pts: Vec<u8>,
 }
 
 impl Browser {
@@ -356,6 +386,8 @@ impl Browser {
             rtc,
             socket,
             pending: Some(pending),
+            losing_every: None,
+            media_pts: Vec::new(),
         };
         (browser, offer.to_sdp_string())
     }
@@ -364,29 +396,37 @@ impl Browser {
         let answer = SdpAnswer::from_sdp_string(answer).unwrap();
         let pending = self.pending.take().unwrap();
         self.rtc.sdp_api().accept_answer(pending, answer).unwrap();
+        let params = self.rtc.codec_config().params();
+        self.media_pts = params.iter().map(|params| *params.pt()).collect();
+        self
+    }
+
+    /// Makes the peer lose every `nth` media datagram it receives, as a lossy network does.
+    fn losing_every(mut self, nth: usize) -> Self {
+        self.losing_every = Some(nth);
         self
     }
 
     /// Runs the peer until media arrives, answering whether it is a keyframe, or `None` when
     /// none arrives within ten seconds.
     fn first_picture(self) -> Option<bool> {
-        self.pictures(1).first().map(|(_, key)| *key)
+        self.pictures(1).first().map(|picture| picture.key)
     }
 
-    /// Runs the peer until `count` pictures arrive or ten seconds pass, returning each one's
-    /// RTP time in 90 kHz ticks and whether it is a keyframe.
-    fn pictures(mut self, count: usize) -> Vec<(u64, bool)> {
+    /// Runs the peer until `count` pictures arrive or ten seconds pass.
+    fn pictures(mut self, count: usize) -> Vec<Received> {
         let mut pictures = Vec::new();
         let deadline = Instant::now() + Duration::from_secs(10);
         let local = self.socket.local_addr().unwrap();
         let mut buffer = vec![0; 2048];
+        let mut media = 0;
         while Instant::now() < deadline && pictures.len() < count {
             let timeout = match self.rtc.poll_output().unwrap() {
                 Output::Event(Event::MediaData(data)) => {
-                    pictures.push((
-                        data.time.rebase(Frequency::NINETY_KHZ).numer(),
-                        data.is_keyframe(),
-                    ));
+                    pictures.push(Received {
+                        time: data.time.rebase(Frequency::NINETY_KHZ).numer(),
+                        key: data.is_keyframe(),
+                    });
                     continue;
                 }
                 Output::Event(_) => continue,
@@ -403,6 +443,11 @@ impl Browser {
                 .max(Duration::from_millis(1));
             self.socket.set_read_timeout(Some(wait)).unwrap();
             let input = match self.socket.recv_from(&mut buffer) {
+                Ok((length, _))
+                    if is_media(&buffer[..length], &self.media_pts) && self.loses(&mut media) =>
+                {
+                    None
+                }
                 Ok((length, source)) => receive(source, local, &buffer[..length]),
                 Err(_) => Some(Input::Timeout(Instant::now())),
             };
@@ -412,6 +457,26 @@ impl Browser {
         }
         pictures
     }
+
+    /// Counts a media datagram, `true` when the peer loses it.
+    fn loses(&self, media: &mut usize) -> bool {
+        *media += 1;
+        self.losing_every
+            .is_some_and(|nth| media.is_multiple_of(nth))
+    }
+}
+
+/// A picture a peer received.
+struct Received {
+    /// The RTP time in 90 kHz ticks.
+    time: u64,
+    key: bool,
+}
+
+/// Whether `datagram` is RTP carrying one of `pts`, not a resend, padding, RTCP, STUN or DTLS
+/// (RFC 7983, RFC 5761). The bandwidth probe pads with resends, so they far outnumber the media.
+fn is_media(datagram: &[u8], pts: &[u8]) -> bool {
+    matches!(datagram, [128..=191, second, ..] if pts.contains(&(second & 0x7f)))
 }
 
 fn receive(source: SocketAddr, destination: SocketAddr, datagram: &[u8]) -> Option<Input<'_>> {
