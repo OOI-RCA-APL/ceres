@@ -39,12 +39,13 @@ const session = () => Promise.resolve({ stream: null, close: () => {} })
 const refused = () => Promise.reject(new WhepRefusal(409, 'codec'))
 const full = () => Promise.reject(new WhepRefusal(503, 'full'))
 
-function render(reconnect: boolean) {
+function render(reconnect: boolean, transport = 'auto') {
   const widget = VideoWidgetModel.parse({
     id: 'video',
     type: 'video',
-    query: '@camera::queries::video',
+    query: '@device::queries::video',
     reconnect,
+    transport,
   })
   return mount(CWorkspaceWidgetVideo, {
     props: { widget },
@@ -55,6 +56,7 @@ function render(reconnect: boolean) {
         'c-tooltip': true,
         'c-icon': true,
         'c-widget-status': true,
+        'c-video-controls': true,
       },
     },
   })
@@ -88,7 +90,7 @@ describe('c-workspace-widget-video', () => {
   it('plays over HTTP in a browser without WebRTC', () => {
     const video = render(false)
 
-    expect(transport(video)).toBe('HTTP')
+    expect(transport(video)).toBe('HTTP (Auto)')
     expect(openWhep).not.toHaveBeenCalled()
   })
 
@@ -97,9 +99,18 @@ describe('c-workspace-widget-video', () => {
     const video = render(false)
     await flushPromises()
 
-    expect(transport(video)).toBe('WebRTC')
+    expect(transport(video)).toBe('WebRTC (Auto)')
     expect(video.find('video').attributes('src')).toBeUndefined()
-    expect(openWhep.mock.calls[0]?.[0]).toContain('/api/components/@camera/procedures/video/whep')
+    expect(openWhep.mock.calls[0]?.[0]).toContain('/api/components/@device/procedures/video/whep')
+    expect(openWhep.mock.calls[0]?.[0]).not.toContain('reordered')
+  })
+
+  it('lets a video held to WebRTC drop the frames a video sends out of order', async () => {
+    webrtc(session)
+    render(false, 'webrtc')
+    await flushPromises()
+
+    expect(new URL(openWhep.mock.calls[0]?.[0]).searchParams.get('reordered')).toBe('drop')
   })
 
   it('falls back to HTTP once, remembering it for the next widget', async () => {
@@ -107,12 +118,25 @@ describe('c-workspace-widget-video', () => {
     const first = render(false)
     await flushPromises()
 
-    expect(transport(first)).toBe('HTTP')
+    expect(transport(first)).toBe('HTTP (Auto)')
     expect(first.find('video').attributes('src')).toContain('/queries/video/call')
 
     const second = render(false)
     await flushPromises()
-    expect(transport(second)).toBe('HTTP')
+    expect(transport(second)).toBe('HTTP (Auto)')
+    expect(openWhep).toHaveBeenCalledTimes(1)
+  })
+
+  it('says why a video held to WebRTC cannot play in this browser, without reconnecting', async () => {
+    webrtc(refused)
+    const video = render(true, 'webrtc')
+    await flushPromises()
+
+    expect(console.warn).toHaveBeenCalledWith(
+      expect.stringContaining("This browser cannot decode this video's codec over WebRTC."),
+    )
+    expect(video.find('[data-video-error]').exists()).toBe(true)
+    await vi.advanceTimersByTimeAsync(30_000)
     expect(openWhep).toHaveBeenCalledTimes(1)
   })
 
@@ -120,12 +144,12 @@ describe('c-workspace-widget-video', () => {
     webrtc(full)
     const first = render(false)
     await flushPromises()
-    expect(transport(first)).toBe('HTTP')
+    expect(transport(first)).toBe('HTTP (Auto)')
 
     webrtc(session)
     const second = render(false)
     await flushPromises()
-    expect(transport(second)).toBe('WebRTC')
+    expect(transport(second)).toBe('WebRTC (Auto)')
   })
 
   it('stays on WebRTC when a session that played is lost', async () => {
@@ -139,7 +163,7 @@ describe('c-workspace-widget-video', () => {
     await flushPromises()
 
     expect(openWhep).toHaveBeenCalledTimes(2)
-    expect(transport(video)).toBe('WebRTC')
+    expect(transport(video)).toBe('WebRTC (Auto)')
     expect(video.find('video').attributes('src')).toBeUndefined()
   })
 
@@ -147,7 +171,7 @@ describe('c-workspace-widget-video', () => {
     const video = render(false)
     await video.find('video').trigger('error')
 
-    expect(transport(video)).toBe('HTTP')
+    expect(transport(video)).toBe('HTTP (Auto)')
     expect(video.find('c-text-stub').exists()).toBe(true)
     expect(video.find('video').attributes('src')).not.toContain('attempt=')
   })

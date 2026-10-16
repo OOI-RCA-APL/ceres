@@ -2,6 +2,7 @@
 import { watch } from 'vue'
 
 import { useEngine } from '@/api/engine'
+import { useVideoTransports, type VideoTransport } from '@/whep'
 import { useWorkspace } from '@/workspace'
 import type { VideoWidget } from '@/workspace'
 
@@ -44,11 +45,17 @@ const possibleQueryNames = $computed(() =>
 )
 
 const transportHints: Record<VideoWidget['transport'], string> = {
-  auto: 'WebRTC when it can, HTTP when it cannot.',
-  webrtc:
-    'Lowest latency. Shows an error rather than switching to HTTP when the network blocks it.',
-  http: 'Higher latency, but gets through any network that loads this page.',
+  auto: 'WebRTC for lowest latency if available in full fidelity, otherwise HTTP.',
+  webrtc: 'Lowest latency, not always fully supported.',
+  http: 'Higher latency, reliably supported.',
 }
+
+const transportLabels: Record<VideoTransport, string> = { webrtc: 'WebRTC', http: 'HTTP' }
+
+// What Automatic chose and why, absent until the widget has settled on one. A forced choice
+// needs no line, its hint already says what it does.
+const transports = useVideoTransports()
+const playing = $computed(() => transports.playing(widget.id))
 
 // A browser only autoplays muted video, so the two settings hold each other to that.
 watch(
@@ -120,6 +127,14 @@ watch(
           enum: ['auto', 'webrtc', 'http'],
         }"
       />
+      <c-text
+        v-if="widget.transport === 'auto' && playing != null"
+        class="italic"
+        data-transport-playing
+        variant="description"
+      >
+        Playing over {{ transportLabels[playing.transport] }}. {{ playing.why }}
+      </c-text>
     </div>
   </c-workspace-widget-settings>
 </template>

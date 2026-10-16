@@ -5,4 +5,6 @@ export type WidgetStatus = {
   live?: 'live' | 'behind'
   /** Brings live media back to its newest frame. */
   goLive?: () => void
+  /** Moves to the next of the options `text` names, making it a button. */
+  cycle?: () => void
 }

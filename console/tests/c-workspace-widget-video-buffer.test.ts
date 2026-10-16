@@ -120,7 +120,7 @@ async function streamed(head: Uint8Array) {
   const widget = VideoWidgetModel.parse({
     id: 'video',
     type: 'video',
-    query: '@camera::queries::video',
+    query: '@device::queries::video',
   })
   const video = mount(CWorkspaceWidgetVideo, {
     props: { widget },
@@ -131,6 +131,7 @@ async function streamed(head: Uint8Array) {
         'c-tooltip': true,
         'c-icon': true,
         'c-widget-status': true,
+        'c-video-controls': true,
       },
     },
   })
@@ -140,10 +141,11 @@ async function streamed(head: Uint8Array) {
   return {
     video,
     element,
-    /** Send `count` more chunks and let the widget append them. */
-    async send(count: number) {
+    /** Send `count` more chunks of `bytes` each, a second of video apiece, and let the widget
+    append them. */
+    async send(count: number, bytes = 1) {
       for (let index = 0; index < count; index++) {
-        controller.enqueue(new Uint8Array([index]))
+        controller.enqueue(new Uint8Array(bytes))
       }
       await settle()
     },
@@ -204,11 +206,18 @@ describe('c-workspace-widget-video through a MediaSource', () => {
     expect(buffer?.end).toBe(1)
   })
 
-  it('drops live video played more than ten seconds ago', async () => {
+  it('keeps ten seconds of played video from a heavy live stream', async () => {
     const { element, send } = await streamed(initSegment(hevc))
     Object.defineProperty(element, 'currentTime', { value: 100 })
-    await send(2)
+    await send(3, 10_000_000)
     expect(buffer?.removed).toEqual([[0, 90]])
+  })
+
+  it('keeps five minutes of played video from a light live stream', async () => {
+    const { element, send } = await streamed(initSegment(hevc))
+    Object.defineProperty(element, 'currentTime', { value: 400 })
+    await send(3)
+    expect(buffer?.removed).toEqual([[0, 100]])
   })
 
   it('keeps recently played live video', async () => {
@@ -268,15 +277,53 @@ describe('c-workspace-widget-video through a MediaSource', () => {
     expect(element.currentTime).toBe(19.5)
   })
 
-  it('plays a live picture a little behind slightly fast', async () => {
+  it.each([
+    [18.95, 1.1],
+    [18, 1.6],
+    [15.5, 2.8],
+  ])('plays a live picture behind at %s fast, faster the further behind', async (at, rate) => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
     const { element, load } = await streamed(initSegment(hevc))
     await load(Infinity)
-    playing(element, 18, 20)
+    playing(element, at, 20)
 
     vi.advanceTimersByTime(1000)
-    expect(element.currentTime).toBe(18)
+    expect(element.currentTime).toBe(at)
+    expect(element.playbackRate).toBe(rate)
+  })
+
+  it('eases a catch-up down to its slowest as the lag closes, then stops', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    const { element, load } = await streamed(initSegment(hevc))
+    await load(Infinity)
+    playing(element, 17.5, 20)
+    vi.advanceTimersByTime(250)
+    expect(element.playbackRate).toBeGreaterThan(1.5)
+
+    element.currentTime = 19.3
+    vi.advanceTimersByTime(250)
     expect(element.playbackRate).toBe(1.1)
+
+    element.currentTime = 19.6
+    vi.advanceTimersByTime(250)
+    expect(element.playbackRate).toBe(1)
+  })
+
+  it('plays a paused live picture on from where it was paused, at its own pace', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    const { video, element, load } = await streamed(initSegment(hevc))
+    await load(Infinity)
+    await video.find('video').trigger('pause')
+    playing(element, 10, 20)
+
+    vi.advanceTimersByTime(1000)
+    await settle()
+    expect(element.currentTime).toBe(10)
+    expect(element.playbackRate).toBe(1)
+    expect(status(video)?.live).toBe('behind')
+
+    status(video)?.goLive?.()
+    expect(element.currentTime).toBe(19.5)
   })
 
   it('leaves a recording at its own pace', async () => {
@@ -298,7 +345,7 @@ describe('c-workspace-widget-video through a MediaSource', () => {
 
     vi.advanceTimersByTime(1000)
     await settle()
-    expect(status(video)).toMatchObject({ text: 'HTTP', live: 'live' })
+    expect(status(video)).toMatchObject({ text: 'HTTP (Auto)', live: 'live' })
   })
 
   it('grays the live mark behind the newest frame, and goes back to live on demand', async () => {
@@ -318,7 +365,17 @@ describe('c-workspace-widget-video through a MediaSource', () => {
   it('never marks a recording live', async () => {
     const { video, load } = await streamed(initSegment(hevc))
     await load(60)
-    expect(status(video)).toEqual({ text: 'HTTP' })
+    expect(status(video)).toMatchObject({ text: 'HTTP (Auto)' })
+    expect(status(video)?.live).toBeUndefined()
+  })
+
+  it('cycles the transport setting from the header on a click', async () => {
+    const { video } = await streamed(initSegment(hevc))
+    status(video)?.cycle?.()
+    await settle()
+    expect(video.props('widget').transport).toBe('webrtc')
+    // Still named while it cannot settle, rather than leaving the header blank.
+    expect(status(video)?.text).toBe('WebRTC')
   })
 
   it('plays a codec the browser cannot buffer straight from its URL', async () => {
@@ -327,6 +384,18 @@ describe('c-workspace-widget-video through a MediaSource', () => {
 
     expect(buffer).toBeNull()
     expect(video.find('video').attributes('src')).toContain('/queries/video')
+  })
+
+  it('names the codec the browser cannot play once its URL fails too, without reconnecting', async () => {
+    isTypeSupported = () => false
+    const { video, error } = await streamed(initSegment(hevc))
+    await error(MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED)
+
+    expect(console.warn).toHaveBeenCalledWith(
+      expect.stringContaining('This browser cannot play H.265 (HEVC) video.'),
+    )
+    expect(video.find('[data-video-error]').exists()).toBe(true)
+    expect(video.find('video').attributes('src')).not.toContain('attempt=')
   })
 
   it('plays a plain MP4 straight from its URL', async () => {

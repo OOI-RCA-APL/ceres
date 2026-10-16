@@ -1,14 +1,21 @@
 import { defineStore } from 'pinia'
+import { reactive } from 'vue'
 
 /** How a video widget receives its picture, named on the widget so a fallback is visible. */
 export type VideoTransport = 'webrtc' | 'http'
 
-// A camera that takes longer than these to show its picture over WebRTC plays over HTTP instead,
+/** The transport a video plays over, and `why`, one sentence a viewer can act on. */
+export interface TransportChoice {
+  transport: VideoTransport
+  why: string
+}
+
+// A video that takes longer than these to show its picture over WebRTC plays over HTTP instead,
 // since a network that drops UDP fails WebRTC by silence rather than by an error.
-const OFFER_TIMEOUT_MS = 10_000
-const CONNECT_TIMEOUT_MS = 5_000
-const FRAME_TIMEOUT_MS = 5_000
-const FRAME_POLL_MS = 250
+const offerTimeoutMs = 10_000
+const connectTimeoutMs = 5_000
+const frameTimeoutMs = 5_000
+const framePollMs = 250
 
 /** The server's refusal of an offer, with the `reason` its envelope gives. */
 export class WhepRefusal extends Error {
@@ -24,7 +31,7 @@ export class WhepRefusal extends Error {
 export class WhepSilence extends Error {}
 
 // Refusals that the same video meets on every try, where `full`, `source`, and `timeout` pass.
-const PERMANENT_REASONS = new Set(['disabled', 'not-live', 'codec', 'offer'])
+const permanentReasons = new Set(['disabled', 'not-live', 'codec', 'offer', 'reordered'])
 
 /** Whether `error` failing a first try means the video plays over HTTP for the page's life.
 
@@ -36,20 +43,49 @@ export function permanent(error: unknown) {
     return true
   }
   if (error instanceof WhepRefusal) {
-    return error.status === 415 || (error.reason != null && PERMANENT_REASONS.has(error.reason))
+    return error.status === 415 || (error.reason != null && permanentReasons.has(error.reason))
   }
   return false
 }
 
-/** A procedure's camera playing over WebRTC. */
+const offerWhy = 'WebRTC could not be set up with this browser.'
+
+// Why a first try over WebRTC fell to HTTP, by the reason the server's refusal gives. Each is one
+// short fact, since it shows in a tooltip.
+const refusalWhys: Record<string, string> = {
+  disabled: 'WebRTC is turned off on the server.',
+  'not-live': 'WebRTC only carries live video.',
+  codec: "This browser cannot decode the video's codec over WebRTC.",
+  offer: offerWhy,
+  reordered: 'The video has B-frames, which WebRTC cannot play smoothly.',
+  full: 'The server is at its WebRTC limit.',
+  source: 'The video did not start over WebRTC.',
+  timeout: 'The video did not start over WebRTC in time.',
+}
+
+/** Why `error` failing a first try over WebRTC left the video playing over HTTP. */
+export function fallbackWhy(error: unknown) {
+  if (error instanceof WhepSilence) {
+    return 'The network blocks WebRTC.'
+  }
+  if (error instanceof WhepRefusal) {
+    if (error.status === 415) {
+      return offerWhy
+    }
+    return refusalWhys[error.reason ?? ''] ?? 'The server refused WebRTC.'
+  }
+  return 'The WebRTC request failed.'
+}
+
+/** A procedure's live video playing over WebRTC. */
 export interface WhepSession {
-  /** The camera's picture, for a video element's `srcObject`. */
+  /** The video's picture, for a video element's `srcObject`. */
   readonly stream: MediaStream
   /** End the session, here and on the server. */
   close(): void
 }
 
-/** Play the camera behind a WHEP route at `url`, resolving once its first frame is decoded.
+/** Play the live video behind a WHEP route at `url`, resolving once its first frame is decoded.
 
 Rejects when the server refuses the offer, when the connection does not come up, or when no frame
 arrives in time, and the caller then plays the procedure over HTTP. `onLost` reports a session
@@ -87,7 +123,7 @@ export async function openWhep(
       method: 'POST',
       headers: { 'Content-Type': 'application/sdp' },
       body: connection.localDescription?.sdp,
-      signal: AbortSignal.any([signal, AbortSignal.timeout(OFFER_TIMEOUT_MS)]),
+      signal: AbortSignal.any([signal, AbortSignal.timeout(offerTimeoutMs)]),
     })
     if (response.status !== 201) {
       throw new WhepRefusal(response.status, await refusalReason(response))
@@ -134,7 +170,7 @@ function connected(connection: RTCPeerConnection) {
   return new Promise<void>((resolve, reject) => {
     const timer = setTimeout(
       () => settle(new WhepSilence('The WebRTC connection did not come up.')),
-      CONNECT_TIMEOUT_MS,
+      connectTimeoutMs,
     )
     const check = () => {
       if (connection.connectionState === 'connected') {
@@ -159,7 +195,7 @@ function connected(connection: RTCPeerConnection) {
 
 /** Resolves once `connection` has decoded a video frame, rejecting when none comes in time. */
 async function firstFrame(connection: RTCPeerConnection) {
-  const deadline = Date.now() + FRAME_TIMEOUT_MS
+  const deadline = Date.now() + frameTimeoutMs
   while (Date.now() < deadline) {
     const stats = await connection.getStats()
     for (const report of stats.values()) {
@@ -168,20 +204,32 @@ async function firstFrame(connection: RTCPeerConnection) {
       }
     }
 
-    await new Promise((resolve) => setTimeout(resolve, FRAME_POLL_MS))
+    await new Promise((resolve) => setTimeout(resolve, framePollMs))
   }
 
   throw new WhepSilence('The WebRTC connection brought no picture.')
 }
 
 /** Which transport each video plays over, decided by its first try and kept for the page's
-life, so a network that drops WebRTC costs one wait per video rather than one per reconnect. */
+life, so a network that drops WebRTC costs one wait per video rather than one per reconnect.
+
+Also what each video widget on the page plays over now, for its settings to explain. */
 export const useVideoTransports = defineStore('video-transports', () => {
   // One entry per WHEP route a widget on the page has tried, bounded by the videos in view.
-  const verdicts = new Map<string, VideoTransport>()
+  const verdicts = new Map<string, TransportChoice>()
+  // One entry per video widget on the page, by its ID, while it plays.
+  const playing = reactive(new Map<string, TransportChoice>())
 
   return {
     verdict: (url: string) => verdicts.get(url) ?? null,
-    remember: (url: string, transport: VideoTransport) => void verdicts.set(url, transport),
+    remember: (url: string, choice: TransportChoice) => void verdicts.set(url, choice),
+    playing: (widget: string) => playing.get(widget) ?? null,
+    show: (widget: string, choice: TransportChoice | null) => {
+      if (choice == null) {
+        playing.delete(widget)
+      } else {
+        playing.set(widget, choice)
+      }
+    },
   }
 })

@@ -8,7 +8,7 @@ const { status } = defineProps<{
 
 <template>
   <span class="flex items-center gap-1 text-[10px]">
-    <!-- Muted like the rest of the header, so a wall of cameras stays calm. The dot is filled at
+    <!-- Muted like the rest of the header, so a wall of videos stays calm. The dot is filled at
     the newest frame and hollow once paused or lagging, when a click brings it back. -->
     <button
       v-if="status.live != null"
@@ -34,6 +34,19 @@ const { status } = defineProps<{
       Live
     </button>
     <span v-if="status.live != null" class="text-muted opacity-70">·</span>
-    <span class="text-muted opacity-70" data-widget-status>{{ status.text }}</span>
+    <button
+      v-if="status.cycle != null"
+      class="text-muted opacity-70 hover:opacity-100"
+      data-widget-status
+      type="button"
+      @click.prevent.stop="status.cycle()"
+      @mousedown.stop
+      @touchstart.stop
+    >
+      {{ status.text }}
+    </button>
+    <span v-else class="text-muted opacity-70" data-widget-status>
+      {{ status.text }}
+    </span>
   </span>
 </template>

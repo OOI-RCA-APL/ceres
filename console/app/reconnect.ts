@@ -24,7 +24,7 @@ export interface ReconnectSchedule {
 
 // A loss reported this soon after an attempt began is the old connection's last word, an error
 // and an `ended` from the same drop say, and not the new attempt failing.
-const SETTLE_MS = 1000
+const settleMs = 1000
 
 /** Retries a lost connection at once, then every `interval` seconds until data flows again. An
 attempt that brings no data within `timeout` seconds counts as lost as well. */
@@ -71,7 +71,7 @@ export function useReconnectSchedule(
     begin,
 
     lost() {
-      if (schedule.countdown != null || Date.now() - attemptStartedAt < SETTLE_MS) {
+      if (schedule.countdown != null || Date.now() - attemptStartedAt < settleMs) {
         return
       }
       clearTimers()

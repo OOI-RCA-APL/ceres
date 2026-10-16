@@ -101,7 +101,7 @@ export function canInvokeProcedure(
   return permissionRank[level] >= permissionRank[procedure.permissions]
 }
 
-/** The segment naming a procedure's kind in a path such as `@camera::queries::video`. */
+/** The segment naming a procedure's kind in a path such as `@device::queries::video`. */
 export function procedureNamespace(procedure: ProcedureInfo | null): 'queries' | 'actions' {
   return procedure?.type === 'query' ? 'queries' : 'actions'
 }

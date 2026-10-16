@@ -1,9 +1,16 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { openWhep, permanent, useVideoTransports, WhepRefusal, WhepSilence } from '@/whep'
+import {
+  fallbackWhy,
+  openWhep,
+  permanent,
+  useVideoTransports,
+  WhepRefusal,
+  WhepSilence,
+} from '@/whep'
 
-const ROUTE = 'http://engine/api/components/@camera/procedures/video/whep'
+const route = 'http://engine/api/components/@device/procedures/video/whep'
 
 /** A peer connection whose remote answer brings it up as `state`, decoding `frames` frames. */
 function peer({ state = 'connected', frames = 1 } = {}) {
@@ -60,14 +67,14 @@ function engine(status = 201, reason = 'codec') {
       return Response.json({ status, reason }, { status })
     }
 
-    return new Response('answer', { status, headers: { location: `${ROUTE}/abcd` } })
+    return new Response('answer', { status, headers: { location: `${route}/abcd` } })
   })
   vi.stubGlobal('fetch', fetch)
   return fetch
 }
 
 function open() {
-  return openWhep(ROUTE, { signal: new AbortController().signal, onLost: () => {} })
+  return openWhep(route, { signal: new AbortController().signal, onLost: () => {} })
 }
 
 describe('openWhep', () => {
@@ -85,7 +92,7 @@ describe('openWhep', () => {
     const session = await open()
 
     expect(session.stream).toBe('stream')
-    expect(fetch).toHaveBeenCalledWith(ROUTE, expect.objectContaining({ body: 'offer' }))
+    expect(fetch).toHaveBeenCalledWith(route, expect.objectContaining({ body: 'offer' }))
   })
 
   it('ends the session on the server when closed', async () => {
@@ -97,7 +104,7 @@ describe('openWhep', () => {
 
     expect(peers[0]?.closed).toBe(true)
     expect(fetch).toHaveBeenLastCalledWith(
-      `${ROUTE}/abcd`,
+      `${route}/abcd`,
       expect.objectContaining({ method: 'DELETE' }),
     )
   })
@@ -119,7 +126,7 @@ describe('openWhep', () => {
     await vi.advanceTimersByTimeAsync(5000)
     await opening
     expect(fetch).toHaveBeenLastCalledWith(
-      `${ROUTE}/abcd`,
+      `${route}/abcd`,
       expect.objectContaining({ method: 'DELETE' }),
     )
   })
@@ -155,11 +162,38 @@ describe('permanent', () => {
 describe('useVideoTransports', () => {
   beforeEach(() => setActivePinia(createPinia()))
 
-  it('remembers the transport each route settled on', () => {
+  it('remembers the transport each route settled on, and why', () => {
     const transports = useVideoTransports()
-    transports.remember(ROUTE, 'http')
+    const choice = { transport: 'http', why: 'The network blocks WebRTC.' } as const
+    transports.remember(route, choice)
 
-    expect(transports.verdict(ROUTE)).toBe('http')
-    expect(transports.verdict(`${ROUTE}x`)).toBeNull()
+    expect(transports.verdict(route)).toEqual(choice)
+    expect(transports.verdict(`${route}x`)).toBeNull()
+  })
+
+  it('tells what each widget plays over until it stops', () => {
+    const transports = useVideoTransports()
+    transports.show('video', {
+      transport: 'webrtc',
+      why: 'WebRTC works with this video and browser.',
+    })
+    expect(transports.playing('video')?.transport).toBe('webrtc')
+
+    transports.show('video', null)
+    expect(transports.playing('video')).toBeNull()
+  })
+})
+
+describe('fallbackWhy', () => {
+  it('names why each first try fell to HTTP', () => {
+    expect(fallbackWhy(new WhepSilence('silent'))).toBe('The network blocks WebRTC.')
+    expect(fallbackWhy(new WhepRefusal(409, 'reordered'))).toBe(
+      'The video has B-frames, which WebRTC cannot play smoothly.',
+    )
+    expect(fallbackWhy(new WhepRefusal(415, null))).toBe(
+      'WebRTC could not be set up with this browser.',
+    )
+    expect(fallbackWhy(new WhepRefusal(500, 'unheard-of'))).toBe('The server refused WebRTC.')
+    expect(fallbackWhy(new TypeError('Failed to fetch'))).toBe('The WebRTC request failed.')
   })
 })

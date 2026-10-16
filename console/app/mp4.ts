@@ -12,12 +12,12 @@ export type InitSegment =
   | { type: 'unknown' }
 
 // Past this many bytes with no `moov` box the stream is not one worth waiting on.
-const MAX_INIT_SEGMENT_BYTES = 4 * 1024 * 1024
+const maxInitSegmentBytes = 4 * 1024 * 1024
 
 // The bytes in a visual sample entry ahead of its child boxes, ISO/IEC 14496-12 12.1.3.
-const VISUAL_SAMPLE_ENTRY_BYTES = 78
+const visualSampleEntryBytes = 78
 // The bytes in an audio sample entry ahead of its child boxes, ISO/IEC 14496-12 12.2.3.
-const AUDIO_SAMPLE_ENTRY_BYTES = 28
+const audioSampleEntryBytes = 28
 
 interface Box {
   type: string
@@ -133,18 +133,18 @@ function sampleEntryCodec(entry: Box) {
   switch (entry.type) {
     case 'avc1':
     case 'avc3': {
-      const config = child(entry.body.subarray(VISUAL_SAMPLE_ENTRY_BYTES), 'avcC')
+      const config = child(entry.body.subarray(visualSampleEntryBytes), 'avcC')
       return config == null ? null : avcCodec(entry.type, config)
     }
     case 'hvc1':
     case 'hev1': {
-      const config = child(entry.body.subarray(VISUAL_SAMPLE_ENTRY_BYTES), 'hvcC')
+      const config = child(entry.body.subarray(visualSampleEntryBytes), 'hvcC')
       return config == null ? null : hevcCodec(entry.type, config)
     }
     case 'mp4a':
-      // AAC-LC, which every camera that sends audio over MP4 uses. The exact object type would
+      // AAC-LC, the AAC that live MP4 audio almost always is. The exact object type would
       // take the `esds` descriptor, and browsers decode any AAC under this name.
-      return entry.body.length >= AUDIO_SAMPLE_ENTRY_BYTES ? 'mp4a.40.2' : null
+      return entry.body.length >= audioSampleEntryBytes ? 'mp4a.40.2' : null
     default:
       return null
   }
@@ -154,7 +154,7 @@ function sampleEntryCodec(entry: Box) {
 export function readInitSegment(bytes: Uint8Array): InitSegment {
   for (const box of boxes(bytes)) {
     if (box === 'partial') {
-      return bytes.length > MAX_INIT_SEGMENT_BYTES ? { type: 'unknown' } : { type: 'partial' }
+      return bytes.length > maxInitSegmentBytes ? { type: 'unknown' } : { type: 'partial' }
     }
 
     if (box.type === 'moov') {
@@ -190,5 +190,5 @@ export function readInitSegment(bytes: Uint8Array): InitSegment {
     }
   }
 
-  return bytes.length > MAX_INIT_SEGMENT_BYTES ? { type: 'unknown' } : { type: 'partial' }
+  return bytes.length > maxInitSegmentBytes ? { type: 'unknown' } : { type: 'partial' }
 }
