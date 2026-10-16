@@ -8,6 +8,15 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+**Engine**
+
+- WebRTC paces its media at the bandwidth it estimates the path to the browser has, rather than
+  sending each keyframe at once, so a constrained path loses fewer packets and shows fewer
+  freezes. Each media socket asks for a 4 MB send buffer, which a Linux host grants in full
+  only once `net.core.wmem_max` allows it, and each session keeps 4096 sent packets to resend
+  the ones the browser reports lost. A session logs a warning when its socket drops a packet,
+  and one line on close with the packets it sent, the packets the browser lost, and its requests to resend them.
+
 ## [0.49.1] - 2026-10-15
 
 **Engine**
