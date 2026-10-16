@@ -1,6 +1,6 @@
 # Coverage
 
-<!-- coverage:fingerprint:30cd330f58ab4d39 -->
+<!-- coverage:fingerprint:916e7ae8cbeaea64 -->
 
 ## Python
 
@@ -191,11 +191,13 @@
 | `rust/ceres-media/src/input.rs` | 99% |
 | `rust/ceres-media/src/lib.rs` | 100% |
 | `rust/ceres-media/src/logging.rs` | 100% |
+| `rust/ceres-media/src/nal.rs` | 97% |
 | `rust/ceres-media/src/options.rs` | 97% |
 | `rust/ceres-media/src/output.rs` | 97% |
 | `rust/ceres-media/src/pkg_config.rs` | 100% |
 | `rust/ceres-media/src/remux/mod.rs` | 100% |
-| `rust/ceres-media/src/remux/packets.rs` | 88% |
+| `rust/ceres-media/src/remux/order.rs` | 100% |
+| `rust/ceres-media/src/remux/packets.rs` | 90% |
 | `rust/ceres-media/src/remux/reader.rs` | 90% |
 | `rust/ceres-media/src/remux/subscriber.rs` | 95% |
 | `rust/ceres-media/src/remux/timeline.rs` | 100% |
@@ -230,8 +232,9 @@
 | `rust/ceres-stubs/src/polish.rs` | 96% |
 | `rust/ceres-webrtc/src/candidates.rs` | 97% |
 | `rust/ceres-webrtc/src/parameter_sets.rs` | 98% |
-| `rust/ceres-webrtc/src/server.rs` | 83% |
-| `rust/ceres-webrtc/src/session.rs` | 79% |
+| `rust/ceres-webrtc/src/picture.rs` | 100% |
+| `rust/ceres-webrtc/src/server.rs` | 84% |
+| `rust/ceres-webrtc/src/session.rs` | 87% |
 | `rust/ceres-webrtc/src/socket.rs` | 95% |
 | **Total** | **75%** |
 <!-- coverage:rust:end -->
