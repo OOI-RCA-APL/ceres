@@ -1,6 +1,6 @@
 # Coverage
 
-<!-- coverage:fingerprint:916e7ae8cbeaea64 -->
+<!-- coverage:fingerprint:487d371c2ee4bcd1 -->
 
 ## Python
 
@@ -203,7 +203,7 @@
 | `rust/ceres-media/src/remux/timeline.rs` | 100% |
 | `rust/ceres-media/src/server/mod.rs` | 90% |
 | `rust/ceres-media/src/server/session.rs` | 89% |
-| `rust/ceres-media/src/server/stream.rs` | 95% |
+| `rust/ceres-media/src/server/stream.rs` | 94% |
 | `rust/ceres-media/src/transcode.rs` | 92% |
 | `rust/ceres-rtsp-server/src/main.rs` | 0% |
 | `rust/ceres-server/src/api/auth.rs` | 95% |
@@ -213,14 +213,14 @@
 | `rust/ceres-server/src/api/records.rs` | 78% |
 | `rust/ceres-server/src/api/schema.rs` | 100% |
 | `rust/ceres-server/src/api/served.rs` | 96% |
-| `rust/ceres-server/src/api/streams.rs` | 91% |
+| `rust/ceres-server/src/api/streams.rs` | 92% |
 | `rust/ceres-server/src/api/whep.rs` | 96% |
 | `rust/ceres-server/src/app.rs` | 94% |
 | `rust/ceres-server/src/auth.rs` | 98% |
 | `rust/ceres-server/src/body.rs` | 86% |
 | `rust/ceres-server/src/cookie.rs` | 100% |
 | `rust/ceres-server/src/error.rs` | 90% |
-| `rust/ceres-server/src/host.rs` | 20% |
+| `rust/ceres-server/src/host.rs` | 40% |
 | `rust/ceres-server/src/layers.rs` | 91% |
 | `rust/ceres-server/src/lib.rs` | 100% |
 | `rust/ceres-server/src/redirect.rs` | 100% |

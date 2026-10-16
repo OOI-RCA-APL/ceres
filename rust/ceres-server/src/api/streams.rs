@@ -7,14 +7,20 @@
 //!
 //! Record streams share their paths with the listings, a socket being a GET that asks to
 //! upgrade, so those handlers take the upgrade optionally and branch on it.
+//!
+//! Over HTTP/2 a browser opens its socket with an extended CONNECT instead of that GET, so
+//! every route a socket opens on is registered with [`socket_route`], which takes both.
 
 use std::sync::Arc;
 
 use axum::extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{FromRequestParts, RawQuery, Request, State};
+use axum::handler::Handler;
 use axum::http::request::Parts;
-use axum::response::Response;
-use axum_extra::routing::{RouterExt, TypedPath};
+use axum::http::{Method, StatusCode};
+use axum::response::{IntoResponse, Response};
+use axum::routing::{MethodRouter, get};
+use axum_extra::routing::TypedPath;
 use serde::Deserialize;
 use serde_json::json;
 
@@ -24,9 +30,34 @@ use crate::auth::Gate;
 use crate::error::ApiError;
 use crate::host::StreamClose;
 
+/// Route `handler` for a socket opened either way a browser opens one: an HTTP/1.1 GET asking
+/// to upgrade, or the extended CONNECT of HTTP/2.
+///
+/// A GET-only route answers that CONNECT 405, and a browser on an HTTP/2 connection whose
+/// server offers extended CONNECT never falls back to HTTP/1.1, so its socket just fails.
+pub(crate) fn socket_route<H, T>(handler: H) -> MethodRouter<Arc<AppState>>
+where
+    H: Handler<T, Arc<AppState>>,
+    T: 'static,
+{
+    // @workaround axum 0.8.8 `MethodRouter::on` stores a CONNECT endpoint in its OPTIONS slot
+    // (tokio-rs/axum#3656, fixed in 0.8.9, which the pin here cannot take yet), so CONNECT
+    // reaches the handler through the fallback instead.
+    let connect = handler.clone();
+    get(handler).fallback(
+        move |State(state): State<Arc<AppState>>, request: Request| async move {
+            if request.method() == Method::CONNECT {
+                connect.call(request, state).await
+            } else {
+                ApiError::http(StatusCode::METHOD_NOT_ALLOWED).into_response()
+            }
+        },
+    )
+}
+
 /// Take the upgrade a request asks for, or `None` when it is a plain request.
 ///
-/// Listings and streams share their paths, a socket being a GET that asks to upgrade,
+/// Listings and streams share their paths, a socket being a request that asks to upgrade,
 /// so the handlers on those paths extract the upgrade themselves and branch on it
 /// rather than declaring it as a required argument.
 pub(crate) async fn requested_upgrade(
@@ -133,17 +164,20 @@ macro_rules! socket_routes {
 
         /// Register every socket-only route.
         pub(crate) fn register(router: axum::Router<Arc<AppState>>) -> axum::Router<Arc<AppState>> {
-            $(let router = router.typed_get(
-                |path: $name,
-                 State(state): State<Arc<AppState>>,
-                 RawQuery(query): RawQuery,
-                 upgrade: WebSocketUpgrade| async move {
-                    let arguments = json!({
-                        "path": json!({$($host: path.$field),+}),
-                        "query": query_pairs(query),
-                    });
-                    state.stream(upgrade, $operation, arguments)
-                },
+            $(let router = router.route(
+                <$name as TypedPath>::PATH,
+                socket_route(
+                    |path: $name,
+                     State(state): State<Arc<AppState>>,
+                     RawQuery(query): RawQuery,
+                     upgrade: WebSocketUpgrade| async move {
+                        let arguments = json!({
+                            "path": json!({$($host: path.$field),+}),
+                            "query": query_pairs(query),
+                        });
+                        state.stream(upgrade, $operation, arguments)
+                    },
+                ),
             );)*
 
             router

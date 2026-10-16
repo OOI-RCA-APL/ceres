@@ -274,7 +274,10 @@ pub fn build_router(config: AppConfig) -> Router {
     router = crate::api::dispatch::register(router);
     router = crate::api::whep::register(router);
     router = crate::api::streams::register(router);
-    router = router.route("/api/statuses", get(crate::api::streams::statuses));
+    router = router.route(
+        "/api/statuses",
+        crate::api::streams::socket_route(crate::api::streams::statuses),
+    );
 
     if state.console.is_some() {
         router = router
@@ -320,7 +323,10 @@ fn record_routes(router: Router<Arc<AppState>>) -> Router<Arc<AppState>> {
         ($($module:ident => $name:literal;)*) => {
             router
                 $(
-                    .route(concat!("/api/", $name), get(crate::api::records::$module::list))
+                    .route(
+                        concat!("/api/", $name),
+                        crate::api::streams::socket_route(crate::api::records::$module::list),
+                    )
                     .route(
                         concat!("/api/", $name, "/count"),
                         get(crate::api::records::$module::count),
