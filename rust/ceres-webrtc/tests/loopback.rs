@@ -6,18 +6,21 @@ use std::time::{Duration, Instant};
 
 use ceres_config::{ServerWebrtcConfig, TimeDelta};
 use ceres_media::{RtspServer, RtspServerOptions};
-use ceres_webrtc::{LiveSource, WebrtcError, WebrtcServer};
+use ceres_webrtc::{LiveSource, ReorderedFrames, WebrtcError, WebrtcServer};
 use str0m::change::{SdpAnswer, SdpPendingOffer};
-use str0m::media::{Direction, MediaKind};
+use str0m::media::{Direction, Frequency, MediaKind};
 use str0m::net::{Protocol, Receive};
 use str0m::{Candidate, Event, Input, Output, Rtc, RtcConfig};
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_browser_receives_the_sources_keyframe() {
-    let camera = camera("h264");
+    let rtsp = source_server("h264");
     let server = server(4);
     let (browser, offer) = Browser::offer();
-    let answer = server.open(source(&camera), &offer).await.unwrap();
+    let answer = server
+        .open(source(&rtsp), &offer, ReorderedFrames::Refuse)
+        .await
+        .unwrap();
     let browser = browser.accept(&answer.sdp);
 
     let picture = tokio::task::spawn_blocking(move || browser.first_picture());
@@ -33,7 +36,7 @@ async fn a_browser_receives_the_sources_keyframe() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_session_ends_with_its_source() {
-    let camera = RtspServer::start(
+    let rtsp = RtspServer::start(
         "127.0.0.1:0".parse().unwrap(),
         RtspServerOptions {
             clips: vec!["h264".into()],
@@ -46,17 +49,42 @@ async fn a_session_ends_with_its_source() {
     let (browser, offer) = Browser::offer();
     let source = LiveSource {
         reconnect: false,
-        ..source(&camera)
+        ..source(&rtsp)
     };
-    let answer = server.open(source, &offer).await.unwrap();
+    let answer = server
+        .open(source, &offer, ReorderedFrames::Refuse)
+        .await
+        .unwrap();
+    let _browser = browser.accept(&answer.sdp);
+    ended(answer.closed).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_session_ends_once_its_source_starts_reordering_frames() {
+    // The source reconnects to a server that has since been set to send B-frames.
+    let rtsp = RtspServer::start(
+        "127.0.0.1:0".parse().unwrap(),
+        RtspServerOptions {
+            clips: vec!["h264".into(), "h264-bframes".into()],
+            drop_after: Some(Duration::from_secs(1)),
+            ..RtspServerOptions::default()
+        },
+    )
+    .unwrap();
+    let server = server(4);
+    let (browser, offer) = Browser::offer();
+    let answer = server
+        .open(source(&rtsp), &offer, ReorderedFrames::Refuse)
+        .await
+        .unwrap();
     let _browser = browser.accept(&answer.sdp);
     ended(answer.closed).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_browser_connecting_late_starts_from_the_picture_held_for_it() {
-    // The camera falls silent before the browser connects, so only the held picture can play.
-    let camera = RtspServer::start(
+    // The source falls silent before the browser connects, so only the held picture can play.
+    let rtsp = RtspServer::start(
         "127.0.0.1:0".parse().unwrap(),
         RtspServerOptions {
             clips: vec!["h264".into()],
@@ -70,9 +98,12 @@ async fn a_browser_connecting_late_starts_from_the_picture_held_for_it() {
     let (browser, offer) = Browser::offer();
     let source = LiveSource {
         stall_timeout: None,
-        ..source(&camera)
+        ..source(&rtsp)
     };
-    let answer = server.open(source, &offer).await.unwrap();
+    let answer = server
+        .open(source, &offer, ReorderedFrames::Refuse)
+        .await
+        .unwrap();
     tokio::time::sleep(Duration::from_secs(3)).await;
     let browser = browser.accept(&answer.sdp);
 
@@ -82,7 +113,7 @@ async fn a_browser_connecting_late_starts_from_the_picture_held_for_it() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_browser_that_never_connects_gives_up_its_slot() {
-    let camera = camera("h264");
+    let rtsp = source_server("h264");
     let no_ice_timeout = TimeDelta::from_secs(1);
     let config = ServerWebrtcConfig {
         no_ice_timeout,
@@ -90,30 +121,44 @@ async fn a_browser_that_never_connects_gives_up_its_slot() {
     };
     let server = bound(&config);
     let (_silent, offer) = Browser::offer();
-    let answer = server.open(source(&camera), &offer).await.unwrap();
+    let answer = server
+        .open(source(&rtsp), &offer, ReorderedFrames::Refuse)
+        .await
+        .unwrap();
     tokio::time::sleep(no_ice_timeout.duration() + Duration::from_millis(500)).await;
     assert!(!server.close(&answer.id).await);
     let (_next, offer) = Browser::offer();
-    server.open(source(&camera), &offer).await.unwrap();
+    server
+        .open(source(&rtsp), &offer, ReorderedFrames::Refuse)
+        .await
+        .unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_session_past_the_limit_is_refused() {
-    let camera = camera("h264");
+    let rtsp = source_server("h264");
     let server = server(1);
     let (_first, offer) = Browser::offer();
-    server.open(source(&camera), &offer).await.unwrap();
+    server
+        .open(source(&rtsp), &offer, ReorderedFrames::Refuse)
+        .await
+        .unwrap();
     let (_second, offer) = Browser::offer();
-    let refused = server.open(source(&camera), &offer).await;
+    let refused = server
+        .open(source(&rtsp), &offer, ReorderedFrames::Refuse)
+        .await;
     assert!(matches!(refused, Err(WebrtcError::Full)), "{refused:?}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn an_h265_source_reaches_a_browser_that_decodes_it() {
-    let camera = camera("h265");
+    let rtsp = source_server("h265-no-bframes");
     let server = server(4);
     let (browser, offer) = Browser::offer_with_h265();
-    let answer = server.open(source(&camera), &offer).await.unwrap();
+    let answer = server
+        .open(source(&rtsp), &offer, ReorderedFrames::Refuse)
+        .await
+        .unwrap();
     let browser = browser.accept(&answer.sdp);
 
     let picture = tokio::task::spawn_blocking(move || browser.first_picture());
@@ -129,10 +174,91 @@ async fn an_h265_source_reaches_a_browser_that_decodes_it() {
 async fn an_h265_source_to_a_browser_without_it_or_a_bad_offer_is_refused() {
     let server = server(4);
     let (_browser, offer) = Browser::offer();
-    let refused = server.open(source(&camera("h265")), &offer).await;
+    let refused = server
+        .open(
+            source(&source_server("h265")),
+            &offer,
+            ReorderedFrames::Refuse,
+        )
+        .await;
     assert!(matches!(refused, Err(WebrtcError::Codec(_))), "{refused:?}");
-    let refused = server.open(source(&camera("h264")), "abc").await;
+    let refused = server
+        .open(
+            source(&source_server("h264")),
+            "abc",
+            ReorderedFrames::Refuse,
+        )
+        .await;
     assert!(matches!(refused, Err(WebrtcError::Offer(_))), "{refused:?}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_source_reordering_frames_is_refused() {
+    let server = server(4);
+    let (_browser, offer) = Browser::offer();
+    let refused = server
+        .open(
+            source(&source_server("h264-bframes")),
+            &offer,
+            ReorderedFrames::Refuse,
+        )
+        .await;
+    assert!(
+        matches!(refused, Err(WebrtcError::Reordered)),
+        "{refused:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn dropping_unreferenced_frames_sends_the_rest_in_display_order() {
+    let rtsp = source_server("h264-bframes");
+    let server = server(4);
+    let (browser, offer) = Browser::offer();
+    let answer = server
+        .open(source(&rtsp), &offer, ReorderedFrames::Drop)
+        .await
+        .unwrap();
+    let browser = browser.accept(&answer.sdp);
+
+    // Two seconds of a 25 fps clip whose every other frame is an unreferenced B-frame.
+    let pictures = tokio::task::spawn_blocking(move || browser.pictures(25))
+        .await
+        .unwrap();
+    assert_eq!(pictures.len(), 25, "too few pictures arrived");
+    assert!(pictures[0].1, "the first picture is not a keyframe");
+    let times: Vec<u64> = pictures.iter().map(|(time, _)| *time).collect();
+    assert!(
+        times.windows(2).all(|pair| pair[0] < pair[1]),
+        "pictures arrived out of display order: {times:?}"
+    );
+    // Every other frame dropped, so each picture is two frames of 3600 ticks after the last.
+    // A keyframe follows the 25-frame group's last P-frame directly, and the source sends its
+    // first frame with no time of its own, so the step to the second picture is placed.
+    assert!(
+        pictures
+            .windows(2)
+            .skip(1)
+            .all(|pair| pair[1].1 || pair[1].0 - pair[0].0 == 7200),
+        "a picture was not dropped, or a reference was: {times:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_source_whose_referenced_frames_reorder_is_refused_even_dropping() {
+    // The H.265 clip's B-frames reference one another, so dropping the rest leaves reordering.
+    let server = server(4);
+    let (_browser, offer) = Browser::offer_with_h265();
+    let refused = server
+        .open(
+            source(&source_server("h265")),
+            &offer,
+            ReorderedFrames::Drop,
+        )
+        .await;
+    assert!(
+        matches!(refused, Err(WebrtcError::Reordered)),
+        "{refused:?}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -141,13 +267,13 @@ async fn an_unreachable_source_is_refused() {
     let (_browser, offer) = Browser::offer();
     let source = LiveSource {
         reconnect: false,
-        ..source(&camera("h264"))
+        ..source(&source_server("h264"))
     };
     let source = LiveSource {
         url: "rtsp://127.0.0.1:1/stream".into(),
         ..source
     };
-    let refused = server.open(source, &offer).await;
+    let refused = server.open(source, &offer, ReorderedFrames::Refuse).await;
     assert!(
         matches!(refused, Err(WebrtcError::Source(_))),
         "{refused:?}"
@@ -160,7 +286,7 @@ async fn ended(closed: tokio::sync::oneshot::Receiver<()>) {
     assert!(waited.is_ok(), "the session did not end");
 }
 
-fn camera(clip: &str) -> RtspServer {
+fn source_server(clip: &str) -> RtspServer {
     let options = RtspServerOptions {
         clips: vec![clip.into()],
         ..RtspServerOptions::default()
@@ -184,9 +310,9 @@ fn config(max_sessions: u64) -> ServerWebrtcConfig {
     }
 }
 
-fn source(camera: &RtspServer) -> LiveSource {
+fn source(rtsp: &RtspServer) -> LiveSource {
     LiveSource {
-        url: camera.url(),
+        url: rtsp.url(),
         transport: "tcp".into(),
         copy: true,
         reconnect: true,
@@ -243,13 +369,26 @@ impl Browser {
 
     /// Runs the peer until media arrives, answering whether it is a keyframe, or `None` when
     /// none arrives within ten seconds.
-    fn first_picture(mut self) -> Option<bool> {
+    fn first_picture(self) -> Option<bool> {
+        self.pictures(1).first().map(|(_, key)| *key)
+    }
+
+    /// Runs the peer until `count` pictures arrive or ten seconds pass, returning each one's
+    /// RTP time in 90 kHz ticks and whether it is a keyframe.
+    fn pictures(mut self, count: usize) -> Vec<(u64, bool)> {
+        let mut pictures = Vec::new();
         let deadline = Instant::now() + Duration::from_secs(10);
         let local = self.socket.local_addr().unwrap();
         let mut buffer = vec![0; 2048];
-        while Instant::now() < deadline {
+        while Instant::now() < deadline && pictures.len() < count {
             let timeout = match self.rtc.poll_output().unwrap() {
-                Output::Event(Event::MediaData(data)) => return Some(data.is_keyframe()),
+                Output::Event(Event::MediaData(data)) => {
+                    pictures.push((
+                        data.time.rebase(Frequency::NINETY_KHZ).numer(),
+                        data.is_keyframe(),
+                    ));
+                    continue;
+                }
                 Output::Event(_) => continue,
                 Output::Transmit(transmit) => {
                     self.socket
@@ -271,7 +410,7 @@ impl Browser {
                 self.rtc.handle_input(input).unwrap();
             }
         }
-        None
+        pictures
     }
 }
 

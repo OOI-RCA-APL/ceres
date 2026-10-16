@@ -3,7 +3,9 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use ceres_media::{MediaCodec, MediaPacket, OwnedTrack, PacketItem, PacketStream};
+use ceres_media::{
+    FrameOrder, MediaCodec, MediaPacket, OwnedTrack, PacketItem, PacketStream, is_unreferenced,
+};
 use str0m::change::SdpOffer;
 use str0m::format::{Codec, PayloadParams};
 use str0m::media::{Direction, MediaTime, Mid, Pt};
@@ -12,6 +14,7 @@ use tokio::sync::{OwnedSemaphorePermit, oneshot};
 
 use crate::WebrtcError;
 use crate::parameter_sets::with_parameter_sets;
+use crate::picture::Picture;
 use crate::socket::MediaSockets;
 
 /// The most outputs one input may produce before the session is ended, since every session
@@ -37,13 +40,14 @@ pub(crate) struct Session {
     connect_by: Instant,
     connected: bool,
     /// The packets since the source's last keyframe, held until the browser connects, since
-    /// str0m sends media written before then late and the picture can start only at a keyframe.
-    pending: Vec<MediaPacket>,
-    /// The bytes in `pending`, bounded by `PacketStream::GOP_BYTES`.
-    pending_bytes: usize,
+    /// str0m sends media written before then late.
+    pending: Picture<MediaPacket>,
     /// Whether packets are skipped until a keyframe is sent, as they are after the track
     /// changes, since a picture can start only there.
     awaiting_key: bool,
+    /// Whether frames nothing references are dropped, so the rest go out in display order. A
+    /// source whose kept frames reorder too ends the session.
+    dropping: bool,
     _slot: OwnedSemaphorePermit,
     /// Dropped with the session, which resolves the receiver the server's caller holds.
     _ended: oneshot::Sender<()>,
@@ -52,12 +56,19 @@ pub(crate) struct Session {
 impl Session {
     /// Returns a session sending `track` over the `mid` video `rtc` answered, and a receiver
     /// resolving once the session ends.
+    ///
+    /// `dropping` drops the frames nothing references, rather than sending every frame.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "each is a separate part the server negotiated"
+    )]
     pub(crate) fn new(
         id: SessionId,
         mut rtc: Rtc,
         mid: Mid,
         stream: Arc<PacketStream>,
         track: Arc<OwnedTrack>,
+        dropping: bool,
         slot: OwnedSemaphorePermit,
         no_ice_timeout: Duration,
     ) -> Result<(Self, oneshot::Receiver<()>), WebrtcError> {
@@ -85,9 +96,9 @@ impl Session {
             timeout: now,
             connect_by: now + no_ice_timeout,
             connected: false,
-            pending: Vec::new(),
-            pending_bytes: 0,
+            pending: Picture::new(PacketStream::GOP_BYTES),
             awaiting_key: true,
+            dropping,
             _slot: slot,
             _ended: ended,
         };
@@ -125,8 +136,7 @@ impl Session {
                 Ok(Output::Event(Event::Connected)) => {
                     log::info!("WebRTC session {} connected", self.id);
                     self.connected = true;
-                    self.pending_bytes = 0;
-                    for packet in std::mem::take(&mut self.pending) {
+                    for packet in self.pending.take() {
                         self.write(&packet);
                     }
                 }
@@ -161,31 +171,36 @@ impl Session {
                 self.track = track;
                 self.awaiting_key = true;
                 self.pending.clear();
-                self.pending_bytes = 0;
             }
-            PacketItem::Packet(packet) if self.connected => self.write(&packet),
-            PacketItem::Packet(packet) => self.hold(packet),
+            PacketItem::Packet(packet) => {
+                // Dropped before it is held too, or the first picture would play choppy.
+                if self.dropping && is_unreferenced(packet.data(), self.track.codec()) {
+                    return true;
+                }
+                // A source can start reordering partway, after its encoder settings change or
+                // a reconnect to another device at the same address, and a browser shows
+                // frames in the order they arrive. Ending lets the console fall back to HTTP.
+                let order = if self.dropping {
+                    self.stream.referenced_frame_order()
+                } else {
+                    self.stream.frame_order()
+                };
+                if order == FrameOrder::Reordered {
+                    log::info!(
+                        "WebRTC session {} ended, its source reorders the frames it sends",
+                        self.id
+                    );
+                    return false;
+                }
+                if self.connected {
+                    self.write(&packet);
+                } else {
+                    self.pending.hold(packet);
+                }
+            }
             PacketItem::Notice(notice) => log::debug!("WebRTC session {}: {notice:?}", self.id),
         }
         true
-    }
-
-    /// Keeps `packet` for the browser to start from once it connects.
-    fn hold(&mut self, packet: MediaPacket) {
-        if packet.is_key() {
-            self.pending.clear();
-            self.pending_bytes = 0;
-        } else if self.pending.is_empty() {
-            return;
-        }
-        self.pending_bytes += packet.data().len();
-        if self.pending_bytes > PacketStream::GOP_BYTES {
-            // The picture is too long to hold, so the browser starts at the next keyframe.
-            self.pending.clear();
-            self.pending_bytes = 0;
-            return;
-        }
-        self.pending.push(packet);
     }
 
     fn write(&mut self, packet: &MediaPacket) {

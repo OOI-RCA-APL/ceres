@@ -422,7 +422,7 @@ impl Reader {
             scheduled: false,
         });
         // A stream joining in the outage starts from the next connection's keyframe, never from
-        // a picture the camera has already moved past.
+        // a picture the source has already moved past.
         state.gop.clear();
         state.gop_bytes = 0;
         state.gop_valid = false;

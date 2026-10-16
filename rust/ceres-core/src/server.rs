@@ -8,7 +8,7 @@
 //! with one JSON envelope per result, `{"ok": ...}` carrying a user record or null,
 //! `{"error": {"status", "envelope"}}` passing a typed error through verbatim,
 //! `{"response": ...}` describing a body the server produces itself, and `{"live": ...}`
-//! naming the camera a WebRTC session plays.
+//! naming the live source a WebRTC session plays.
 
 use std::net::ToSocketAddrs;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak};
@@ -255,14 +255,14 @@ struct Described {
     handle: u64,
 }
 
-/// The `live` member, the camera a procedure's output reads, for a browser to play directly.
+/// The `live` member, the source a procedure's output reads, for a browser to play directly.
 #[derive(serde::Deserialize)]
 struct Live {
     url: String,
     transport: String,
     copy: bool,
     reconnect: bool,
-    /// Seconds, `None` to wait on a silent camera forever.
+    /// Seconds, `None` to wait on a silent source forever.
     stall_timeout: Option<f64>,
     handle: u64,
 }

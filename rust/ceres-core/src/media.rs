@@ -1,4 +1,4 @@
-//! Live camera streams remuxed by `ceres-media`, read from Python in chunks.
+//! Live RTSP streams remuxed by `ceres-media`, read from Python in chunks.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -17,9 +17,9 @@ use crate::interop::to_value_error;
 pub struct RtspNotice {
     /// `"lost"`, `"retrying"`, `"reconnected"`, or `"ended"`.
     kind: &'static str,
-    /// Why the camera was lost or the stream ended, if known.
+    /// Why the source was lost or the stream ended, if known.
     reason: Option<String>,
-    /// Seconds until the first attempt to reach a lost camera again, for `"retrying"`.
+    /// Seconds until the first attempt to reach a lost source again, for `"retrying"`.
     delay: Option<f64>,
     /// How many connections the outage took, for `"reconnected"`.
     attempts: Option<u32>,
@@ -62,10 +62,10 @@ impl From<StreamNotice> for RtspNotice {
     }
 }
 
-/// An RTSP camera remuxed into a fragmented MP4 stream.
+/// An RTSP source remuxed into a fragmented MP4 stream.
 ///
-/// Streams of one camera with the same `transport`, `copy`, and `stall_timeout` share its
-/// connection, so a camera allowing few sessions serves any number of them.
+/// Streams of one source with the same `transport`, `copy`, and `stall_timeout` share its
+/// connection, so a source allowing few sessions serves any number of them.
 #[gen_stub_pyclass]
 #[pyclass(module = "ceres.__internal__.core", frozen)]
 pub struct RtspStream {
@@ -75,10 +75,10 @@ pub struct RtspStream {
 #[gen_stub_pymethods]
 #[pymethods]
 impl RtspStream {
-    /// Connects to `url` and starts remuxing, reconnecting a lost camera when `reconnect`.
+    /// Connects to `url` and starts remuxing, reconnecting a lost source when `reconnect`.
     ///
     /// Without `copy` the video is re-encoded as H.264. `transport` is `"tcp"` or `"udp"`.
-    /// Durations are in seconds, and a `stall_timeout` of `None` waits on a silent camera
+    /// Durations are in seconds, and a `stall_timeout` of `None` waits on a silent source
     /// forever.
     #[new]
     #[pyo3(signature = (url, *, copy, transport, fragment_duration, dash, reconnect, stall_timeout))]
@@ -119,7 +119,7 @@ impl RtspStream {
     /// The next chunk of the MP4 stream as `bytes`, or an `RtspNotice`, `None` once the stream
     /// ends.
     ///
-    /// Waiting blocks a thread of its own so a quiet camera leaves the event loop free.
+    /// Waiting blocks a thread of its own so a quiet source leaves the event loop free.
     fn next<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let stream = Arc::clone(&self.stream);
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
@@ -147,7 +147,7 @@ impl RtspStream {
 }
 
 /// A pending `next` holds its own reference to the stream, so a stream collected without
-/// `close` stops here, or that read waits on a silent camera forever.
+/// `close` stops here, or that read waits on a silent source forever.
 impl Drop for RtspStream {
     fn drop(&mut self) {
         self.stream.stop();

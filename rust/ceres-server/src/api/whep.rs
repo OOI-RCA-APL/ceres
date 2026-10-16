@@ -1,7 +1,7 @@
-//! The WHEP routes, which play a procedure's live camera to a browser over WebRTC.
+//! The WHEP routes, which play a procedure's live source to a browser over WebRTC.
 //!
 //! The browser posts its SDP offer beside the procedure's call route, with the same query
-//! arguments, and the host answers with the camera the procedure's output reads instead of
+//! arguments, and the host answers with the source the procedure's output reads instead of
 //! the output's bytes. The answer SDP comes back with the session's own URL, which a
 //! `DELETE` ends.
 
@@ -13,7 +13,7 @@ use axum::extract::{Path, RawQuery, State};
 use axum::http::{HeaderMap, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, post};
-use ceres_webrtc::{WebrtcError, WebrtcServer};
+use ceres_webrtc::{ReorderedFrames, WebrtcError, WebrtcServer};
 use uuid::Uuid;
 
 use crate::api::dispatch::Dispatch;
@@ -50,6 +50,7 @@ async fn open(
         return Err(ApiError::http(StatusCode::UNSUPPORTED_MEDIA_TYPE));
     }
     let offer = std::str::from_utf8(&body).map_err(|_| ApiError::http(StatusCode::BAD_REQUEST))?;
+    let (reordered, query) = reordered_frames(query)?;
 
     let call = Dispatch::procedure("procedures.live", address, name);
     // The host holds the procedure's output open under the handle until told it is done.
@@ -61,7 +62,7 @@ async fn open(
             return Err(refusal(StatusCode::CONFLICT, "not-live"));
         }
     };
-    let answer = match webrtc.open(source, offer).await {
+    let answer = match webrtc.open(source, offer, reordered).await {
         Ok(answer) => answer,
         Err(error) => {
             state.host.stream_close(handle).await;
@@ -102,6 +103,33 @@ async fn close(
     Ok(StatusCode::OK)
 }
 
+/// Takes the `reordered` parameter out of `query`, returning what it asks for, `refuse` or
+/// `drop`, and the rest of the query, which is the procedure's arguments.
+///
+/// The offer's body is SDP with no room for it, and a header of our own would cost a browser
+/// a CORS preflight. So a procedure argument named `reordered` is this route's own and never
+/// reaches the procedure.
+fn reordered_frames(query: Option<String>) -> Result<(ReorderedFrames, Option<String>), ApiError> {
+    let Some(query) = query else {
+        return Ok((ReorderedFrames::default(), None));
+    };
+    let mut reordered = ReorderedFrames::default();
+    let mut arguments = form_urlencoded::Serializer::new(String::new());
+    for (key, value) in form_urlencoded::parse(query.as_bytes()) {
+        if key != "reordered" {
+            arguments.append_pair(&key, &value);
+            continue;
+        }
+        reordered = match &*value {
+            "refuse" => ReorderedFrames::Refuse,
+            "drop" => ReorderedFrames::Drop,
+            _ => return Err(ApiError::http(StatusCode::BAD_REQUEST)),
+        };
+    }
+    let arguments = arguments.finish();
+    Ok((reordered, (!arguments.is_empty()).then_some(arguments)))
+}
+
 /// The server's WebRTC sessions, refused as unavailable when WebRTC is off.
 fn server(state: &AppState) -> Result<&Arc<WebrtcServer>, ApiError> {
     let unavailable = || refusal(StatusCode::SERVICE_UNAVAILABLE, "disabled");
@@ -111,7 +139,7 @@ fn server(state: &AppState) -> Result<&Arc<WebrtcServer>, ApiError> {
 /// The refusal a session that could not open answers with, its `reason` the console's cue
 /// to play the procedure's output instead.
 ///
-/// The error's own text stays out of the body, since a source's can carry the camera's URL
+/// The error's own text stays out of the body, since a source's can carry its URL
 /// and its credentials.
 fn refused(error: WebrtcError) -> ApiError {
     match error {
@@ -120,6 +148,7 @@ fn refused(error: WebrtcError) -> ApiError {
         WebrtcError::Codec(_) => refusal(StatusCode::CONFLICT, "codec"),
         WebrtcError::Source(_) => refusal(StatusCode::BAD_GATEWAY, "source"),
         WebrtcError::Timeout => refusal(StatusCode::GATEWAY_TIMEOUT, "timeout"),
+        WebrtcError::Reordered => refusal(StatusCode::CONFLICT, "reordered"),
     }
 }
 
@@ -220,7 +249,7 @@ mod tests {
                     file: None,
                     handle: 7,
                 })),
-                // What the operation answers for a procedure whose output reads no camera.
+                // What the operation answers for a procedure whose output reads no live source.
                 None => Ok(Answer::Payload("null".into())),
             }
         }
@@ -251,11 +280,11 @@ mod tests {
     }
 
     fn host(clip: Option<&RtspServer>) -> Arc<LiveHost> {
-        let live = clip.map(|camera| LiveSource {
-            url: camera.url(),
+        let live = clip.map(|rtsp| LiveSource {
+            url: rtsp.url(),
             transport: "tcp".into(),
             copy: true,
-            // A camera that stops ends the session, so its output closes.
+            // A source that stops ends the session, so its output closes.
             reconnect: false,
             stall_timeout: Some(Duration::from_secs(5)),
         });
@@ -265,7 +294,7 @@ mod tests {
         })
     }
 
-    fn camera(clip: &str) -> RtspServer {
+    fn source_server(clip: &str) -> RtspServer {
         let options = RtspServerOptions {
             clips: vec![clip.into()],
             ..RtspServerOptions::default()
@@ -308,8 +337,8 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn a_live_procedure_answers_at_its_session_url_until_deleted() {
-        let camera = camera("h264");
-        let host = host(Some(&camera));
+        let rtsp = source_server("h264");
+        let host = host(Some(&rtsp));
         let app = app(&host, true);
 
         let response = post(&app, &format!("{PROCEDURE}?zoom=2"), SDP).await;
@@ -336,14 +365,14 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn a_session_whose_camera_stops_closes_its_procedure_output() {
+    async fn a_session_whose_source_stops_closes_its_procedure_output() {
         let options = RtspServerOptions {
             clips: vec!["h264".into()],
             drop_after: Some(Duration::from_secs(1)),
             ..RtspServerOptions::default()
         };
-        let camera = RtspServer::start("127.0.0.1:0".parse().unwrap(), options).unwrap();
-        let host = host(Some(&camera));
+        let rtsp = RtspServer::start("127.0.0.1:0".parse().unwrap(), options).unwrap();
+        let host = host(Some(&rtsp));
         let app = app(&host, true);
         assert_eq!(
             post(&app, PROCEDURE, SDP).await.status(),
@@ -367,12 +396,38 @@ mod tests {
         let response = post(&not_live, PROCEDURE, "text/plain").await;
         assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
 
-        let camera = camera("h265");
-        let h265 = host(Some(&camera));
+        let rtsp = source_server("h265");
+        let h265 = host(Some(&rtsp));
         let codec = (StatusCode::CONFLICT, json!("codec"));
         let response = post(&app(&h265, true), PROCEDURE, SDP).await;
         assert_eq!(refused(response).await, codec);
         assert_eq!(*h265.closed.lock().unwrap(), [7]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_source_reordering_frames_is_refused_unless_they_may_be_dropped() {
+        let rtsp = source_server("h264-bframes");
+        let host = host(Some(&rtsp));
+        let app = app(&host, true);
+        let reordered = (StatusCode::CONFLICT, json!("reordered"));
+        assert_eq!(refused(post(&app, PROCEDURE, SDP).await).await, reordered);
+
+        // Read as a browser's form encoding is, so an encoded name is still the parameter.
+        let dropping = format!("{PROCEDURE}?zoom=2&&re%6Frdered=drop");
+        assert_eq!(
+            post(&app, &dropping, SDP).await.status(),
+            StatusCode::CREATED
+        );
+        // The parameter is the server's, never one of the procedure's arguments.
+        assert_eq!(
+            host.calls.lock().unwrap()[1]["query"],
+            json!([["zoom", "2"]])
+        );
+
+        for unknown in ["keep", "drop%20"] {
+            let unknown = post(&app, &format!("{PROCEDURE}?reordered={unknown}"), SDP).await;
+            assert_eq!(unknown.status(), StatusCode::BAD_REQUEST);
+        }
     }
 
     #[tokio::test(flavor = "multi_thread")]

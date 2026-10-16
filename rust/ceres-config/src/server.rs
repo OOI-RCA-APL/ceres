@@ -1048,7 +1048,7 @@ mod tests {
 
         let settings = certificate(
             "\n    path: certs/site.crt\n    key: certs/site.key\n    auto:\n      ip: \
-             [10.20.1.230, '::1']\n      dns: [camctrl.local]\n      days: 825\n      ca:\n        \
+             [192.0.2.10, '::1']\n      dns: [site.local]\n      days: 825\n      ca:\n        \
              key-password: hunter2\n",
         )
         .unwrap();
@@ -1057,11 +1057,11 @@ mod tests {
         assert_eq!(
             auto.ip,
             [
-                "10.20.1.230".parse::<IpAddr>().unwrap(),
+                "192.0.2.10".parse::<IpAddr>().unwrap(),
                 "::1".parse().unwrap()
             ]
         );
-        assert_eq!(auto.dns, ["camctrl.local"]);
+        assert_eq!(auto.dns, ["site.local"]);
         assert_eq!(auto.days, 825);
         assert!(!auto.detects_names());
         // A supplied authority keeps the default paths it omits.
@@ -1280,10 +1280,7 @@ mod tests {
             problem_location("webrtc:\n  no-ice-timeout: 0\n"),
             "webrtc.no_ice_timeout"
         );
-        for refused in [
-            "webrtc:\n  hosts: [camctrl.local]\n",
-            "webrtc:\n  ports: 1\n",
-        ] {
+        for refused in ["webrtc:\n  hosts: [site.local]\n", "webrtc:\n  ports: 1\n"] {
             assert!(
                 yaml_serde::from_str::<RawServerConfig>(refused).is_err(),
                 "{refused:?}"

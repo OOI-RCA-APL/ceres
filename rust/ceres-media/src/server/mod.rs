@@ -16,9 +16,21 @@ use tempfile::TempDir;
 use crate::MediaInput;
 
 /// The clips built into the server, by the name `RtspServerOptions::clips` takes.
-pub const RTSP_CLIPS: [(&str, &[u8]); 2] = [
+///
+/// `h264` and `h265-no-bframes` send their frames in display order. `h264-bframes` sends a
+/// B-frame nothing references between each pair of references, and `h265` sends B-frames that
+/// other B-frames reference.
+pub const RTSP_CLIPS: [(&str, &[u8]); 4] = [
     ("h264", include_bytes!("../../clips/h264.mp4")),
     ("h265", include_bytes!("../../clips/h265.mp4")),
+    (
+        "h264-bframes",
+        include_bytes!("../../clips/h264-bframes.mp4"),
+    ),
+    (
+        "h265-no-bframes",
+        include_bytes!("../../clips/h265-no-bframes.mp4"),
+    ),
 ];
 
 /// How often the accept loop and a paced stream check for a stop or a due fault.
@@ -37,7 +49,7 @@ pub struct RtspServerOptions {
     pub stall_after: Option<Duration>,
     /// Closes this many connections as soon as they are accepted.
     pub refuse: usize,
-    /// Closes each connection accepted while this many are already open, as a camera limiting
+    /// Closes each connection accepted while this many are already open, as a source limiting
     /// its sessions does.
     pub max_sessions: Option<usize>,
     /// Closes the listener and every session once, after the server has been up this long.

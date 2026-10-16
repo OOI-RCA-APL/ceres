@@ -7,7 +7,10 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use ceres_config::ServerWebrtcConfig;
-use ceres_media::{LiveSource, MediaCodec, MediaError, OwnedTrack, PacketItem, PacketStream};
+use ceres_media::{
+    FrameOrder, LiveSource, MediaCodec, MediaError, MediaPacket, OwnedTrack, PacketItem,
+    PacketStream, is_unreferenced,
+};
 use str0m::change::SdpOffer;
 use str0m::crypto::CryptoProvider;
 use str0m::net::{Protocol, Receive};
@@ -15,8 +18,22 @@ use str0m::{Input, Rtc, RtcConfig};
 use tokio::sync::{Semaphore, mpsc, oneshot};
 
 use crate::candidates::{candidates, local_addresses};
+use crate::picture::Picture;
 use crate::session::{Session, SessionId, offered_video};
 use crate::socket::{MediaSocket, MediaSockets, ReceiveBuffers};
+
+/// What a session does with a source whose frames arrive out of display order, as B-frames
+/// make them. A browser shows WebRTC frames in the order they arrive, so sending them as they
+/// come plays the picture back and forth.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ReorderedFrames {
+    /// Refuses the source, so the browser plays it over HTTP at its full frame rate.
+    #[default]
+    Refuse,
+    /// Drops the frames nothing references, sending the rest in display order at a lower
+    /// frame rate, and refuses a source whose kept frames still reorder.
+    Drop,
+}
 
 /// How long a new session waits for the source's first picture before giving up.
 ///
@@ -40,6 +57,8 @@ pub enum WebrtcError {
     Source(String),
     #[error("the source sent no picture within {OPEN_TRACK_TIMEOUT:?}")]
     Timeout,
+    #[error("the source sends its frames out of display order")]
+    Reordered,
 }
 
 /// A session just opened.
@@ -106,8 +125,14 @@ impl WebrtcServer {
     }
 
     /// Opens a session sending `source` to the browser that made `offer`, once the source has
-    /// its first picture.
-    pub async fn open(&self, source: LiveSource, offer: &str) -> Result<WebrtcAnswer, WebrtcError> {
+    /// its first picture and its frames have shown which order they come in, handling
+    /// reordered ones as `reordered` says.
+    pub async fn open(
+        &self,
+        source: LiveSource,
+        offer: &str,
+        reordered: ReorderedFrames,
+    ) -> Result<WebrtcAnswer, WebrtcError> {
         let slot = Arc::clone(&self.slots)
             .try_acquire_owned()
             .map_err(|_| WebrtcError::Full)?;
@@ -125,7 +150,9 @@ impl WebrtcServer {
         let options = source.options();
         let stream = PacketStream::shared(source.key(), || source.connection(), options);
         let stream = Arc::new(stream);
-        let track = first_track(&stream).await?;
+        let dropping = reordered == ReorderedFrames::Drop;
+        let mut picture = first_picture(&stream, dropping).await?;
+        let track = Arc::clone(&picture.track);
         let codec = track.codec();
         if !sendable.contains(&codec) {
             return Err(WebrtcError::Codec(
@@ -139,6 +166,9 @@ impl WebrtcServer {
                 "the offer cannot receive the source's {codec:?} video"
             )));
         };
+        if picture.order == FrameOrder::Reordered {
+            return Err(WebrtcError::Reordered);
+        }
 
         let mut rtc = self.rtc(codec);
         let local = local_addresses();
@@ -157,15 +187,22 @@ impl WebrtcServer {
             .accept_offer(offer)
             .map_err(|error| WebrtcError::Offer(error.to_string()))?;
         let id = uuid::Uuid::new_v4().to_string();
-        let (session, closed) = Session::new(
+        let (mut session, closed) = Session::new(
             id.as_str().into(),
             rtc,
             mid,
             stream,
             track,
+            dropping,
             slot,
             self.no_ice_timeout,
         )?;
+        // Held for the browser to start from, as the packets read after these will be.
+        for packet in picture.packets.take() {
+            if !session.feed(PacketItem::Packet(packet)) {
+                return Err(WebrtcError::Reordered);
+            }
+        }
         // The event loop ends only with the server, which `self` keeps alive.
         let _ = self.commands.send(Command::Open(Box::new(session))).await;
         Ok(WebrtcAnswer {
@@ -198,22 +235,68 @@ impl WebrtcServer {
     }
 }
 
-/// Waits for the stream's first track, stopping the stream if it does not come.
-async fn first_track(stream: &Arc<PacketStream>) -> Result<Arc<OwnedTrack>, WebrtcError> {
+/// A source's latest track and the packets of it read while telling the order of its frames.
+struct FirstPicture {
+    track: Arc<OwnedTrack>,
+    /// The packets since `track`'s latest keyframe, for the session to start from.
+    packets: Picture<MediaPacket>,
+    /// The order of the frames a session sends, those a dropping one drops left out.
+    order: FrameOrder,
+}
+
+/// Reads the stream's first track and then its packets until the order of the frames a
+/// session sends shows, those it drops when `dropping` left out, and stops the stream if that
+/// takes too long.
+///
+/// A stream joined partway through a source's group of pictures shows its order only after the
+/// next keyframe, seconds away for many live sources, so only the packets a session would hold are.
+async fn first_picture(
+    stream: &Arc<PacketStream>,
+    dropping: bool,
+) -> Result<FirstPicture, WebrtcError> {
     let reading = Arc::clone(stream);
     let wait = tokio::task::spawn_blocking(move || {
-        loop {
-            match reading.next() {
-                Some(Ok(PacketItem::Track(track))) => return Ok(track),
-                // A notice comes before the picture when the source is slow to connect.
-                Some(Ok(_)) => {}
-                Some(Err(error)) => return Err(WebrtcError::Source(error.to_string())),
-                None => return Err(WebrtcError::Source("the source ended".into())),
+        let read = || match reading.next() {
+            Some(Ok(item)) => Ok(item),
+            Some(Err(error)) => Err(WebrtcError::Source(error.to_string())),
+            None => Err(WebrtcError::Source("the source ended".into())),
+        };
+        let order = || {
+            if dropping {
+                reading.referenced_frame_order()
+            } else {
+                reading.frame_order()
+            }
+        };
+        let mut track = loop {
+            // A notice comes before the picture when the source is slow to connect.
+            if let PacketItem::Track(track) = read()? {
+                break track;
+            }
+        };
+        let mut packets = Picture::new(PacketStream::GOP_BYTES);
+        while order() == FrameOrder::Unknown {
+            match read()? {
+                PacketItem::Track(next) => {
+                    track = next;
+                    packets.clear();
+                }
+                PacketItem::Packet(packet) => {
+                    if !(dropping && is_unreferenced(packet.data(), track.codec())) {
+                        packets.hold(packet);
+                    }
+                }
+                PacketItem::Notice(_) => {}
             }
         }
+        Ok(FirstPicture {
+            track,
+            packets,
+            order: order(),
+        })
     });
     match tokio::time::timeout(OPEN_TRACK_TIMEOUT, wait).await {
-        Ok(Ok(track)) => track,
+        Ok(Ok(picture)) => picture,
         Ok(Err(error)) => Err(WebrtcError::Source(error.to_string())),
         Err(_) => {
             stream.stop();

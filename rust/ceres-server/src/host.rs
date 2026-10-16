@@ -77,10 +77,10 @@ pub enum Answer {
     Payload(String),
     /// A body the server produces itself, which only a media output returns.
     Served(Served),
-    /// The live camera behind a procedure's output, which only `procedures.live` returns.
+    /// The live source behind a procedure's output, which only `procedures.live` returns.
     Live {
         source: LiveSource,
-        /// The handle the server closes once the camera stops playing, which ends the
+        /// The handle the server closes once the source stops playing, which ends the
         /// procedure call that returned the output.
         handle: u64,
     },

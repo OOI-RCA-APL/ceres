@@ -23,8 +23,8 @@ struct Arguments {
     #[arg(long, default_value = "stream")]
     path: String,
 
-    /// A built-in clip, h264 or h265, or a video file path. Repeat it to give successive
-    /// sessions successive clips.
+    /// A built-in clip, h264, h265, h264-bframes or h265-no-bframes, or a video file path.
+    /// Repeat it to give successive sessions successive clips.
     #[arg(long = "clip", value_name = "CLIP", default_value = "h264")]
     clips: Vec<String>,
 

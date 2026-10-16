@@ -4,6 +4,7 @@ mod error;
 mod ffi;
 mod input;
 mod logging;
+mod nal;
 mod options;
 mod output;
 #[cfg(test)]
@@ -17,10 +18,11 @@ use std::time::Duration;
 
 pub use error::MediaError;
 pub use input::{Interrupt, MediaInput, MediaPacket, PacketTiming};
+pub use nal::{NalUnits, is_unreferenced};
 pub use output::{MediaCodec, MediaOutput, MediaSink, MediaTrack, OwnedTrack};
 pub use remux::{
-    LiveSource, PacketItem, PacketStream, RemuxBackoff, RemuxOptions, RemuxSource, RemuxStream,
-    RtspSource, StreamItem, StreamNotice,
+    FrameOrder, LiveSource, PacketItem, PacketStream, RemuxBackoff, RemuxOptions, RemuxSource,
+    RemuxStream, RtspSource, StreamItem, StreamNotice,
 };
 #[cfg(any(test, feature = "server"))]
 pub use server::{RTSP_CLIPS, RtspServer, RtspServerOptions};

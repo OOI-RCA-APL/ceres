@@ -2,9 +2,10 @@
 //!
 //! A reader thread holds the source's connection, reconnecting it as needed, and fans its packets
 //! out to every stream reading it. Each stream runs its own muxer on a thread of its own, so one
-//! camera connection serves any number of viewers, each joining at the latest keyframe. A
+//! source connection serves any number of viewers, each joining at the latest keyframe. A
 //! `PacketStream` reads the same packets unmuxed, for a consumer that frames them itself.
 
+mod order;
 mod packets;
 mod reader;
 mod subscriber;
@@ -17,6 +18,7 @@ use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError};
 use std::thread;
 use std::time::Duration;
 
+pub use self::order::FrameOrder;
 pub use self::packets::{PacketItem, PacketStream};
 use self::reader::{Feeding, Reader};
 use crate::{Interrupt, MediaError, MediaInput, TimeBase};
@@ -40,7 +42,7 @@ pub trait RemuxSource: Send + 'static {
     fn connect(&mut self, interrupt: Interrupt) -> Option<Result<MediaInput, MediaError>>;
 }
 
-/// An RTSP camera, reached over `transport`, `tcp` or `udp`.
+/// An RTSP source, reached over `transport`, `tcp` or `udp`.
 pub struct RtspSource {
     pub url: String,
     pub transport: String,
@@ -53,7 +55,7 @@ impl RemuxSource for RtspSource {
     }
 }
 
-/// A live RTSP camera and how a shared connection to it is held.
+/// A live RTSP source and how a shared connection to it is held.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LiveSource {
     pub url: String,
@@ -68,7 +70,7 @@ impl LiveSource {
     /// The key of the shared connection this source's streams join.
     ///
     /// It leaves out `reconnect`, which each stream applies on its own, so streams differing
-    /// only there still share one camera connection.
+    /// only there still share one source connection.
     pub fn key(&self) -> String {
         let Self {
             url,

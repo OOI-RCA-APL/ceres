@@ -4,10 +4,11 @@ use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use super::order::{FrameOrder, FrameOrderCheck, SharedFrameOrder};
 use super::reader::{Feed, Feeding, Reader};
 use super::timeline::Timeline;
 use super::{RemuxOptions, RemuxSource, StreamNotice, attach};
-use crate::{MediaError, MediaPacket, OwnedTrack, TimeBase};
+use crate::{MediaCodec, MediaError, MediaPacket, OwnedTrack, TimeBase, is_unreferenced};
 
 /// One read from a `PacketStream`.
 pub enum PacketItem {
@@ -31,6 +32,10 @@ pub struct PacketStream {
     id: u64,
     reconnect: bool,
     stopped: AtomicBool,
+    /// The order of the current track's frames, as far as the packets read so far tell.
+    order: SharedFrameOrder,
+    /// As `order`, of only the frames others reference.
+    referenced_order: SharedFrameOrder,
 }
 
 struct Reading {
@@ -44,6 +49,13 @@ struct Reading {
     /// rather than failing it.
     started: bool,
     ended: bool,
+    /// The codec of the last track, which tells which of its frames others reference.
+    codec: MediaCodec,
+    /// Told from the source's own presentation times, since placing them on the timeline
+    /// holds each one at or after its decode time, which for a source sending no decode times
+    /// hides the reordering.
+    order: FrameOrderCheck,
+    referenced_order: FrameOrderCheck,
 }
 
 impl std::fmt::Debug for PacketItem {
@@ -89,11 +101,29 @@ impl PacketStream {
                 queued: VecDeque::new(),
                 started: false,
                 ended: false,
+                codec: MediaCodec::Other,
+                order: FrameOrderCheck::default(),
+                referenced_order: FrameOrderCheck::default(),
             }),
             reader,
             reconnect: options.reconnect,
             stopped: AtomicBool::new(false),
+            order: SharedFrameOrder::default(),
+            referenced_order: SharedFrameOrder::default(),
         }
+    }
+
+    /// The order the current track's frames arrive in, as far as the packets read so far
+    /// tell. A track's first read starts over, and its order is known a few packets after
+    /// its keyframe.
+    pub fn frame_order(&self) -> FrameOrder {
+        self.order.get()
+    }
+
+    /// As `frame_order`, of only the frames others reference, the ones left once every frame
+    /// `is_unreferenced` finds is dropped.
+    pub fn referenced_frame_order(&self) -> FrameOrder {
+        self.referenced_order.get()
     }
 
     /// Blocks for the next track, packet, or notice, `None` once the stream ends.
@@ -101,7 +131,10 @@ impl PacketStream {
         let mut reading = self.reading();
         loop {
             if let Some(item) = reading.queued.pop_front() {
-                return Some(item.map(|item| reading.place(item)));
+                let item = item.map(|item| reading.place(item));
+                self.order.set(reading.order.order());
+                self.referenced_order.set(reading.referenced_order.order());
+                return Some(item);
             }
             if reading.ended {
                 return None;
@@ -163,12 +196,20 @@ impl Reading {
             PacketItem::Track(track) => {
                 self.timeline.reconnect();
                 self.time_base = Some(track.time_base());
+                self.codec = track.codec();
+                self.order.reset();
+                self.referenced_order.reset();
                 PacketItem::Track(track)
             }
             PacketItem::Packet(mut packet) => {
                 self.started = true;
                 if let Some(time_base) = self.time_base {
                     let timing = packet.timing().rescale(time_base, PacketStream::TIME_BASE);
+                    let key = packet.is_key();
+                    self.order.observe(timing.pts, key);
+                    if !is_unreferenced(packet.data(), self.codec) {
+                        self.referenced_order.observe(timing.pts, key);
+                    }
                     packet.set_timing(self.timeline.place(timing));
                 }
                 PacketItem::Packet(packet)

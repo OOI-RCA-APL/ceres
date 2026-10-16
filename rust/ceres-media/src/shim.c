@@ -347,7 +347,7 @@ int ceres_transcoder_connect(CeresTranscoder *t, AVFormatContext *input, int str
         return error;
     }
     if (t->encoder == NULL) {
-        // RTP carries no frame rate, so a guess past any camera's means the estimate failed.
+        // RTP carries no frame rate, so a guess past any live source's means the estimate failed.
         AVRational rate = av_guess_frame_rate(input, source, NULL);
         t->frame_rate = rate.num > 0 && rate.den > 0 && av_q2d(rate) <= 120 ? rate
                                                                              : (AVRational){30, 1};

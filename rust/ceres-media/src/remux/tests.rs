@@ -295,7 +295,7 @@ fn stopping_the_stream_ends_a_pending_read() {
     assert!(ended.recv_timeout(Duration::from_secs(5)).unwrap());
 }
 
-/// A stream of `server`'s camera joined to the source every other stream of it shares.
+/// A stream of `server`'s video joined to the source every other stream of it shares.
 fn shared(server: &RtspServer, options: RemuxOptions) -> RemuxStream {
     RemuxStream::shared(server.url(), || rtsp(server), options)
 }
@@ -315,7 +315,7 @@ fn drain_for(stream: RemuxStream, duration: Duration) -> thread::JoinHandle<Drai
 }
 
 #[test]
-fn streams_of_one_camera_share_its_session() {
+fn streams_of_one_source_share_its_session() {
     let server = serve(RtspServerOptions {
         max_sessions: Some(1),
         ..RtspServerOptions::default()
@@ -335,7 +335,7 @@ fn streams_of_one_camera_share_its_session() {
 }
 
 #[test]
-fn a_camera_stays_connected_briefly_after_its_last_stream() {
+fn a_source_stays_connected_briefly_after_its_last_stream() {
     let server = serve(RtspServerOptions::default());
     let options = RemuxOptions {
         linger: Duration::from_millis(500),
@@ -405,7 +405,7 @@ fn a_stream_without_reconnect_ends_while_others_reconnect() {
 }
 
 #[test]
-fn a_lost_camera_is_reported_once_per_outage() {
+fn a_lost_source_is_reported_once_per_outage() {
     let server = serve(RtspServerOptions {
         restart_after: Some(Duration::from_secs(1)),
         restart_downtime: Duration::from_millis(500),
