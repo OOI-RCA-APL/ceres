@@ -125,15 +125,18 @@ watch(
           title: 'Transport',
           description: transportHints[widget.transport],
           enum: ['auto', 'webrtc', 'http'],
+          enumLabels: ['Auto', 'WebRTC', 'HTTP'],
         }"
       />
       <c-text
         v-if="widget.transport === 'auto' && playing != null"
-        class="italic"
+        class="text-center italic"
         data-transport-playing
         variant="description"
       >
-        Playing over {{ transportLabels[playing.transport] }}. {{ playing.why }}
+        Playing over {{ transportLabels[playing.transport] }}.{{
+          playing.why == null ? '' : ` ${playing.why}`
+        }}
       </c-text>
     </div>
   </c-workspace-widget-settings>

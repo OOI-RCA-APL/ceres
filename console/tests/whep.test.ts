@@ -173,10 +173,7 @@ describe('useVideoTransports', () => {
 
   it('tells what each widget plays over until it stops', () => {
     const transports = useVideoTransports()
-    transports.show('video', {
-      transport: 'webrtc',
-      why: 'WebRTC works with this video and browser.',
-    })
+    transports.show('video', { transport: 'webrtc' })
     expect(transports.playing('video')?.transport).toBe('webrtc')
 
     transports.show('video', null)

@@ -4,10 +4,11 @@ import { reactive } from 'vue'
 /** How a video widget receives its picture, named on the widget so a fallback is visible. */
 export type VideoTransport = 'webrtc' | 'http'
 
-/** The transport a video plays over, and `why`, one sentence a viewer can act on. */
+/** The transport a video plays over, and `why`, one sentence a viewer can act on. A video
+playing over WebRTC on its own needs no reason. */
 export interface TransportChoice {
   transport: VideoTransport
-  why: string
+  why?: string
 }
 
 // A video that takes longer than these to show its picture over WebRTC plays over HTTP instead,
@@ -77,10 +78,23 @@ export function fallbackWhy(error: unknown) {
   return 'The WebRTC request failed.'
 }
 
+/** What a browser did with a WebRTC session's video so far. */
+export interface Decoding {
+  received: number
+  decoded: number
+  /** The decoder in use, which names a fallback that decodes nothing, as Chrome's
+  `NullVideoDecoder` after its hardware decoder fails. */
+  decoder: string | null
+  freezes: number
+  frozenSeconds: number
+}
+
 /** A procedure's live video playing over WebRTC. */
 export interface WhepSession {
   /** The video's picture, for a video element's `srcObject`. */
   readonly stream: MediaStream
+  /** The browser's count of the frames it received and decoded, and the decoder it uses. */
+  decoding(): Promise<Decoding | null>
   /** End the session, here and on the server. */
   close(): void
 }
@@ -146,7 +160,11 @@ export async function openWhep(
       }
     })
 
-    return { stream: await stream, close }
+    return {
+      stream: await stream,
+      decoding: () => decoding(connection),
+      close,
+    }
   } catch (error) {
     close()
     throw error
@@ -193,15 +211,36 @@ function connected(connection: RTCPeerConnection) {
   })
 }
 
+/** What the browser did with `connection`'s video, `null` before any of it arrived or once the
+connection closed, which Firefox's `getStats` rejects. */
+async function decoding(connection: RTCPeerConnection): Promise<Decoding | null> {
+  let reports: RTCStatsReport
+  try {
+    reports = await connection.getStats()
+  } catch {
+    return null
+  }
+  for (const report of reports.values()) {
+    if (report.type === 'inbound-rtp' && report.kind === 'video') {
+      const video = report as RTCInboundRtpStreamStats
+      return {
+        received: video.framesReceived ?? 0,
+        decoded: video.framesDecoded ?? 0,
+        decoder: video.decoderImplementation ?? null,
+        freezes: video.freezeCount ?? 0,
+        frozenSeconds: video.totalFreezesDuration ?? 0,
+      }
+    }
+  }
+  return null
+}
+
 /** Resolves once `connection` has decoded a video frame, rejecting when none comes in time. */
 async function firstFrame(connection: RTCPeerConnection) {
   const deadline = Date.now() + frameTimeoutMs
   while (Date.now() < deadline) {
-    const stats = await connection.getStats()
-    for (const report of stats.values()) {
-      if (report.type === 'inbound-rtp' && report.kind === 'video' && report.framesDecoded > 0) {
-        return
-      }
+    if (((await decoding(connection))?.decoded ?? 0) > 0) {
+      return
     }
 
     await new Promise((resolve) => setTimeout(resolve, framePollMs))

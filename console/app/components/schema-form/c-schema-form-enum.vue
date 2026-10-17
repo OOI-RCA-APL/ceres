@@ -46,8 +46,14 @@ function format(value: unknown) {
 type Item = { label: string; value: Plain }
 
 const items = $computed<Item[]>(() =>
-  schema.enum.map((option) => ({ label: format(option), value: option })),
+  schema.enum.map((option, index) => ({
+    label: schema.enumLabels?.[index] ?? format(option),
+    value: option,
+  })),
 )
+
+// Raw values read as code, labels as words.
+const font = $computed(() => (schema.enumLabels == null ? 'font-mono' : ''))
 
 const selected = $computed<Item | undefined>(() => {
   const resolved = resolve(modelValue)
@@ -72,15 +78,15 @@ function onClear() {
     over the field and would sit on the value it clears. -->
     <div :class="form.embedded ? 'flex min-w-0 items-center gap-0.5' : 'contents'">
       <c-select-menu
-        :class="form.embedded ? 'w-auto font-mono' : 'w-full font-mono'"
+        :class="[form.embedded ? 'w-auto' : 'w-full', font]"
         :items="items"
         :model-value="selected"
         :search-input="{ placeholder: 'Filter...' }"
         :size="form.embedded ? 'xs' : 'sm'"
         :ui="{
-          base: form.embedded
-            ? 'font-mono text-[10px] md:text-[10px] px-0 py-0'
-            : 'font-mono text-xs',
+          base: [form.embedded ? 'text-[10px] md:text-[10px] px-0 py-0' : 'text-xs', font].join(
+            ' ',
+          ),
           // The popup is sized from its anchor, and an embedded trigger is only as wide as its
           // value, which would cut the options it is offering short.
           content: form.embedded ? 'w-auto min-w-fit' : undefined,
