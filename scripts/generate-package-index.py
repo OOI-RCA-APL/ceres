@@ -105,6 +105,11 @@ def main() -> int:
 
     anchors: dict[str, list[str]] = {project: [] for project in _PROJECTS}
     for release in _releases(repository, token):
+        # A pull request's prerelease holds untested builds for one host to try, which an
+        # index resolving with prereleases allowed would otherwise offer as an upgrade.
+        if release.get("prerelease") or release.get("draft"):
+            continue
+
         for asset in release.get("assets", []):
             project = _project_of(asset["name"])
             anchor = _anchor(asset)
