@@ -14,6 +14,25 @@ written, and the release workflow refuses a version that has no entry here.
   held a 10 Mbit/s source 20 s behind live at fewer frames per second than HTTP. A network
   narrower than the source now makes every session skip to its next keyframe once a second of
   video waits to leave, so the picture stays within a second plus one keyframe interval of live.
+- Response compression leaves alone what a codec or an archive already compressed: video, audio,
+  WOFF fonts, and zip, gzip, zstd, xz, bzip2, 7z and rar files. Another pass shrank none of them
+  and spent the CPU a live video keeps busy. Text, JSON, uncompressed fonts and unknown binary
+  data still compress, for the slow links ceres often runs behind.
+
+**Web Console**
+
+- A WebRTC video whose browser stops decoding it, as when Chrome falls back to its
+  `NullVideoDecoder` after a hardware decoder fault, reconnects after ten seconds and logs the
+  decoder it had. On Auto, two such stalls within a minute switch the widget to HTTP.
+- Safari no longer reconnects a live HTTP video every few seconds. It read the stream's length
+  from what it had buffered and ended playback at the newest frame, so the console now gives a
+  stream that declares no length an endless duration.
+- Workspace edits follow the user across tabs and browsers. A tab writes its draft only when it
+  holds an edit of its own, so reloading one no longer puts its older copy over a draft written
+  elsewhere, and a tab with no edit of its own takes the newer draft once it is back in view.
+  Two tabs both holding edits still to write each write theirs, and the last one wins.
+- The Transport setting reads Auto, WebRTC and HTTP, and the dialog says which one a video on
+  Auto plays over, with the reason when it fell to HTTP.
 
 ## [0.49.2] - 2026-10-16
 

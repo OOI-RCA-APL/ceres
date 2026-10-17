@@ -1,6 +1,6 @@
 # Coverage
 
-<!-- coverage:fingerprint:e9ba6d02fa5545b8 -->
+<!-- coverage:fingerprint:c11bcb5fb4197991 -->
 
 ## Python
 
@@ -221,7 +221,7 @@
 | `rust/ceres-server/src/cookie.rs` | 100% |
 | `rust/ceres-server/src/error.rs` | 90% |
 | `rust/ceres-server/src/host.rs` | 40% |
-| `rust/ceres-server/src/layers.rs` | 91% |
+| `rust/ceres-server/src/layers.rs` | 94% |
 | `rust/ceres-server/src/lib.rs` | 100% |
 | `rust/ceres-server/src/redirect.rs` | 100% |
 | `rust/ceres-server/src/scrub.rs` | 97% |
