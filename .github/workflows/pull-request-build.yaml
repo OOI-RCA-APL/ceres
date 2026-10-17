@@ -24,7 +24,7 @@ env:
   TAG: pr-${{ github.event.pull_request.number || inputs.pull_request }}
   # The profile also becomes the version's local label, so an installed build names its own
   # profile wherever it reports its version.
-  PROFILE: ${{ github.event_name == 'workflow_dispatch' && 'release' || 'debug' }}
+  PROFILE: release
 
 # A newer push cancels the build still running for the same pull request. The event name keeps
 # a dispatched release build and a push's debug build from cancelling each other.
