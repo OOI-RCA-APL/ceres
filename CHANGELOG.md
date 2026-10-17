@@ -8,6 +8,8 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+## [0.49.3] - 2026-10-16
+
 **Engine**
 
 - WebRTC sends video at the source's rate instead of pacing it to a bandwidth estimate, which
