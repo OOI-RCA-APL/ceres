@@ -77,8 +77,12 @@ jobs:
           node-version-file: console/.nvmrc
       - name: Build the Console
         run: cd console && npm ci && npm run build
+      # Uncached, because a pull request's entry is readable by that pull request alone and
+      # would evict the entries `main` saves from the repository's cache quota.
       - name: Install UV
         uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: false
       # A development release of the next patch, so a host on this build upgrades to the real
       # release the normal way. The run number orders successive builds, and the local label,
       # which PyPI refuses, carries the commit and the profile. The CLI reads the same line.
@@ -194,6 +198,8 @@ jobs:
     steps:
       - name: Install UV
         uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: false
       - name: Install from the Prerelease
         env:
           URL: ${{ needs.publish.outputs.url }}
