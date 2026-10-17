@@ -2,7 +2,7 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { hevc, initSegment, plainInitSegment } from './mp4-fixture'
+import { hevc, initSegment, plainInitSegment, recordingInitSegment } from './mp4-fixture'
 
 import CWorkspaceWidgetVideo from '@/components/c-workspace-widget-video.vue'
 import type { WidgetStatus } from '@/widget-status'
@@ -62,6 +62,7 @@ let mediaSources: FakeMediaSource[]
 class FakeMediaSource extends EventTarget {
   static isTypeSupported = (type: string) => isTypeSupported(type)
   readyState = 'open'
+  duration = Number.NaN
   endOfStream = vi.fn(() => {
     this.readyState = 'ended'
   })
@@ -97,7 +98,7 @@ async function settle() {
 }
 
 /** Mount the widget on a stream opening with `head`, whose later chunks the test sends. */
-async function streamed(head: Uint8Array) {
+async function streamed(head: Uint8Array, contentType = 'video/mp4') {
   let controller!: ReadableStreamDefaultController<Uint8Array>
   let calls = 0
   const body = new ReadableStream<Uint8Array>({
@@ -112,7 +113,7 @@ async function streamed(head: Uint8Array) {
       async () =>
         // A reconnect gets a stream that never sends, so a test sees only the first.
         new Response(calls++ === 0 ? body : new ReadableStream(), {
-          headers: { 'content-type': 'video/mp4' },
+          headers: { 'content-type': contentType },
         }),
     ),
   )
@@ -228,7 +229,7 @@ describe('c-workspace-widget-video through a MediaSource', () => {
   })
 
   it('keeps all of a recording, to seek over', async () => {
-    const { element, send, load } = await streamed(initSegment(hevc))
+    const { element, send, load } = await streamed(recordingInitSegment(60, hevc))
     await load(60)
     Object.defineProperty(element, 'currentTime', { value: 100 })
     await send(2)
@@ -236,7 +237,7 @@ describe('c-workspace-widget-video through a MediaSource', () => {
   })
 
   it('ends a recording that has finished downloading instead of reconnecting', async () => {
-    const { load, close } = await streamed(initSegment(hevc))
+    const { load, close } = await streamed(recordingInitSegment(60, hevc))
     await load(60)
     await close()
 
@@ -328,7 +329,7 @@ describe('c-workspace-widget-video through a MediaSource', () => {
 
   it('leaves a recording at its own pace', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
-    const { element, load } = await streamed(initSegment(hevc))
+    const { element, load } = await streamed(recordingInitSegment(60, hevc))
     await load(60)
     playing(element, 10, 20)
 
@@ -363,10 +364,39 @@ describe('c-workspace-widget-video through a MediaSource', () => {
   })
 
   it('never marks a recording live', async () => {
-    const { video, load } = await streamed(initSegment(hevc))
+    const { video, load } = await streamed(recordingInitSegment(60, hevc))
     await load(60)
     expect(status(video)).toMatchObject({ text: 'HTTP (Auto)' })
     expect(status(video)?.live).toBeUndefined()
+  })
+
+  // Safari reports a finite duration for a stream declaring none, where Chrome reports Infinity.
+  it('marks a stream declaring no length live, whatever duration the browser reports', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    const { video, element, load } = await streamed(initSegment(hevc))
+    await load(0.05)
+    playing(element, 19.8, 20)
+
+    vi.advanceTimersByTime(1000)
+    await settle()
+    expect(status(video)).toMatchObject({ text: 'HTTP (Auto)', live: 'live' })
+  })
+
+  // Safari otherwise ends a live stream once playback catches up with the newest frame.
+  it('gives a stream declaring no length an endless duration, which playback never reaches', async () => {
+    await streamed(initSegment(hevc))
+    expect(mediaSources.at(-1)?.duration).toBe(Infinity)
+  })
+
+  it('gives a live stream whose type names its codecs an endless duration as well', async () => {
+    await streamed(initSegment(hevc), 'video/mp4; codecs="hvc1.1.6.L93.B0"')
+    expect(buffer?.type).toBe('video/mp4; codecs="hvc1.1.6.L93.B0"')
+    expect(mediaSources.at(-1)?.duration).toBe(Infinity)
+  })
+
+  it('leaves the duration of a recording to the browser', async () => {
+    await streamed(recordingInitSegment(60, hevc))
+    expect(mediaSources.at(-1)?.duration).toBeNaN()
   })
 
   it('cycles the transport setting from the header on a click', async () => {

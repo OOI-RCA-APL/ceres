@@ -262,7 +262,7 @@ server:
   webrtc: {}
 ```
 
-Each session paces its packets at the bandwidth it estimates the path to the browser has. When the socket's send buffer fills anyway, the engine holds the packets back and sends them once it drains, so the host needs no tuning. A session logs one line when it closes, with the packets it sent, the packets the browser lost, and its requests to resend them, which tells a lossy network from a busy host.
+Each session sends the video as the source produces it, frame by frame. When the socket's send buffer fills, the engine holds the packets back and sends them once it drains, so the host needs no tuning. WebRTC keeps within about a second of live: on a connection slower than the source's bitrate, it drops to the next keyframe rather than falling behind, while the HTTP stream buffers instead. A session logs one line when it closes, with the packets it sent, the packets the browser lost, and its requests to resend them, which tells a lossy network from a busy host.
 
 ### CLI Queries
 

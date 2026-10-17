@@ -35,17 +35,34 @@ function webrtc(opens: () => Promise<unknown>) {
   openWhep.mockImplementation(opens)
 }
 
-const session = () => Promise.resolve({ stream: null, close: () => {} })
+const decoding = (received: number, decoded: number, decoder: string | null) => () =>
+  Promise.resolve({ received, decoded, decoder, freezes: 0, frozenSeconds: 0 })
+const session = () =>
+  Promise.resolve({ stream: null, decoding: decoding(0, 0, null), hold: () => {}, close: () => {} })
+// A session whose frames keep arriving with none decoded, as in Chrome after its hardware decoder
+// fails and it falls back to one that decodes nothing.
+const deadDecoder = () =>
+  Promise.resolve({
+    stream: null,
+    decoding: decoding(
+      500,
+      40,
+      'NullVideoDecoder (fallback from: ExternalDecoder (VideoToolboxVideoDecoder))',
+    ),
+    hold: () => {},
+    close: () => {},
+  })
 const refused = () => Promise.reject(new WhepRefusal(409, 'codec'))
 const full = () => Promise.reject(new WhepRefusal(503, 'full'))
 
-function render(reconnect: boolean, transport = 'auto') {
+function render(reconnect: boolean, transport = 'auto', settings: object = {}) {
   const widget = VideoWidgetModel.parse({
     id: 'video',
     type: 'video',
     query: '@device::queries::video',
     reconnect,
     transport,
+    ...settings,
   })
   return mount(CWorkspaceWidgetVideo, {
     props: { widget },
@@ -65,6 +82,18 @@ function render(reconnect: boolean, transport = 'auto') {
 /** The status the widget last sent up for its header. */
 function status(video: ReturnType<typeof render>) {
   return video.emitted<[WidgetStatus | null]>('status')?.at(-1)?.[0]
+}
+
+/** Plays the widget's video, as a viewer starting it does. The element's own frame count keeps
+rising, so only the decoder's count can tell a stopped decoder. */
+async function playing(video: ReturnType<typeof render>) {
+  const element = video.find('video').element as HTMLVideoElement
+  let frames = 0
+  Object.defineProperty(element, 'paused', { value: false })
+  Object.defineProperty(element, 'getVideoPlaybackQuality', {
+    value: () => ({ totalVideoFrames: (frames += 1) }),
+  })
+  await video.find('video').trigger('play')
 }
 
 /** The transport label the widget last sent up for its header. */
@@ -212,6 +241,44 @@ describe('c-workspace-widget-video', () => {
     vi.advanceTimersByTime(1000)
     expect(element.currentTime).toBe(10)
     expect(element.playbackRate).toBe(1)
+  })
+
+  it('reconnects a WebRTC video whose decoder stopped, naming the decoder', async () => {
+    webrtc(deadDecoder)
+    const video = render(true)
+    await flushPromises()
+    await playing(video)
+
+    await vi.advanceTimersByTimeAsync(11_000)
+    expect(console.warn).toHaveBeenCalledWith(
+      expect.stringContaining('WebRTC decoded 40 of the 500 frames it received, with Null'),
+    )
+    expect(openWhep).toHaveBeenCalledTimes(2)
+    expect(transport(video)).toBe('WebRTC (Auto)')
+  })
+
+  it('plays over HTTP once WebRTC stops showing frames twice in a minute', async () => {
+    webrtc(deadDecoder)
+    const video = render(true)
+    await flushPromises()
+    await playing(video)
+
+    await vi.advanceTimersByTimeAsync(40_000)
+    expect(transport(video)).toBe('HTTP (Auto)')
+    expect(status(video)).toMatchObject({ text: 'HTTP (Auto)' })
+    expect(video.find('video').attributes('src')).toContain('/queries/video/call')
+    expect(openWhep).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps a video held to WebRTC on WebRTC however often it stalls', async () => {
+    webrtc(deadDecoder)
+    const video = render(true, 'webrtc')
+    await flushPromises()
+    await playing(video)
+
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(openWhep.mock.calls.length).toBeGreaterThanOrEqual(3)
+    expect(video.find('video').attributes('src')).toBeUndefined()
   })
 
   it('lets a file play to its end without reconnecting', async () => {

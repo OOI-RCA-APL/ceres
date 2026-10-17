@@ -21,14 +21,39 @@ function trak(entry: Uint8Array) {
   return box('trak', box('mdia', box('minf', box('stbl', stsd))))
 }
 
-/** The init segment of a fragmented MP4, one track per sample entry. */
-export function initSegment(...entries: Uint8Array[]) {
-  return new Uint8Array([...box('ftyp'), ...box('moov', box('mvex'), ...entries.map(trak))])
+/** A full box of `type` at version 0, its fields 32-bit integers after the version and flags. */
+function fullBox(type: string, ...fields: number[]) {
+  const body = new Uint8Array(4 + fields.length * 4)
+  const view = new DataView(body.buffer)
+  fields.forEach((field, index) => view.setUint32(4 + index * 4, field))
+  return box(type, body)
 }
 
-/** The same without `mvex`, a plain MP4 that cannot be fed in pieces. */
+/** A movie header at 90 kHz declaring `ticks`, the creation and modification times left 0. */
+function mvhd(ticks: number) {
+  return fullBox('mvhd', 0, 0, 90_000, ticks)
+}
+
+/** The init segment of a live fragmented MP4, declaring no length, one track per entry. */
+export function initSegment(...entries: Uint8Array[]) {
+  return new Uint8Array([
+    ...box('ftyp'),
+    ...box('moov', mvhd(0), box('mvex'), ...entries.map(trak)),
+  ])
+}
+
+/** The init segment of a fragmented MP4 recording `seconds` long, as its `mehd` declares. */
+export function recordingInitSegment(seconds: number, ...entries: Uint8Array[]) {
+  const mehd = fullBox('mehd', seconds * 90_000)
+  return new Uint8Array([
+    ...box('ftyp'),
+    ...box('moov', mvhd(0), box('mvex', mehd), ...entries.map(trak)),
+  ])
+}
+
+/** A plain MP4 `seconds` long, without `mvex`, which cannot be fed in pieces. */
 export function plainInitSegment(...entries: Uint8Array[]) {
-  return new Uint8Array([...box('ftyp'), ...box('moov', ...entries.map(trak))])
+  return new Uint8Array([...box('ftyp'), ...box('moov', mvhd(90_000), ...entries.map(trak))])
 }
 
 /** A visual sample entry carrying `config`. */

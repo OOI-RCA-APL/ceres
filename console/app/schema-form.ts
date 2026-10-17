@@ -27,6 +27,9 @@ export type SchemaObject = BaseSchemaObject & {
   optional?: boolean
   default?: Plain
   enum?: Plain[]
+  /** What each `enum` value reads as in a form, a console setting's options being words while
+  the values a schema from the engine lists are shown as they are. */
+  enumLabels?: string[]
 }
 
 export type Schema = boolean | SchemaObject

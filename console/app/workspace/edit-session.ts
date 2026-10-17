@@ -27,6 +27,7 @@ import { useNotify } from '@/notify'
 import { workspaceInjectionKey } from '@/symbols'
 import { workspaceQueryKey } from '@/tabs'
 import { copyText, deepClone, downloadFile, isStructurallyEqual, selectFile } from '@/utilities'
+import { DraftSync } from '@/workspace/draft'
 import {
   collectLayouts,
   filledWidths,
@@ -241,15 +242,60 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     data = deepClone(history[historyIndex]) as WorkspaceData
   }
 
+  const draft = new DraftSync()
+
   async function saveEdit() {
-    // Seeding the working copy schedules a save too, and writing then would leave a no-op
-    // draft behind for every workspace ever opened.
-    if (workspace == null || data == null || dataId !== id || !edited) {
+    // Only an edit of this tab's own is written. Seeding schedules a save too, and a reload or a
+    // close saves on the way out, which would otherwise put this tab's older copy over a draft
+    // another tab wrote since.
+    if (workspace == null || data == null || dataId !== id || !draft.isUnsaved(data)) {
       return
     }
 
-    await workspaces.assignEdit(id, data)
+    const written = deepClone(data) as WorkspaceData
+    await workspaces.assignEdit(id, written)
+    draft.agree(written)
   }
+
+  /** Takes the draft another tab wrote since this one loaded, unless this tab has an edit of its
+  own still to write. A commit or revert elsewhere leaves no draft, so the saved workspace then
+  stands in for it. */
+  async function takeNewerDraft() {
+    if (data == null || dataId !== id || draft.isUnsaved(data)) {
+      return
+    }
+
+    const seenId = id
+    let edit: WorkspaceEdit | null
+    try {
+      await query.refetch()
+      edit = await workspaces.getEdit(id)
+    } catch {
+      return
+    }
+    if (id !== seenId || dataId !== id) {
+      return
+    }
+
+    const server = edit?.data ?? (workspace == null ? null : (workspace.data as WorkspaceData))
+    const next = draft.incoming(data, server)
+    if (next != null) {
+      // A draft another tab wrote is where this tab starts over, not an edit of its own. Kept in
+      // the undo history, an undo would bring back the older copy and write it over the draft.
+      draft.agree(next)
+      history = [deepClone(next) as WorkspaceData]
+      historyIndex = 0
+      data = next
+    }
+  }
+
+  // A tab learns of another tab's edits as it comes back into view, the moment its user looks.
+  useEventListener(window, 'focus', () => void takeNewerDraft())
+  useEventListener(document, 'visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      void takeNewerDraft()
+    }
+  })
 
   watch(
     () => data,
@@ -297,7 +343,10 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     }
 
     console.log(`Saving workspace changes to ${id}.`)
-    const result = await update({ data })
+    const committed = deepClone(data) as WorkspaceData
+    const result = await update({ data: committed })
+    // The commit took the draft with it, so the working copy agrees with the server again.
+    draft.agree(committed)
     await refresh()
     return result
   }
@@ -315,6 +364,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     console.log(`Discarding workspace changes to ${id}.`)
     data = deepClone(workspace.data) as WorkspaceData
     await workspaces.assignEdit(id, data)
+    draft.agree(data)
     return workspace
   }
 
@@ -880,6 +930,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
 
       data = edit?.data ?? deepClone(workspace?.data ?? null) ?? null
       dataId = data == null ? null : id
+      draft.agree(data)
 
       // Seed the history with the loaded state so the first edit has something to undo back to.
       if (data != null) {
@@ -913,6 +964,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
       loading = true
       data = null
       dataId = null
+      draft.agree(null)
       history = []
       historyIndex = -1
       await query.promise.value

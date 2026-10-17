@@ -4,13 +4,21 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use super::{POLL, StreamFaults};
 use crate::{MediaError, MediaInput, MediaOutput, MediaPacket, MediaSink};
 
 /// The largest RTP packet, an Ethernet MTU less its IP and UDP headers.
 const PACKET_SIZE: usize = 1472;
+
+/// The longest one wait for a packet's due time sleeps.
+///
+/// macOS coalesces the timers of a process it counts as background, and stretches a 40 ms
+/// sleep to 100 to 190 ms, which
+/// sends frames in bunches no live source would. Napping in short steps keeps each frame
+/// within a millisecond of its time.
+const NAP: Duration = Duration::from_millis(1);
 
 pub(super) struct PlayContext {
     pub(super) clip: PathBuf,
@@ -85,7 +93,7 @@ fn stream(context: &PlayContext) -> Result<(), MediaError> {
             end = end.max(time + timing.duration.max(1));
             let due = started + time_base.duration(time - *anchor.get_or_insert(time));
             while !context.stop.load(Ordering::Relaxed) && Instant::now() < due {
-                thread::sleep(due.saturating_duration_since(Instant::now()).min(POLL));
+                thread::sleep(due.saturating_duration_since(Instant::now()).min(NAP));
             }
         }
         packet.shift(offset);

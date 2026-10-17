@@ -2,7 +2,6 @@
 
 use std::time::{Duration, Instant};
 
-use str0m::bwe::Bitrate;
 use str0m::stats::MediaEgressStats;
 
 /// How often str0m reports a session's delivery.
@@ -16,21 +15,17 @@ pub(crate) struct Delivery {
     dropped: u64,
     /// The packets the session sent, resends included.
     sent: u64,
+    /// The bytes the session sent, resends included.
+    bytes: u64,
     /// The packets the browser reports it never received.
     lost: u64,
     /// The times the browser asked for lost packets again.
     nacks: u64,
-    /// The bytes the session had sent at the last report, and when the report came.
-    bytes: Option<(u64, Instant)>,
-    /// The bandwidth str0m last estimated the path to the browser has.
-    estimate: Option<Bitrate>,
 }
 
 /// One report's worth of delivery.
 #[derive(Debug, PartialEq)]
 pub(crate) struct Report {
-    /// The rate the session sent at since the last report, `None` for the first.
-    pub(crate) rate: Option<Bitrate>,
     pub(crate) sent: u64,
     pub(crate) lost: u64,
     pub(crate) nacks: u64,
@@ -42,10 +37,9 @@ impl Delivery {
             started,
             dropped: 0,
             sent: 0,
+            bytes: 0,
             lost: 0,
             nacks: 0,
-            bytes: None,
-            estimate: None,
         }
     }
 
@@ -55,45 +49,37 @@ impl Delivery {
         self.dropped == 1
     }
 
-    pub(crate) fn estimate(&mut self, estimate: Bitrate) {
-        self.estimate = Some(estimate);
-    }
-
     /// Takes str0m's latest report, returning what changed since the one before.
     pub(crate) fn report(&mut self, stats: &MediaEgressStats) -> Report {
         let lost = stats
             .remote
             .as_ref()
             .map_or(self.lost, |remote| remote.packets_lost);
-        let rate = self.bytes.and_then(|(bytes, at)| {
-            let elapsed = stats.timestamp.saturating_duration_since(at).as_secs_f64();
-            let sent = stats.bytes.saturating_sub(bytes);
-            #[expect(clippy::cast_precision_loss, reason = "a rate needs no exact count")]
-            (elapsed > 0.0).then(|| Bitrate::from(sent as f64 * 8.0 / elapsed))
-        });
         let report = Report {
-            rate,
             sent: stats.packets.saturating_sub(self.sent),
             lost: lost.saturating_sub(self.lost),
             nacks: stats.nacks.saturating_sub(self.nacks),
         };
         self.sent = stats.packets;
+        self.bytes = stats.bytes;
         self.lost = lost;
         self.nacks = stats.nacks;
-        self.bytes = Some((stats.bytes, stats.timestamp));
         report
     }
 
     /// One line for the log once the session ends.
     pub(crate) fn summary(&self, now: Instant) -> String {
-        let seconds = now.saturating_duration_since(self.started).as_secs();
-        let estimate = self
-            .estimate
-            .map_or_else(|| "none".into(), |estimate| estimate.to_string());
+        let elapsed = now.saturating_duration_since(self.started);
+        #[expect(clippy::cast_precision_loss, reason = "a rate needs no exact count")]
+        let megabits = self.bytes as f64 * 8.0 / 1e6 / elapsed.as_secs_f64().max(1.0);
         format!(
-            "sent {} packets in {seconds} s, the browser lost {} and asked for {} again, {} \
-             never left this host, last bandwidth estimate {estimate}",
-            self.sent, self.lost, self.nacks, self.dropped
+            "sent {} packets in {} s at {megabits:.1} Mbit/s, the browser lost {} and asked for \
+             {} again, {} never left this host",
+            self.sent,
+            elapsed.as_secs(),
+            self.lost,
+            self.nacks,
+            self.dropped
         )
     }
 }
@@ -133,22 +119,22 @@ mod tests {
         assert_eq!(
             first,
             Report {
-                rate: None,
                 sent: 10,
                 lost: 0,
                 nacks: 0
             }
         );
-        let second = delivery.report(&stats(start + REPORT_INTERVAL, 126_000, 110, 3, 2));
+        let second = delivery.report(&stats(start + REPORT_INTERVAL, 2_500_000, 110, 3, 2));
         assert_eq!(
             second,
             Report {
-                rate: Some(Bitrate::mbps(1)),
                 sent: 100,
                 lost: 3,
                 nacks: 2
             }
         );
+        let summary = delivery.summary(start + Duration::from_secs(2));
+        assert!(summary.contains("in 2 s at 10.0 Mbit/s"), "{summary}");
     }
 
     #[test]

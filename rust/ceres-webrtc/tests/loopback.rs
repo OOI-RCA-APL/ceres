@@ -289,6 +289,53 @@ async fn a_session_sends_the_packets_a_browser_lost_again() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_session_behind_the_network_skips_to_the_next_keyframe() {
+    let rtsp = source_server("h264");
+    let server = server(4);
+    let (browser, offer) = Browser::offer();
+    let answer = server
+        .open(source(&rtsp), &offer, ReorderedFrames::Refuse)
+        .await
+        .unwrap();
+    let mut browser = browser.accept(&answer.sdp);
+
+    // Two seconds in, past the picture held for the browser, which arrives at once.
+    let (mut browser, before) = tokio::task::spawn_blocking(move || {
+        let pictures = browser.receive(50);
+        (browser, pictures)
+    })
+    .await
+    .unwrap();
+    assert_eq!(before.len(), 50, "too few pictures arrived");
+    server.refuse_sends(Duration::from_millis(1500)).await;
+    let after = tokio::task::spawn_blocking(move || browser.receive(25))
+        .await
+        .unwrap();
+
+    // The 25 fps clip's frames are 3600 ticks apart. Without the skip, the queue holds the
+    // whole stretch and sends it late, every frame 3600 ticks after the last. The skip jumps a
+    // second or more ahead, which half a second tells apart with room to spare.
+    let last = before.last().unwrap().time;
+    let times: Vec<u64> = std::iter::once(last)
+        .chain(after.iter().map(|picture| picture.time))
+        .collect();
+    let jump = times
+        .windows(2)
+        .position(|pair| pair[1].saturating_sub(pair[0]) > 3600 * 12)
+        .unwrap_or_else(|| panic!("the session sent the stretch it fell behind on: {times:?}"));
+    assert!(
+        after[jump].key,
+        "the session did not resume on a keyframe: {times:?}"
+    );
+    assert!(
+        after[jump..]
+            .windows(2)
+            .all(|pair| pair[1].key || pair[1].time.checked_sub(pair[0].time) == Some(3600)),
+        "the session lost frames after it caught up: {times:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn an_unreachable_source_is_refused() {
     let server = server(4);
     let (_browser, offer) = Browser::offer();
@@ -415,6 +462,11 @@ impl Browser {
 
     /// Runs the peer until `count` pictures arrive or ten seconds pass.
     fn pictures(mut self, count: usize) -> Vec<Received> {
+        self.receive(count)
+    }
+
+    /// As [`Browser::pictures`], keeping the peer to receive more.
+    fn receive(&mut self, count: usize) -> Vec<Received> {
         let mut pictures = Vec::new();
         let deadline = Instant::now() + Duration::from_secs(10);
         let local = self.socket.local_addr().unwrap();
@@ -473,8 +525,8 @@ struct Received {
     key: bool,
 }
 
-/// Whether `datagram` is RTP carrying one of `pts`, not a resend, padding, RTCP, STUN or DTLS
-/// (RFC 7983, RFC 5761). The bandwidth probe pads with resends, so they far outnumber the media.
+/// Whether `datagram` is RTP carrying one of `pts`, not a resend, RTCP, STUN or DTLS (RFC 7983,
+/// RFC 5761).
 fn is_media(datagram: &[u8], pts: &[u8]) -> bool {
     matches!(datagram, [128..=191, second, ..] if pts.contains(&(second & 0x7f)))
 }

@@ -6,7 +6,6 @@ use std::time::{Duration, Instant};
 use ceres_media::{
     FrameOrder, MediaCodec, MediaPacket, OwnedTrack, PacketItem, PacketStream, is_unreferenced,
 };
-use str0m::bwe::BweKind;
 use str0m::change::SdpOffer;
 use str0m::format::{Codec, PayloadParams};
 use str0m::media::{Direction, MediaTime, Mid, Pt};
@@ -18,6 +17,7 @@ use crate::WebrtcError;
 use crate::delivery::Delivery;
 use crate::parameter_sets::with_parameter_sets;
 use crate::picture::Picture;
+use crate::server::SEND_BUFFER_PACKETS;
 use crate::socket::MediaSockets;
 
 /// The most outputs one input may produce before the session is ended, since every session
@@ -26,9 +26,11 @@ use crate::socket::MediaSockets;
 /// A large keyframe packetizes to a few hundred datagrams, well under it.
 const MAX_OUTPUTS: usize = 8192;
 
-/// How far past the source's rate the session asks the bandwidth estimate to reach, so the pacer,
-/// which sends at the estimate, keeps ahead of a source that cannot lower its rate.
-const ESTIMATE_HEADROOM: f64 = 1.5;
+/// The oldest packet a session resends, str0m's own default, which it keeps private.
+const RESEND_AGE: Duration = Duration::from_secs(3);
+
+/// The share of resends past which str0m stops resending, its own default too.
+const RESEND_RATIO_CAP: Option<f32> = Some(0.15);
 
 /// A session's ID, shared with the thread reading its packets.
 pub(crate) type SessionId = Arc<str>;
@@ -151,9 +153,6 @@ impl Session {
                     }
                 }
                 Ok(Output::Event(Event::MediaEgressStats(stats))) => self.report(&stats),
-                Ok(Output::Event(Event::EgressBitrateEstimate(BweKind::Twcc {
-                    estimate, ..
-                }))) => self.delivery.estimate(estimate),
                 Ok(Output::Event(Event::Connected)) => {
                     log::info!("WebRTC session {} connected", self.id);
                     self.connected = true;
@@ -247,8 +246,17 @@ impl Session {
         }
     }
 
-    /// Logs the loss since the last report, and asks the bandwidth estimate to reach past the rate
-    /// the session sent at.
+    /// Writes nothing more until the source's next keyframe and forgets the packets it sent,
+    /// since the socket dropped them and a resend would deliver the stretch late.
+    pub(crate) fn skip_to_key(&mut self) {
+        self.awaiting_key = true;
+        self.pending.clear();
+        if let Some(stream) = self.rtc.direct_api().stream_tx_by_mid(self.mid, None) {
+            stream.set_rtx_cache(SEND_BUFFER_PACKETS, RESEND_AGE, RESEND_RATIO_CAP);
+        }
+    }
+
+    /// Logs the loss since the last report.
     fn report(&mut self, stats: &MediaEgressStats) {
         let report = self.delivery.report(stats);
         if report.lost > 0 || report.nacks > 0 {
@@ -259,11 +267,6 @@ impl Session {
                 report.lost,
                 report.nacks
             );
-        }
-        if let Some(rate) = report.rate
-            && !rate.is_zero()
-        {
-            self.rtc.bwe().set_desired_bitrate(rate * ESTIMATE_HEADROOM);
         }
     }
 

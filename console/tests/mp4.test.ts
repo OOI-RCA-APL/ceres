@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
-import { aac, avc, box, hevc, initSegment, plainInitSegment } from './mp4-fixture'
+import {
+  aac,
+  avc,
+  box,
+  hevc,
+  initSegment,
+  plainInitSegment,
+  recordingInitSegment,
+} from './mp4-fixture'
 
 import { readInitSegment } from '@/mp4'
 
@@ -9,6 +17,7 @@ describe('readInitSegment', () => {
     expect(readInitSegment(initSegment(hevc))).toEqual({
       type: 'codecs',
       codecs: 'hvc1.1.6.L93.B0',
+      duration: null,
     })
   })
 
@@ -16,7 +25,12 @@ describe('readInitSegment', () => {
     expect(readInitSegment(initSegment(avc, aac))).toEqual({
       type: 'codecs',
       codecs: 'avc1.42E01E, mp4a.40.2',
+      duration: null,
     })
+  })
+
+  it('reads the length a recording declares', () => {
+    expect(readInitSegment(recordingInitSegment(60, hevc))).toMatchObject({ duration: 60 })
   })
 
   it('waits on a `moov` box cut short', () => {

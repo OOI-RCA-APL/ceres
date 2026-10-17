@@ -103,6 +103,47 @@ pub fn apply_cors(router: Router, config: Option<&ServerCorsConfig>) -> Router {
     router.layer(layer)
 }
 
+/// The media types a codec or an archive already compressed. Another pass finds nothing left to
+/// take out of them, and spends the CPU a live video at 10 Mbit/s keeps busy for nothing.
+const COMPRESSED_ALREADY: [&str; 12] = [
+    "video/",
+    "audio/",
+    // WOFF and WOFF2 both, which a font wraps to compress itself.
+    "font/woff",
+    "application/zip",
+    "application/gzip",
+    "application/x-gzip",
+    "application/zstd",
+    "application/x-xz",
+    "application/x-bzip2",
+    "application/x-7z-compressed",
+    "application/vnd.rar",
+    "application/x-rar-compressed",
+];
+
+/// Leaves a response alone whose media type is already compressed.
+#[derive(Clone, Copy)]
+struct NotCompressedAlready;
+
+impl Predicate for NotCompressedAlready {
+    fn should_compress<B>(&self, response: &axum::http::Response<B>) -> bool
+    where
+        B: axum::body::HttpBody,
+    {
+        let Some(media) = response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+        else {
+            return true;
+        };
+        let media = media.trim_start().to_ascii_lowercase();
+        !COMPRESSED_ALREADY
+            .iter()
+            .any(|prefix| media.starts_with(prefix))
+    }
+}
+
 /// Generate the stack of single-codec compression layers.
 ///
 /// Codecs a client also accepts win by being closer to the response, so the first codec
@@ -132,9 +173,12 @@ pub fn apply_compression(router: Router, config: Option<&ServerCompressionConfig
         return router;
     }
 
+    // Text compresses many times over, which a slow link needs, and a streamed body still leaves
+    // chunk by chunk, since the encoder flushes whenever the stream waits on its source.
     let minimum = SizeAbove::new(config.min_size.bytes())
         .and(NotForContentType::IMAGES)
-        .and(NotForContentType::SSE);
+        .and(NotForContentType::SSE)
+        .and(NotCompressedAlready);
 
     let mut router = router;
     compression_codecs! {
@@ -210,6 +254,105 @@ mod tests {
             .await
             .unwrap();
         assert!(response.headers().get(header::CONTENT_ENCODING).is_none());
+    }
+
+    /// Whether a 2000-byte response of `media` goes out compressed.
+    async fn compresses(media: &'static str) -> bool {
+        let app = apply_compression(
+            Router::new().route(
+                "/body",
+                get(move || async move { ([(header::CONTENT_TYPE, media)], "x".repeat(2000)) }),
+            ),
+            None,
+        );
+        let response = app
+            .oneshot(
+                Request::get("/body")
+                    .header(header::ACCEPT_ENCODING, "gzip, br, zstd")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        response.headers().get(header::CONTENT_ENCODING).is_some()
+    }
+
+    #[tokio::test]
+    async fn media_a_codec_or_archive_compressed_goes_out_as_it_is() {
+        for media in [
+            "video/mp4",
+            "Video/MP4",
+            "audio/ogg",
+            "font/woff2",
+            "application/zip",
+            "application/gzip",
+            "application/zstd",
+        ] {
+            assert!(!compresses(media).await, "{media}");
+        }
+    }
+
+    #[tokio::test]
+    async fn text_and_uncompressed_fonts_still_compress() {
+        for media in [
+            "text/csv",
+            "application/json",
+            "application/x-ndjson",
+            "font/ttf",
+            "image/svg+xml",
+        ] {
+            assert!(compresses(media).await, "{media}");
+        }
+    }
+
+    // A slow link needs a streamed text body compressed, and a live one needs each chunk to leave
+    // as it comes rather than once the encoder's buffer fills.
+    #[tokio::test]
+    async fn a_compressed_stream_sends_each_chunk_while_the_stream_stays_open() {
+        use http_body_util::BodyExt;
+
+        let (send, receive) = tokio::sync::mpsc::channel::<String>(4);
+        let receive = std::sync::Arc::new(tokio::sync::Mutex::new(Some(receive)));
+        let app = apply_compression(
+            Router::new().route(
+                "/stream",
+                get(move || {
+                    let receive = receive.clone();
+                    async move {
+                        let receive = receive.lock().await.take().unwrap();
+                        let stream = futures_util::stream::unfold(receive, |mut receive| async {
+                            let chunk = receive.recv().await?;
+                            Some((Ok::<_, std::io::Error>(chunk), receive))
+                        });
+                        (
+                            [(header::CONTENT_TYPE, "text/csv")],
+                            Body::from_stream(stream),
+                        )
+                    }
+                }),
+            ),
+            None,
+        );
+        let response = app
+            .oneshot(
+                Request::get("/stream")
+                    .header(header::ACCEPT_ENCODING, "gzip")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.headers()[header::CONTENT_ENCODING], "gzip");
+
+        let mut body = response.into_body();
+        send.send("a,b\n".repeat(500)).await.unwrap();
+        let frame = tokio::time::timeout(Duration::from_secs(1), body.frame())
+            .await
+            .expect("the first chunk waited for the stream to end")
+            .unwrap()
+            .unwrap();
+        assert!(!frame.into_data().unwrap().is_empty());
+        drop(send);
     }
 
     #[tokio::test]

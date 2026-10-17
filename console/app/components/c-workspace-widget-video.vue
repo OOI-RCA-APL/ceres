@@ -131,7 +131,9 @@ function choose(choice: TransportChoice | null) {
 watchEffect(() =>
   transports.show(
     widget.id,
-    transport == null || transportWhy == null ? null : { transport, why: transportWhy },
+    transport == null
+      ? null
+      : { transport, ...(transportWhy == null ? {} : { why: transportWhy }) },
   ),
 )
 onBeforeUnmount(() => transports.show(widget.id, null))
@@ -162,11 +164,15 @@ const isUsingMediaSourceBuffer = $computed(
 
 // The duration a `MediaSource` reported once its metadata loaded, `null` before then.
 let bufferedDuration = $ref<number | null>(null)
+// Whether the stream's MP4 init segment declares no length, `null` until it is read, or when it
+// is not one this console reads.
+let isDeclaredLive = $ref<boolean | null>(null)
 
 // Whether the video is live rather than a recording, `null` while that is not known. A live stream
-// has no end, so the media itself reports an infinite duration. Only a `MediaSource` reports the
-// container's own, where an element playing a URL directly estimates one from the bytes so far and
-// so calls a live stream finite.
+// has no end, so its init segment declares no length. The browser's duration says the same in
+// Chrome, which reports it infinite, but Safari reports a finite one, so the init segment decides
+// wherever it was read. Only a `MediaSource` reads the container's own, where an element playing
+// a URL directly estimates a duration from the bytes so far and so calls a live stream finite.
 const isLive = $computed(() => {
   if (queryInfo?.output.type === 'file') {
     return false
@@ -174,11 +180,14 @@ const isLive = $computed(() => {
   if (transport === 'webrtc') {
     return true
   }
-  if (!isUsingMediaSourceBuffer || bufferedDuration == null) {
+  if (!isUsingMediaSourceBuffer) {
     return null
   }
+  if (isDeclaredLive != null) {
+    return isDeclaredLive
+  }
 
-  return bufferedDuration === Infinity
+  return bufferedDuration == null ? null : bufferedDuration === Infinity
 })
 
 let mediaSource: MediaSource | null = $shallowRef(null)
@@ -226,19 +235,24 @@ function joined(first: Uint8Array, second: Uint8Array) {
 cannot be told. `undefined` while `head` holds too little of the stream to tell. */
 function mediaSourceBufferType(contentType: string, head: Uint8Array) {
   const mediaType = contentType.split(';')[0]!.trim()
-  let bufferType = contentType
-  if (mediaType === 'video/mp4' && !contentType.includes('codecs=')) {
-    const segment = readInitSegment(head)
-    if (segment.type === 'partial') {
-      return undefined
-    }
-    if (segment.type === 'unknown') {
-      return null
-    }
-    bufferType = `video/mp4; codecs="${segment.codecs}"`
+  const isNamingCodecs = contentType.includes('codecs=')
+  if (mediaType !== 'video/mp4') {
+    return contentType
   }
 
-  return bufferType
+  // Read even when the type names the codecs, for the length the stream declares.
+  const segment = readInitSegment(head)
+  if (segment.type === 'partial') {
+    return undefined
+  }
+  if (segment.type === 'codecs') {
+    isDeclaredLive = segment.duration == null
+  }
+  if (isNamingCodecs) {
+    return contentType
+  }
+
+  return segment.type === 'codecs' ? `video/mp4; codecs="${segment.codecs}"` : null
 }
 
 // The codecs of a stream the buffer refused, kept so that the element failing on it as well can
@@ -259,6 +273,7 @@ async function syncMediaSource(url: string | null | undefined) {
   mediaSourceRequest?.abort()
   mediaSourceRequest = null
   bufferedDuration = null
+  isDeclaredLive = null
   refusedCodecs = null
   // A `MediaSource` attaches only once, so a reload of the element meanwhile would fail on it.
   mediaSource = null
@@ -336,6 +351,11 @@ async function syncMediaSource(url: string | null | undefined) {
     await new Promise((resolve) => boundMediaSource.addEventListener('sourceopen', resolve, once))
 
     const buffer = boundMediaSource.addSourceBuffer(bufferType)
+    // Safari takes the duration from what is buffered, so playback that catches up with the
+    // newest frame reaches the end and ends a live stream. An endless duration has no end.
+    if (isDeclaredLive === true) {
+      boundMediaSource.duration = Infinity
+    }
     let pending: Uint8Array<ArrayBuffer> | null = head
     // The stream's bitrate, from all it sent over the time it covers, to size what is kept.
     let appendedBytes = 0
@@ -432,13 +452,10 @@ async function playWhep(target: string) {
       },
     })
     whep = session
-    const choice: TransportChoice = {
-      transport: 'webrtc',
-      why:
-        widget.transport === 'auto'
-          ? 'WebRTC works with this video and browser.'
-          : 'Set to WebRTC in the settings.',
-    }
+    const choice: TransportChoice =
+      widget.transport === 'auto'
+        ? { transport: 'webrtc' }
+        : { transport: 'webrtc', why: 'Set to WebRTC in the settings.' }
     choose(choice)
     if (widget.transport === 'auto') {
       transports.remember(target, choice)
@@ -561,7 +578,7 @@ function onEnded() {
     return
   }
 
-  fail('The video stream ended.')
+  fail('The video played to its end.')
 }
 
 async function onLoad() {
@@ -647,9 +664,47 @@ const stallSeconds = 10
 let lastFrames = -1
 let stillFor = 0
 
+// A video set to Automatic whose WebRTC stalls this often plays over HTTP instead, since a decoder
+// that fails on its video fails again on every new session. Chrome's hardware H.265 decoder does
+// so on a picture loss damaged, and falls back to a decoder that decodes nothing.
+const stallsBeforeHttp = 2
+const stallWindowMs = 60_000
+let webrtcStalls: number[] = []
+
+/** The frames the browser has decoded so far. Over WebRTC the decoder's own count, since the
+element's misses a decoder that fails while frames keep arriving. */
+async function framesDecoded(video: HTMLVideoElement) {
+  if (transport === 'webrtc' && whep != null) {
+    return (await whep.decoding())?.decoded ?? 0
+  }
+  return video.getVideoPlaybackQuality().totalVideoFrames
+}
+
+/** The WebRTC video stopped showing frames. Logs what the decoder did, then reconnects, over
+HTTP once it happened too often for a video set to Automatic. */
+async function stallWebrtc(session: WhepSession) {
+  const decoding = await session.decoding()
+  console.warn(
+    `WebRTC decoded ${decoding?.decoded ?? 0} of the ${decoding?.received ?? 0} frames it received, with ${decoding?.decoder ?? 'no decoder'}.`,
+  )
+  fail(`No new frames for ${stallSeconds} seconds.`)
+  const now = Date.now()
+  webrtcStalls = [...webrtcStalls.filter((at) => now - at < stallWindowMs), now]
+  if (widget.transport === 'auto' && whepUrl != null && webrtcStalls.length >= stallsBeforeHttp) {
+    webrtcStalls = []
+    const choice: TransportChoice = {
+      transport: 'http',
+      why: 'WebRTC stopped showing frames twice in a minute.',
+    }
+    // The reconnect `fail` scheduled reads this, so it starts over HTTP.
+    choose(choice)
+    transports.remember(whepUrl, choice)
+  }
+}
+
 // Only watched while in sight, since browsers pause or starve video in a hidden tab. A recording
 // standing still is only waiting on its download.
-useIntervalFn(() => {
+useIntervalFn(async () => {
   const isWatching =
     widget.reconnect &&
     isLive !== false &&
@@ -663,7 +718,8 @@ useIntervalFn(() => {
     return
   }
 
-  const frames = element.getVideoPlaybackQuality().totalVideoFrames
+  const session = transport === 'webrtc' ? whep : null
+  const frames = await framesDecoded(element)
   if (frames !== lastFrames) {
     lastFrames = frames
     stillFor = 0
@@ -673,7 +729,11 @@ useIntervalFn(() => {
   stillFor += 1
   if (stillFor >= stallSeconds) {
     stillFor = 0
-    fail(`No new frames for ${stallSeconds} seconds.`)
+    if (session != null) {
+      await stallWebrtc(session)
+    } else {
+      fail(`No new frames for ${stallSeconds} seconds.`)
+    }
   }
 }, 1000)
 
@@ -803,6 +863,8 @@ watch(
     isHoldingBack = false
     isHoldingFrame = false
     unplayable = null
+    // Stalls on another video say nothing about this one.
+    webrtcStalls = []
     state = 'loading'
     if (widget.reconnect && widget.autoplay) {
       reconnect.begin()
@@ -817,9 +879,7 @@ watch(
     closeWhep()
     if (forced === 'webrtc' && target == null) {
       choose(null)
-      refuse(
-        "This video cannot play over WebRTC. Choose Automatic or HTTP in the widget's settings.",
-      )
+      refuse("This video cannot play over WebRTC. Choose Auto or HTTP in the widget's settings.")
       return
     }
 
@@ -871,7 +931,7 @@ function goLive() {
 }
 
 const transportNames: Record<VideoWidget['transport'], string> = {
-  auto: 'Automatic',
+  auto: 'Auto',
   webrtc: 'WebRTC',
   http: 'HTTP',
 }
