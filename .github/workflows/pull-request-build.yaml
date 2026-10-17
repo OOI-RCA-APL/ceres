@@ -33,11 +33,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Named for the release workflow's build job, because the Rust cache folds the job ID into its
-  # key, and a release-profile build here can then restore the entry `main` saved for releases.
-  build:
-    # A fork's code never reaches a job holding a write token, and a fork's pull request runs
-    # with a read-only token anyway, so its publish could only fail.
+  wheel:
+    # Fork pull requests build nothing, since their token is read-only and their publish could
+    # only fail.
     if: >-
       github.event_name == 'workflow_dispatch'
       || (github.event.action != 'closed'
@@ -83,9 +81,9 @@ jobs:
         uses: astral-sh/setup-uv@v10.2.0
         with:
           enable-cache: false
-      # A development release of the next patch, so a host on this build upgrades to the real
-      # release the normal way. The run number orders successive builds, and the local label,
-      # which PyPI refuses, carries the commit and the profile. The CLI reads the same line.
+      # A development release of the next patch. The run number orders successive builds, and
+      # the local label, which PyPI refuses, carries the commit and the profile. The CLI reads
+      # the same line.
       - name: Stamp the Version
         id: version
         env:
@@ -95,14 +93,15 @@ jobs:
           version="$major.$minor.$((patch + 1)).dev$GITHUB_RUN_NUMBER+g${SHA::8}.$PROFILE"
           uv version --frozen "$version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
-      # Restores the release entry `cache.yaml` saves on `main` for a release-profile build.
-      # Saving is off for both profiles, because an entry saved here is readable only by this
-      # pull request and would evict the release entries from the repository's cache quota.
+      # The release key spells out the one `cache.yaml` saves on `main` for the release
+      # workflow's `build` job, so a release-profile build restores that entry under any job
+      # name. Saving is off, because an entry saved here is readable only by this pull request
+      # and would evict the entries `main` saves from the repository's cache quota.
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
-          key: ${{ env.PROFILE == 'release' && 'x86_64-unknown-linux-gnu' || 'debug-x86_64-unknown-linux-gnu' }}-${{ hashFiles('rust/Cargo.toml', '.cargo/config.toml') }}
+          shared-key: ${{ env.PROFILE == 'release' && 'x86_64-unknown-linux-gnu' || 'debug-x86_64-unknown-linux-gnu' }}-${{ hashFiles('rust/Cargo.toml', '.cargo/config.toml') }}-build
           save-if: false
       - name: Create Wheel Data Directory
         run: mkdir -p ceres.__internal__.core.data/scripts
@@ -136,14 +135,16 @@ jobs:
           name: wheel
           path: dist/${{ steps.wheel.outputs.name }}
 
-  # Holds the only write token in this workflow, and runs no code from the pull request.
+  # The write token is safe because nothing here runs on `pull_request_target`, fork pull
+  # requests build nothing, and a dispatch refuses one. A same-repository pull request can edit
+  # this file and take the token, so running none of its code here is hygiene, not the boundary.
   publish:
-    needs: build
+    needs: wheel
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    # Queued rather than cancelled, so a debug and a release build never edit the prerelease
-    # at the same time and neither leaves it half written.
+    # Queued rather than cancelled, and shared with `cleanup`, so no two runs edit the
+    # prerelease at once and none leaves it half written.
     concurrency:
       group: pull-request-build-publish-${{ github.event.pull_request.number || inputs.pull_request }}
     outputs:
@@ -161,11 +162,23 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          SHA: ${{ needs.build.outputs.sha }}
-          WHEEL: ${{ needs.build.outputs.wheel }}
+          SHA: ${{ needs.wheel.outputs.sha }}
+          WHEEL: ${{ needs.wheel.outputs.wheel }}
         run: |
+          # A pull request closed while this waited has had its prerelease deleted, and this
+          # would recreate it with nothing left to delete it again.
+          if [ "$(gh pr view "$NUMBER" --json state --jq .state)" != OPEN ]; then
+            echo "Pull request #$NUMBER is closed, so nothing publishes."
+            exit 0
+          fi
+          # Moved to each build's commit, so the tag names code a build came from.
+          if gh api "repos/$GH_REPO/git/ref/tags/$TAG" > /dev/null 2>&1; then
+            gh api --method PATCH "repos/$GH_REPO/git/refs/tags/$TAG" -f sha="$SHA" -F force=true > /dev/null
+          else
+            gh api --method POST "repos/$GH_REPO/git/refs" -f ref="refs/tags/$TAG" -f sha="$SHA" > /dev/null
+          fi
           if ! gh release view "$TAG" > /dev/null 2>&1; then
-            gh release create "$TAG" --prerelease --latest=false --target "$SHA" \
+            gh release create "$TAG" --prerelease --latest=false \
               --title "Pull request #$NUMBER builds" --notes "Pending the first build."
           fi
           gh release upload "$TAG" "dist/$WHEEL" --clobber
@@ -189,10 +202,11 @@ jobs:
             --jq ".assets[] | select(.name == \"$WHEEL\") | .browser_download_url")"
           echo "url=$url" >> "$GITHUB_OUTPUT"
 
-  # Installs the published wheel from its URL on the oldest glibc a supported host runs, so a
-  # wheel that cannot install or start there fails the run that published it.
+  # Installs the published wheel from its URL on Ubuntu 22.04, glibc 2.35, so a wheel that
+  # cannot install or start there fails the run that published it.
   verify:
-    needs: [build, publish]
+    needs: [wheel, publish]
+    if: needs.publish.outputs.url != ''
     runs-on: ubuntu-latest
     container: ubuntu:22.04
     steps:
@@ -203,7 +217,7 @@ jobs:
       - name: Install from the Prerelease
         env:
           URL: ${{ needs.publish.outputs.url }}
-          VERSION: ${{ needs.build.outputs.version }}
+          VERSION: ${{ needs.wheel.outputs.version }}
         run: |
           ldd --version | head -n 1
           uv venv --python 3.14 /tmp/venv
@@ -218,6 +232,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    # Runs after a publish already in flight, which a dispatched release build can be.
+    concurrency:
+      group: pull-request-build-publish-${{ github.event.pull_request.number }}
     steps:
       - name: Delete the Prerelease
         env:
@@ -226,4 +243,7 @@ jobs:
         run: |
           if gh release view "$TAG" > /dev/null 2>&1; then
             gh release delete "$TAG" --cleanup-tag --yes
+          fi
+          if gh api "repos/$GH_REPO/git/ref/tags/$TAG" > /dev/null 2>&1; then
+            gh api --method DELETE "repos/$GH_REPO/git/refs/tags/$TAG"
           fi
