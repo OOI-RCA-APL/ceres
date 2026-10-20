@@ -165,10 +165,11 @@ jobs:
           SHA: ${{ needs.wheel.outputs.sha }}
           WHEEL: ${{ needs.wheel.outputs.wheel }}
         run: |
-          # A pull request closed while this waited has had its prerelease deleted, and this
-          # would recreate it with nothing left to delete it again.
+          # A run that finds the pull request closed deletes the prerelease in the next step because
+          # `cleanup` may have run before it, or its arrival in the shared group canceled `cleanup`.
           if [ "$(gh pr view "$NUMBER" --json state --jq .state)" != OPEN ]; then
             echo "Pull request #$NUMBER is closed, so nothing publishes."
+            echo "closed=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # Moved to each build's commit, so the tag names code a build came from.
@@ -201,6 +202,18 @@ jobs:
           url="$(gh api "repos/$GH_REPO/releases/tags/$TAG" \
             --jq ".assets[] | select(.name == \"$WHEEL\") | .browser_download_url")"
           echo "url=$url" >> "$GITHUB_OUTPUT"
+      - name: Delete the Prerelease
+        if: steps.publish.outputs.closed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: &delete-prerelease |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release delete "$TAG" --cleanup-tag --yes
+          fi
+          if gh api "repos/$GH_REPO/git/ref/tags/$TAG" > /dev/null 2>&1; then
+            gh api --method DELETE "repos/$GH_REPO/git/refs/tags/$TAG"
+          fi
 
   # Installs the published wheel from its URL on Ubuntu 22.04, glibc 2.35, so a wheel that
   # cannot install or start there fails the run that published it.
@@ -240,10 +253,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: |
-          if gh release view "$TAG" > /dev/null 2>&1; then
-            gh release delete "$TAG" --cleanup-tag --yes
-          fi
-          if gh api "repos/$GH_REPO/git/ref/tags/$TAG" > /dev/null 2>&1; then
-            gh api --method DELETE "repos/$GH_REPO/git/refs/tags/$TAG"
-          fi
+        run: *delete-prerelease
