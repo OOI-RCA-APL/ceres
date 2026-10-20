@@ -346,11 +346,10 @@ ceres service stop
 ceres service start
 ```
 
-Return to a release with `uv pip install ceres-engine==<version>` and a restart. A host never
-upgrades off a build on its own, since a pull request that bumps the version stamps a build
-above the next release. `uv sync`, `uv add`, and `uv run` reinstall the version the project
-pins, so a host stays on the build only until one of them runs. Record the build and its
-commit in the host's change log.
+Return to a release with `uv pip install ceres-engine==<version>` and a restart. A host stays
+on the build until a command installs another version, and `uv sync`, `uv add`, and `uv run`
+each do, reinstalling the version the project pins. Record the build and its commit in the
+host's change log.
 
 Every `pr-<number>` tag follows a fetch into a clone and stays there after the prerelease
 goes. `git config fetch.prune true` and `git config fetch.pruneTags true` drop each deleted
