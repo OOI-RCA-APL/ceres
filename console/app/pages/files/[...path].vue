@@ -1,21 +1,25 @@
 <script lang="ts" setup>
 import type { BreadcrumbItem } from '@nuxt/ui'
 import { useQueryClient } from '@tanstack/vue-query'
+import { useDropZone } from '@vueuse/core'
 import { computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 import { useQuery } from '@/api/client'
 import { useEngine } from '@/api/engine'
 import {
   type FileEntry,
   type FileRoot,
+  FileWriteError,
   filesPagePath,
   filterEntries,
   formatFileSize,
   previewOf,
 } from '@/api/files'
+import { type DialogHandle, useDialogs } from '@/dialogs'
 import { Failure } from '@/errors'
 import icons from '@/icons'
+import { useNotify } from '@/notify'
 import { usePersisted } from '@/persistence'
 import { utc } from '@/time'
 
@@ -23,6 +27,9 @@ definePageMeta({ auth: true })
 
 const engine = useEngine()
 const queryClient = useQueryClient()
+const dialogs = useDialogs()
+const notify = useNotify()
+const router = useRouter()
 
 // Read once, since a page instance belongs to one path (see `usePageParameter`). The first
 // segment names the root, the rest is the path under it.
@@ -46,7 +53,9 @@ const rootsQuery = useQuery({
   queryFn: () => engine.files.getRoots(),
 })
 const roots = $computed<FileRoot[]>(() => rootsQuery.data.value ?? [])
-const rootLabel = $computed(() => roots.find((current) => current.id === root)?.label ?? root)
+const rootInfo = $computed(() => roots.find((current) => current.id === root) ?? null)
+const rootLabel = $computed(() => rootInfo?.label ?? root)
+const writable = $computed(() => rootInfo?.writable === true)
 
 // A root is always a directory, so only a path under one needs asking what it is.
 const statQuery = useQuery({
@@ -72,7 +81,7 @@ const entries = $computed(() => filterEntries(listing?.entries ?? [], filter))
 const preview = $computed(() => (entry == null ? 'none' : previewOf(entry)))
 const textQuery = useQuery({
   queryKey: ['files', 'text', root, ...path],
-  queryFn: () => engine.files.readText(root!, path),
+  queryFn: () => engine.files.readText(root!, path, entry?.size ?? 0),
   enabled: computed(() => preview === 'text'),
 })
 
@@ -111,6 +120,110 @@ function formatModified(modified: string | null) {
 async function refresh() {
   await queryClient.invalidateQueries({ queryKey: ['files'] })
 }
+
+function answer<TPayload>(handle: DialogHandle<TPayload>): Promise<TPayload | false> {
+  return new Promise((resolve) => handle.onOk(resolve).onCancel(() => resolve(false)))
+}
+
+/** Run `change`, reporting a refusal, and return whether it went through. */
+async function write(change: () => Promise<void>): Promise<boolean> {
+  try {
+    await change()
+    return true
+  } catch (error) {
+    notify.error(error instanceof FileWriteError ? error.message : 'The engine could not do that.')
+    return false
+  }
+}
+
+let fileInput = $ref<HTMLInputElement | null>(null)
+let dropZone = $ref<HTMLElement | null>(null)
+let isUploading = $ref(false)
+
+const { isOverDropZone } = useDropZone($$(dropZone), {
+  onDrop: (files) => void uploadFiles(files ?? []),
+})
+
+/** Upload `files` into the directory this page shows, asking before one replaces a file. */
+async function uploadFiles(files: readonly File[]) {
+  if (!writable || entry?.kind !== 'directory' || files.length === 0) {
+    return
+  }
+
+  isUploading = true
+  try {
+    for (const file of files) {
+      const target = [...path, file.name]
+      const created = await engine.files.upload(root!, target, file).then(
+        () => true,
+        (error: unknown) => error,
+      )
+      if (created instanceof FileWriteError && created.status === 412) {
+        const replace = await answer(
+          dialogs.confirm({ message: `Replace "${file.name}"?`, okLabel: 'Replace' }),
+        )
+        if (replace) {
+          await write(() => engine.files.upload(root!, target, file, { replace: true }))
+        }
+      } else if (created !== true) {
+        await write(() => Promise.reject(created))
+      }
+    }
+  } finally {
+    isUploading = false
+    await refresh()
+  }
+}
+
+function pickFiles(event: Event) {
+  const input = event.target as HTMLInputElement
+  const files = [...(input.files ?? [])]
+  input.value = ''
+  void uploadFiles(files)
+}
+
+async function createDirectory() {
+  const name = await answer(
+    dialogs.fileName({ title: 'New Folder', label: 'Name', okLabel: 'Create' }),
+  )
+  if (name !== false && (await write(() => engine.files.createDirectory(root!, [...path, name])))) {
+    await refresh()
+  }
+}
+
+async function moveEntry() {
+  const to = await answer(
+    dialogs.fileName({
+      title: 'Rename or Move',
+      label: 'Path',
+      value: path.join('/'),
+      okLabel: 'Move',
+    }),
+  )
+  const destination = to === false ? [] : to.split('/').filter((name) => name !== '')
+  if (destination.length > 0 && (await write(() => engine.files.move(root!, path, destination)))) {
+    await queryClient.invalidateQueries({ queryKey: ['files'] })
+    await router.push(filesPagePath(root, destination))
+  }
+}
+
+async function deleteEntry() {
+  const name = path.at(-1) ?? ''
+  const confirmed = await answer(
+    dialogs.delete({
+      message:
+        entry?.kind === 'directory'
+          ? `Delete "${name}" and everything in it?`
+          : `Delete "${name}"?`,
+      note: 'This cannot be undone.',
+      confirmText: name,
+    }),
+  )
+  if (confirmed && (await write(() => engine.files.remove(root!, path)))) {
+    await queryClient.invalidateQueries({ queryKey: ['files'] })
+    await router.push(filesPagePath(root, path.slice(0, -1)))
+  }
+}
 </script>
 
 <template>
@@ -118,6 +231,52 @@ async function refresh() {
     <template #header-append>
       <div class="flex-1" />
       <c-switch v-if="root != null" v-model="persisted.hidden" class="mr-3" label="Show hidden" />
+      <template v-if="writable && entry?.kind === 'directory'">
+        <input ref="fileInput" class="hidden" multiple type="file" @change="pickFiles" />
+        <c-tooltip text="Upload">
+          <c-button
+            class="mr-1"
+            color="neutral"
+            :icon="icons.upload"
+            :loading="isUploading"
+            size="xs"
+            variant="ghost"
+            @click="fileInput?.click()"
+          />
+        </c-tooltip>
+        <c-tooltip text="New Folder">
+          <c-button
+            class="mr-1"
+            color="neutral"
+            :icon="icons.folderNew"
+            size="xs"
+            variant="ghost"
+            @click="createDirectory"
+          />
+        </c-tooltip>
+      </template>
+      <template v-if="writable && path.length > 0 && entry != null">
+        <c-tooltip text="Rename or Move">
+          <c-button
+            class="mr-1"
+            color="neutral"
+            :icon="icons.rename"
+            size="xs"
+            variant="ghost"
+            @click="moveEntry"
+          />
+        </c-tooltip>
+        <c-tooltip text="Delete">
+          <c-button
+            class="mr-1"
+            color="error"
+            :icon="icons.delete"
+            size="xs"
+            variant="ghost"
+            @click="deleteEntry"
+          />
+        </c-tooltip>
+      </template>
       <c-tooltip text="Refresh">
         <c-button
           class="mr-2"
@@ -130,7 +289,11 @@ async function refresh() {
       </c-tooltip>
     </template>
 
-    <div class="flex flex-col gap-3 p-4">
+    <div
+      ref="dropZone"
+      class="flex min-h-full flex-col gap-3 p-4"
+      :class="writable && isOverDropZone && 'bg-elevated'"
+    >
       <c-breadcrumb :items="breadcrumbs" />
 
       <!-- The root picker. -->
@@ -216,6 +379,12 @@ async function refresh() {
         <video
           v-else-if="preview === 'video'"
           class="max-w-full self-start"
+          controls
+          :src="engine.files.sourceUrl(root, path)"
+        />
+        <audio
+          v-else-if="preview === 'audio'"
+          class="w-full max-w-[640px]"
           controls
           :src="engine.files.sourceUrl(root, path)"
         />

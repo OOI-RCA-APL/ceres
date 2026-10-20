@@ -4,6 +4,7 @@ import {
   type FileEntry,
   TEXT_PREVIEW_LIMIT,
   decodeText,
+  describeFileWriteStatus,
   filesApiPath,
   filesPagePath,
   filterEntries,
@@ -16,9 +17,10 @@ function file(name: string, size: number | null = 1): FileEntry {
 }
 
 describe('previewOf', () => {
-  it('shows images and videos by their extension, at any size', () => {
+  it('shows images, videos, and audio by their extension, at any size', () => {
     expect(previewOf(file('a.PNG', 2 * TEXT_PREVIEW_LIMIT))).toBe('image')
     expect(previewOf(file('a.mp4', 2 * TEXT_PREVIEW_LIMIT))).toBe('video')
+    expect(previewOf(file('a.flac', 2 * TEXT_PREVIEW_LIMIT))).toBe('audio')
   })
 
   it('tries any other file as text up to the limit', () => {
@@ -63,6 +65,21 @@ describe('decodeText', () => {
     expect(decodeText(new TextEncoder().encode('abc\n').buffer)).toBe('abc\n')
     expect(decodeText(new Uint8Array([0xff, 0xfe]).buffer)).toBeNull()
     expect(decodeText(new Uint8Array([0x61, 0x00]).buffer)).toBeNull()
+  })
+
+  it('accepts a character cut off at the end of the start of a file', () => {
+    const cut = new TextEncoder().encode('a\u00e9').slice(0, 2).buffer
+    expect(decodeText(cut)).toBeNull()
+    expect(decodeText(cut, { partial: true })).toBe('a')
+    expect(decodeText(new Uint8Array([0xff, 0x61]).buffer, { partial: true })).toBeNull()
+  })
+})
+
+describe('describeFileWriteStatus', () => {
+  it('prefers the engine message and names the common refusals', () => {
+    expect(describeFileWriteStatus(409, 'abc')).toBe('abc')
+    expect(describeFileWriteStatus(412)).toBe('A file with that name already exists.')
+    expect(describeFileWriteStatus(418)).toBe('The engine answered 418.')
   })
 })
 

@@ -190,7 +190,7 @@ ceres console url     # Print the URL.
 
 ### Files
 
-The console's "Files" page browses and downloads the files a deployment keeps. A component offers one of its `Directory` fields there by marking it with `Files`, and anyone who may view the component may browse it.
+The console's "Files" page browses, previews, downloads, and changes the files a deployment keeps. A component offers one of its `Directory` fields there by marking it with `Files`, and anyone who may view the component may browse it.
 
 ```python
 from typing import Annotated
@@ -208,6 +208,14 @@ A field set to `None` or holding a temporary directory offers nothing, and a com
 server:
   files:
     exclude: [.venv, node_modules, /data/raw]
+```
+
+Anyone who may operate a component may also upload, create directories, rename, move, and delete in its roots, and `Files(writable=False)` keeps a root read-only for anyone below manage. Only administrators change the project root. An upload writes a hidden part file beside its target and renames it into place once complete, so no reader sees half a file, and the first listing an hour after a dropped upload removes its part. The console keeps an existing file unless you confirm the replace, and deleting a directory asks you to type its name. A replace puts a new file at the path, so a component that holds the old one open keeps writing to the old file, and its writes never reach the new one. Writes act on a symbolic link itself and never follow one at the target. A link swapped in for a directory above the target during a request can still redirect that write, which takes someone already able to write inside the root. `server.files.max_upload` caps the size of one upload.
+
+```yaml
+server:
+  files:
+    max_upload: 2GiB
 ```
 
 ### HTTPS

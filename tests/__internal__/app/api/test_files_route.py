@@ -9,6 +9,7 @@ from ceres.__internal__.app.handlers.components import get_component
 from ceres.__internal__.app.handlers.files import get_file_roots, resolve_file_root
 from ceres.__internal__.app.shared import Actor
 from ceres.component import ComponentAccessLevel, ComponentConfig, get_file_root_bindings
+from ceres.config import ServerFilesConfig
 from ceres.error import NotFoundError, NotPermittedError
 from ceres.permission import PermissionTargetType, UserPermission
 from ceres.user import User
@@ -18,6 +19,7 @@ _UNRESTRICTED = Actor(user=None, unrestricted=True)
 
 class Hoarder(Component):
     stash: Annotated[Directory, Files("Stash")]
+    ledger: Annotated[Directory, Files("Ledger", writable=False)]
     spare: Annotated[Directory | None, Files()] = None
     scratch: Annotated[Directory, Files()] = Field(default_factory=Directory)
     plain: Directory | None = None
@@ -30,6 +32,7 @@ async def _engine(tmp_path: Path) -> tuple[Engine, Hoarder]:
         __with_name__="hoarder",
         __with_config__=ComponentConfig(name="hoarder", access=ComponentAccessLevel.DENY),
         stash=Directory(tmp_path),
+        ledger=Directory(tmp_path),
     )
     engine.attach(hoarder)
     return engine, hoarder
@@ -58,6 +61,7 @@ def test_files_marks_directory_fields_as_roots() -> None:
     bindings = get_file_root_bindings(Hoarder)
     assert [(binding.field, binding.label) for binding in bindings.values()] == [
         ("stash", "Stash"),
+        ("ledger", "Ledger"),
         ("spare", "spare"),
         ("scratch", "scratch"),
     ]
@@ -78,15 +82,54 @@ async def test_files_roots_lists_present_roots_the_caller_may_view(tmp_path: Pat
     assert [(root.id, root.label, root.level) for root in roots] == [
         ("project", "Project", ComponentAccessLevel.MANAGE),
         ("component:@hoarder:stash", "Stash", ComponentAccessLevel.MANAGE),
+        ("component:@hoarder:ledger", "Ledger", ComponentAccessLevel.MANAGE),
     ]
 
     viewer = await _user(engine, ComponentAccessLevel.VIEW)
     roots = await get_file_roots(engine, viewer)
     assert [(root.id, root.level) for root in roots] == [
-        ("component:@hoarder:stash", ComponentAccessLevel.VIEW)
+        ("component:@hoarder:stash", ComponentAccessLevel.VIEW),
+        ("component:@hoarder:ledger", ComponentAccessLevel.VIEW),
     ]
 
     await engine.database.dispose()
+
+
+@pytest.mark.parametrize(
+    ("level", "stash", "ledger"),
+    [
+        (ComponentAccessLevel.VIEW, False, False),
+        (ComponentAccessLevel.OPERATE, True, False),
+        (ComponentAccessLevel.MANAGE, True, True),
+    ],
+)
+async def test_files_roots_are_writable_from_operate_and_read_only_ones_from_manage(
+    tmp_path: Path, level: ComponentAccessLevel, stash: bool, ledger: bool
+) -> None:
+    engine, _ = await _engine(tmp_path)
+    actor = await _user(engine, level)
+
+    roots = await get_file_roots(engine, actor)
+    assert [root.writable for root in roots] == [stash, ledger]
+    resolved = await resolve_file_root(engine, actor, "component:@hoarder:ledger")
+    assert resolved.writable == ledger
+
+    await engine.database.dispose()
+
+
+async def test_files_project_root_is_writable_by_an_admin(tmp_path: Path) -> None:
+    engine, _ = await _engine(tmp_path)
+    admin = await _user(engine, None, admin=True)
+
+    assert [root.writable for root in await get_file_roots(engine, admin)][0]
+    assert (await resolve_file_root(engine, admin, "project")).writable
+
+    await engine.database.dispose()
+
+
+def test_files_max_upload_reads_a_byte_size() -> None:
+    assert ServerFilesConfig(max_upload="2KiB").max_upload == 2048
+    assert ServerFilesConfig().max_upload is None
 
 
 async def test_files_roots_hides_every_root_from_a_caller_without_access(tmp_path: Path) -> None:
@@ -152,7 +195,8 @@ async def test_files_on_a_component_lists_its_present_roots(tmp_path: Path) -> N
 
     info = await get_component(engine, _UNRESTRICTED, hoarder.system.address)
     assert [(files.field, files.label, files.root) for files in info.files] == [
-        ("stash", "Stash", "component:@hoarder:stash")
+        ("stash", "Stash", "component:@hoarder:stash"),
+        ("ledger", "Ledger", "component:@hoarder:ledger"),
     ]
 
     await engine.database.dispose()

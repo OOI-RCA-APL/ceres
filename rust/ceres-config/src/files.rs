@@ -8,6 +8,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Problem, Problems};
+use crate::values::ByteSize;
 
 /// What the console's file browser serves.
 #[kebab_aliases]
@@ -24,6 +25,9 @@ pub struct RawServerFilesConfig {
     /// `.venv` and `node_modules`. A pattern without a `/` matches an entry's name at any
     /// depth, and a pattern with one, or starting with one, matches the path from the root.
     pub exclude: Option<Vec<String>>,
+
+    /// Largest file one upload may write, such as `2GiB`, unlimited when omitted.
+    pub max_upload: Option<ByteSize>,
 }
 
 /// Validated configuration of the console's file browser.
@@ -31,6 +35,7 @@ pub struct RawServerFilesConfig {
 pub struct ServerFilesConfig {
     pub root: Option<PathBuf>,
     pub exclude: Vec<String>,
+    pub max_upload: Option<ByteSize>,
 }
 
 impl TryFrom<RawServerFilesConfig> for ServerFilesConfig {
@@ -51,6 +56,7 @@ impl TryFrom<RawServerFilesConfig> for ServerFilesConfig {
         problems.into_result(Self {
             root: raw.root,
             exclude,
+            max_upload: raw.max_upload,
         })
     }
 }

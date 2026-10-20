@@ -1156,6 +1156,37 @@
       }
     },
     "/api/files/{root}/{*path}": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "root",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete a file, or a directory with `?recursive` when it is not empty.",
+        "tags": [
+          "files"
+        ]
+      },
       "get": {
         "parameters": [
           {
@@ -1183,6 +1214,68 @@
           }
         ],
         "summary": "List a directory, serve a file, or describe an entry under a file root.",
+        "tags": [
+          "files"
+        ]
+      },
+      "patch": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "root",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Rename or move an entry to another path under the same file root.",
+        "tags": [
+          "files"
+        ]
+      },
+      "put": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "root",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Upload a file, or create a directory with `?directory`, under a file root.",
         "tags": [
           "files"
         ]

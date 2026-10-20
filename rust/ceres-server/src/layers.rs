@@ -105,9 +105,11 @@ pub fn apply_cors(router: Router, config: Option<&ServerCorsConfig>) -> Router {
 
 /// The media types a codec or an archive already compressed. Another pass finds nothing left to
 /// take out of them, and spends the CPU a live video at 10 Mbit/s keeps busy for nothing.
-const COMPRESSED_ALREADY: [&str; 12] = [
+const COMPRESSED_ALREADY: [&str; 13] = [
     "video/",
     "audio/",
+    // Any binary file of a type the server cannot name, often large and rarely compressible.
+    "application/octet-stream",
     // WOFF and WOFF2 both, which a font wraps to compress itself.
     "font/woff",
     "application/zip",
@@ -122,6 +124,9 @@ const COMPRESSED_ALREADY: [&str; 12] = [
 ];
 
 /// Leaves a response alone whose media type is already compressed.
+///
+/// A compressed file keeps the strong ETag of its uncompressed bytes, which RFC 9110 says should
+/// differ per coding. Only media players send `Range`, and their types are listed here.
 #[derive(Clone, Copy)]
 struct NotCompressedAlready;
 

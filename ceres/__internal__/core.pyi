@@ -1181,8 +1181,17 @@ class ServerFilesConfig:
         r"""
         Glob patterns naming entries that are never listed or served, in any root.
         """
+    @property
+    def max_upload(self) -> int | None:
+        r"""
+        Largest file one upload may write, in bytes, unlimited when `None`.
+        """
     def __new__(
-        cls, *, root: str | PathLike[str] | Path | None = None, exclude: Sequence[str] | None = None
+        cls,
+        *,
+        root: str | PathLike[str] | Path | None = None,
+        exclude: Sequence[str] | None = None,
+        max_upload: int | str | None = None,
     ) -> Self: ...
     def __to_dict__(self) -> dict[str, Any]:
         r"""

@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 
 from ceres.__internal__.app.shared import get_component_access, get_components_access
 from ceres.address import Address
-from ceres.component import Component, ComponentAccessLevel
+from ceres.component import Component, ComponentAccessLevel, FileRootBinding
 from ceres.data import DataObject
 from ceres.error import NotFoundError, NotPermittedError
 
@@ -27,6 +27,8 @@ class FileRootInfo(DataObject):
     """The component whose field serves the root, `None` for the project root."""
     level: ComponentAccessLevel
     """The caller's access level on the root."""
+    writable: bool
+    """Whether the caller may change files in the root."""
 
 
 FileRootInfo.__name__ = "FileRoot"
@@ -34,18 +36,28 @@ FileRootInfo.__qualname__ = "FileRoot"
 
 
 class ResolvedFileRoot(DataObject):
-    """Where a file root lives on disk, for the server that reads it."""
+    """Where a file root lives on disk, for the server that reads and writes it."""
 
     path: str
     """Absolute path of the root directory."""
     level: ComponentAccessLevel
+    writable: bool
+    """Whether the caller may change files in the root."""
     exclude: list[str]
     """The `server.files.exclude` patterns."""
+    max_upload: int | None
+    """Largest file one upload may write, in bytes, unlimited when `None`."""
 
 
 def component_root_id(address: Address, field: str) -> str:
     """Return the ID of the root that `field` of the component at `address` serves."""
     return f"{COMPONENT_ROOT_PREFIX}{address}:{field}"
+
+
+def _component_root_writable(level: ComponentAccessLevel, binding: FileRootBinding) -> bool:
+    return level >= ComponentAccessLevel.MANAGE or (
+        binding.writable and level >= ComponentAccessLevel.OPERATE
+    )
 
 
 def _served_components(engine: Engine) -> list[Component]:
@@ -73,6 +85,7 @@ async def get_file_roots(engine: Engine, actor: Actor) -> list[FileRootInfo]:
                 label="Project",
                 component=None,
                 level=ComponentAccessLevel.MANAGE,
+                writable=True,
             )
         )
 
@@ -92,6 +105,7 @@ async def get_file_roots(engine: Engine, actor: Actor) -> list[FileRootInfo]:
                 label=binding.label,
                 component=system.address,
                 level=level,
+                writable=_component_root_writable(level, binding),
             )
             for binding in system.get_file_root_bindings().values()
             if system.get_file_root(binding.field) is not None
@@ -108,6 +122,7 @@ async def resolve_file_root(engine: Engine, actor: Actor, id: str) -> ResolvedFi
         NotPermittedError: If the caller may not view the root.
     """
     exclude = list(engine.config.server.files.exclude)
+    max_upload = engine.config.server.files.max_upload
     if id == PROJECT_ROOT:
         if not actor.admin:
             raise NotPermittedError()
@@ -115,7 +130,9 @@ async def resolve_file_root(engine: Engine, actor: Actor, id: str) -> ResolvedFi
         return ResolvedFileRoot(
             path=str(_project_root(engine).absolute()),
             level=ComponentAccessLevel.MANAGE,
+            writable=True,
             exclude=exclude,
+            max_upload=max_upload,
         )
 
     address, separator, field = id.removeprefix(COMPONENT_ROOT_PREFIX).rpartition(":")
@@ -134,4 +151,11 @@ async def resolve_file_root(engine: Engine, actor: Actor, id: str) -> ResolvedFi
         if level is None or level < ComponentAccessLevel.VIEW:
             raise NotPermittedError()
 
-    return ResolvedFileRoot(path=str(directory.path), level=level, exclude=exclude)
+    binding = component.system.get_file_root_bindings()[field]
+    return ResolvedFileRoot(
+        path=str(directory.path),
+        level=level,
+        writable=_component_root_writable(level, binding),
+        exclude=exclude,
+        max_upload=max_upload,
+    )

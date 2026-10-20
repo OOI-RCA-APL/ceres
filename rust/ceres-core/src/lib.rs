@@ -160,6 +160,8 @@ python_config! {
         root: Option<PathBuf>,
         /// Glob patterns naming entries that are never listed or served, in any root.
         exclude: Vec<String>,
+        /// Largest file one upload may write, in bytes, unlimited when `None`.
+        max_upload: Option<ByteSize>,
     }
 
     /// Configuration for the engine's HTTP server.

@@ -72,6 +72,15 @@ pub(crate) fn documented_routes() -> Vec<schema::Documented> {
         Get "/api/files/{root}/{*path}" =>
             "List a directory, serve a file, or describe an entry under a file root.", "files",
             params("root", "path");
+        Put "/api/files/{root}/{*path}" =>
+            "Upload a file, or create a directory with `?directory`, under a file root.", "files",
+            params("root", "path");
+        Patch "/api/files/{root}/{*path}" =>
+            "Rename or move an entry to another path under the same file root.", "files",
+            params("root", "path");
+        Delete "/api/files/{root}/{*path}" =>
+            "Delete a file, or a directory with `?recursive` when it is not empty.", "files",
+            params("root", "path");
     };
 
     macro_rules! record_tables {
