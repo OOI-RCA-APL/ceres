@@ -4,7 +4,7 @@ from typing import Annotated
 import pytest
 from pydantic import Field
 
-from ceres import Component, Directory, Engine, Files
+from ceres import Component, Directory, Engine, Files, LogEntry
 from ceres.__internal__.app.handlers.components import get_component
 from ceres.__internal__.app.handlers.files import get_file_roots, resolve_file_root
 from ceres.__internal__.app.shared import Actor
@@ -35,7 +35,9 @@ async def _engine(tmp_path: Path) -> tuple[Engine, Hoarder]:
     return engine, hoarder
 
 
-async def _user(engine: Engine, level: ComponentAccessLevel | None, *, admin: bool = False) -> Actor:
+async def _user(
+    engine: Engine, level: ComponentAccessLevel | None, *, admin: bool = False
+) -> Actor:
     user = await engine.database.users.create(
         User.Create(username="abc", email="abc@test.com", password="abcd", admin=admin)
     )
@@ -126,6 +128,21 @@ async def test_files_resolve_refuses_a_root_the_caller_may_not_reach(
 
     with pytest.raises(error):
         await resolve_file_root(engine, await _user(engine, None), id)
+
+    await engine.database.dispose()
+
+
+async def test_files_warns_about_a_root_holding_a_temporary_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    engine, hoarder = await _engine(tmp_path)
+    written: list[LogEntry] = []
+    monkeypatch.setattr(type(hoarder.system.log), "write", lambda _, entry: written.append(entry))
+
+    hoarder.system.warn_temporary_file_roots()
+    assert [entry.content for entry in written] == [
+        "File root 'scratch' holds a temporary directory, which the file browser does not serve."
+    ]
 
     await engine.database.dispose()
 

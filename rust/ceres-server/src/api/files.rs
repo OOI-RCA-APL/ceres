@@ -423,10 +423,19 @@ async fn respond(
         Found::Stat(entry) => Ok(json(&entry)),
         Found::File { path, name } => {
             let Ok(mut response) = ServeFile::new(path).oneshot(request).await;
+            // A served HTML or SVG file opened as a page runs in an opaque origin, so its scripts
+            // never reach the console's session.
+            let headers = response.headers_mut();
+            headers.insert(
+                header::CONTENT_SECURITY_POLICY,
+                HeaderValue::from_static("sandbox"),
+            );
+            headers.insert(
+                header::X_CONTENT_TYPE_OPTIONS,
+                HeaderValue::from_static("nosniff"),
+            );
             if download {
-                response
-                    .headers_mut()
-                    .insert(header::CONTENT_DISPOSITION, attachment(&name));
+                headers.insert(header::CONTENT_DISPOSITION, attachment(&name));
             }
 
             Ok(response.map(Body::new))
@@ -608,6 +617,14 @@ mod tests {
         let response = host.get("/api/files/files/a/b%20c.txt").await;
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.headers()[header::CONTENT_TYPE], "text/plain");
+        assert_eq!(
+            response.headers()[header::CONTENT_SECURITY_POLICY],
+            "sandbox"
+        );
+        assert_eq!(
+            response.headers()[header::X_CONTENT_TYPE_OPTIONS],
+            "nosniff"
+        );
         assert_eq!(body(response).await, b"abcd");
 
         let ranged = host

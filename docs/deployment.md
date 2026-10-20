@@ -188,6 +188,28 @@ ceres console open    # Open in browser.
 ceres console url     # Print the URL.
 ```
 
+### Files
+
+The console's "Files" page browses and downloads the files a deployment keeps. A component offers one of its `Directory` fields there by marking it with `Files`, and anyone who may view the component may browse it.
+
+```python
+from typing import Annotated
+
+from ceres import Component, Directory, Files
+
+
+class Recorder(Component):
+    output: Annotated[Directory, Files("Recordings")]
+```
+
+A field set to `None` or holding a temporary directory offers nothing. Administrators also see the project directory, or `server.files.root` when that names another. The page hides entries whose names start with a dot until "Show hidden" is on, which is a convenience and never access control. `server.files.exclude` is what keeps an entry out of reach, since the engine never lists or serves a match in any root. A pattern without a `/` matches a name at any depth, and one with a `/` matches a path from the root.
+
+```yaml
+server:
+  files:
+    exclude: [.venv, node_modules, /data/raw]
+```
+
 ### HTTPS
 
 With a `server.https` listener the console is served over TLS, and browsers negotiate HTTP/2, which multiplexes every console request over one connection. Over plain HTTP browsers cap a page at about six connections per host, and each live video widget holds one, so a dashboard with several videos stalls. HTTPS lifts that limit.

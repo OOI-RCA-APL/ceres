@@ -1106,6 +1106,88 @@
         ]
       }
     },
+    "/api/files": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List the file roots the caller may view.",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/files/{root}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "root",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List the top directory of a file root.",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/files/{root}/{*path}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "root",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List a directory, serve a file, or describe an entry under a file root.",
+        "tags": [
+          "files"
+        ]
+      }
+    },
     "/api/groups": {
       "get": {
         "responses": {
@@ -2520,6 +2602,9 @@
     },
     {
       "name": "procedures"
+    },
+    {
+      "name": "files"
     },
     {
       "name": "messages"

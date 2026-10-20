@@ -521,7 +521,9 @@ def get_file_root_bindings(cls: type, /) -> Mapping[Name, FileRootBinding]:
     bindings: dict[Name, FileRootBinding] = {}
     for field, info in __pydantic_fields__.items():
         annotation = extract_annotation(info)
-        marker = next((current for current in annotation.metadata if isinstance(current, Files)), None)
+        marker = next(
+            (current for current in annotation.metadata if isinstance(current, Files)), None
+        )
         if marker is None:
             continue
 
@@ -1659,15 +1661,6 @@ class ComponentSystem(Node, ComponentSource):
         for connection in connections.values():
             self.connections.add(connection)
 
-        # A temporary directory vanishes with its handle, so the file browser skips it.
-        for binding in self.get_file_root_bindings().values():
-            directory = getattr(self.component, binding.field, None)
-            if isinstance(directory, Directory) and directory.temporary:
-                self.log.warning(
-                    f"File root '{binding.field}' holds a temporary directory, which the file "
-                    "browser does not serve."
-                )
-
         # Load sieves from static sieves.
         sieves = {sieve.name: sieve for sieve in self.component.__static_sieves__()}
         # Load sieves from bindings.
@@ -2058,6 +2051,20 @@ class ComponentSystem(Node, ComponentSource):
             return None
 
         return directory
+
+    def warn_temporary_file_roots(self) -> None:
+        """Log a warning for each file root holding a temporary directory.
+
+        A temporary directory vanishes with its handle, so the file browser skips it, and the
+        warning says why a declared root is missing.
+        """
+        for binding in self.get_file_root_bindings().values():
+            directory = getattr(self.component, binding.field, None)
+            if isinstance(directory, Directory) and directory.temporary:
+                self.log.warning(
+                    f"File root '{binding.field}' holds a temporary directory, which the file "
+                    "browser does not serve."
+                )
 
     def __propagate_tree_change(self) -> None:
         # Notify every component that the structure changed so they can recompute cached child

@@ -162,6 +162,14 @@ export const ParticleTypeInfoModel = z.object({
   connections: z.array(z.string()).default([]),
 })
 
+export type ComponentFilesInfo = z.infer<typeof ComponentFilesInfoModel>
+export const ComponentFilesInfoModel = z.object({
+  field: z.string(),
+  label: z.string(),
+  /** The root's ID under `/api/files`. */
+  root: z.string(),
+})
+
 export type ComponentInfo = {
   name: string
   address: Address
@@ -170,6 +178,7 @@ export type ComponentInfo = {
   connections: ConnectionInfo[]
   components: ComponentInfo[]
   particles: ParticleTypeInfo[]
+  files: ComponentFilesInfo[]
 }
 
 export const ComponentInfoModel: z.ZodType<ComponentInfo> = z.object({
@@ -182,6 +191,7 @@ export const ComponentInfoModel: z.ZodType<ComponentInfo> = z.object({
     return z.array(ComponentInfoModel)
   },
   particles: z.array(ParticleTypeInfoModel),
+  files: z.array(ComponentFilesInfoModel).default([]),
 }) as z.ZodType<ComponentInfo>
 
 export const useComponents = defineStore('components', () => {

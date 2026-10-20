@@ -77,8 +77,8 @@ async def get_file_roots(engine: Engine, actor: Actor) -> list[FileRootInfo]:
         )
 
     components = _served_components(engine)
-    access = None if actor.unrestricted else await get_components_access(
-        engine, actor.user, components
+    access = (
+        None if actor.unrestricted else await get_components_access(engine, actor.user, components)
     )
     for component in components:
         system = component.system

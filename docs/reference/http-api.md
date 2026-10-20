@@ -85,6 +85,14 @@ caller themselves against the resource they name.
 | `POST` | `/api/stop` | required | Stop matching components. |
 | `POST` | `/api/up` | required | Enable and start matching components. |
 
+## Files
+
+| Method | Path | Token | Description |
+| --- | --- | --- | --- |
+| `GET` | `/api/files` | required | List the file roots the caller may view. |
+| `GET` | `/api/files/{root}` | required | List the top directory of a file root. |
+| `GET` | `/api/files/{root}/{*path}` | required | List a directory, serve a file, or describe an entry under a file root. |
+
 ## Groups
 
 | Method | Path | Token | Description |

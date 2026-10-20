@@ -197,6 +197,10 @@ const footerRowClass =
         <c-icon class="size-5" :name="icons.home" />
         <span>Home</span>
       </nuxt-link>
+      <nuxt-link v-if="engine.auth.user != null" :class="[footerRowClass, 'py-3']" to="/files">
+        <c-icon class="size-5" :name="icons.files" />
+        <span>Files</span>
+      </nuxt-link>
       <template v-if="engine.auth.isViewer && engine.components.topLevel.length > 0">
         <c-drawer-components-header
           v-model:filter="componentFilter"

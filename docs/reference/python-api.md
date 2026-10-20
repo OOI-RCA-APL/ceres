@@ -244,6 +244,10 @@ from the package, `from ceres import Component`.
     options:
       heading_level: 3
 
+::: ceres.directory.Files
+    options:
+      heading_level: 3
+
 
 ## Data
 
