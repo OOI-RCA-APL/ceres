@@ -322,6 +322,39 @@ To fix release notes after publishing, edit the changelog entry in a normal comm
 mirror it with `gh release edit <version> --notes-file <file>`. The published release
 body is editable without touching the tag or re-triggering the pipeline.
 
+### Trying a Pull Request on a Host
+
+Every push to a pull request from this repository builds a Linux x86_64 wheel with the
+unoptimized development profile and attaches it to the pull request's GitHub prerelease,
+`pr-<number>`, replacing the previous one. A debug build behaves like a release but runs
+the native code unoptimized, so measure performance with a release-profile build, which
+runs only when dispatched:
+
+```sh
+gh workflow run pull-request-build.yaml -f pull_request=<number>
+```
+
+A build's version is a development release of the next patch whose local label names the
+commit and the profile, such as `0.49.4.dev12+g1ceb373e.debug`. The builds exist only on the
+prerelease, never on PyPI or the project's package index, and closing the pull request
+deletes the prerelease and its tag. Install one from the URL its release notes list, in the
+project's directory, then restart the service:
+
+```sh
+uv pip install <wheel URL>
+ceres service stop
+ceres service start
+```
+
+Return to a release with `uv pip install ceres-engine==<version>` and a restart. A host stays
+on the build until a command installs another version, and `uv sync`, `uv add`, and `uv run`
+each do, reinstalling the version the project pins. Record the build and its commit in the
+host's change log.
+
+Every `pr-<number>` tag follows a fetch into a clone and stays there after the prerelease
+goes. `git config fetch.prune true` and `git config fetch.pruneTags true` drop each deleted
+one at the next fetch.
+
 ## Documentation
 
 Build and preview the documentation locally:

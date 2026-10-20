@@ -1,0 +1,256 @@
+name: pull-request-build
+# Builds a pull request's Linux x86_64 wheel and attaches it to the pull request's own GitHub
+# prerelease, so a host can try the change before it reaches PyPI. Every push builds the debug
+# profile. A release-profile build, for measuring performance, runs only when dispatched,
+# because it costs a full optimized build. Nothing here publishes to any package index.
+on:
+  pull_request:
+    branches:
+      - main
+    # `closed` deletes the prerelease, so merged and abandoned pull requests leave nothing behind.
+    types: [opened, synchronize, reopened, closed]
+  workflow_dispatch:
+    inputs:
+      pull_request:
+        description: The number of the pull request to build with the release profile.
+        required: true
+        type: number
+
+permissions:
+  contents: read
+
+env:
+  NUMBER: ${{ github.event.pull_request.number || inputs.pull_request }}
+  TAG: pr-${{ github.event.pull_request.number || inputs.pull_request }}
+  # The profile also becomes the version's local label, so an installed build names its own
+  # profile wherever it reports its version.
+  PROFILE: ${{ github.event_name == 'workflow_dispatch' && 'release' || 'debug' }}
+
+# A newer push cancels the build still running for the same pull request. The event name keeps
+# a dispatched release build and a push's debug build from cancelling each other.
+concurrency:
+  group: pull-request-build-${{ github.event.pull_request.number || inputs.pull_request }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  wheel:
+    # Fork pull requests build nothing, since their token is read-only and their publish could
+    # only fail.
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event.action != 'closed'
+      && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
+      version: ${{ steps.version.outputs.version }}
+      wheel: ${{ steps.wheel.outputs.name }}
+    steps:
+      # The pull request's head commit rather than the merge commit `pull_request` checks out,
+      # because the version names the commit and a merge commit outlives no later push.
+      - name: Resolve the Commit
+        id: commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ -z "$SHA" ]; then
+            read -r SHA cross state < <(gh pr view "$NUMBER" --repo "$GITHUB_REPOSITORY" \
+              --json headRefOid,isCrossRepository,state \
+              --jq '"\(.headRefOid) \(.isCrossRepository) \(.state)"')
+            if [ "$cross" != false ] || [ "$state" != OPEN ]; then
+              echo "Pull request #$NUMBER must be open and come from this repository."
+              exit 1
+            fi
+          fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.commit.outputs.sha }}
+      # The wheel serves the console, and the checkout carries none, the bundle being untracked.
+      - name: Install Node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: console/.nvmrc
+      - name: Build the Console
+        run: cd console && npm ci && npm run build
+      # Uncached, because a pull request's entry is readable by that pull request alone and
+      # would evict the entries `main` saves from the repository's cache quota.
+      - name: Install UV
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: false
+      # A development release of the next patch. The run number orders successive builds, and
+      # the local label, which PyPI refuses, carries the commit and the profile. The CLI reads
+      # the same line.
+      - name: Stamp the Version
+        id: version
+        env:
+          SHA: ${{ steps.commit.outputs.sha }}
+        run: |
+          IFS=. read -r major minor patch <<< "$(uv version --short)"
+          version="$major.$minor.$((patch + 1)).dev$GITHUB_RUN_NUMBER+g${SHA::8}.$PROFILE"
+          uv version --frozen "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      # The release key spells out the one `cache.yaml` saves on `main` for the release
+      # workflow's `build` job, so a release-profile build restores that entry under any job
+      # name. Saving is off, because an entry saved here is readable only by this pull request
+      # and would evict the entries `main` saves from the repository's cache quota.
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+          shared-key: ${{ env.PROFILE == 'release' && 'x86_64-unknown-linux-gnu' || 'debug-x86_64-unknown-linux-gnu' }}-${{ hashFiles('rust/Cargo.toml', '.cargo/config.toml') }}-build
+          save-if: false
+      - name: Create Wheel Data Directory
+        run: mkdir -p ceres.__internal__.core.data/scripts
+      # The manylinux container links against an old glibc, so the wheel installs on any host
+      # the release wheels install on, which a wheel built on the runner itself does not.
+      - name: Build the Wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          target: x86_64-unknown-linux-gnu
+          args: ${{ env.PROFILE == 'release' && '--release' || '--profile dev' }} --out dist --interpreter 3.14
+          manylinux: auto
+      - name: Check the Wheel
+        id: wheel
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          ls dist
+          set -- dist/ceres_engine-"$VERSION"-cp314-cp314-manylinux*_x86_64.whl
+          if [ "$#" -ne 1 ] || [ ! -f "$1" ]; then
+            echo "Expected one wheel for version $VERSION."
+            exit 1
+          fi
+          if ! unzip -l "$1" | grep -q ' ceres/static/console/index.html$'; then
+            echo "The wheel carries no console."
+            exit 1
+          fi
+          echo "name=$(basename "$1")" >> "$GITHUB_OUTPUT"
+      - name: Upload the Wheel
+        uses: actions/upload-artifact@v7
+        with:
+          name: wheel
+          path: dist/${{ steps.wheel.outputs.name }}
+
+  # The write token is safe because nothing here runs on `pull_request_target`, fork pull
+  # requests build nothing, and a dispatch refuses one. A same-repository pull request can edit
+  # this file and take the token, so running none of its code here is hygiene, not the boundary.
+  publish:
+    needs: wheel
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # Queued rather than cancelled, and shared with `cleanup`, so no two runs edit the
+    # prerelease at once and none leaves it half written.
+    concurrency:
+      group: pull-request-build-publish-${{ github.event.pull_request.number || inputs.pull_request }}
+    outputs:
+      url: ${{ steps.publish.outputs.url }}
+    steps:
+      - name: Download the Wheel
+        uses: actions/download-artifact@v8
+        with:
+          name: wheel
+          path: dist
+      # A release created with this workflow's own token starts no workflow, so the release
+      # workflow never runs for a prerelease.
+      - name: Attach to the Prerelease
+        id: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ needs.wheel.outputs.sha }}
+          WHEEL: ${{ needs.wheel.outputs.wheel }}
+        run: |
+          # A run that finds the pull request closed deletes the prerelease in the next step because
+          # `cleanup` may have run before it, or its arrival in the shared group canceled `cleanup`.
+          if [ "$(gh pr view "$NUMBER" --json state --jq .state)" != OPEN ]; then
+            echo "Pull request #$NUMBER is closed, so nothing publishes."
+            echo "closed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Moved to each build's commit, so the tag names code a build came from.
+          if gh api "repos/$GH_REPO/git/ref/tags/$TAG" > /dev/null 2>&1; then
+            gh api --method PATCH "repos/$GH_REPO/git/refs/tags/$TAG" -f sha="$SHA" -F force=true > /dev/null
+          else
+            gh api --method POST "repos/$GH_REPO/git/refs" -f ref="refs/tags/$TAG" -f sha="$SHA" > /dev/null
+          fi
+          if ! gh release view "$TAG" > /dev/null 2>&1; then
+            gh release create "$TAG" --prerelease --latest=false \
+              --title "Pull request #$NUMBER builds" --notes "Pending the first build."
+          fi
+          gh release upload "$TAG" "dist/$WHEEL" --clobber
+          # Uploaded before the previous build of this profile goes, so the prerelease always
+          # holds one wheel per profile it has built.
+          gh release view "$TAG" --json assets --jq '.assets[].name' | while read -r name; do
+            if [[ "$name" == *".$PROFILE-"* && "$name" != "$WHEEL" ]]; then
+              gh release delete-asset "$TAG" "$name" --yes
+            fi
+          done
+          {
+            echo "Untested builds of #$NUMBER for trying on a host before release. They never reach PyPI."
+            echo
+            echo "A \`debug\` build uses the unoptimized development profile, correct for behavior and wrong for measuring performance. A \`release\` build uses the release profile."
+            echo
+            gh api "repos/$GH_REPO/releases/tags/$TAG" \
+              --jq '.assets[] | "- `uv pip install \(.browser_download_url)`"'
+          } > notes.md
+          gh release edit "$TAG" --notes-file notes.md
+          url="$(gh api "repos/$GH_REPO/releases/tags/$TAG" \
+            --jq ".assets[] | select(.name == \"$WHEEL\") | .browser_download_url")"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+      - name: Delete the Prerelease
+        if: steps.publish.outputs.closed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: &delete-prerelease |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release delete "$TAG" --cleanup-tag --yes
+          fi
+          if gh api "repos/$GH_REPO/git/ref/tags/$TAG" > /dev/null 2>&1; then
+            gh api --method DELETE "repos/$GH_REPO/git/refs/tags/$TAG"
+          fi
+
+  # Installs the published wheel from its URL on Ubuntu 22.04, glibc 2.35, so a wheel that
+  # cannot install or start there fails the run that published it.
+  verify:
+    needs: [wheel, publish]
+    if: needs.publish.outputs.url != ''
+    runs-on: ubuntu-latest
+    container: ubuntu:22.04
+    steps:
+      - name: Install UV
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: false
+      - name: Install from the Prerelease
+        env:
+          URL: ${{ needs.publish.outputs.url }}
+          VERSION: ${{ needs.wheel.outputs.version }}
+        run: |
+          ldd --version | head -n 1
+          uv venv --python 3.14 /tmp/venv
+          uv pip install --python /tmp/venv "$URL"
+          /tmp/venv/bin/ceres --version
+          /tmp/venv/bin/python -c "from ceres.version import __version__; print(__version__)"
+          test "$(/tmp/venv/bin/python -c 'from ceres.version import __version__; print(__version__)')" = "$VERSION"
+          /tmp/venv/bin/python -c "import ceres, pathlib; assert (pathlib.Path(ceres.__file__).parent / 'static/console/index.html').is_file()"
+
+  cleanup:
+    if: github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # Runs after a publish already in flight, which a dispatched release build can be.
+    concurrency:
+      group: pull-request-build-publish-${{ github.event.pull_request.number }}
+    steps:
+      - name: Delete the Prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: *delete-prerelease
