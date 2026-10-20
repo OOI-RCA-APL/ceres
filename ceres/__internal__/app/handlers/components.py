@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import Field
 
+from ceres.__internal__.app.handlers.files import component_root_id
 from ceres.__internal__.app.shared import (
     get_component_access,
     get_components_access,
@@ -75,6 +76,15 @@ class ParticleTypeInfo(DataObject):
     """
 
 
+class ComponentFilesInfo(DataObject):
+    """A `Directory` field of a component that the console's file browser serves."""
+
+    field: Name
+    label: str
+    root: str
+    """ID of the file root, for `/api/files/{root}`."""
+
+
 class ComponentInfo(DataObject):
     """Recursive description of a component, its procedures, connections, and children."""
 
@@ -86,6 +96,8 @@ class ComponentInfo(DataObject):
     tags: list[str]
     particles: list[ParticleTypeInfo]
     """The particle types the component declares, with their field schemas."""
+    files: list[ComponentFilesInfo]
+    """The file roots the component's fields serve."""
 
 
 ComponentInfo.__name__ = "Component"
@@ -113,11 +125,21 @@ def _describe_component(component: Component, *, visible: bool) -> ComponentInfo
         ]
         tags = system.tags
         particles = _described_particle_classes(component)
+        files = [
+            ComponentFilesInfo(
+                field=binding.field,
+                label=binding.label,
+                root=component_root_id(system.address, binding.field),
+            )
+            for binding in system.get_file_root_bindings().values()
+            if system.get_file_root(binding.field) is not None
+        ]
     else:
         procedures = []
         connections = []
         tags = []
         particles = []
+        files = []
 
     return ComponentInfo(
         name=system.name,
@@ -127,6 +149,7 @@ def _describe_component(component: Component, *, visible: bool) -> ComponentInfo
         components=[],
         tags=tags,
         particles=particles,
+        files=files,
     )
 
 

@@ -57,6 +57,7 @@ __all__ = [
     "DatabaseType",
     # .directory
     "Directory",
+    "Files",
     # .dispatcher
     "Dispatch",
     "DispatchWriter",
@@ -184,7 +185,7 @@ with __lazy_imports__(__name__, export=True):
     from ceres.connectivity import Connectivity
     from ceres.data import DataObject, Unit
     from ceres.database import Database, DatabaseType
-    from ceres.directory import Directory
+    from ceres.directory import Directory, Files
     from ceres.dispatcher import Dispatch, Dispatcher, DispatchWriter, HTMLDispatchWriter
     from ceres.engine import Engine
     from ceres.entity import Entity, EntityType

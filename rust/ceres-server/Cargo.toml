@@ -23,6 +23,7 @@ form_urlencoded = "1"
 futures-util = { version = "0.3.33", default-features = false }
 jsonwebtoken = { version = "11", default-features = false, features = ["rust_crypto"] }
 libc = "0.2"
+percent-encoding = "2"
 pem = "3"
 pkcs8 = { version = "0.10", features = ["encryption", "pem", "std"] }
 # `x509-parser` lets an authority read from disk sign certificates.

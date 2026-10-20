@@ -7,6 +7,7 @@
 pub(crate) mod auth;
 pub(crate) mod config;
 pub(crate) mod dispatch;
+pub(crate) mod files;
 pub(crate) mod records;
 pub(crate) mod schema;
 pub(crate) mod served;
@@ -66,6 +67,11 @@ pub(crate) fn documented_routes() -> Vec<schema::Documented> {
             "procedures", params("id", "second"), open: true;
         Delete whep::CLOSE => "End a WebRTC session.", "procedures",
             params("id", "second", "session"), open: true;
+        Get "/api/files/{root}" => "List the top directory of a file root.", "files",
+            params("root");
+        Get "/api/files/{root}/{*path}" =>
+            "List a directory, serve a file, or describe an entry under a file root.", "files",
+            params("root", "path");
     };
 
     macro_rules! record_tables {

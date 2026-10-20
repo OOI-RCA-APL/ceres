@@ -29,6 +29,7 @@ from ceres.__internal__.core import ServerAuthenticationConfig as _CoreServerAut
 from ceres.__internal__.core import ServerCompressionConfig as _CoreServerCompressionConfig
 from ceres.__internal__.core import ServerConfig as _CoreServerConfig
 from ceres.__internal__.core import ServerCORSConfig as _CoreServerCORSConfig
+from ceres.__internal__.core import ServerFilesConfig as _CoreServerFilesConfig
 from ceres.__internal__.core import ServerHTTPConfig as _CoreServerHTTPConfig
 from ceres.__internal__.core import ServerHTTPSConfig as _CoreServerHTTPSConfig
 from ceres.__internal__.core import ServerWebRTCConfig as _CoreServerWebRTCConfig
@@ -809,6 +810,15 @@ class ServerWebRTCConfig(RustConfigModel, _CoreServerWebRTCConfig):
 
     The fields and their validation live in the native
     `ceres.__internal__.core.ServerWebRTCConfig`, this subclass only wires the class into
+    Pydantic.
+    """
+
+
+class ServerFilesConfig(RustConfigModel, _CoreServerFilesConfig):
+    """What the console's file browser serves.
+
+    The fields and their validation live in the native
+    `ceres.__internal__.core.ServerFilesConfig`, this subclass only wires the class into
     Pydantic.
     """
 

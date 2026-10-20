@@ -153,6 +153,15 @@ python_config! {
         no_ice_timeout: TimeDelta,
     }
 
+    /// What the console's file browser serves.
+    ServerFilesConfig(ceres_config::ServerFilesConfig, ceres_config::RawServerFilesConfig) {
+        /// Directory the project root serves to administrators, the project directory when
+        /// omitted.
+        root: Option<PathBuf>,
+        /// Glob patterns naming entries that are never listed or served, in any root.
+        exclude: Vec<String>,
+    }
+
     /// Configuration for the engine's HTTP server.
     ServerConfig(ceres_config::ServerConfig, ceres_config::RawServerConfig) {
         /// Address every listener binds, the WebRTC media port included.
@@ -176,6 +185,9 @@ python_config! {
         /// when `webrtc` is not set.
         #[python(nested = ServerWebRTCConfig)]
         webrtc: Option<ceres_config::ServerWebrtcConfig>,
+        /// What the console's file browser serves.
+        #[python(nested = ServerFilesConfig)]
+        files: ceres_config::ServerFilesConfig,
     }
 }
 
@@ -193,6 +205,7 @@ fn ceres_core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<ServerCORSConfig>()?;
     module.add_class::<ServerCompressionConfig>()?;
     module.add_class::<ServerWebRTCConfig>()?;
+    module.add_class::<ServerFilesConfig>()?;
     module.add_class::<ServerConfig>()?;
     module.add_class::<logging::LoggingConfig>()?;
     module.add_class::<database::DatabaseConfigHooks>()?;
