@@ -202,7 +202,7 @@ class Recorder(Component):
     output: Annotated[Directory, Files("Recordings")]
 ```
 
-A field set to `None` or holding a temporary directory offers nothing. Administrators also see the project directory, or `server.files.root` when that names another. The page hides entries whose names start with a dot until "Show hidden" is on, which is a convenience and never access control. `server.files.exclude` is what keeps an entry out of reach, since the engine never lists or serves a match in any root. A pattern without a `/` matches a name at any depth, and one with a `/` matches a path from the root.
+A field set to `None` or holding a temporary directory offers nothing, and a component the project configures logs a warning for each temporary one at startup, while one a library attaches with `engine.attach()` does not. Administrators also see the project directory, or `server.files.root` when that names another. The page hides entries whose names start with a dot until "Show hidden" is on, which is a convenience and never access control. `server.files.exclude` is what keeps an entry out of reach, since the engine never lists or serves a match in any root. A pattern without a `/` matches a name at any depth, and one with a `/` matches a path from the root. A listing reads every entry of a directory and stats up to 10000 of them, which is quick on a local disk and one round trip per entry on a network share.
 
 ```yaml
 server:

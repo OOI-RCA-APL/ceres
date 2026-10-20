@@ -422,6 +422,8 @@ async fn respond(
         Found::Listing(listing) => Ok(json(&listing)),
         Found::Stat(entry) => Ok(json(&entry)),
         Found::File { path, name } => {
+            // Reopening by path lets a symlink swapped in since the canonical check escape the
+            // root. Writes in the next stage must serve from a handle whose (dev, ino) it verified.
             let Ok(mut response) = ServeFile::new(path).oneshot(request).await;
             // A served HTML or SVG file opened as a page runs in an opaque origin, so its scripts
             // never reach the console's session.
@@ -460,6 +462,7 @@ mod tests {
     use super::*;
     use crate::app::{AppConfig, build_router};
     use crate::host::{Host, UserRecord};
+    use crate::layers::apply_compression;
 
     /// A host serving one root, `files`, over a temporary directory.
     struct FileHost {
@@ -530,6 +533,7 @@ mod tests {
             self.request(HttpRequest::get(uri)).await
         }
 
+        /// Answers `request` through the router and the default compression layers, as served.
         async fn request(self: &Arc<Self>, request: axum::http::request::Builder) -> Response {
             let app = build_router(AppConfig {
                 console: None,
@@ -540,7 +544,8 @@ mod tests {
                 authority: None,
                 webrtc: None,
             });
-            app.oneshot(request.body(Body::empty()).unwrap())
+            apply_compression(app, None)
+                .oneshot(request.body(Body::empty()).unwrap())
                 .await
                 .unwrap()
         }
@@ -644,6 +649,41 @@ mod tests {
             host.get("/api/files/files/a?download").await.status(),
             StatusCode::BAD_REQUEST
         );
+    }
+
+    #[tokio::test]
+    async fn a_file_unchanged_since_its_etag_answers_not_modified() {
+        let host = Arc::new(root(&[("a.txt", "abcd")], &[]));
+        let response = host.get("/api/files/files/a.txt").await;
+        let etag = response.headers()[header::ETAG].clone();
+
+        let cached = host
+            .request(HttpRequest::get("/api/files/files/a.txt").header(header::IF_NONE_MATCH, etag))
+            .await;
+        assert_eq!(cached.status(), StatusCode::NOT_MODIFIED);
+        assert!(body(cached).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_whole_text_file_compresses_and_a_range_of_it_does_not() {
+        let host = Arc::new(root(&[("a.csv", &"x,y\n".repeat(1000))], &[]));
+        let whole = host
+            .request(
+                HttpRequest::get("/api/files/files/a.csv").header(header::ACCEPT_ENCODING, "gzip"),
+            )
+            .await;
+        assert_eq!(whole.headers()[header::CONTENT_ENCODING], "gzip");
+
+        let ranged = host
+            .request(
+                HttpRequest::get("/api/files/files/a.csv")
+                    .header(header::ACCEPT_ENCODING, "gzip")
+                    .header(header::RANGE, "bytes=0-3"),
+            )
+            .await;
+        assert_eq!(ranged.status(), StatusCode::PARTIAL_CONTENT);
+        assert!(ranged.headers().get(header::CONTENT_ENCODING).is_none());
+        assert_eq!(body(ranged).await, b"x,y\n");
     }
 
     #[tokio::test]

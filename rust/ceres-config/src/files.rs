@@ -16,7 +16,8 @@ use crate::error::{Problem, Problems};
 #[schemars(title = "ServerFilesConfig")]
 pub struct RawServerFilesConfig {
     /// Directory the project root serves to administrators, the project directory when
-    /// omitted. A relative path resolves against the project directory.
+    /// omitted. A relative path resolves against the project directory. On a network share each
+    /// listed entry costs a round trip.
     pub root: Option<PathBuf>,
 
     /// Glob patterns naming entries that are never listed or served, in any root, such as
