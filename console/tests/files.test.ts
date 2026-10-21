@@ -5,6 +5,7 @@ import {
   TEXT_PREVIEW_LIMIT,
   decodeText,
   describeFileWriteStatus,
+  droppedFiles,
   filesApiPath,
   filesPagePath,
   filterEntries,
@@ -72,6 +73,21 @@ describe('decodeText', () => {
     expect(decodeText(cut)).toBeNull()
     expect(decodeText(cut, { partial: true })).toBe('a')
     expect(decodeText(new Uint8Array([0xff, 0x61]).buffer, { partial: true })).toBeNull()
+  })
+})
+
+describe('droppedFiles', () => {
+  function item(kind: 'file' | 'string', isDirectory = false) {
+    return { kind, webkitGetAsEntry: () => ({ isDirectory }) as FileSystemEntry }
+  }
+
+  it('keeps files and drops the empty file a browser makes of a folder', () => {
+    const files = [new File(['a'], 'a'), new File([], 'b')]
+    expect(droppedFiles(files, [item('string'), item('file'), item('file', true)])).toEqual({
+      files: [files[0]],
+      folders: true,
+    })
+    expect(droppedFiles(files, [item('file'), item('file')])).toEqual({ files, folders: false })
   })
 })
 

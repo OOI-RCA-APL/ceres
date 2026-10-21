@@ -55,9 +55,9 @@ def component_root_id(address: Address, field: str) -> str:
 
 
 def _component_root_writable(level: ComponentAccessLevel, binding: FileRootBinding) -> bool:
-    return level >= ComponentAccessLevel.MANAGE or (
-        binding.writable and level >= ComponentAccessLevel.OPERATE
-    )
+    # The marker binds every level, since a component that marks its directory read-only writes
+    # there itself and no level of trust makes a concurrent write safe.
+    return binding.writable and level >= ComponentAccessLevel.OPERATE
 
 
 def _served_components(engine: Engine) -> list[Component]:

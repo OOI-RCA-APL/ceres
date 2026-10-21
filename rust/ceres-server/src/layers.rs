@@ -126,7 +126,8 @@ const COMPRESSED_ALREADY: [&str; 13] = [
 /// Leaves a response alone whose media type is already compressed.
 ///
 /// A compressed file keeps the strong ETag of its uncompressed bytes, which RFC 9110 says should
-/// differ per coding. Only media players send `Range`, and their types are listed here.
+/// differ per coding. A ranged reply still carries the bytes asked for, since compression skips
+/// every response with a `Content-Range`.
 #[derive(Clone, Copy)]
 struct NotCompressedAlready;
 

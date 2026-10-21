@@ -351,6 +351,9 @@ impl OpenRoot {
         let Some((name, parents)) = names.split_last() else {
             return Err(ApiError::http(StatusCode::BAD_REQUEST));
         };
+        if cfg!(windows) && is_windows_reserved(name) {
+            return Err(ApiError::http(StatusCode::BAD_REQUEST));
+        }
         if self.exclusion.excludes(&names.join("/")) {
             return Err(ApiError::not_found());
         }
@@ -380,7 +383,8 @@ impl OpenRoot {
 
     /// Whether any entry below `directory`, at `relative` under the root, is excluded.
     ///
-    /// Costs a walk of the whole subtree, the same walk the delete or move it guards pays.
+    /// Costs a walk of the whole subtree, which `refuse_excluded_below` skips when nothing is
+    /// excluded.
     fn holds_excluded(&self, directory: &Path, relative: &str) -> io::Result<bool> {
         for entry in fs::read_dir(directory)? {
             let entry = entry?;
@@ -403,6 +407,7 @@ impl OpenRoot {
         metadata: &Metadata,
     ) -> Result<(), ApiError> {
         if metadata.is_dir()
+            && !self.exclusion.is_empty()
             && self
                 .holds_excluded(&target.path(), &target.relative)
                 .map_err(write_error)?
@@ -545,6 +550,87 @@ fn same_file(a: &Metadata, b: &Metadata) -> Option<bool> {
 #[cfg(not(unix))]
 fn same_file(_: &Metadata, _: &Metadata) -> Option<bool> {
     None
+}
+
+/// Move `from` to `to`, failing with `AlreadyExists` when `to` exists, so a file created
+/// after the caller's check is never replaced.
+///
+/// A platform or filesystem without an exclusive rename falls back to the caller's check.
+fn rename_without_replacing(from: &Path, to: &Path) -> io::Result<()> {
+    match exclusive_rename(from, to) {
+        Some(Err(error)) if is_unsupported(&error) => fs::rename(from, to),
+        Some(result) => result,
+        None => fs::rename(from, to),
+    }
+}
+
+fn is_unsupported(error: &io::Error) -> bool {
+    #[cfg(unix)]
+    return matches!(
+        error.raw_os_error(),
+        Some(libc::EINVAL | libc::ENOSYS | libc::ENOTSUP)
+    );
+
+    #[cfg(not(unix))]
+    return error.kind() == ErrorKind::Unsupported;
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn exclusive_rename(from: &Path, to: &Path) -> Option<io::Result<()>> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+
+    let c_path = |path: &Path| CString::new(path.as_os_str().as_bytes());
+    let (Ok(from), Ok(to)) = (c_path(from), c_path(to)) else {
+        return Some(Err(ErrorKind::InvalidInput.into()));
+    };
+
+    // The raw syscall, since the glibc wrapper is newer than the oldest glibc a wheel targets.
+    // SAFETY: both paths are NUL-terminated strings that outlive the call.
+    #[cfg(target_os = "linux")]
+    let status = unsafe {
+        libc::syscall(
+            libc::SYS_renameat2,
+            libc::AT_FDCWD,
+            from.as_ptr(),
+            libc::AT_FDCWD,
+            to.as_ptr(),
+            libc::RENAME_NOREPLACE,
+        )
+    };
+    // SAFETY: both paths are NUL-terminated strings that outlive the call.
+    #[cfg(target_os = "macos")]
+    let status = unsafe { libc::renamex_np(from.as_ptr(), to.as_ptr(), libc::RENAME_EXCL) };
+
+    Some(if status == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    })
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn exclusive_rename(_: &Path, _: &Path) -> Option<io::Result<()>> {
+    None
+}
+
+/// Names Windows reserves for devices, whatever the extension, and names it would silently
+/// trim, which a write refuses instead of landing somewhere else.
+fn is_windows_reserved(name: &str) -> bool {
+    const DEVICES: [&str; 4] = ["CON", "PRN", "AUX", "NUL"];
+    let stem = name.split('.').next().unwrap_or(name).trim_end();
+    let numbered = |prefix: &str| {
+        stem.len() == 4
+            && stem.as_bytes()[..3].eq_ignore_ascii_case(prefix.as_bytes())
+            && matches!(stem.as_bytes()[3], b'1'..=b'9')
+    };
+
+    name.ends_with(['.', ' '])
+        || DEVICES
+            .iter()
+            .any(|device| stem.eq_ignore_ascii_case(device))
+        || numbered("COM")
+        || numbered("LPT")
 }
 
 impl Backend for VerifiedFile {
@@ -733,11 +819,16 @@ impl Drop for PartFile {
 
 /// The conflict an upload answers when its part was swept before it finished.
 fn expired() -> ApiError {
-    let mut error = ApiError::http(StatusCode::CONFLICT);
-    error.fields.insert(
-        "message".to_string(),
-        "The upload expired before it finished.".into(),
-    );
+    explained(
+        StatusCode::CONFLICT,
+        "The upload expired before it finished.",
+    )
+}
+
+/// A refusal carrying the sentence the console shows in place of its own for `status`.
+fn explained(status: StatusCode, message: &str) -> ApiError {
+    let mut error = ApiError::http(status);
+    error.fields.insert("message".to_string(), message.into());
     error
 }
 
@@ -815,7 +906,13 @@ fn write_error(error: io::Error) -> ApiError {
         | ErrorKind::IsADirectory
         | ErrorKind::NotADirectory
         | ErrorKind::CrossesDevices => StatusCode::CONFLICT,
-        ErrorKind::InvalidInput | ErrorKind::InvalidFilename => StatusCode::BAD_REQUEST,
+        ErrorKind::InvalidFilename => {
+            return explained(
+                StatusCode::BAD_REQUEST,
+                "The filesystem refuses the name, which may be too long.",
+            );
+        }
+        ErrorKind::InvalidInput => StatusCode::BAD_REQUEST,
         ErrorKind::StorageFull | ErrorKind::QuotaExceeded => StatusCode::INSUFFICIENT_STORAGE,
         ErrorKind::PermissionDenied | ErrorKind::ReadOnlyFilesystem => StatusCode::FORBIDDEN,
         _ => return HostError::Internal(error.to_string()).into(),
@@ -1030,17 +1127,31 @@ async fn rename(
             return Err(bad_request());
         }
 
-        match destination.existing()? {
-            // A rename that changes only the case of a name finds the source itself there.
-            Some(existing) if same_file(&moved, &existing) == Some(true) => {}
+        // A rename that changes only the case of a name finds the source itself there. A hard
+        // link to the source found anywhere else would make the rename do nothing.
+        let case_only = destination.parent == source.parent
+            && destination.name.to_lowercase() == source.name.to_lowercase();
+        let replace = match destination.existing()? {
+            Some(existing) if same_file(&moved, &existing) == Some(true) => {
+                if !case_only {
+                    return Err(ApiError::http(StatusCode::CONFLICT));
+                }
+                true
+            }
             Some(existing) if existing.is_dir() || !query.overwrite => {
                 return Err(ApiError::http(StatusCode::CONFLICT));
             }
-            _ => {}
-        }
+            Some(_) => true,
+            None => false,
+        };
 
         root.refuse_excluded_below(&source, &moved)?;
-        fs::rename(source.path(), destination.path()).map_err(write_error)?;
+        if replace {
+            fs::rename(source.path(), destination.path())
+        } else {
+            rename_without_replacing(&source.path(), &destination.path())
+        }
+        .map_err(write_error)?;
         Ok(StatusCode::NO_CONTENT.into_response())
     })
     .await
@@ -1589,6 +1700,55 @@ mod tests {
         assert_eq!(host.patch("b", &part("g")).await, StatusCode::BAD_REQUEST);
         assert_eq!(host.patch("missing", "g").await, StatusCode::NOT_FOUND);
         assert_eq!(host.patch("b", "missing/g").await, StatusCode::NOT_FOUND);
+
+        assert_eq!(host.patch("b/c", "b/C").await, StatusCode::NO_CONTENT);
+        assert_eq!(host.contents("b/C").as_deref(), Some("abc"));
+    }
+
+    #[tokio::test]
+    async fn a_rename_onto_a_hard_link_of_itself_is_refused() {
+        let host = Arc::new(root(&[("a", "abc"), ("b/d", "")], &[]));
+        fs::hard_link(host.path("a"), host.path("b/a")).unwrap();
+        fs::hard_link(host.path("a"), host.path("c")).unwrap();
+        for to in ["b/a", "c"] {
+            assert_eq!(host.patch("a?overwrite", to).await, StatusCode::CONFLICT);
+        }
+
+        assert!(host.path("a").exists());
+    }
+
+    #[test]
+    fn a_rename_without_replacing_refuses_an_existing_name() {
+        let directory = TempDir::new().unwrap();
+        let [a, b, c] = ["a", "b", "c"].map(|name| directory.path().join(name));
+        fs::write(&a, "abc").unwrap();
+        fs::write(&b, "abcd").unwrap();
+
+        let refused = rename_without_replacing(&a, &b).unwrap_err();
+        assert_eq!(refused.kind(), ErrorKind::AlreadyExists);
+        assert_eq!(fs::read_to_string(&b).unwrap(), "abcd");
+        rename_without_replacing(&a, &c).unwrap();
+        assert_eq!(fs::read_to_string(&c).unwrap(), "abc");
+    }
+
+    #[test]
+    fn windows_reserved_names_are_recognized() {
+        for name in [
+            "CON",
+            "con.txt",
+            "Nul",
+            "aux.tar.gz",
+            "COM1",
+            "lpt9.log",
+            "a.",
+            "a ",
+        ] {
+            assert!(is_windows_reserved(name), "{name:?}");
+        }
+
+        for name in ["CONSOLE", "com0", "COM10", "a.b", "ab", "éé", ".a"] {
+            assert!(!is_windows_reserved(name), "{name:?}");
+        }
     }
 
     #[tokio::test]

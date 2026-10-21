@@ -100,10 +100,10 @@ async def test_files_roots_lists_present_roots_the_caller_may_view(tmp_path: Pat
     [
         (ComponentAccessLevel.VIEW, False, False),
         (ComponentAccessLevel.OPERATE, True, False),
-        (ComponentAccessLevel.MANAGE, True, True),
+        (ComponentAccessLevel.MANAGE, True, False),
     ],
 )
-async def test_files_roots_are_writable_from_operate_and_read_only_ones_from_manage(
+async def test_files_roots_are_writable_from_operate_unless_marked_read_only(
     tmp_path: Path, level: ComponentAccessLevel, stash: bool, ledger: bool
 ) -> None:
     engine, _ = await _engine(tmp_path)

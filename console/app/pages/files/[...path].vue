@@ -11,6 +11,7 @@ import {
   type FileEntry,
   type FileRoot,
   FileWriteError,
+  droppedFiles,
   filesPagePath,
   filterEntries,
   formatFileSize,
@@ -141,7 +142,14 @@ let dropZone = $ref<HTMLElement | null>(null)
 let isUploading = $ref(false)
 
 const { isOverDropZone } = useDropZone($$(dropZone), {
-  onDrop: (files) => void uploadFiles(files ?? []),
+  onDrop: (files, event) => {
+    const dropped = droppedFiles(files ?? [], event.dataTransfer?.items ?? [])
+    if (dropped.folders) {
+      notify.error('Folders cannot be uploaded.')
+    }
+
+    void uploadFiles(dropped.files)
+  },
 })
 
 /** Upload `files` into the directory this page shows, asking before one replaces a file. */

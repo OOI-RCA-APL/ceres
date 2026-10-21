@@ -112,6 +112,20 @@ export function decodeText(bytes: ArrayBuffer, { partial = false } = {}): string
   }
 }
 
+/** The dropped `files` that are files, and whether the drop also held a folder. A browser hands
+a dropped folder over as an empty file under its name, which would replace a file of that name
+with nothing. `items` is the drop's `DataTransfer.items`, whose file items line up with `files`. */
+export function droppedFiles(
+  files: readonly File[],
+  items: ArrayLike<Pick<DataTransferItem, 'kind' | 'webkitGetAsEntry'>>,
+): { files: File[]; folders: boolean } {
+  const fileItems = Array.from(items).filter((item) => item.kind === 'file')
+  const kept = files.filter(
+    (_, index) => fileItems[index]?.webkitGetAsEntry()?.isDirectory !== true,
+  )
+  return { files: kept, folders: kept.length < files.length }
+}
+
 /** A write the engine refused, with the sentence the page shows for it. */
 export class FileWriteError extends Error {
   constructor(

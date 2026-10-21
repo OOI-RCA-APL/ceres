@@ -381,5 +381,5 @@ class Files:
     """Name the console shows for the root, the field name when omitted."""
 
     writable: bool = True
-    """Whether callers with OPERATE access may change files in the root. MANAGE access always
-    may."""
+    """Whether callers with OPERATE access or above may change files in the root. `False` keeps
+    the root read-only for everyone."""

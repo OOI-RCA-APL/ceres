@@ -102,6 +102,11 @@ impl FileExclusion {
             .build()
     }
 
+    /// Whether no pattern was given, so nothing is ever excluded.
+    pub fn is_empty(&self) -> bool {
+        self.names.is_empty() && self.anchored.is_empty()
+    }
+
     /// Whether the entry at `relative`, its components joined by `/`, or any directory
     /// above it is excluded. The root itself, the empty path, never is.
     pub fn excludes(&self, relative: &str) -> bool {
@@ -166,6 +171,9 @@ mod tests {
     fn the_root_and_an_empty_exclusion_exclude_nothing() {
         assert!(!exclusion(&["*"]).excludes(""));
         assert!(!FileExclusion::default().excludes("a/b"));
+        assert!(FileExclusion::default().is_empty());
+        assert!(!exclusion(&["/a"]).is_empty());
+        assert!(!exclusion(&["a"]).is_empty());
     }
 
     #[test]
