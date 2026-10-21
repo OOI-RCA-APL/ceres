@@ -91,7 +91,6 @@ from ceres.config import (
     MethodSieveConfig,
     PrunerConfig,
     SieveConfig,
-    SQLiteDatabaseConfig,
 )
 from ceres.config import RawComponentAccessLevel as RawComponentAccessLevel
 from ceres.data import (
@@ -1842,7 +1841,7 @@ class ComponentSystem(Node, ComponentSource):
             return container.database
 
         if self._database is None:
-            self._database = Database(SQLiteDatabaseConfig())
+            self._database = Database()
         return self._database
 
     @property

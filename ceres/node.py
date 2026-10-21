@@ -1,5 +1,5 @@
 from abc import abstractmethod
-from collections.abc import AsyncIterable
+from collections.abc import AsyncIterable, Callable
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, Unpack, dataclass_transform, override
 
@@ -25,8 +25,10 @@ from ceres.tasklet import Tasklet
 from ceres.timing import utc
 
 if TYPE_CHECKING:
+    from asyncio import Lock as AsyncLock
     from datetime import datetime
 
+    from ceres.__internal__.database.writer import FlushSubscriber
     from ceres.component import Component, ComponentFilter, ComponentFilterArgs, ComponentSystem
     from ceres.config import ComponentConfig, Config, LoggingConfig
     from ceres.database import Database
@@ -234,6 +236,29 @@ class Node(Tasklet, NodeSource):
             self.__writer.add(item)
         else:
             container.__store(item)
+
+    def __subscribe_flushes__(self, subscriber: FlushSubscriber, /) -> Callable[[], None]:
+        """Call `subscriber` with a summary of each batch of records the tree's writer stores.
+
+        Args:
+            subscriber: The callback to call after each successful flush. It must not block.
+
+        Returns:
+            A function that unsubscribes it.
+        """
+        container = self.__container__
+        if container is None:
+            return self.__writer.subscribe(subscriber)
+
+        return container.__subscribe_flushes__(subscriber)
+
+    def __hold_flushes__(self) -> AsyncLock:
+        """Return the lock that, held, keeps the tree's writer from writing or notifying."""
+        container = self.__container__
+        if container is None:
+            return self.__writer.hold()
+
+        return container.__hold_flushes__()
 
     async def flush(self) -> None:
         """Flush any pending writes on this node and its ancestors to the database."""
