@@ -682,6 +682,75 @@ PrunerEvent: TypeAlias = (
 """Union of pruner lifecycle events."""
 
 
+class ExportRunStartedEvent(Event, slots=True):
+    """Emitted when an export run starts."""
+
+    type: Literal["export-run-started"] = "export-run-started"
+    exporter: str
+    """Name of the exporter."""
+    run: UUID
+    """ID of the run."""
+    after: DateTime
+    """Inclusive start of the run's range."""
+    before: DateTime
+    """Exclusive end of the run's range."""
+    replace: bool
+    """Whether the run rewrites each file from the database alone."""
+
+
+class ExportRunProgressEvent(Event, slots=True):
+    """Emitted when an export run finishes writing one period's file."""
+
+    type: Literal["export-run-progress"] = "export-run-progress"
+    exporter: str
+    """Name of the exporter."""
+    run: UUID
+    """ID of the run."""
+    period: DateTime | None
+    """Start of the period written, `None` for an exporter whose one file covers all time."""
+    count: int
+    """Number of records written to the period's file."""
+    path: str
+    """Path of the file written, relative to the exporter's directory."""
+
+
+class ExportRunCompletedEvent(Event, slots=True):
+    """Emitted when an export run completes."""
+
+    type: Literal["export-run-completed"] = "export-run-completed"
+    exporter: str
+    """Name of the exporter."""
+    run: UUID
+    """ID of the run."""
+    count: int
+    """Number of records written over the whole run."""
+    files: list[str]
+    """Paths of the files written, relative to the exporter's directory."""
+    after: DateTime
+    """Inclusive start of the run's range."""
+    before: DateTime
+    """Exclusive end of the run's range."""
+
+
+class ExportRunFailedEvent(Event, slots=True):
+    """Emitted when an export run fails or its component stops before it completes."""
+
+    type: Literal["export-run-failed"] = "export-run-failed"
+    level: Level = Level.ERROR
+    exporter: str
+    """Name of the exporter."""
+    run: UUID
+    """ID of the run."""
+    exception: ExceptionInfo
+    """Captured exception information."""
+
+
+ExportRunEvent: TypeAlias = (
+    ExportRunStartedEvent | ExportRunProgressEvent | ExportRunCompletedEvent | ExportRunFailedEvent
+)
+"""Union of export run lifecycle events."""
+
+
 class SieveAddedEvent(Event, slots=True):
     """Emitted when a sieve is registered."""
 
@@ -887,6 +956,7 @@ StandardEvent: TypeAlias = (
     | RoutineEvent
     | JobEvent
     | PrunerEvent
+    | ExportRunEvent
     | SieveEvent
     | ProcedureEvent
     | StreamEvent
