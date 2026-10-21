@@ -277,6 +277,21 @@ async def test_unsupported_flushes_decline_the_native_writer(tmp_path: Path) -> 
     assert not await writer._write_natively(db, [typed])
 
 
+async def test_a_native_write_bootstraps_a_fresh_database() -> None:
+    """A flush that precedes every query migrates the database before writing."""
+    from ceres.__internal__.database.writer import Writer
+
+    db = Database()
+    try:
+        message = Message(
+            address=Address("@sensor.temp"), direction=MessageDirection.RECEIVE, data=b"ab"
+        )
+        assert await Writer(lambda: db)._write_natively(db, [message])
+        assert await db.messages.count() == 1
+    finally:
+        await db.dispose()
+
+
 @pytest.mark.databases("postgres")
 async def test_native_fetches_match_on_postgres(database: str) -> None:
     """The native Postgres pool must see the same rows the query layer does.

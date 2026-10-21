@@ -1,14 +1,33 @@
 from asyncio import Event as AsyncEvent
+from asyncio import Lock as AsyncLock
 from collections import defaultdict, deque
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 from ceres.__internal__.utilities.collections import group_by
 
 if TYPE_CHECKING:
+    from ceres.address import Address
     from ceres.database import Database
-    from ceres.entity import Entity
+    from ceres.entity import Entity, EntityType
+
+
+type FlushKey = tuple[datetime, UUID]
+"""A record's place in key order, its timestamp and then its ID."""
+
+
+type FlushSummary = Mapping[tuple[EntityType, Address], Sequence[FlushKey]]
+"""The keys one successful flush wrote, by record kind and address, in flush order.
+
+Keys rather than a range, since one record far from the rest would stretch a range over
+every record stored between them.
+"""
+
+type FlushSubscriber = Callable[[FlushSummary], None]
+"""A callback that hears each successful flush, called before the flush returns."""
 
 
 def write_failures() -> tuple[type[BaseException], ...]:
@@ -75,6 +94,8 @@ class Writer:
         "_buffer",
         "_flushes",
         "_settled",
+        "_subscribers",
+        "_gate",
     )
 
     def __init__(self, database: Callable[[], Database], /) -> None:
@@ -88,6 +109,8 @@ class Writer:
         self._flushes: deque[Flush] = deque()
         self._settled = AsyncEvent()
         self._settled.set()
+        self._subscribers: list[FlushSubscriber] = []
+        self._gate = AsyncLock()
 
     @property
     def empty(self) -> bool:
@@ -118,6 +141,34 @@ class Writer:
         # Add the record to the flush buffer and clear the flushed event.
         self._buffer.append(entity)
         self._settled.clear()
+
+    def subscribe(self, subscriber: FlushSubscriber, /) -> Callable[[], None]:
+        """Call `subscriber` with a summary of the records each successful flush writes.
+
+        Records a failed flush puts back reach subscribers with the flush that writes them.
+        The subscriber runs on the flush's own path, so it must not block.
+
+        Args:
+            subscriber: The callback to call.
+
+        Returns:
+            A function that unsubscribes it.
+        """
+        self._subscribers.append(subscriber)
+
+        def unsubscribe() -> None:
+            if subscriber in self._subscribers:
+                self._subscribers.remove(subscriber)
+
+        return unsubscribe
+
+    def hold(self) -> AsyncLock:
+        """Return the lock every flush holds across its write and its notification.
+
+        Holding it waits out the flush in flight and keeps the next one from writing until it
+        is released. Entities stored meanwhile stay buffered.
+        """
+        return self._gate
 
     async def flush(self) -> None:
         """Flush buffered entities to the database.
@@ -151,17 +202,21 @@ class Writer:
             if previous:
                 await previous.event.wait()
 
-            database = self._database()
-            if not await self._write_natively(database, flush.entities):
-                await self._write_entities(database, flush.entities)
-        except write_failures():
-            if len(self._flushes) > 1:
-                next = self._flushes[1].entities
-            else:
-                next = self._buffer
+            async with self._gate:
+                try:
+                    database = self._database()
+                    if not await self._write_natively(database, flush.entities):
+                        await self._write_entities(database, flush.entities)
+                except write_failures():
+                    if len(self._flushes) > 1:
+                        next = self._flushes[1].entities
+                    else:
+                        next = self._buffer
 
-            next[0:0] = flush.entities
-            raise
+                    next[0:0] = flush.entities
+                    raise
+                else:
+                    self._notify(flush.entities)
         finally:
             # Notify the flush attempt is over.
             flush.event.set()
@@ -181,6 +236,44 @@ class Writer:
             return
 
         await self._settled.wait()
+
+    def _notify(self, entities: Iterable[Entity]) -> None:
+        """Tell each subscriber which records a flush just wrote."""
+        if not self._subscribers:
+            return
+
+        from ceres.__internal__.record import BaseRecord
+        from ceres.alert import Alert
+        from ceres.entity import EntityType
+        from ceres.logs import LogEntry, get_logger
+        from ceres.message import Message
+        from ceres.particle import Particle
+
+        kinds: dict[type, EntityType] = {
+            Message: EntityType.MESSAGE,
+            Particle: EntityType.PARTICLE,
+            Alert: EntityType.ALERT,
+            LogEntry: EntityType.LOG_ENTRY,
+        }
+
+        summary: defaultdict[tuple[EntityType, Address], list[FlushKey]] = defaultdict(list)
+        for record in entities:
+            if not isinstance(record, BaseRecord):
+                continue
+
+            # The class hierarchy rather than the exact type, since particles subclass `Particle`.
+            kind = next((kinds[cls] for cls in type(record).__mro__ if cls in kinds), None)
+            if kind is not None:
+                summary[kind, record.address].append((record.timestamp, record.id))
+
+        if not summary:
+            return
+
+        for subscriber in tuple(self._subscribers):
+            try:
+                subscriber(summary)
+            except Exception:
+                get_logger("ceres.database").exception("A flush subscriber failed.")
 
     async def _write_natively(self, database: Database, entities: list[Entity]) -> bool:
         """Write a whole flush through the native engine, or report that it cannot.
@@ -216,6 +309,8 @@ class Writer:
 
             groups[table].append(entity)
 
+        # A flush can precede every query, and an unmigrated database has no tables or file.
+        await database.ready()
         await database._record_writer().write(list(groups.items()))
         return True
 

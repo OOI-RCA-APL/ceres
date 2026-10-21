@@ -14,9 +14,10 @@ import re
 import tempfile
 import types
 from abc import abstractmethod
-from asyncio import CancelledError, Lock, Task, create_task
+from asyncio import CancelledError, Lock, Task, create_task, wait_for
+from asyncio import Event as AsyncEvent
 from collections import deque
-from collections.abc import AsyncIterable, AsyncIterator, Iterable, Iterator
+from collections.abc import AsyncIterable, AsyncIterator, Callable, Iterable, Iterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -57,7 +58,10 @@ if TYPE_CHECKING:
     from apscheduler.job import Job as InternalJob
     from apscheduler.schedulers.base import BaseScheduler
 
+    from ceres.__internal__.database.writer import FlushSummary
+    from ceres.__internal__.manager import BaseDatabaseManager
     from ceres.__internal__.protocols import ComponentSource
+    from ceres.address import Address, AddressSelector
     from ceres.alert import Alert
     from ceres.config import ExporterConfig
     from ceres.logs import LogEntry
@@ -101,6 +105,17 @@ _EPOCH = datetime(2000, 1, 1, tzinfo=UTC)
 """Fixed start of the sample periods a path template is checked against."""
 
 _ORDER = ["timestamp:asc", "id:asc"]
+
+_REVERSE_ORDER = ["timestamp:desc", "id:desc"]
+
+_TICK = timedelta(microseconds=1)
+"""The finest step between two timestamps, which turns an inclusive bound exclusive."""
+
+_START_CHECKS = 100
+"""Periods a live exporter checks at start, newest first, so a long outage starts in bounded time."""
+
+_MERGE_WARNING = 10
+"""Merges into one period after which a live exporter warns that late records cost it."""
 
 # Reading the umask means setting it, so the process reads it once while nothing else writes.
 _UMASK = os.umask(0)
@@ -483,6 +498,26 @@ class LineFormat(Format, abstract=True):
         async for key, _ in self.lines(path, schema):
             yield key
 
+    async def tail(self, path: Path, schema: ExportSchema) -> tuple[ExportKey | None, int]:
+        """Return the last key in the file at `path` and the length of its complete records.
+
+        A file longer than that length ends in a torn record.
+
+        Raises:
+            ExportFileError: If the file's header differs from the one `schema` gives.
+        """
+        last: ExportKey | None = None
+        length = 0
+        async for key, line in self.lines(path, schema):
+            last = key
+            length += len(line)
+
+        header = len(self.header(schema))
+        if last is not None or (await anyio.Path(path).stat()).st_size >= header:
+            length += header
+
+        return last, length
+
 
 class CsvFormat(LineFormat):
     """Comma separated values, one column per schema column under a header row.
@@ -844,6 +879,82 @@ class _Exporter:
         self.path = config.create_path()
 
 
+type _KeyRange = tuple[ExportKey, ExportKey]
+"""The lowest and highest key of some records, both inclusive."""
+
+
+class _Live:
+    """A live exporter's place in its stream, kept in memory only.
+
+    Notified keys wait as one range per period so a late record never widens the query of
+    another period. The cursor starts at the start time of the check a live exporter runs
+    when it starts, since that check makes every file complete through then and a record
+    flushed afterward with an older key lowers `written_through` through `pending`.
+    """
+
+    __slots__ = ("cursor", "last", "merges", "pending", "task", "wake", "working")
+
+    def __init__(self) -> None:
+        self.wake = AsyncEvent()
+        self.task: Task[None] | None = None
+        # Ranges notified and not yet written, and those the current wake is writing.
+        self.pending: dict[datetime, _KeyRange] = {}
+        self.working: dict[datetime, _KeyRange] = {}
+        # The last key of each period written since the last wake, `None` for an empty file.
+        # A period missing here reads its last key from its file.
+        self.last: dict[datetime, ExportKey | None] = {}
+        self.merges: dict[datetime, int] = {}
+        self.cursor: datetime | None = None
+
+    def notify(self, period: ExporterPeriod, keys: Iterable[ExportKey]) -> None:
+        """Add the keys a flush wrote to the pending range of each period holding one."""
+        for key in keys:
+            start = period_start(period, key[0])
+            found = self.pending.get(start)
+            self.pending[start] = (
+                (key, key) if found is None else (min(found[0], key), max(found[1], key))
+            )
+
+        self.wake.set()
+
+    def restore(self) -> None:
+        """Return the ranges a failed wake was writing to `pending`."""
+        for start, (first, last) in self.working.items():
+            found = self.pending.get(start)
+            self.pending[start] = (
+                (first, last) if found is None else (min(found[0], first), max(found[1], last))
+            )
+
+        self.working = {}
+
+    @property
+    def written_through(self) -> datetime:
+        """The time before which every stored record the exporter selects is in its files."""
+        if self.cursor is None:
+            return datetime.min.replace(tzinfo=UTC)
+
+        return min(
+            [self.cursor]
+            + [first[0] for first, _ in self.pending.values()]
+            + [first[0] for first, _ in self.working.values()]
+        )
+
+
+def _exporter_scope(records: BaseDatabaseManager) -> Callable[[Address], bool]:
+    """Return whether a record at an address can match a query of `records`.
+
+    A query reads the same defaults (`ceres/__internal__/entity.py` `_get_filter_defaults`),
+    and the exporter's own filter only narrows them since `__query` joins it with `&`.
+    """
+    defaults = records.__get_filter_defaults__()
+    selector: AddressSelector | None = defaults.get("address")
+    root: Address | None = defaults.get("root")
+    if selector is None:
+        return lambda _: True
+
+    return lambda address: selector.matches(address, root)
+
+
 class ExporterManager(BaseComponentManager):
     """Component-level manager that runs each registered exporter's re-runs and schedule.
 
@@ -851,11 +962,14 @@ class ExporterManager(BaseComponentManager):
     """
 
     __slots__ = (
+        "__completed",
         "__scheduler",
         "__exporters",
+        "__live",
         "__locks",
         "__pending",
         "__runs",
+        "__scope",
         "__tasks",
     )
 
@@ -867,7 +981,11 @@ class ExporterManager(BaseComponentManager):
         # successor share one lock and one bound.
         self.__locks: dict[str, Lock] = {}
         self.__pending: dict[str, int] = {}
+        # The latest `before` of a completed run, by exporter, kept as long as the lock.
+        self.__completed: dict[str, datetime] = {}
+        self.__live: dict[str, _Live] = {}
         self.__runs: deque[ExportRunRecord] = deque(maxlen=_RUN_RING_SIZE)
+        self.__scope: Callable[[Address], bool] | None = None
         self.__tasks: dict[UUID, Task[None]] = {}
 
     @classmethod
@@ -882,16 +1000,24 @@ class ExporterManager(BaseComponentManager):
         return len(self.__exporters)
 
     async def __run__(self) -> None:
+        self.__scope = _exporter_scope(self)
+        unsubscribe = self.__system__.__subscribe_flushes__(self.__flushed)
         try:
             self.__sync_schedules()
             self.__scheduler.start()
+            self.__sync_live()
             await sleep(...)
         finally:
+            unsubscribe()
+            self.__scope = None
             if self.__scheduler.running:
                 self.__scheduler.shutdown(wait=False)
 
             self.__scheduler = self.__create_scheduler()
-            await cancel(*self.__tasks.values())
+            live, self.__live = self.__live, {}
+            await cancel(
+                *self.__tasks.values(), *(state.task for state in live.values() if state.task)
+            )
 
     def add(self, exporter: ExporterConfig) -> None:
         """Register an exporter, replacing any registered under the same name."""
@@ -899,6 +1025,7 @@ class ExporterManager(BaseComponentManager):
         self.__exporters[exporter.name] = _Exporter(exporter)
         self.__locks.setdefault(exporter.name, Lock())
         self.__sync_schedules()
+        self.__sync_live()
 
     def get(self, name: str) -> ExporterConfig | None:
         """Return the exporter registered under `name`, or `None`."""
@@ -921,6 +1048,10 @@ class ExporterManager(BaseComponentManager):
             self.__scheduler.remove_job(name)
         except JobLookupError:
             pass
+
+        live = self.__live.pop(name, None)
+        if live is not None and live.task is not None:
+            live.task.cancel()
 
         registered = self.__exporters.pop(name, None)
         return registered.config if registered is not None else None
@@ -1042,6 +1173,304 @@ class ExporterManager(BaseComponentManager):
                 id=name,
             )
 
+    def __sync_live(self) -> None:
+        if self.__scope is None:
+            return
+
+        for name, registered in self.__exporters.items():
+            if registered.config.is_live and name not in self.__live:
+                live = self.__live[name] = _Live()
+                live.task = create_task(self.__live_loop(registered, live))
+
+    def __flushed(self, summary: FlushSummary) -> None:
+        # Runs on the writer's flush path, so it only records what to write.
+        scope = self.__scope
+        if scope is None or not self.__live:
+            return
+
+        for (kind, address), keys in summary.items():
+            targets = [
+                (self.__exporters[name].config, live)
+                for name, live in self.__live.items()
+                if self.__exporters[name].config.exports == kind
+            ]
+            if targets and scope(address):
+                for exporter, live in targets:
+                    live.notify(exporter.period, keys)
+
+    def get_written_through(self, kind: EntityType) -> tuple[str, datetime] | None:
+        """Return the exporter of `kind` that has written the least, and how far it has written.
+
+        A live exporter has written every stored record it selects before the returned time,
+        and any other exporter every record before the end of its latest completed run. An
+        exporter that has done neither returns the start of time.
+
+        Returns:
+            The exporter's name and time, or `None` when no exporter exports `kind`.
+        """
+        start = datetime.min.replace(tzinfo=UTC)
+        found: tuple[str, datetime] | None = None
+        for name, registered in self.__exporters.items():
+            if registered.config.exports != kind:
+                continue
+
+            live = self.__live.get(name)
+            if live is not None:
+                through = live.written_through
+            elif registered.config.is_live:
+                through = start
+            else:
+                through = self.__completed.get(name, start)
+
+            if found is None or through < found[1]:
+                found = (name, through)
+
+        return found
+
+    async def __live_loop(self, registered: _Exporter, live: _Live) -> None:
+        exporter, format = registered.config, registered.format
+        interval = exporter.interval
+        checked = False
+        failing = False
+        # A keyed period's close check runs one interval after the period ends.
+        closing = (
+            period_start(exporter.period, datetime.now(UTC))
+            if format.keyed and exporter.period != ExporterPeriod.ALL
+            else None
+        )
+        while True:
+            closes = None if closing is None else period_shift(exporter.period, closing, 1)
+            due = None if closes is None else closes + interval
+            if checked and not live.pending:
+                timeout = None if due is None else (due - datetime.now(UTC)).total_seconds()
+                try:
+                    await wait_for(live.wake.wait(), None if timeout is None else max(timeout, 0))
+                except TimeoutError:
+                    pass
+
+            live.wake.clear()
+            try:
+                if not checked:
+                    await self.__check_start(registered, live)
+                    checked = True
+
+                if live.pending:
+                    await self.__write_live(registered, live)
+
+                if closing is not None and due is not None and datetime.now(UTC) >= due:
+                    await self.__check_period(registered, closing)
+                    closing = closes
+
+                failing = False
+            except CancelledError:
+                live.restore()
+                raise
+            except Exception as exception:
+                live.restore()
+                if not failing:
+                    self.__system__.log.warning(
+                        f"Exporter '{exporter.name}' failed to write live and retries every "
+                        f"interval: {exception}"
+                    )
+
+                failing = True
+
+            await sleep(interval.total_seconds())
+
+    async def __check_start(self, registered: _Exporter, live: _Live) -> None:
+        # Heals what the exporter missed while stopped, and a torn append, before live writes.
+        started = datetime.now(UTC)
+        exporter = registered.config
+        if registered.format.keyed:
+            current = period_start(exporter.period, started)
+            first = period_shift(exporter.period, current, -1)
+            newest = await self.__query(exporter, None, None, order=_REVERSE_ORDER).first()
+            if newest is not None:
+                first = min(first, period_start(exporter.period, newest.timestamp))
+
+            starts = [
+                start
+                for start, _ in periods(exporter.period, first, started + _TICK)
+                if start is not None
+            ] or [period_start(exporter.period, started)]
+            if len(starts) > _START_CHECKS:
+                self.__system__.log.warning(
+                    f"Exporter '{exporter.name}' checks only its newest {_START_CHECKS} periods "
+                    f"at start, so a re-run must write any records before "
+                    f"{starts[-_START_CHECKS].isoformat()}"
+                )
+                starts = starts[-_START_CHECKS:]
+
+            for start in starts:
+                await self.__check_period(registered, start)
+        else:
+            # An unkeyed file cannot merge, so only a re-run that replaces it can fill it.
+            start = _bounds(exporter.period, period_start(exporter.period, started))[0]
+            if await self.__query(exporter, start, started).first() is not None:
+                relative = registered.path.render(start)
+                after = f" --after {start.isoformat()}" if start is not None else ""
+                self.__system__.log.warning(
+                    f"Exporter '{exporter.name}' lacks records stored before it started in "
+                    f"'{relative}', run `ceres export {self.__system__.address} {exporter.name}"
+                    f"{after} --replace`"
+                )
+
+        live.cursor = started
+
+    async def __check_period(self, registered: _Exporter, start: datetime) -> None:
+        # Merges in every stored record the period's file lacks. Keys in the file but not in
+        # the database are pruned records, so they stay.
+        exporter, format, schema = registered.config, registered.format, registered.schema
+        bounds = _bounds(exporter.period, start)
+        directory = self.__directory(exporter)
+        relative = registered.path.render(bounds[0])
+        async with self.__locks[exporter.name]:
+            try:
+                if not await self.__lacks(registered, Path(directory / relative), *bounds):
+                    return
+
+                count = await self.__export_period(
+                    exporter, format, schema, directory, relative, bounds[0], bounds[1], False
+                )
+            except ExportFileError as exception:
+                self.__system__.log.warning(
+                    f"Exporter '{exporter.name}' cannot check '{relative}', so a run must "
+                    f"replace it: {exception}"
+                )
+                return
+
+            self.__forget(exporter.name, start)
+            self.__system__.log.info(
+                f"Exporter '{exporter.name}' merged {count or 0} stored records into '{relative}' "
+                "to fill records it lacked"
+            )
+
+    async def __lacks(
+        self,
+        registered: _Exporter,
+        final: Path,
+        start: datetime | None,
+        end: datetime | None,
+    ) -> bool:
+        # Merge-joins the file's keys with the database's, both in key order, and falls back
+        # to a set of the file's keys when the file is not sorted.
+        exists = await anyio.Path(final).exists()
+        async with self.__query(registered.config, start, end) as results:
+            if not exists:
+                return await anext(aiter(results), None) is not None
+
+            keys = aiter(registered.format.keys(final, registered.schema))
+            kept = await anext(keys, None)
+            known: set[ExportKey] | None = None
+            async for record in results:
+                key = _record_key(record)
+                if known is None:
+                    while kept is not None and kept < key:
+                        previous, kept = kept, await anext(keys, None)
+                        if kept is not None and kept <= previous:
+                            known = {
+                                key
+                                async for key in registered.format.keys(final, registered.schema)
+                            }
+                            break
+
+                if (key not in known) if known is not None else (kept != key):
+                    return True
+
+        return False
+
+    async def __write_live(self, registered: _Exporter, live: _Live) -> None:
+        exporter = registered.config
+        directory = self.__directory(exporter)
+        live.working, live.pending = live.pending, {}
+        written = sorted(live.working)
+        async with self.__locks[exporter.name]:
+            for start in written:
+                first, last = live.working[start]
+                await self.__write_period_live(registered, live, directory, start, first, last)
+                del live.working[start]
+                live.cursor = last[0] if live.cursor is None else max(live.cursor, last[0])
+
+        # Only the periods this wake wrote and the current one keep their last key, which
+        # bounds both maps by the periods one interval touches.
+        kept = {*written, period_start(exporter.period, datetime.now(UTC))}
+        live.last = {start: key for start, key in live.last.items() if start in kept}
+        live.merges = {start: count for start, count in live.merges.items() if start in kept}
+
+    async def __write_period_live(
+        self,
+        registered: _Exporter,
+        live: _Live,
+        directory: Directory,
+        start: datetime,
+        first: ExportKey,
+        last: ExportKey,
+    ) -> None:
+        exporter, format, schema = registered.config, registered.format, registered.schema
+        relative = registered.path.render(_bounds(exporter.period, start)[0])
+        final = Path(directory / relative)
+        # The upper bound keeps out a record committed after this wake took its keys, whose
+        # own notification would otherwise read as late.
+        async with self.__query(exporter, first[0], last[0] + _TICK) as results:
+            stream = _Counted(_within(results, first, last))
+            head = await anext(stream, None)
+            if head is None:
+                return
+
+            records = _prepend(head, stream)
+            previous = (
+                live.last[start] if start in live.last else await self.__last_key(registered, final)
+            )
+            if format.appendable and (
+                not format.keyed or previous is None or _record_key(head) > previous
+            ):
+                await anyio.Path(final.parent).mkdir(parents=True, exist_ok=True)
+                await format.append(final, schema, records)
+            else:
+                exists = await anyio.Path(final).exists()
+                async with atomic_write(directory, relative) as temporary:
+                    if exists:
+                        await format.merge(final, schema, records, temporary)
+                    else:
+                        await format.write(temporary, schema, records)
+
+                merges = live.merges[start] = live.merges.get(start, 0) + 1
+                if merges == _MERGE_WARNING + 1:
+                    self.__system__.log.warning(
+                        f"Exporter '{exporter.name}' has merged into '{relative}' more than "
+                        f"{_MERGE_WARNING} times, since its records arrive late or its format "
+                        "rewrites whole files, and a longer `interval` merges less often"
+                    )
+
+        if format.keyed and stream.last is not None:
+            newest = _record_key(stream.last)
+            live.last[start] = newest if previous is None else max(previous, newest)
+
+    async def __last_key(self, registered: _Exporter, final: Path) -> ExportKey | None:
+        # Called under the exporter's lock before an append, which would extend a torn record.
+        format = registered.format
+        if not format.keyed or not await anyio.Path(final).exists():
+            return None
+
+        if not isinstance(format, LineFormat):
+            last: ExportKey | None = None
+            async for key in format.keys(final, registered.schema):
+                last = key
+
+            return last
+
+        last, length = await format.tail(final, registered.schema)
+        if (await anyio.Path(final).stat()).st_size > length:
+            await spawn(os.truncate, final, length)
+
+        return last
+
+    def __forget(self, name: str, start: datetime | None) -> None:
+        # A run rewrote the period's file, so its last key comes from the file again.
+        live = self.__live.get(name)
+        if live is not None:
+            live.last.pop(start or datetime.min.replace(tzinfo=UTC), None)
+
     async def __scheduled(self, name: str) -> None:
         exporter = self.get(name)
         if exporter is None:
@@ -1078,12 +1507,16 @@ class ExporterManager(BaseComponentManager):
                 return self.__system__.log
 
     def __query(
-        self, exporter: ExporterConfig, start: datetime | None, end: datetime | None
+        self,
+        exporter: ExporterConfig,
+        start: datetime | None,
+        end: datetime | None,
+        order: list[str] = _ORDER,
     ) -> Any:
         # Range keywords would override the user filter's own bounds, so the range is a
         # filter of its own, joined with `&`.
         Filter: Any = exporter.filter_class()
-        bounds: Any = Filter(after=start, before=end, order=_ORDER)
+        bounds: Any = Filter(after=start, before=end, order=order)
         filter: Any = bounds if exporter.filter is None else bounds & exporter.filter
         particle = exporter.particle_class()
         if particle is not None:
@@ -1123,6 +1556,7 @@ class ExporterManager(BaseComponentManager):
                     count = await self.__export_period(
                         exporter, format, schema, directory, relative, start, end, run.replace
                     )
+                    self.__forget(exporter.name, start)
                     if count is None:
                         continue
 
@@ -1143,6 +1577,10 @@ class ExporterManager(BaseComponentManager):
             return
 
         run = self.__update(run, state=ExportRunState.COMPLETED, ended=datetime.now(UTC))
+        completed = self.__completed.get(run.exporter)
+        self.__completed[run.exporter] = (
+            run.before if completed is None else max(completed, run.before)
+        )
         events.emit(
             ExportRunCompletedEvent,
             exporter=run.exporter,
@@ -1209,11 +1647,12 @@ class ExporterManager(BaseComponentManager):
 
 
 class _Counted[T]:
-    __slots__ = ("__iterator", "count")
+    __slots__ = ("__iterator", "count", "last")
 
     def __init__(self, iterable: AsyncIterable[T]) -> None:
         self.__iterator = aiter(iterable)
         self.count = 0
+        self.last: T | None = None
 
     def __aiter__(self) -> _Counted[T]:
         return self
@@ -1221,7 +1660,25 @@ class _Counted[T]:
     async def __anext__(self) -> T:
         item = await anext(self.__iterator)
         self.count += 1
+        self.last = item
         return item
+
+
+async def _within(
+    records: AsyncIterable[ExportRecord], first: ExportKey, last: ExportKey
+) -> AsyncIterator[ExportRecord]:
+    # The query bounds timestamps only, so records sharing a bound's timestamp need its ID.
+    async for record in records:
+        if first <= _record_key(record) <= last:
+            yield record
+
+
+def _bounds(period: ExporterPeriod, start: datetime) -> tuple[datetime | None, datetime | None]:
+    # A run names the one `period: all` period by `None`, and a live exporter by its start.
+    if period == ExporterPeriod.ALL:
+        return None, None
+
+    return start, period_shift(period, start, 1)
 
 
 async def _prepend[T](first: T, rest: AsyncIterator[T]) -> AsyncIterator[T]:

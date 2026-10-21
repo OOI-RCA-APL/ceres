@@ -1,7 +1,7 @@
 from asyncio import CancelledError
-from datetime import UTC
+from datetime import UTC, datetime
 from threading import Lock
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from ceres.__internal__.manager import BaseComponentManager
 from ceres.concurrency import sleep
@@ -24,6 +24,19 @@ if TYPE_CHECKING:
 
     from ceres.__internal__.protocols import ComponentSource
 
+_PRUNE_PAGE = 1000
+"""Records a pruner bounded by an exporter deletes per hold of the writer.
+
+Flushes wait out each page, so the page bounds their stall. On PostgreSQL a page of 1000 holds
+a flush under 30 ms.
+"""
+
+_KEY_ORDER = ["timestamp:asc", "id:asc"]
+"""Order of a pruner's pages, oldest first.
+
+Each page then deletes one contiguous range of the timestamp index, so no page scans for rows.
+"""
+
 
 class PrunerManager(BaseComponentManager):
     """Component-level manager that schedules and runs registered `PrunerConfig` jobs.
@@ -38,6 +51,7 @@ class PrunerManager(BaseComponentManager):
         "__scheduler",
         "__pruners",
         "__lock",
+        "__held",
     )
 
     def __init__(self, source: ComponentSource, /) -> None:
@@ -45,6 +59,8 @@ class PrunerManager(BaseComponentManager):
         self.__scheduler = self.__create_scheduler()
         self.__pruners: dict[str, PrunerConfig] = {}
         self.__lock = Lock()
+        # Each pruner's last export bound and whether it warned about it, by pruner name.
+        self.__held: dict[str, tuple[datetime, bool]] = {}
 
     @classmethod
     def __create_scheduler(cls) -> BaseScheduler:
@@ -118,6 +134,7 @@ class PrunerManager(BaseComponentManager):
                 pass
 
             pruner = self.__pruners.pop(name, None)
+            self.__held.pop(name, None)
 
         if pruner is not None:
             self.__system__.events.emit(PrunerRemovedEvent, pruner=pruner.name)
@@ -150,6 +167,63 @@ class PrunerManager(BaseComponentManager):
                 id=name,
             )
 
+    def __held_by_exports(self, pruner: PrunerConfig) -> tuple[str, datetime] | None:
+        # Returns the exporter bounding the pruner and the time before which it may delete.
+        if not pruner.wait_for_exports:
+            return None
+
+        return self.__system__.exporters.get_written_through(pruner.prunes)
+
+    def __note_held(self, pruner: PrunerConfig, held: tuple[str, datetime] | None) -> None:
+        if held is None:
+            self.__held.pop(pruner.name, None)
+            return
+
+        exporter, through = held
+        previous = self.__held.get(pruner.name)
+        if previous is None or previous[0] != through:
+            self.__held[pruner.name] = (through, False)
+        elif not previous[1]:
+            # The bound stayed put across a whole schedule interval, so name what holds it.
+            self.__held[pruner.name] = (through, True)
+            self.__system__.log.warning(
+                f"Pruner '{pruner.name}' keeps every record from {through.isoformat()} on "
+                f"until exporter '{exporter}' writes it"
+            )
+
+    async def __delete(self, pruner: PrunerConfig, manager: Any) -> int:
+        filter: Any = pruner.filter
+        if self.__held_by_exports(pruner) is None:
+            self.__note_held(pruner, None)
+            return await manager.where(filter).delete()
+
+        # A flush landing between the bound read and the delete's end could slip a late record
+        # under the bound, so flushes wait out each page, and each page reads the bound again.
+        deleted = 0
+        noted = False
+        while True:
+            async with self.__system__.__hold_flushes__():
+                held = self.__held_by_exports(pruner)
+                if not noted:
+                    self.__note_held(pruner, held)
+                    noted = True
+
+                if held is None:
+                    break
+
+                if held[1] == datetime.min.replace(tzinfo=UTC):
+                    return deleted
+
+                bounded = filter & type(filter)(before=held[1], order=_KEY_ORDER)
+                page = await manager.where(bounded).limit(_PRUNE_PAGE).delete()
+                deleted += page
+
+            if page < _PRUNE_PAGE:
+                return deleted
+
+        # Every exporter went away during the prune, so nothing bounds the rest.
+        return deleted + await manager.where(filter).delete()
+
     async def __run(self, pruner: PrunerConfig) -> None:
         self.__system__.events.emit(PruneStartedEvent, pruner=pruner.name)
 
@@ -164,7 +238,7 @@ class PrunerManager(BaseComponentManager):
                 manager = self.__system__.log
 
         try:
-            deleted = await manager.where(cast("Any", pruner.filter)).delete()
+            deleted = await self.__delete(pruner, manager)
 
             self.__system__.events.emit(
                 PruneCompletedEvent,

@@ -29,8 +29,9 @@ components:
 ```
 
 This exporter writes the sensor's messages to `/data/sensor/messages/2026/01/01/00.csv` and one
-file for each later hour. Five minutes past every hour it merges the database into the files of the
-current hour and the hour before it.
+file for each later hour. It writes each message within a few seconds of storing it, and five minutes
+past every hour it also merges the database into the files of the current hour and the hour before
+it.
 
 | Field | Meaning |
 |---|---|
@@ -42,11 +43,15 @@ current hour and the hour before it.
 | `directory` | Name of the component's `Directory` field the files live under, `output` when omitted. |
 | `period` | Time one file covers: `hour`, `day`, `month`, or `all` for a single file. |
 | `path` | Path template of each file, relative to the directory, without an extension. |
+| `live` | Whether the exporter writes records as the component stores them. On for every built-in format when omitted. |
+| `interval` | Least time between two live writes, 5 seconds when omitted and at least 1 second. |
 | `schedule` | Cron or interval expression for scheduled runs. No scheduled runs when omitted. |
 | `lookback` | Periods before the current one each scheduled run covers, 1 when omitted. |
 
-A filter selects records and nothing else, so it cannot set `order`, `limit` or `offset`. The
-exporter writes records in timestamp order, and records with equal timestamps in ID order.
+A filter selects records and nothing else, so it cannot set `order`, `limit` or `offset`. It also
+cannot set `subsample`, `subsample_every`, `subsample_select`, `timespan`, `max_age` or `min_age`,
+since a live write and a later run must select the same records. The exporter writes records in
+timestamp order, and records with equal timestamps in ID order.
 
 ## Paths
 
@@ -78,6 +83,44 @@ writes the whole data object as one `data` column, which `jsonl` allows and `csv
 `raw` writes the bytes of every message back to back with nothing between them, which reproduces
 the stream a connection received. It holds no IDs, so a run cannot merge into a `raw` file and must
 replace it, and `raw` takes no `schedule`.
+
+## Live Export
+
+A live exporter writes each batch of records the component stores, at most once per `interval`.
+Records that arrive in order append to the end of their period's file. A record older than the
+newest one in its file is late, and the exporter merges it into the file in key order, which reads
+and rewrites the whole file. An exporter whose records often arrive late logs a warning after 10
+merges into one file, and a longer `interval` merges more of them at once. `raw` holds no keys, so
+it appends a late record where it arrives. A failed write logs a warning and retries at every
+interval.
+
+When it starts, a live exporter checks the files of the current and previous periods, and of every
+period back to the newest stored record, at most 100 of them. It merges in any stored record a file
+lacks, such as one stored while the component was stopped, and drops a final record a crash left
+half written. One interval after each period ends it checks that period's file the same way.
+
+A `raw` file has no keys to check or heal. It lacks every record stored while its exporter was
+stopped, and a `raw` exporter that finds such a record in the current period logs the re-run that
+replaces the file. The pruner guard covers only records stored while a `raw` exporter runs, and a
+crash can leave a `raw` file ending in part of a message.
+
+The exporter hears the records the engine stores through `store`. A record written another way, by a
+manager's `create` or `update`, by `ceres <entity> load`, or by another process, reaches the files
+through the checks above or a run.
+
+## Pruning Exported Records
+
+A pruner never deletes a record its component's exporters of that kind have not yet written. It
+deletes only records older than the point every such exporter has written through: a live
+exporter's newest written record, or the end of another exporter's latest completed run. An
+exporter that has written nothing holds every record. A pruner held at one point for two of its
+runs in a row logs a warning naming the exporter.
+
+Such a pruner deletes in pages of 1000 records, oldest first. While a page deletes, the engine
+keeps the records it stores in memory and writes them once the page ends. On PostgreSQL that
+holds a write for under 50 ms. On SQLite it holds one for up to a few seconds, and the prune takes
+longer in total than one unbounded delete would. Set `wait_for_exports: false` on a pruner to let
+it delete regardless, in one statement.
 
 ## Re-Running An Exporter
 
