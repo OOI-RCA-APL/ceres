@@ -1,6 +1,6 @@
 # Coverage
 
-<!-- coverage:fingerprint:345392dc639ee423 -->
+<!-- coverage:fingerprint:9cb212e28ad1a25a -->
 
 ## Python
 
@@ -81,7 +81,7 @@
 | `ceres/entity.py` | 99% |
 | `ceres/error.py` | 97% |
 | `ceres/event.py` | 96% |
-| `ceres/exporter.py` | 89% |
+| `ceres/exporter.py` | 90% |
 | `ceres/group.py` | 98% |
 | `ceres/item.py` | 90% |
 | `ceres/job.py` | 59% |
@@ -236,7 +236,7 @@
 | `rust/ceres-webrtc/src/parameter_sets.rs` | 98% |
 | `rust/ceres-webrtc/src/picture.rs` | 100% |
 | `rust/ceres-webrtc/src/server.rs` | 85% |
-| `rust/ceres-webrtc/src/session.rs` | 88% |
+| `rust/ceres-webrtc/src/session.rs` | 87% |
 | `rust/ceres-webrtc/src/socket.rs` | 96% |
 | **Total** | **75%** |
 <!-- coverage:rust:end -->

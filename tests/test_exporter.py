@@ -1,3 +1,5 @@
+import sys
+from asyncio import Event
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
@@ -8,11 +10,13 @@ import pytest
 from ceres import Component
 from ceres.address import Address
 from ceres.config import ComponentConfig
-from ceres.data import validate
+from ceres.data import replace, validate
 from ceres.directory import Directory
+from ceres.error import AlreadyExistsError
 from ceres.event import ExportRunCompletedEvent, ExportRunProgressEvent, ExportRunStartedEvent
-from ceres.exporter import ExportRunRecord, ExportRunState
+from ceres.exporter import CsvFormat, ExportRunRecord, ExportRunState
 from ceres.message import Message, MessageDirection
+from tests.testing import wait_for_condition
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -87,6 +91,21 @@ class Exported:
             "messages", START, START + timedelta(hours=hours), replace=replace
         )
 
+    def start(self) -> ExportRunRecord:
+        return self.component.system.exporters.start("messages", START, START + timedelta(hours=3))
+
+    def state(self, run: ExportRunRecord) -> ExportRunRecord:
+        runs = self.component.system.exporters.get_runs("messages")
+        return next(current for current in runs if current.id == run.id)
+
+    async def settled(self, *runs: ExportRunRecord) -> list[ExportRunRecord]:
+        await wait_for_condition(
+            "every run ends",
+            lambda: all(self.state(run).state != ExportRunState.RUNNING for run in runs),
+            30,
+        )
+        return [self.state(run) for run in runs]
+
     def files(self) -> dict[str, bytes]:
         return {
             str(path.relative_to(self.root)): path.read_bytes()
@@ -98,7 +117,8 @@ class Exported:
 @pytest.mark.parametrize("format", ["csv", "jsonl"])
 async def test_reruns_write_equal_bytes(tmp_path: Path, format: str) -> None:
     exported = Exported.create(tmp_path, format=format)
-    await exported.store(message(5, id=3), message(5, id=2), message(70, id=1))
+    later = replace(message(5, id=4), timestamp=START + timedelta(minutes=5, microseconds=1))
+    await exported.store(message(5, id=3), message(5, id=2), later, message(70, id=1))
 
     await exported.run()
     first = exported.files()
@@ -217,6 +237,34 @@ async def test_merge_skips_a_torn_final_line(tmp_path: Path) -> None:
     assert path.read_bytes() == clean
 
 
+async def test_merge_refuses_a_file_out_of_key_order(tmp_path: Path) -> None:
+    exported = Exported.create(tmp_path)
+    await exported.store(message(10, id=1), message(20, id=2))
+    await exported.run()
+    path = tmp_path / "2026/01/01/00.csv"
+    header, first, second = path.read_bytes().splitlines(keepends=True)
+    path.write_bytes(header + second + first)
+
+    run = await exported.run()
+
+    assert run.exception is not None and "is not sorted by key" in run.exception
+    assert path.read_bytes() == header + second + first
+
+
+@pytest.mark.parametrize(
+    ("format", "written"), [("csv", ",receive,ÿ\n"), ("jsonl", '"data":"ÿ"}\n')]
+)
+async def test_formats_write_each_byte_as_one_latin1_character(
+    tmp_path: Path, format: str, written: str
+) -> None:
+    exported = Exported.create(tmp_path, format=format)
+    await exported.store(message(10, b"\xff"))
+
+    await exported.run()
+
+    assert exported.files()[f"2026/01/01/00.{format}"].decode().endswith(written)
+
+
 async def test_raw_concatenates_message_data(tmp_path: Path) -> None:
     exported = Exported.create(tmp_path, format="raw")
     await exported.store(message(20, b"\x00\xff", id=2), message(10, b"ab\n"))
@@ -265,11 +313,77 @@ async def test_run_ring_keeps_the_last_twenty(tmp_path: Path) -> None:
     assert [run.id for run in kept] == [run.id for run in reversed(runs[1:])]
 
 
+async def test_a_third_pending_run_is_refused(tmp_path: Path) -> None:
+    exported = Exported.create(tmp_path)
+    await exported.store(message(10))
+    first, second = exported.start(), exported.start()
+
+    with pytest.raises(AlreadyExistsError):
+        exported.start()
+
+    settled = await exported.settled(first, second)
+    assert [run.state for run in settled] == [ExportRunState.COMPLETED] * 2
+
+
+async def test_re_adding_an_exporter_keeps_its_pending_runs(tmp_path: Path) -> None:
+    exported = Exported.create(tmp_path)
+    runs = exported.start(), exported.start()
+
+    exporters = exported.component.system.exporters
+    exporters.add(config().exporters[0])
+    with pytest.raises(AlreadyExistsError):
+        exported.start()
+
+    await exported.settled(*runs)
+
+
+async def test_stopping_the_component_fails_its_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def stall(self: CsvFormat, path: Path, *_: Any) -> None:
+        path.write_bytes(b"partial")
+        await Event().wait()
+
+    monkeypatch.setattr(CsvFormat, "write", stall)
+    exported = Exported.create(tmp_path)
+    await exported.store(message(10))
+    exported.component.system.start()
+    await wait_for_condition("the component runs", lambda: exported.component.system.running, 30)
+    run = exported.start()
+    await wait_for_condition("the run writes", lambda: any(tmp_path.rglob("*.tmp")), 30)
+
+    await exported.component.system.stop()
+
+    stopped = exported.state(run)
+    assert (stopped.state, stopped.exception) == (ExportRunState.FAILED, "component stopped")
+    assert not any(tmp_path.rglob("*.tmp"))
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows files have no POSIX mode")
+async def test_files_take_the_umask_and_keep_their_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("ceres.exporter._UMASK", 0o022)
+    exported = Exported.create(tmp_path)
+    await exported.store(message(10))
+    path = tmp_path / "2026/01/01/00.csv"
+
+    await exported.run()
+    created = path.stat().st_mode & 0o777
+    path.chmod(0o640)
+    await exported.run()
+
+    assert (created, path.stat().st_mode & 0o777) == (0o644, 0o640)
+
+
 def test_config_refuses_a_path_two_periods_share() -> None:
     assert "to one file '2000/01/01.csv'" in refusal(path="%Y/%m/%d")
     assert "to one file '2000/01/00.csv'" in refusal(path="%Y/%m/%H")
     assert "to one file '2000-01-01T12.csv'" in refusal(path="%Y-%m-%dT%I")
     assert "to one file '01.csv'" in refusal(period="month", path="%m")
+    assert "to one file '001.csv'" in refusal(period="day", path="%j")
+    assert "to one file '2000-01.csv'" in refusal(period="day", path="%Y-%U")
+    assert "to one file '2000-01-01 AM.csv'" in refusal(path="%Y-%m-%d %p")
 
 
 def test_config_refuses_a_two_digit_year() -> None:

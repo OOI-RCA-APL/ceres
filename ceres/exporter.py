@@ -45,7 +45,7 @@ from ceres.data import DataObject, DateTime, Name, StrEnum, replace, uuid4
 from ceres.data import dump as _dump
 from ceres.directory import Directory
 from ceres.entity import EntityType
-from ceres.error import trace
+from ceres.error import AlreadyExistsError, trace
 from ceres.event import (
     ExportRunCompletedEvent,
     ExportRunFailedEvent,
@@ -94,10 +94,17 @@ _CHUNK_SIZE = 1 << 20
 _RUN_RING_SIZE = 20
 """Runs each `ExporterManager` remembers, oldest dropped first."""
 
+_PENDING_RUNS = 2
+"""Runs of one exporter that may run or wait at once, so repeated starts cannot pile up."""
+
 _EPOCH = datetime(2000, 1, 1, tzinfo=UTC)
 """Fixed start of the sample periods a path template is checked against."""
 
 _ORDER = ["timestamp:asc", "id:asc"]
+
+# Reading the umask means setting it, so the process reads it once while nothing else writes.
+_UMASK = os.umask(0)
+os.umask(_UMASK)
 
 _RECORD_COLUMNS: dict[EntityType, tuple[str, ...]] = {
     EntityType.MESSAGE: ("timestamp", "id", "address", "connection", "direction", "data"),
@@ -285,12 +292,13 @@ async def _physical_lines(path: Path) -> AsyncIterator[bytes]:
         pending = b""
         while chunk := await file.read(_CHUNK_SIZE):
             pending += chunk
-            end = pending.rfind(b"\n") + 1
-            if end:
-                for line in pending[:end].splitlines(keepends=True):
-                    yield line
+            # Only `\n` ends a line, so a bare `\r` inside a CSV field stays in its line.
+            start = 0
+            while (newline := pending.find(b"\n", start)) >= 0:
+                yield pending[start : newline + 1]
+                start = newline + 1
 
-                pending = pending[end:]
+            pending = pending[start:]
 
 
 class Format(DataObject, abstract=True):
@@ -584,6 +592,23 @@ def _fsync(path: Path) -> None:
         os.close(descriptor)
 
 
+def _create_temporary(final: Path) -> Path:
+    descriptor, name = tempfile.mkstemp(dir=final.parent, prefix=f".{final.name}.", suffix=".tmp")
+    try:
+        # `mkstemp` creates the file 0600 and the rename keeps that mode, which would hide the
+        # archive from every other user. A rewrite keeps the mode an operator gave the file.
+        try:
+            mode = final.stat().st_mode & 0o777
+        except FileNotFoundError:
+            mode = 0o666 & ~_UMASK
+
+        os.chmod(name, mode)
+    finally:
+        os.close(descriptor)
+
+    return Path(name)
+
+
 def _commit(temporary: Path, final: Path) -> None:
     _fsync(temporary)
     os.replace(temporary, final)
@@ -611,14 +636,7 @@ async def atomic_write(directory: Directory | Path, path: str | Path) -> AsyncIt
         raise ValueError(f"'{path}' leads outside '{root}'")
 
     await anyio.Path(final.parent).mkdir(parents=True, exist_ok=True)
-    descriptor, name = await spawn(
-        tempfile.mkstemp,
-        dir=final.parent,
-        prefix=f".{final.name}.",
-        suffix=".tmp",
-    )
-    os.close(descriptor)
-    temporary = Path(name)
+    temporary = await spawn(_create_temporary, final)
     try:
         yield temporary
         await spawn(_commit, temporary, final)
@@ -721,7 +739,7 @@ class ExportPath:
         path = cls(template, period, exporter, connection, extension)
         sample = path.render(_EPOCH)[: -len(extension)]
         parts = PurePosixPath(sample).parts
-        if sample.startswith("/") or sample.endswith("/") or ".." in parts or "." in parts:
+        if sample.startswith("/") or sample.endswith("/") or ".." in parts:
             raise ValueError(f"path '{template}' must name a file inside the directory")
 
         for known in sorted(
@@ -814,6 +832,18 @@ class ExportRunRecord(DataObject):
     """Why the run failed, `None` unless it failed."""
 
 
+class _Exporter:
+    """A registered exporter's config beside the parts of it every run uses."""
+
+    __slots__ = ("config", "format", "path", "schema")
+
+    def __init__(self, config: ExporterConfig) -> None:
+        self.config = config
+        self.format = config.create_format()
+        self.schema = config.create_schema()
+        self.path = config.create_path()
+
+
 class ExporterManager(BaseComponentManager):
     """Component-level manager that runs each registered exporter's re-runs and schedule.
 
@@ -824,6 +854,7 @@ class ExporterManager(BaseComponentManager):
         "__scheduler",
         "__exporters",
         "__locks",
+        "__pending",
         "__runs",
         "__tasks",
     )
@@ -831,8 +862,11 @@ class ExporterManager(BaseComponentManager):
     def __init__(self, source: ComponentSource, /) -> None:
         super().__init__(source)
         self.__scheduler = self.__create_scheduler()
-        self.__exporters: dict[str, ExporterConfig] = {}
+        self.__exporters: dict[str, _Exporter] = {}
+        # Keyed by every name ever registered, so a run of a replaced config and a run of its
+        # successor share one lock and one bound.
         self.__locks: dict[str, Lock] = {}
+        self.__pending: dict[str, int] = {}
         self.__runs: deque[ExportRunRecord] = deque(maxlen=_RUN_RING_SIZE)
         self.__tasks: dict[UUID, Task[None]] = {}
 
@@ -862,17 +896,18 @@ class ExporterManager(BaseComponentManager):
     def add(self, exporter: ExporterConfig) -> None:
         """Register an exporter, replacing any registered under the same name."""
         self.remove(exporter.name)
-        self.__exporters[exporter.name] = exporter
-        self.__locks[exporter.name] = Lock()
+        self.__exporters[exporter.name] = _Exporter(exporter)
+        self.__locks.setdefault(exporter.name, Lock())
         self.__sync_schedules()
 
     def get(self, name: str) -> ExporterConfig | None:
         """Return the exporter registered under `name`, or `None`."""
-        return self.__exporters.get(name)
+        registered = self.__exporters.get(name)
+        return registered.config if registered is not None else None
 
     def get_all(self) -> list[ExporterConfig]:
         """Return every registered exporter."""
-        return list(self.__exporters.values())
+        return [registered.config for registered in self.__exporters.values()]
 
     def remove(self, name: str) -> ExporterConfig | None:
         """Unregister an exporter and cancel its schedule, leaving its running runs alone.
@@ -887,8 +922,8 @@ class ExporterManager(BaseComponentManager):
         except JobLookupError:
             pass
 
-        self.__locks.pop(name, None)
-        return self.__exporters.pop(name, None)
+        registered = self.__exporters.pop(name, None)
+        return registered.config if registered is not None else None
 
     def clear(self) -> None:
         """Unregister every exporter and cancel every schedule."""
@@ -920,6 +955,10 @@ class ExporterManager(BaseComponentManager):
         A run merges the database's records into each period's file, the database winning on a
         shared key, so a period with no stored records keeps its file. With `replace` it
         rewrites each period's file from the database alone and removes an empty period's file.
+        A `period: all` exporter has one file, so its run writes every stored record whatever
+        the range.
+
+        One run of an exporter writes at a time and one more waits for it.
 
         Args:
             name: Name of the exporter to run.
@@ -931,9 +970,10 @@ class ExporterManager(BaseComponentManager):
             KeyError: If no exporter is registered under `name`.
             ValueError: If `after` does not precede `before`, or the format cannot merge and
                 `replace` is false.
+            AlreadyExistsError: If one run of the exporter already waits for another.
         """
-        exporter = self.__exporters.get(name)
-        if exporter is None:
+        registered = self.__exporters.get(name)
+        if registered is None:
             raise KeyError(name)
 
         after = after.astimezone(UTC)
@@ -941,9 +981,13 @@ class ExporterManager(BaseComponentManager):
         if after >= before:
             raise ValueError("`after` must precede `before`")
 
-        format = exporter.create_format()
-        if not replace and not format.keyed:
-            raise ValueError(f"`{exporter.format_name}` cannot merge, so the run must replace")
+        if not replace and not registered.format.keyed:
+            raise ValueError(
+                f"`{registered.config.format_name}` cannot merge, so the run must replace"
+            )
+
+        if self.__pending.get(name, 0) >= _PENDING_RUNS:
+            raise AlreadyExistsError(field="exporter", value=name)
 
         run = ExportRunRecord(
             id=uuid4(),
@@ -954,9 +998,15 @@ class ExporterManager(BaseComponentManager):
             started=datetime.now(UTC),
         )
         self.__runs.append(run)
-        task = create_task(self.__export(exporter, format, run))
+        self.__pending[name] = self.__pending.get(name, 0) + 1
+        task = create_task(self.__export(registered, run))
         self.__tasks[run.id] = task
-        task.add_done_callback(lambda _: self.__tasks.pop(run.id, None))
+
+        def finish(_: Task[None]) -> None:
+            self.__tasks.pop(run.id, None)
+            self.__pending[name] -= 1
+
+        task.add_done_callback(finish)
         return run
 
     async def run(
@@ -979,27 +1029,34 @@ class ExporterManager(BaseComponentManager):
         from ceres.job import _get_trigger_adapter_class
 
         TriggerAdapter = _get_trigger_adapter_class()
-        for name, exporter in self.__exporters.items():
-            if exporter.schedule is None or self.__scheduler.get_job(name) is not None:
+        for name, registered in self.__exporters.items():
+            schedule = registered.config.schedule
+            if schedule is None or self.__scheduler.get_job(name) is not None:
                 continue
 
             self.__scheduler.add_job(
                 self.__scheduled,
                 args=[name],
-                trigger=TriggerAdapter(exporter.schedule.create_trigger()),
+                trigger=TriggerAdapter(schedule.create_trigger()),
                 name=name,
                 id=name,
             )
 
     async def __scheduled(self, name: str) -> None:
-        exporter = self.__exporters.get(name)
+        exporter = self.get(name)
         if exporter is None:
             return
 
         now = datetime.now(UTC)
         lookback = exporter.lookback or 0
         after = period_shift(exporter.period, period_start(exporter.period, now), -lookback)
-        self.start(name, after, now)
+        try:
+            self.start(name, after, now)
+        except AlreadyExistsError:
+            # The next scheduled run's lookback covers the periods this one skips.
+            self.__system__.log.warning(
+                f"Exporter '{name}' skipped a scheduled run behind two pending runs"
+            )
 
     def __update(self, run: ExportRunRecord, **changes: Any) -> ExportRunRecord:
         updated = replace(run, **changes)
@@ -1041,9 +1098,13 @@ class ExporterManager(BaseComponentManager):
 
         return directory
 
-    async def __export(
-        self, exporter: ExporterConfig, format: Format, run: ExportRunRecord
-    ) -> None:
+    async def __export(self, registered: _Exporter, run: ExportRunRecord) -> None:
+        exporter, format, schema, path = (
+            registered.config,
+            registered.format,
+            registered.schema,
+            registered.path,
+        )
         events = self.__system__.events
         events.emit(
             ExportRunStartedEvent,
@@ -1055,8 +1116,6 @@ class ExporterManager(BaseComponentManager):
         )
         try:
             directory = self.__directory(exporter)
-            schema = exporter.create_schema()
-            path = exporter.create_path()
             lock = self.__locks.setdefault(exporter.name, Lock())
             async with lock:
                 for start, end in periods(exporter.period, run.after, run.before):

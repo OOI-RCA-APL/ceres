@@ -91,22 +91,26 @@ async def test_get_component_exporters_describes_each_exporter(tmp_path: Path) -
     ]
 
 
-async def test_get_exporter_runs_requires_operate(tmp_path: Path) -> None:
-    """Viewing a component is not enough to read its export runs."""
+async def test_start_exporter_run_requires_operate(tmp_path: Path) -> None:
+    """Viewing a component is not enough to start an export run."""
     engine = await _build_engine(tmp_path)
 
     with pytest.raises(NotPermittedError):
-        await get_exporter_runs(
-            engine=engine, actor=await _viewer(engine), address=Address("@archive"), name="messages"
+        await start_exporter_run(
+            engine=engine,
+            actor=await _viewer(engine),
+            address=Address("@archive"),
+            name="messages",
+            request=ExportRunRequest(after=_AFTER),
         )
 
 
 async def test_get_exporter_runs_starts_empty(tmp_path: Path) -> None:
-    """An operator sees no runs before the first one."""
+    """A viewer sees no runs before the first one."""
     engine = await _build_engine(tmp_path)
 
     result = await get_exporter_runs(
-        engine=engine, actor=await _operator(engine), address=Address("@archive"), name="messages"
+        engine=engine, actor=await _viewer(engine), address=Address("@archive"), name="messages"
     )
 
     assert result == []
@@ -129,7 +133,7 @@ async def test_start_exporter_run_refuses_a_stopped_component(tmp_path: Path) ->
     with pytest.raises(NotRunningError):
         await start_exporter_run(
             engine=engine,
-            actor=_UNRESTRICTED,
+            actor=await _operator(engine),
             address=Address("@archive"),
             name="messages",
             request=ExportRunRequest(after=_AFTER),

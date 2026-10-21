@@ -72,12 +72,15 @@ async def _resolve_exporter(
     actor: Actor,
     address: Address,
     name: str,
+    *,
+    operate: bool,
 ) -> Component:
-    # Runs write files, so listing or starting them needs operate access.
     component = await _resolve_component(engine, actor, address)
-    access = await get_component_access(engine, actor.user, component)
-    if not actor.unrestricted and (access is None or access < ComponentAccessLevel.OPERATE):
-        raise NotPermittedError()
+    if operate and not actor.unrestricted:
+        # A run writes files, so starting one needs operate access.
+        access = await get_component_access(engine, actor.user, component)
+        if access is None or access < ComponentAccessLevel.OPERATE:
+            raise NotPermittedError()
     if component.system.exporters.get(name) is None:
         raise NotFoundError()
 
@@ -92,11 +95,13 @@ async def get_exporter_runs(
 ) -> list[ExportRunRecord]:
     """Return the named exporter's recent runs, newest first.
 
+    Available to anyone who can access the component at all.
+
     Raises:
         NotFoundError: If no component or exporter matches.
-        NotPermittedError: If the caller lacks operate access to the component.
+        NotPermittedError: If the caller has no access to the component.
     """
-    component = await _resolve_exporter(engine, actor, address, name)
+    component = await _resolve_exporter(engine, actor, address, name, operate=False)
     return component.system.exporters.get_runs(name)
 
 
@@ -114,8 +119,9 @@ async def start_exporter_run(
         NotPermittedError: If the caller lacks operate access to the component.
         NotRunningError: If the component is not running.
         ValidationFailedError: If the exporter's format cannot merge and `replace` is false.
+        AlreadyExistsError: If one run of the exporter already waits for another.
     """
-    component = await _resolve_exporter(engine, actor, address, name)
+    component = await _resolve_exporter(engine, actor, address, name, operate=True)
     if not component.system.running:
         raise NotRunningError()
 
