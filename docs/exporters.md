@@ -83,7 +83,8 @@ replace it, and `raw` takes no `schedule`.
 
 A run covers every period overlapping a range of time, from `after` up to `before`. It reads each
 whole period from the database, so a range ending mid-period still rewrites that period's file in
-full.
+full. A `period: all` exporter has one file, so its run writes every stored record whatever the
+range.
 
 A run merges by default. Records in the file and in the database are written once, from the
 database. Records only in the file stay. A period with no records in the database keeps its file
@@ -91,7 +92,9 @@ untouched. With `replace`, the run writes each file from the database alone and 
 a period with no records.
 
 Every file is written to a temporary sibling and moved into place, so a reader never sees a partly
-written file. One run of an exporter writes at a time, and a second waits for the first.
+written file. A new file takes the mode the process umask gives it, and a rewritten file keeps its
+mode. One run of an exporter writes at a time, a second waits for the first, and a third is
+refused. A scheduled run refused this way logs a warning, and the next one's `lookback` covers it.
 
 Start a run through the HTTP API, with operate access to the component:
 
@@ -102,8 +105,10 @@ POST /api/components/@sensor/exporters/messages/runs
 
 The response holds the run's ID at once, and the run goes on in the component. `before` defaults
 to the current time. `GET /api/components/@sensor/exporters/messages/runs` lists the exporter's last
-20 runs, newest first, with each one's state, record count and files.
+20 runs, newest first, with each one's state, record count and files, to anyone who can view the
+component.
 
 Each run emits `ExportRunStartedEvent`, one `ExportRunProgressEvent` per file it writes, and then
 `ExportRunCompletedEvent` or `ExportRunFailedEvent`. A completed run also writes one log entry
-naming its range, its record count and its files.
+naming its range, its record count and its files. With `logging.events` on, every event becomes a
+log entry too, so a year of hourly files logs 8760 progress entries.
