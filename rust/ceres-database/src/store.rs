@@ -1225,7 +1225,7 @@ mod tests {
         assert!(contents(&store).await.is_empty());
     }
 
-    /// One batch of log entries keyed by `ids`, five columns a row so 20,000 bind 100,000
+    /// One batch of log entries keyed by `ids`, five columns a row so 7,000 bind 35,000
     /// parameters, past SQLite's 32,766.
     fn entries(ids: impl Iterator<Item = u128>) -> std::iter::Once<Result<Records, String>> {
         let entries = ids
@@ -1245,12 +1245,12 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let store = logs_store(directory.path()).await;
 
-        let batches = entries(0..20_000);
+        let batches = entries(0..7_000);
         assert_eq!(
             store.load_records(batches, Conflict::Error).await.unwrap(),
-            20_000
+            7_000
         );
-        assert_eq!(contents(&store).await.len(), 20_000);
+        assert_eq!(contents(&store).await.len(), 7_000);
     }
 
     #[tokio::test]
@@ -1258,8 +1258,8 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let store = logs_store(directory.path()).await;
 
-        // The repeated first ID falls in the fourth statement of the split.
-        let batches = entries((0..20_000).chain([0]));
+        // The repeated first ID falls in the second statement of the split.
+        let batches = entries((0..7_000).chain([0]));
         assert!(store.load_records(batches, Conflict::Error).await.is_err());
         assert!(contents(&store).await.is_empty());
     }

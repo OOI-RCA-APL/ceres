@@ -290,15 +290,16 @@ async def test_a_flush_past_the_parameter_limit_drains_the_writer() -> None:
     await db.migrate()
     writer = Writer(lambda: db)
 
-    # Six columns a particle put 20,000 at 120,000 parameters, past every backend's limit.
+    # Six columns a particle put 11,000 at 66,000 parameters, past PostgreSQL's 65,535,
+    # the largest limit.
     address = Address("@sensor.temp")
-    for index in range(20_000):
+    for index in range(11_000):
         writer.add(Particle(address=address, type="sample", data={"index": index}))
 
     await writer.flush()
     await writer.settle()
     assert writer.empty
-    assert await db.particles.count() == 20_000
+    assert await db.particles.count() == 11_000
 
 
 @pytest.mark.databases("postgres")
