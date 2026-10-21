@@ -7,6 +7,7 @@ import {
   pagesOf,
   type Widget,
   widgetInfos,
+  WidgetModel,
   withPages,
 } from '@/workspace'
 
@@ -44,6 +45,13 @@ describe('the widget registry', () => {
 
   it('opens every other kind with no pages at all', () => {
     expect(pagesOf(createWidget('meter'))).toHaveLength(0)
+  })
+
+  it('stores a files widget root and leaves the open directory to each browser', () => {
+    expect(createWidget('files')).toMatchObject({ type: 'files', name: 'Files' })
+    const stored = WidgetModel.parse({ type: 'files', root: 'abc', path: ['abcd'] })
+    expect(stored).toMatchObject({ type: 'files', root: 'abc' })
+    expect(stored).not.toHaveProperty('path')
   })
 })
 

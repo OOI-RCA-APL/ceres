@@ -181,6 +181,15 @@ export const VideoWidgetModel = BaseWidgetModel.extend({
   transport: z.enum(['auto', 'webrtc', 'http']).default('auto').catch('auto'),
 })
 
+export type FilesWidget = z.infer<typeof FilesWidgetModel>
+export const FilesWidgetModel = BaseWidgetModel.extend({
+  type: z.literal('files'),
+  name: z.string().catch('Files'),
+  /** The file root the widget browses, its ID as the engine lists it. The directory open in it
+  is each browser's own. */
+  root: z.string().nullish(),
+})
+
 /** A stored control color, in the vocabulary the old console wrote and the engine still holds. */
 export type Color = z.infer<typeof ColorModel>
 export const ColorModel = z.enum(['primary', 'positive', 'warning', 'negative', 'white', 'black'])
@@ -374,6 +383,7 @@ export type Widget =
   | ChartWidget
   | MeterWidget
   | VideoWidget
+  | FilesWidget
   | ControlsWidget
   | CarouselWidget
   | TabsWidget
@@ -411,6 +421,7 @@ export const widgetModels = {
   chart: ChartWidgetModel,
   meter: MeterWidgetModel,
   video: VideoWidgetModel,
+  files: FilesWidgetModel,
   controls: ControlsWidgetModel,
   carousel: CarouselWidgetModel,
   tabs: TabsWidgetModel,
@@ -445,6 +456,7 @@ export const WidgetModel = z.preprocess(
       ChartWidgetModel,
       MeterWidgetModel,
       VideoWidgetModel,
+      FilesWidgetModel,
       ControlsWidgetModel,
       // The controls widget's legacy stored kind, turned into `controls` by `upgradedWidget` on
       // load.

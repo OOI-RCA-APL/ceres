@@ -17,6 +17,7 @@ import type {
 } from '@/api/components'
 import { canInvokeProcedure, describeProcedurePermissions } from '@/api/components'
 import { useEngine } from '@/api/engine'
+import { filesPagePath } from '@/api/files'
 import type { ComponentAccessLevel } from '@/api/permissions'
 import CWorkspaceHost from '@/components/c-workspace-host.vue'
 import { useDialogs } from '@/dialogs'
@@ -74,6 +75,7 @@ const persisted = usePersisted({
       workspaces: boolean().default(true),
       connections: boolean().default(false),
       jobs: boolean().default(false),
+      files: boolean().default(true),
       particles: boolean().default(false),
       particleTypes: record(string(), boolean()).default({}),
       queries: boolean().default(false),
@@ -409,6 +411,20 @@ const configHighlighted = $computed(() =>
                     <c-text variant="body3">{{ job.name }}</c-text>
                     <c-text variant="description">{{ jobLabel(job) }}</c-text>
                   </div>
+                </c-list-item>
+              </c-detail-section>
+              <c-detail-section
+                v-if="component.files.length > 0"
+                v-model:expanded="persisted.files"
+                :title="`Files (${component.files.length})`"
+              >
+                <c-list-item
+                  v-for="files in component.files"
+                  :key="files.root"
+                  :to="filesPagePath(files.root)"
+                >
+                  <c-icon class="shrink-0" :name="icons.directory" size="16" />
+                  <c-text class="grow" variant="body3">{{ files.label }}</c-text>
                 </c-list-item>
               </c-detail-section>
             </c-list>

@@ -190,7 +190,7 @@ ceres console url     # Print the URL.
 
 ### Files
 
-The console's "Files" page browses, previews, downloads, and changes the files a deployment keeps. A component offers one of its `Directory` fields there by marking it with `Files`, and anyone who may view the component may browse it.
+The console's "Files" page browses, previews, downloads, and changes the files a deployment keeps. A component offers one of its `Directory` fields there by marking it with `Files`, and anyone who may view the component may browse it. The component's page links each of its roots, and a "Files View" widget puts one root in a workspace, each browser keeping its own open directory.
 
 ```python
 from typing import Annotated
