@@ -327,7 +327,8 @@ Per-component overrides are available. See [Configuration](reference/configurati
 
 ### Pruners
 
-Configure automatic record cleanup in `ceres.yaml` to prevent unbounded database growth.
+Configure automatic record cleanup in `ceres.yaml` to prevent unbounded database growth. A pruner
+removes rows from the database only, so an [exporter](exporters.md) keeps them in its files.
 
 ```yaml
 components:

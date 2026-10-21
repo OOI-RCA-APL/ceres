@@ -1,8 +1,19 @@
+import builtins
 from abc import abstractmethod
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Literal, Self, TypeAlias, override
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    Literal,
+    Self,
+    TypeAlias,
+    cast,
+    get_args,
+    override,
+)
 
 from pydantic import (
     ByteSize,
@@ -11,6 +22,7 @@ from pydantic import (
     Field,
     ImportString,
     NonNegativeInt,
+    PositiveInt,
     SecretStr,
     Tag,
     ValidationError,
@@ -84,6 +96,8 @@ if TYPE_CHECKING:
     from ceres.component import Component, ComponentSystem
     from ceres.connection import Connection, ConnectionField
     from ceres.engine import Engine
+    from ceres.exporter import ExportPath, ExportSchema, Format
+    from ceres.particle import Particle
     from ceres.reference import Reference
     from ceres.sieves import FunctionSieve, Sieve
 else:
@@ -283,6 +297,254 @@ PrunerConfig: TypeAlias = (
     MessagePrunerConfig | ParticlePrunerConfig | AlertPrunerConfig | LogEntryPrunerConfig
 )
 """Discriminated union of pruner configurations, dispatched by the `prunes` field."""
+
+
+class ExporterPeriod(StrEnum):
+    """Time one export file covers, starting at a UTC boundary."""
+
+    HOUR = "hour"
+    DAY = "day"
+    MONTH = "month"
+    ALL = "all"
+
+
+class ExporterFormatConfig(DataObject):
+    """A custom export format, a `ceres.exporter.Format` subclass and its arguments."""
+
+    if TYPE_CHECKING:
+        cls: ImportString[type[Format]]
+    else:
+        cls: ImportString[object] = Field(
+            validation_alias="class",
+            serialization_alias="class",
+        )
+
+    arguments: Mapping[str, Any] = Field(default_factory=dict)
+    """Keyword arguments the format class is created with."""
+
+    @field_validator("cls")
+    def _validate_cls(cls, value: object) -> object:
+        from ceres.exporter import BUILTIN_FORMATS, Format
+
+        if not (isinstance(value, type) and issubclass(value, Format)):
+            raise ValueError("class must be a subclass of `ceres.exporter.Format`")
+
+        for name, builtin in BUILTIN_FORMATS.items():
+            if value is builtin:
+                raise ValueError(f"name the built-in format as `format: {name}`")
+
+        return value
+
+    @model_validator(mode="after")
+    def _validate_arguments(self) -> Self:
+        validate(self.cls, self.arguments)
+        return self
+
+
+class _ExporterConfig[TFilter: MessageFilter | ParticleFilter | AlertFilter | LogEntryFilter](
+    DataObject
+):
+    name: Name
+    """Exporter name, unique within its component."""
+
+    exports: EntityType
+    """Record kind the exporter writes."""
+
+    filter: TFilter | None = None
+    """Records to export, every record of the kind at the component when omitted."""
+
+    format: Literal["csv", "jsonl", "raw"] | ExporterFormatConfig
+    """A built-in format by name, or a custom format class with its arguments."""
+
+    directory: NonBlankStr = "output"
+    """Name of the component's `Directory` field the files live under."""
+
+    period: ExporterPeriod
+    """Time one file covers."""
+
+    path: NonBlankStr
+    """`strftime` template of the period's UTC start, with `{exporter}` and `{connection}`.
+
+    The format adds its extension, so the path ends without one.
+    """
+
+    live: bool | None = None
+    """Whether new records reach the files as they arrive, the format's `appendable` when
+    omitted."""
+
+    interval: timedelta = Field(default=timedelta(seconds=5), ge=timedelta(seconds=1))
+    """How often live export writes the records stored since its last write."""
+
+    schedule: ScheduleExpr | None = None
+    """When to merge the database into the recent periods' files, never when omitted."""
+
+    lookback: PositiveInt | None = None
+    """Periods before the current one each scheduled run covers, 1 when omitted."""
+
+    def filter_class(self) -> type[TFilter]:
+        """Return the filter class of the exported kind."""
+        filters: dict[EntityType, type[Any]] = {
+            EntityType.MESSAGE: MessageFilter,
+            EntityType.PARTICLE: ParticleFilter,
+            EntityType.ALERT: AlertFilter,
+            EntityType.LOG_ENTRY: LogEntryFilter,
+        }
+        return filters[self.exports]
+
+    def particle_class(self) -> type[Particle[Any]] | None:
+        """Return the particle class whose data fields become columns, `None` for none."""
+        return None
+
+    @property
+    def format_name(self) -> str:
+        """The built-in format's name, or the custom format class's qualified name."""
+        if isinstance(self.format, str):
+            return self.format
+
+        return f"{self.format.cls.__module__}.{self.format.cls.__qualname__}"
+
+    def create_format(self) -> Format:
+        """Create the configured format."""
+        from ceres.exporter import BUILTIN_FORMATS
+
+        if isinstance(self.format, str):
+            return BUILTIN_FORMATS[self.format]()
+
+        return validate(self.format.cls, self.format.arguments)
+
+    def create_schema(self) -> ExportSchema:
+        """Return the columns of the exporter's files."""
+        from ceres.exporter import ExportSchema
+
+        return ExportSchema.create(self.exports, self.particle_class())
+
+    def create_path(self) -> ExportPath:
+        """Return the exporter's checked path template."""
+        from ceres.exporter import ExportPath
+
+        return ExportPath.create(
+            self.path,
+            self.period,
+            self.name,
+            self.__pinned_connection(),
+            self.create_format().extension,
+        )
+
+    @property
+    def is_live(self) -> bool:
+        """Whether new records reach the files as they arrive."""
+        return self.live if self.live is not None else self.create_format().appendable
+
+    def __pinned_connection(self) -> str | None:
+        connection = getattr(self.filter, "connection", None)
+        if isinstance(connection, str):
+            return connection
+        if isinstance(connection, Sequence) and len(connection) == 1:
+            return str(cast("Sequence[str]", connection)[0])
+
+        return None
+
+    @model_validator(mode="after")
+    def _validate_exporter(self) -> Self:
+        format = self.create_format()
+        if format.exports is not None and self.exports not in format.exports:
+            raise ValueError(f"format `{self.format_name}` cannot export {self.exports} records")
+
+        if self.filter is not None:
+            # The exporter orders and bounds its own queries, so the filter only selects.
+            for field in ("order", "limit", "offset"):
+                if getattr(self.filter, field) is not None:
+                    raise ValueError(f"an exporter filter cannot set `{field}`")
+
+        self.create_path()
+        self.create_schema()
+
+        if self.period == ExporterPeriod.ALL and self.is_live and not format.appendable:
+            raise ValueError(
+                f"format `{self.format_name}` rewrites its whole file, so a live exporter "
+                "needs a period shorter than `all`"
+            )
+
+        if self.schedule is None and self.lookback is not None:
+            raise ValueError("`lookback` needs a `schedule`")
+
+        if self.period == ExporterPeriod.ALL and self.lookback is not None:
+            raise ValueError("a `period: all` exporter has one file, so it takes no `lookback`")
+
+        if self.schedule is not None and not format.keyed:
+            raise ValueError(
+                f"format `{self.format_name}` cannot merge, so it cannot run on a schedule"
+            )
+
+        return self
+
+
+class MessageExporterConfig(_ExporterConfig[MessageFilter]):
+    """Exporter configuration that writes stored `Message` records to files."""
+
+    exports: Literal[EntityType.MESSAGE] = EntityType.MESSAGE
+
+
+class ParticleExporterConfig(_ExporterConfig[ParticleFilter]):
+    """Exporter configuration that writes stored `Particle` records to files."""
+
+    exports: Literal[EntityType.PARTICLE] = EntityType.PARTICLE
+
+    if TYPE_CHECKING:
+        type: ImportString[builtins.type[Particle[Any]]] | None = None
+    else:
+        type: ImportString[object] | None = None
+        """Particle class to export, whose data fields become columns.
+
+        A format whose columns are fixed, such as `csv`, needs it.
+        """
+
+    @field_validator("type")
+    def _validate_type(cls, value: object) -> object:
+        from ceres.particle import Particle, _get_cls_particle_type
+
+        if value is None:
+            return value
+        if not (isinstance(value, builtins.type) and issubclass(value, Particle)):
+            raise ValueError("type must be a subclass of `ceres.particle.Particle`")
+        if _get_cls_particle_type(value) is None:
+            raise ValueError("type must be a concrete particle class with a `type` value")
+
+        return value
+
+    @override
+    def particle_class(self) -> builtins.type[Particle[Any]] | None:
+        return cast("builtins.type[Particle[Any]] | None", self.type)
+
+    @model_validator(mode="after")
+    def _validate_particle(self) -> Self:
+        if self.filter is not None and self.filter.cls is not None:
+            raise ValueError("name the particle class with the exporter's `type`")
+        if self.type is None and self.create_format().schema_bound:
+            raise ValueError(
+                f"format `{self.format_name}` has fixed columns, so exporter '{self.name}' "
+                "needs a particle `type`"
+            )
+
+        return self
+
+
+class AlertExporterConfig(_ExporterConfig[AlertFilter]):
+    """Exporter configuration that writes stored `Alert` records to files."""
+
+    exports: Literal[EntityType.ALERT] = EntityType.ALERT
+
+
+class LogEntryExporterConfig(_ExporterConfig[LogEntryFilter]):
+    """Exporter configuration that writes stored `LogEntry` records to files."""
+
+    exports: Literal[EntityType.LOG_ENTRY] = EntityType.LOG_ENTRY
+
+
+ExporterConfig: TypeAlias = (
+    MessageExporterConfig | ParticleExporterConfig | AlertExporterConfig | LogEntryExporterConfig
+)
+"""Discriminated union of exporter configurations, dispatched by the `exports` field."""
 
 
 class _SieveConfig(DataObject):
@@ -527,6 +789,11 @@ class ComponentConfig(DataObject):
     )
     """Pruners owned by this component."""
 
+    exporters: list[Annotated[ExporterConfig, Field(discriminator="exports")]] = Field(
+        default_factory=list
+    )
+    """Exporters owned by this component."""
+
     components: list[ComponentConfig] = Field(default_factory=list)
     """Nested child component configurations."""
 
@@ -569,6 +836,38 @@ class ComponentConfig(DataObject):
                 raise ValueError(f"duplicate pruner name '{pruner_name}' in component '{name}'")
 
         return pruners
+
+    @field_validator("exporters", check_fields=False)
+    def _validate_exporters(
+        cls,
+        exporters: list[ExporterConfig],
+        info: ValidationInfo,
+    ) -> list[ExporterConfig]:
+        name: str = info.data.get("name", "<ERROR>")
+        for exporter_name, group in group_by(exporters, lambda current: current.name):
+            if len(list(group)) > 1:
+                raise ValueError(f"duplicate exporter name '{exporter_name}' in component '{name}'")
+
+        return exporters
+
+    @model_validator(mode="after")
+    def _validate_exporter_directories(self) -> Self:
+        from ceres.directory import Directory
+
+        fields: dict[str, Any] = getattr(self.cls, "__pydantic_fields__", {})
+        for exporter in self.exporters:
+            field = fields.get(exporter.directory)
+            annotation = field.annotation if field is not None else None
+            if not any(
+                isinstance(candidate, type) and issubclass(candidate, Directory)
+                for candidate in (annotation, *get_args(annotation))
+            ):
+                raise ValueError(
+                    f"exporter '{exporter.name}' writes to `{exporter.directory}`, which is not "
+                    f"a `Directory` field of `{self.cls.__qualname__}`"
+                )
+
+        return self
 
     @field_validator("sieves", check_fields=False)
     def _validate_sieves(

@@ -1,6 +1,6 @@
 # Coverage
 
-<!-- coverage:fingerprint:c11bcb5fb4197991 -->
+<!-- coverage:fingerprint:345392dc639ee423 -->
 
 ## Python
 
@@ -75,12 +75,13 @@
 | `ceres/database/__init__.py` | 100% |
 | `ceres/database/database.py` | 92% |
 | `ceres/database/enums.py` | 100% |
-| `ceres/directory.py` | 93% |
+| `ceres/directory.py` | 98% |
 | `ceres/dispatcher.py` | 65% |
 | `ceres/engine.py` | 84% |
 | `ceres/entity.py` | 99% |
 | `ceres/error.py` | 97% |
-| `ceres/event.py` | 95% |
+| `ceres/event.py` | 96% |
+| `ceres/exporter.py` | 89% |
 | `ceres/group.py` | 98% |
 | `ceres/item.py` | 90% |
 | `ceres/job.py` | 59% |
@@ -235,7 +236,7 @@
 | `rust/ceres-webrtc/src/parameter_sets.rs` | 98% |
 | `rust/ceres-webrtc/src/picture.rs` | 100% |
 | `rust/ceres-webrtc/src/server.rs` | 85% |
-| `rust/ceres-webrtc/src/session.rs` | 87% |
+| `rust/ceres-webrtc/src/session.rs` | 88% |
 | `rust/ceres-webrtc/src/socket.rs` | 96% |
 | **Total** | **75%** |
 <!-- coverage:rust:end -->
