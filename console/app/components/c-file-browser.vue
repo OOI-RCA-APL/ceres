@@ -113,9 +113,14 @@ function opener(target: string[]) {
   return linkTo == null ? { onClick: () => (path = target) } : { to: linkTo(target) }
 }
 
+// A root missing from the listing is one this viewer cannot reach, whose ID means nothing to them.
+const rootLabel = $computed(
+  () => rootInfo?.label ?? (rootsQuery.isPending.value ? '' : 'Unavailable Root'),
+)
+
 const breadcrumbs = $computed<BreadcrumbItem[]>(() => [
   ...home,
-  { label: rootInfo?.label ?? root, ...opener([]) },
+  { label: rootLabel, ...opener([]) },
   ...path.map((name, index) => ({ label: name, ...opener(path.slice(0, index + 1)) })),
 ])
 
