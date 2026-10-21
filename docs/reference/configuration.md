@@ -244,6 +244,7 @@ Configuration tree for a single component and any nested child components. A `Co
 | `sieves` | list of [`ClassSieveConfig`](#classsieveconfig) or [`MethodSieveConfig`](#methodsieveconfig) |  | Sieves owned by this component. |
 | `jobs` | list of [`JobConfig`](#jobconfig) |  | Scheduled jobs owned by this component. |
 | `pruners` | list of [`MessagePrunerConfig`](#messageprunerconfig) or [`ParticlePrunerConfig`](#particleprunerconfig) or [`AlertPrunerConfig`](#alertprunerconfig) or [`LogEntryPrunerConfig`](#logentryprunerconfig) |  | Pruners owned by this component. |
+| `exporters` | list of [`MessageExporterConfig`](#messageexporterconfig) or [`ParticleExporterConfig`](#particleexporterconfig) or [`AlertExporterConfig`](#alertexporterconfig) or [`LogEntryExporterConfig`](#logentryexporterconfig) |  | Exporters owned by this component. |
 | `components` | list of [`ComponentConfig`](#componentconfig) |  | Nested child component configurations. |
 | `name` | string | required | Component name, unique within its parent and used to build the component address. |
 | `logging` | object |  | Per-component logging overrides, falls back to the engine config when omitted. |
@@ -352,6 +353,79 @@ Pruner configuration that periodically deletes matching `LogEntry` records.
 | `schedule` | [`CronSchedule`](#cronschedule) or [`IntervalSchedule`](#intervalschedule) or [`OrSchedule`](#orschedule) | required |  |
 | `filter` | [`LogEntryFilter`](#logentryfilter) | required |  |
 
+### `MessageExporterConfig`
+
+Exporter configuration that writes stored `Message` records to files.
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `interval` | string | `'PT5S'` |  |
+| `name` | string | required |  |
+| `exports` | string | `'message'` |  |
+| `filter` | [`MessageFilter`](#messagefilter) |  | Records to export, every record of the kind at the component when omitted. |
+| `format` | `csv` or `jsonl` or `raw` or [`ExporterFormatConfig`](#exporterformatconfig) | required |  |
+| `directory` | string | `'output'` |  |
+| `period` | `hour` or `day` or `month` or `all` | required |  |
+| `path` | string | required |  |
+| `live` | boolean |  |  |
+| `schedule` | [`CronSchedule`](#cronschedule) or [`IntervalSchedule`](#intervalschedule) or [`OrSchedule`](#orschedule) |  |  |
+| `lookback` | integer |  |  |
+
+### `ParticleExporterConfig`
+
+Exporter configuration that writes stored `Particle` records to files.
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `interval` | string | `'PT5S'` |  |
+| `name` | string | required |  |
+| `exports` | string | `'particle'` |  |
+| `filter` | [`ParticleFilter`](#particlefilter) |  | Records to export, every record of the kind at the component when omitted. |
+| `format` | `csv` or `jsonl` or `raw` or [`ExporterFormatConfig`](#exporterformatconfig) | required |  |
+| `directory` | string | `'output'` |  |
+| `period` | `hour` or `day` or `month` or `all` | required |  |
+| `path` | string | required |  |
+| `live` | boolean |  |  |
+| `schedule` | [`CronSchedule`](#cronschedule) or [`IntervalSchedule`](#intervalschedule) or [`OrSchedule`](#orschedule) |  |  |
+| `lookback` | integer |  |  |
+| `type` | string |  | Particle class to export, whose data fields become columns. A format whose columns are fixed, such as `csv`, needs it. |
+
+### `AlertExporterConfig`
+
+Exporter configuration that writes stored `Alert` records to files.
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `interval` | string | `'PT5S'` |  |
+| `name` | string | required |  |
+| `exports` | string | `'alert'` |  |
+| `filter` | [`AlertFilter`](#alertfilter) |  | Records to export, every record of the kind at the component when omitted. |
+| `format` | `csv` or `jsonl` or `raw` or [`ExporterFormatConfig`](#exporterformatconfig) | required |  |
+| `directory` | string | `'output'` |  |
+| `period` | `hour` or `day` or `month` or `all` | required |  |
+| `path` | string | required |  |
+| `live` | boolean |  |  |
+| `schedule` | [`CronSchedule`](#cronschedule) or [`IntervalSchedule`](#intervalschedule) or [`OrSchedule`](#orschedule) |  |  |
+| `lookback` | integer |  |  |
+
+### `LogEntryExporterConfig`
+
+Exporter configuration that writes stored `LogEntry` records to files.
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `interval` | string | `'PT5S'` |  |
+| `name` | string | required |  |
+| `exports` | string | `'log-entry'` |  |
+| `filter` | [`LogEntryFilter`](#logentryfilter) |  | Records to export, every record of the kind at the component when omitted. |
+| `format` | `csv` or `jsonl` or `raw` or [`ExporterFormatConfig`](#exporterformatconfig) | required |  |
+| `directory` | string | `'output'` |  |
+| `period` | `hour` or `day` or `month` or `all` | required |  |
+| `path` | string | required |  |
+| `live` | boolean |  |  |
+| `schedule` | [`CronSchedule`](#cronschedule) or [`IntervalSchedule`](#intervalschedule) or [`OrSchedule`](#orschedule) |  |  |
+| `lookback` | integer |  |  |
+
 ### `ComponentConfig`
 
 Configuration tree for a single component and any nested child components. A `ComponentConfig` is the unit users edit in YAML, it selects the component class to instantiate, supplies constructor arguments, and declares the component's connections, sieves, jobs, pruners, and child components.
@@ -365,6 +439,7 @@ Configuration tree for a single component and any nested child components. A `Co
 | `sieves` | list of [`ClassSieveConfig`](#classsieveconfig) or [`MethodSieveConfig`](#methodsieveconfig) |  | Sieves owned by this component. |
 | `jobs` | list of [`JobConfig`](#jobconfig) |  | Scheduled jobs owned by this component. |
 | `pruners` | list of [`MessagePrunerConfig`](#messageprunerconfig) or [`ParticlePrunerConfig`](#particleprunerconfig) or [`AlertPrunerConfig`](#alertprunerconfig) or [`LogEntryPrunerConfig`](#logentryprunerconfig) |  | Pruners owned by this component. |
+| `exporters` | list of [`MessageExporterConfig`](#messageexporterconfig) or [`ParticleExporterConfig`](#particleexporterconfig) or [`AlertExporterConfig`](#alertexporterconfig) or [`LogEntryExporterConfig`](#logentryexporterconfig) |  | Exporters owned by this component. |
 | `components` | list of [`ComponentConfig`](#componentconfig) |  | Nested child component configurations. |
 | `name` | string | required | Component name, unique within its parent and used to build the component address. |
 | `logging` | object |  | Per-component logging overrides, falls back to the engine config when omitted. |
@@ -551,3 +626,12 @@ Filter for selecting `LogEntry` records.
 | `contains` | string or list of string |  | Filter by `content` containing one or more given substrings. |
 | `prefix` | string or list of string |  | Filter by `content` starting with one or more given prefixes. |
 | `suffix` | string or list of string |  | Filter by `content` ending with one or more given suffixes. |
+
+### `ExporterFormatConfig`
+
+A custom export format, a `ceres.exporter.Format` subclass and its arguments.
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `class` | string | required |  |
+| `arguments` | object |  | Keyword arguments the format class is created with. |
