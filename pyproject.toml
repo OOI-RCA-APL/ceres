@@ -105,13 +105,15 @@ include = [
 [tool.uv]
 cache-keys = [
     { file = "pyproject.toml" },
-    { file = "rust/ceres-core/Cargo.toml" },
-    { file = "rust/ceres-core/src/**/*.rs" },
-    { file = "rust/ceres-config/Cargo.toml" },
-    { file = "rust/ceres-config/src/**/*.rs" },
-    { file = "rust/ceres-media/Cargo.toml" },
-    { file = "rust/ceres-media/build.rs" },
-    { file = "rust/ceres-media/src/**/*" },
+    { file = ".cargo/config.toml" },
+    { file = "rust/Cargo.toml" },
+    { file = "rust/Cargo.lock" },
+    { file = "rust/*/Cargo.toml" },
+    { file = "rust/*/build.rs" },
+    { file = "rust/*/src/**/*" },
+    # Media embeds its test clips and builds its vendored sources.
+    { file = "rust/ceres-media/clips/**/*" },
+    { file = "rust/ceres-media/vendor/**/*" },
     { file = "ceres/__internal__/core.pyi" },
 ]
 
