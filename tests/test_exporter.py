@@ -1,27 +1,53 @@
+import csv
+import io
 import sys
-from asyncio import Event
+from asyncio import Event, create_task, sleep
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar, Self, override
 from uuid import UUID
 
 import pytest
 
 from ceres import Component
+from ceres.__internal__.database.writer import FlushSummary, Writer
+from ceres.__internal__.entity import DeleteExecutor
 from ceres.address import Address
-from ceres.config import ComponentConfig
+from ceres.alert import Alert
+from ceres.config import ComponentConfig, MessagePrunerConfig
 from ceres.data import replace, validate
 from ceres.directory import Directory
-from ceres.error import AlreadyExistsError
-from ceres.event import ExportRunCompletedEvent, ExportRunProgressEvent, ExportRunStartedEvent
-from ceres.exporter import CsvFormat, ExportRunRecord, ExportRunState
+from ceres.entity import EntityType
+from ceres.error import AlreadyExistsError, DatabaseUnreachableError
+from ceres.event import (
+    ExportRunCompletedEvent,
+    ExportRunProgressEvent,
+    ExportRunStartedEvent,
+    LogEvent,
+)
+from ceres.exporter import (
+    CsvFormat,
+    ExportKey,
+    ExportRecord,
+    ExportRunRecord,
+    ExportRunState,
+    ExportSchema,
+    LineFormat,
+    _Live,
+)
+from ceres.level import Level
+from ceres.logs import LogEntry
 from ceres.message import Message, MessageDirection
+from ceres.particle import Particle
 from tests.testing import wait_for_condition
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 START = datetime(2026, 1, 1, tzinfo=UTC)
+
+RECENT = datetime.now(UTC).replace(minute=0, second=0, microsecond=0) - timedelta(hours=3)
+"""A closed hour near now, since a live exporter checks only recent periods when it starts."""
 
 
 class Archive(Component):
@@ -72,23 +98,34 @@ class Exported:
     root: Path
 
     @classmethod
-    def create(cls, root: Path, **exporter: Any) -> Exported:
+    def create(cls, root: Path, **exporter: Any) -> Self:
         component = Archive(
             output=Directory(root), __with_name__="archive", __with_config__=config(**exporter)
         )  # type: ignore[reportCallIssue]
         return cls(component, root)
 
-    async def store(self, *records: Message) -> None:
+    async def store(self, *records: ExportRecord) -> None:
+        system = self.component.system
         for record in records:
-            await self.component.system.messages._insert(record)
+            match record:
+                case Message():
+                    await system.messages._insert(record)
+                case Particle():
+                    await system.particles._insert(record)
+                case Alert():
+                    await system.alerts._insert(record)
+                case LogEntry():
+                    await system.log._insert(record)
 
     async def delete(self, *records: Message) -> None:
         await self.component.system.messages.where(id=[record.id for record in records]).delete()
 
-    async def run(self, hours: int = 3, replace: bool = False) -> ExportRunRecord:
+    async def run(
+        self, hours: int = 3, replace: bool = False, after: datetime = START
+    ) -> ExportRunRecord:
         exporters = self.component.system.exporters
         return await exporters.run(
-            "messages", START, START + timedelta(hours=hours), replace=replace
+            "messages", after, after + timedelta(hours=hours), replace=replace
         )
 
     def start(self) -> ExportRunRecord:
@@ -443,3 +480,424 @@ def test_config_refuses_a_builtin_format_class() -> None:
 
 def test_config_refuses_a_missing_directory_field() -> None:
     assert "which is not a `Directory` field of `Archive`" in refusal(directory="missing")
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["subsample_every", "subsample", "subsample_select", "timespan", "max_age", "min_age"],
+)
+def test_config_refuses_filters_that_depend_on_the_query(field: str) -> None:
+    value = {"subsample": 2, "subsample_select": "first"}.get(field, "PT1H")
+    window = {"after": "2026-01-01T00:00:00Z", "before": "2026-01-02T00:00:00Z"}
+    assert f"cannot set `{field}`" in refusal(filter={field: value, **window})
+
+
+def test_config_refuses_a_nested_filter_that_depends_on_the_query() -> None:
+    assert "cannot set `max_age`" in refusal(
+        filter={"or": [{"connection": "a"}, {"max_age": "PT1H"}]}
+    )
+
+
+def recent(minutes: float, data: bytes = b"ab", id: int = 1) -> Message:
+    return replace(message(0, data, id), timestamp=RECENT + timedelta(minutes=minutes))
+
+
+RECENT_FILE = f"{RECENT:%Y/%m/%d/%H}.csv"
+
+
+@dataclass
+class Live(Exported):
+    @classmethod
+    async def started(cls, root: Path, **exporter: Any) -> Live:
+        live = cls.create(root, interval=1, **exporter)
+        await live.begin()
+        return live
+
+    async def begin(self) -> None:
+        system = self.component.system
+        system.start()
+        await wait_for_condition("the component runs", lambda: system.running, 30)
+        if any(exporter.is_live for exporter in system.exporters.get_all()):
+            await wait_for_condition("the start check ends", self.checked, 30)
+
+    def checked(self) -> bool:
+        held = self.component.system.exporters.get_written_through(EntityType.MESSAGE)
+        return held is not None and held[1] > datetime.min.replace(tzinfo=UTC)
+
+    async def write(self, *records: Message) -> None:
+        for record in records:
+            self.component.system.store(record)
+
+        await self.component.system.flush()
+
+    async def lines(self, path: str, count: int) -> list[bytes]:
+        header = 1 if path.endswith(".csv") else 0
+
+        def written() -> bool:
+            file = self.root / path
+            return file.exists() and file.read_bytes().count(b"\n") == count + header
+
+        await wait_for_condition(f"{path} holds {count} records", written, 30)
+        return (self.root / path).read_bytes().splitlines()[header:]
+
+
+def ids(lines: list[bytes]) -> list[int]:
+    return [UUID(line.split(b",")[1].decode()).int for line in lines]
+
+
+@pytest.mark.parametrize("format", ["csv", "jsonl"])
+async def test_live_export_equals_a_rerun(tmp_path: Path, format: str) -> None:
+    live = await Live.started(tmp_path / "live", format=format)
+    path = f"{RECENT:%Y/%m/%d/%H}.{format}"
+    await live.write(recent(10, id=1), recent(30, id=3))
+    await live.lines(path, 2)
+    await live.write(recent(20, id=2), recent(70, id=5))
+    await live.write(recent(40, id=4))
+    await live.lines(path, 4)
+
+    rerun = Exported.create(tmp_path / "rerun", format=format)
+    await rerun.delete(*(recent(0, id=id) for id in range(1, 6)))
+    await rerun.store(*[recent(m, id=i) for i, m in enumerate((10, 20, 30, 40, 70), 1)])
+    await rerun.run(after=RECENT)
+
+    await wait_for_condition("both files match", lambda: live.files() == rerun.files(), 30)
+    await live.component.system.stop()
+
+
+async def test_a_late_record_lands_in_key_order_at_the_next_wake(tmp_path: Path) -> None:
+    live = await Live.started(tmp_path)
+    await live.write(recent(10, id=1), recent(30, id=3))
+    await live.lines(RECENT_FILE, 2)
+
+    await live.write(recent(20, id=2))
+
+    assert ids(await live.lines(RECENT_FILE, 3)) == [1, 2, 3]
+    await live.component.system.stop()
+
+
+async def test_in_order_records_append_to_the_file(tmp_path: Path) -> None:
+    live = await Live.started(tmp_path)
+    await live.write(recent(10, id=1))
+    await live.lines(RECENT_FILE, 1)
+    inode = (tmp_path / RECENT_FILE).stat().st_ino
+
+    await live.write(recent(20, id=2))
+
+    assert ids(await live.lines(RECENT_FILE, 2)) == [1, 2]
+    assert (tmp_path / RECENT_FILE).stat().st_ino == inode
+    await live.component.system.stop()
+
+
+async def test_a_requeued_batch_reaches_the_file_once_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    live = await Live.started(tmp_path)
+    write = Writer._write_natively
+
+    async def unreachable(*_: Any) -> bool:
+        monkeypatch.setattr(Writer, "_write_natively", write)
+        raise DatabaseUnreachableError(reason="refused")
+
+    monkeypatch.setattr(Writer, "_write_natively", unreachable)
+    with pytest.raises(DatabaseUnreachableError):
+        await live.write(recent(10, id=1))
+
+    await live.write(recent(20, id=2))
+
+    assert ids(await live.lines(RECENT_FILE, 2)) == [1, 2]
+    await live.component.system.stop()
+
+
+async def test_stopping_the_component_unsubscribes_it(tmp_path: Path) -> None:
+    live = await Live.started(tmp_path)
+    writer: Writer = live.component.system._Node__writer  # type: ignore[attr-defined]
+    assert len(writer._subscribers) == 1
+
+    await live.component.system.stop()
+
+    assert writer._subscribers == []
+
+
+async def test_a_restart_heals_a_torn_append(tmp_path: Path) -> None:
+    exported = Exported.create(tmp_path / "torn")
+    await exported.store(recent(10, id=1))
+    await exported.run(after=RECENT)
+    path = tmp_path / "torn" / RECENT_FILE
+    path.write_bytes(path.read_bytes() + b"2026-01-01T00:20:00Z,0000")
+    await exported.store(recent(20, id=2))
+
+    live = Live(exported.component, exported.root)
+    await live.begin()
+
+    assert ids(await live.lines(RECENT_FILE, 2)) == [1, 2]
+    await live.write(recent(30, id=3))
+    assert ids(await live.lines(RECENT_FILE, 3)) == [1, 2, 3]
+    await live.component.system.stop()
+
+
+async def test_a_prune_leaves_the_file(tmp_path: Path) -> None:
+    live = await Live.started(tmp_path)
+    await live.write(recent(10, id=1))
+    await live.lines(RECENT_FILE, 1)
+
+    await live.delete(recent(10, id=1))
+    await live.write(recent(20, id=2))
+
+    assert ids(await live.lines(RECENT_FILE, 2)) == [1, 2]
+    await live.component.system.stop()
+
+
+def pruner(**fields: Any) -> MessagePrunerConfig:
+    return validate(
+        MessagePrunerConfig, {"name": "old", "schedule": "0 0 * * *", "filter": {}, **fields}
+    )
+
+
+async def prune(exported: Exported, config: MessagePrunerConfig) -> int:
+    await exported.component.system.pruners._PrunerManager__run(config)  # type: ignore[attr-defined]
+    return await exported.component.system.messages.count()
+
+
+async def test_the_pruner_waits_for_the_exporter_to_write(tmp_path: Path) -> None:
+    exported = Exported.create(tmp_path)
+    await exported.store(recent(10, id=1))
+    assert await prune(exported, pruner()) == 1
+
+    live = Live(exported.component, exported.root)
+    await live.begin()
+
+    assert ids(await live.lines(RECENT_FILE, 1)) == [1]
+    assert await prune(exported, pruner()) == 0
+    await live.component.system.stop()
+
+
+async def test_a_pruner_may_skip_waiting_for_exports(tmp_path: Path) -> None:
+    exported = Exported.create(tmp_path)
+    await exported.store(recent(10, id=1))
+
+    assert await prune(exported, pruner(wait_for_exports=False)) == 0
+
+
+async def test_flush_subscribers_hear_keys_by_kind_and_address(tmp_path: Path) -> None:
+    system = (await Live.started(tmp_path, live=False)).component.system
+    heard: list[FlushSummary] = []
+    unsubscribe = system.__subscribe_flushes__(heard.append)
+    record = message(10)
+    entry = LogEntry(address=Address("@archive"), level=Level.INFO, content="a")
+
+    system.store(record)
+    system.store(entry)
+    await system.flush()
+    unsubscribe()
+    unsubscribe()
+    system.store(message(20, id=2))
+    await system.flush()
+
+    keys = {(*kind, key) for summary in heard for kind, keys in summary.items() for key in keys}
+    archive = Address("@archive")
+    assert (EntityType.MESSAGE, archive, (record.timestamp, record.id)) in keys
+    assert (EntityType.LOG_ENTRY, archive, (entry.timestamp, entry.id)) in keys
+    assert (EntityType.MESSAGE, archive, (START + timedelta(minutes=20), UUID(int=2))) not in keys
+    await system.stop()
+
+
+async def test_a_failing_flush_subscriber_never_fails_the_flush(tmp_path: Path) -> None:
+    system = (await Live.started(tmp_path, live=False)).component.system
+
+    def fail(_: FlushSummary) -> None:
+        raise ValueError("subscriber")
+
+    system.__subscribe_flushes__(fail)
+    system.store(message(10))
+    await system.flush()
+
+    assert await system.messages.count() == 1
+    await system.stop()
+
+
+def test_a_writer_without_subscribers_skips_summarizing() -> None:
+    class Unreadable:
+        def __iter__(self) -> Any:
+            raise AssertionError("summarized")
+
+    Writer(lambda: None)._notify(Unreadable())  # type: ignore[arg-type]
+
+
+class Plain(LineFormat):
+    extension: ClassVar[str] = ".txt"
+
+    @override
+    def encode(self, schema: ExportSchema, record: ExportRecord) -> bytes:
+        return f"{record.timestamp.isoformat()} {record.id}\n".encode()
+
+    @override
+    def key(self, line: bytes) -> ExportKey:
+        timestamp, id = line.split()
+        return datetime.fromisoformat(timestamp.decode()), UUID(id.decode())
+
+
+async def test_a_custom_format_class_merges(tmp_path: Path) -> None:
+    exported = Exported.create(tmp_path, format={"class": f"{__name__}.Plain"}, live=False)
+    await exported.store(message(20, id=2))
+    await exported.run()
+    await exported.store(message(10, id=1))
+
+    await exported.run()
+
+    assert exported.files() == {
+        "2026/01/01/00.txt": (
+            f"{(START + timedelta(minutes=10)).isoformat()} {UUID(int=1)}\n"
+            f"{(START + timedelta(minutes=20)).isoformat()} {UUID(int=2)}\n"
+        ).encode()
+    }
+
+
+@pytest.mark.parametrize(
+    ("record", "exporter", "written"),
+    [
+        (
+            Particle(address=Address("@archive"), type="sample", data={"a": 1}, timestamp=START),
+            {"exports": "particle", "format": "jsonl"},
+            b'"connection":null,"type":"sample","data":{"a":1}}\n',
+        ),
+        (
+            Alert(
+                address=Address("@archive"), level=Level.ERROR, type="hot", data={}, timestamp=START
+            ),
+            {"exports": "alert"},
+            b",error,hot,{}\n",
+        ),
+        (
+            LogEntry(
+                address=Address("@archive"), level=Level.INFO, content="hello", timestamp=START
+            ),
+            {"exports": "log-entry"},
+            b",hello\n",
+        ),
+    ],
+    ids=["particle", "alert", "log-entry"],
+)
+async def test_every_record_kind_exports(
+    tmp_path: Path, record: ExportRecord, exporter: dict[str, Any], written: bytes
+) -> None:
+    exported = Exported.create(tmp_path, **exporter)
+    await exported.store(record)
+
+    await exported.run()
+
+    (file,) = exported.files().values()
+    assert file.endswith(written)
+
+
+async def test_a_prune_waits_for_a_flush_in_flight(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    live = await Live.started(tmp_path)
+    await live.write(recent(10, id=1), recent(30, id=3))
+    await live.lines(RECENT_FILE, 2)
+    committed, release = Event(), Event()
+    write = Writer._write_natively
+
+    async def stalled(*arguments: Any) -> bool:
+        written = await write(*arguments)
+        committed.set()
+        await release.wait()
+        return written
+
+    monkeypatch.setattr(Writer, "_write_natively", stalled)
+    flushing = create_task(live.write(recent(20, id=2)))
+    await committed.wait()
+    pruning = create_task(prune(live, pruner()))
+    await sleep(0.2)
+    release.set()
+    await flushing
+    await pruning
+
+    assert ids(await live.lines(RECENT_FILE, 3)) == [1, 2, 3]
+    await live.component.system.stop()
+
+
+async def test_a_paged_prune_keeps_a_late_record_flushed_between_pages(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    live = await Live.started(tmp_path)
+    system = live.component.system
+    await live.write(*(recent(minutes, id=minutes) for minutes in range(1, 7)))
+    await live.lines(RECENT_FILE, 6)
+    late = recent(0.5, id=7)
+    delete = DeleteExecutor._await
+
+    async def first_page(self: DeleteExecutor[Any, Any]) -> int:
+        monkeypatch.setattr(DeleteExecutor, "_await", delete)
+        deleted = await delete(self)
+        system.store(late)
+        create_task(system.flush())
+        await sleep(0)
+        return deleted
+
+    monkeypatch.setattr("ceres.pruner._PRUNE_PAGE", 2)
+    monkeypatch.setattr(DeleteExecutor, "_await", first_page)
+    await prune(live, pruner())
+
+    assert ids(await live.lines(RECENT_FILE, 7)) == [7, 1, 2, 3, 4, 5, 6]
+    await live.component.system.stop()
+
+
+def csv_ids(path: Path) -> list[int]:
+    rows = list(csv.reader(io.StringIO(path.read_text())))[1:]
+    return [UUID(row[1]).int for row in rows]
+
+
+async def test_an_append_heals_a_record_torn_inside_a_quoted_cell(tmp_path: Path) -> None:
+    exported = Exported.create(tmp_path)
+    await exported.store(recent(10, b"a\nb", id=1), recent(20, b"c\nd", id=2))
+    await exported.run(after=RECENT)
+    path = tmp_path / RECENT_FILE
+    whole = path.read_bytes()
+    path.write_bytes(whole[: whole.index(b"c\n") + 2])
+    await exported.delete(recent(20, id=2))
+
+    live = Live(exported.component, exported.root)
+    await live.begin()
+    await live.write(recent(30, id=3))
+
+    await wait_for_condition("the file holds 1 and 3", lambda: csv_ids(path) == [1, 3], 30)
+    await live.component.system.stop()
+
+
+async def test_a_raw_exporter_names_the_rerun_for_records_it_missed(tmp_path: Path) -> None:
+    current = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
+    exported = Exported.create(tmp_path, format="raw")
+    await exported.store(replace(message(0), timestamp=current))
+
+    live = Live(exported.component, exported.root)
+    with exported.component.system.events.every(LogEvent).read() as reader:
+        await live.begin()
+        logged: list[Any] = reader.clear()
+
+    warning = f"lacks records stored before it started in '{current:%Y/%m/%d/%H}.bin'"
+    assert any(warning in event.entry.content for event in logged)
+    await live.component.system.stop()
+
+
+async def test_live_export_hears_only_records_the_component_selects(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    heard: list[ExportKey] = []
+    notify = _Live.notify
+
+    def spy(self: _Live, period: Any, keys: Any) -> None:
+        heard.extend(keys)
+        notify(self, period, keys)
+
+    monkeypatch.setattr(_Live, "notify", spy)
+    live = await Live.started(tmp_path)
+    outside = replace(recent(10, id=1), address=Address("@other"))
+    inside = replace(recent(20, id=2), address=Address("@archive.child"))
+
+    await live.write(outside)
+    await live.write(inside)
+
+    assert ids(await live.lines(RECENT_FILE, 1)) == [2]
+    assert heard == [(inside.timestamp, inside.id)]
+    await live.component.system.stop()

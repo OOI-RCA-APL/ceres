@@ -267,6 +267,8 @@ class _PrunerConfig[TFilter](DataObject):
     prunes: EntityType
     schedule: ScheduleExpr
     filter: TFilter
+    wait_for_exports: bool = True
+    """Whether the pruner leaves every record its component's exporters have not yet written."""
 
 
 class MessagePrunerConfig(_PrunerConfig[MessageFilter]):
@@ -297,6 +299,17 @@ PrunerConfig: TypeAlias = (
     MessagePrunerConfig | ParticlePrunerConfig | AlertPrunerConfig | LogEntryPrunerConfig
 )
 """Discriminated union of pruner configurations, dispatched by the `prunes` field."""
+
+
+_EXPORTER_UNSTABLE_FILTERS = (
+    "subsample_every",
+    "subsample",
+    "subsample_select",
+    "timespan",
+    "max_age",
+    "min_age",
+)
+"""Record filter fields that select by the query's window or the current time."""
 
 
 class ExporterPeriod(StrEnum):
@@ -455,6 +468,21 @@ class _ExporterConfig[TFilter: MessageFilter | ParticleFilter | AlertFilter | Lo
             for field in ("order", "limit", "offset"):
                 if getattr(self.filter, field) is not None:
                     raise ValueError(f"an exporter filter cannot set `{field}`")
+
+            # A live wake and a later re-run query different windows at different times, so
+            # a field that depends on either would make them select different rows.
+            filters: list[Any] = [self.filter]
+            while filters:
+                filter = filters.pop()
+                for field in _EXPORTER_UNSTABLE_FILTERS:
+                    if getattr(filter, field, None) is not None:
+                        raise ValueError(
+                            f"an exporter filter cannot set `{field}`, since it must select "
+                            "the same rows whenever it runs"
+                        )
+
+                for nested in ("and__", "or__"):
+                    filters.extend(seq(getattr(filter, nested, None) or ()))
 
         self.create_path()
         self.create_schema()
