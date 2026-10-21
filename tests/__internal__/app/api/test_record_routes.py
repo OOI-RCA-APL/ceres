@@ -277,6 +277,30 @@ async def test_unsupported_flushes_decline_the_native_writer(tmp_path: Path) -> 
     assert not await writer._write_natively(db, [typed])
 
 
+@pytest.mark.databases()
+async def test_a_flush_past_the_parameter_limit_drains_the_writer() -> None:
+    """A flush binding more parameters than one statement takes still lands whole.
+
+    A failed flush goes back in front of the next one so a flush that cannot land leaves the
+    writer holding every record stored after it.
+    """
+    from ceres.__internal__.database.writer import Writer
+
+    db = Database()
+    await db.migrate()
+    writer = Writer(lambda: db)
+
+    # Six columns a particle put 20,000 at 120,000 parameters, past every backend's limit.
+    address = Address("@sensor.temp")
+    for index in range(20_000):
+        writer.add(Particle(address=address, type="sample", data={"index": index}))
+
+    await writer.flush()
+    await writer.settle()
+    assert writer.empty
+    assert await db.particles.count() == 20_000
+
+
 @pytest.mark.databases("postgres")
 async def test_native_fetches_match_on_postgres(database: str) -> None:
     """The native Postgres pool must see the same rows the query layer does.

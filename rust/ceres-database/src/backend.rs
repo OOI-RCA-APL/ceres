@@ -86,6 +86,10 @@ pub(crate) trait DatabaseBackend: Send + Sync {
     /// commit conflict use this to say whether one is possible at all.
     fn overlaps_writers(&self) -> bool;
 
+    /// The most values one statement may bind, which [`crate::writer::chunked`] splits
+    /// every insert under.
+    fn parameter_limit(&self) -> usize;
+
     /// Run a select, decoding its rows as records of `table`.
     async fn select_records(
         &self,
@@ -278,6 +282,7 @@ macro_rules! sqlx_backend {
         dialect = $dialect:expr,
         bind = $bind:path,
         overlaps = $overlaps:expr,
+        parameter_limit = $parameter_limit:expr,
         row = |$row:ident, $table:ident| $decode_row:expr,
         gate = |$id:ident| ($gate_sql:expr, $gate_bind:expr),
     ) => {
@@ -292,6 +297,10 @@ macro_rules! sqlx_backend {
 
             fn overlaps_writers(&self) -> bool {
                 $overlaps
+            }
+
+            fn parameter_limit(&self) -> usize {
+                $parameter_limit
             }
 
             async fn select_records(
@@ -406,6 +415,7 @@ macro_rules! sqlx_backend {
                     // as they were and the refusal is the caller's own to report.
                     let (statement, rows) = batch.map_err(Error::Refused)?;
                     let (sql, values) = statement.build_sqlx($builder);
+                    debug_assert!(values.0.0.len() <= self.parameter_limit());
                     sqlx::query_with(sqlx::AssertSqlSafe(sql), values)
                         .execute(&mut *transaction)
                         .await?;
@@ -532,6 +542,9 @@ sqlx_backend!(
     bind = bind_sqlite,
     // One writer at a time, whatever a transaction asks for.
     overlaps = false,
+    // SQLite's `SQLITE_MAX_VARIABLE_NUMBER` default since 3.32, which the bundled build
+    // keeps. A system library may be compiled lower.
+    parameter_limit = 32_766,
     row = |row, table| crate::dynamic::sqlite_row(row, table),
     gate = |id| (format!("{GATE_SQL}?"), id.to_string()),
 );
@@ -545,6 +558,8 @@ sqlx_backend!(
     // MVCC is how this backend works so writers already overlap and a concurrent
     // transaction is what it opens anyway.
     overlaps = true,
+    // The wire protocol counts a statement's parameters in 16 bits.
+    parameter_limit = u16::MAX as usize,
     row = |row, table| {
         let _ = table;
         crate::dynamic::postgres_row(row)
@@ -638,6 +653,12 @@ impl DatabaseBackend for crate::turso::TursoBackend {
         self.mvcc()
     }
 
+    fn parameter_limit(&self) -> usize {
+        // SQLite's limit. Turso 0.7 enforces none, and splitting under SQLite's costs a
+        // large flush nothing measurable while holding it to SQLite's compatibility.
+        32_766
+    }
+
     async fn select_records(
         &self,
         table: RecordTable,
@@ -705,7 +726,9 @@ impl DatabaseBackend for crate::turso::TursoBackend {
         let mut written = 0;
         for batch in batches {
             let (statement, rows) = batch.map_err(Error::Refused)?;
-            statements.push(turso_sql(statement)?);
+            let (sql, parameters) = turso_sql(statement)?;
+            debug_assert!(parameters.len() <= self.parameter_limit());
+            statements.push((sql, parameters));
             written += rows;
         }
 

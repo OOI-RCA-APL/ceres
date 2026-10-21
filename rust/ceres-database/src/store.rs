@@ -838,17 +838,14 @@ impl RecordStore {
         let dialect = self.dialect();
         self.write_batches(batches.map(|batch| {
             let batch = batch?;
-            let rows = batch.len();
-            let mut statement = crate::writer::load_statement(&batch, dialect)
+            let insert = crate::writer::load_insert(&batch, dialect)
                 .ok_or_else(|| "A row holds a value this command cannot store.".to_string())?;
-            let key = crate::records::table_of(&batch).schema().key;
-            on_conflict(
-                &mut statement,
+            let table = crate::records::table_of(&batch);
+            Ok(insert.on_conflict(conflict_clause(
                 conflict,
-                key,
-                crate::records::table_of(&batch).column_names(),
-            );
-            Ok((statement, rows))
+                table.schema().key,
+                table.column_names(),
+            )))
         }))
         .await
     }
@@ -865,17 +862,13 @@ impl RecordStore {
         let dialect = self.dialect();
         self.write_batches(batches.map(|batch| {
             let batch = batch?;
-            let rows = batch.len();
-            let mut statement = crate::writer::entity_load_statement(&batch, dialect)
+            let insert = crate::writer::entity_load_insert(&batch, dialect)
                 .ok_or_else(|| "A row holds a value this command cannot store.".to_string())?;
-            let schema = crate::entities::table_of(&batch).schema();
-            on_conflict(
-                &mut statement,
+            Ok(insert.on_conflict(conflict_clause(
                 conflict,
-                schema.key,
+                crate::entities::table_of(&batch).schema().key,
                 crate::writer::entity_columns(&batch),
-            );
-            Ok((statement, rows))
+            )))
         }))
         .await
     }
@@ -889,13 +882,16 @@ impl RecordStore {
     /// reports which row it was.
     async fn write_batches(
         &self,
-        mut batches: impl Iterator<Item = Result<(sea_query::InsertStatement, usize), String>> + Send,
+        batches: impl Iterator<Item = Result<crate::writer::RowInsert, String>> + Send,
     ) -> Result<usize, Error> {
         // A load takes the whole write lock. Its batches are one caller's own rows going
         // into tables nobody else is touching so overlapping buys nothing and a conflict
         // at commit would mean re-reading the source.
         self.backend
-            .insert_all(Writing::Default, &mut batches)
+            .insert_all(
+                Writing::Default,
+                &mut crate::writer::chunked(batches, self.backend.parameter_limit()),
+            )
             .await
     }
 
@@ -1103,21 +1099,18 @@ fn assert_readonly(sql: &str) -> Result<(), Error> {
     Err(Error::Decode("only SELECT statements execute here".into()))
 }
 
-/// Apply a load's conflict mode to one insert, over the table's whole primary key.
-fn on_conflict(
-    statement: &mut sea_query::InsertStatement,
+/// A load's conflict mode as an insert's clause, over the table's whole primary key.
+fn conflict_clause(
     conflict: Conflict,
     key: &[&'static str],
     columns: &[&'static str],
-) {
+) -> Option<OnConflict> {
     let target = || key.iter().map(|&column| Alias::new(column));
     match conflict {
         // Without a conflict clause a collision aborts the transaction, which is exactly
         // what this mode promises.
-        Conflict::Error => {}
-        Conflict::Ignore => {
-            statement.on_conflict(OnConflict::columns(target()).do_nothing().to_owned());
-        }
+        Conflict::Error => None,
+        Conflict::Ignore => Some(OnConflict::columns(target()).do_nothing().to_owned()),
         Conflict::Update => {
             let mut clause = OnConflict::columns(target());
             clause.update_columns(
@@ -1126,7 +1119,7 @@ fn on_conflict(
                     .filter(|column| !key.contains(column))
                     .map(|&column| Alias::new(column)),
             );
-            statement.on_conflict(clause);
+            Some(clause)
         }
     }
 }
@@ -1141,6 +1134,8 @@ fn starts_with_keyword(text: &str, keyword: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use ceres_entities::{Address, Level, LogEntry, Timestamp};
+    use chrono::{TimeZone, Utc};
     use sea_query::SqliteQueryBuilder;
 
     use super::*;
@@ -1226,6 +1221,45 @@ mod tests {
         let batches = crate::load::batches(RecordTable::Logs, text.as_bytes(), LoadFormat::Json)
             .expect("the reader opens");
 
+        assert!(store.load_records(batches, Conflict::Error).await.is_err());
+        assert!(contents(&store).await.is_empty());
+    }
+
+    /// One batch of log entries keyed by `ids`, five columns a row so 20,000 bind 100,000
+    /// parameters, past SQLite's 32,766.
+    fn entries(ids: impl Iterator<Item = u128>) -> std::iter::Once<Result<Records, String>> {
+        let entries = ids
+            .map(|id| LogEntry {
+                id: uuid::Uuid::from_u128(id),
+                address: Address::parse("@a").unwrap(),
+                timestamp: Timestamp(Utc.with_ymd_and_hms(2026, 7, 29, 0, 0, 0).unwrap()),
+                level: Level::Info,
+                content: id.to_string(),
+            })
+            .collect();
+        std::iter::once(Ok(Records::LogEntries(entries)))
+    }
+
+    #[tokio::test]
+    async fn a_batch_past_the_parameter_limit_loads_whole() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = logs_store(directory.path()).await;
+
+        let batches = entries(0..20_000);
+        assert_eq!(
+            store.load_records(batches, Conflict::Error).await.unwrap(),
+            20_000
+        );
+        assert_eq!(contents(&store).await.len(), 20_000);
+    }
+
+    #[tokio::test]
+    async fn a_collision_in_a_later_statement_rolls_the_whole_split_back() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = logs_store(directory.path()).await;
+
+        // The repeated first ID falls in the fourth statement of the split.
+        let batches = entries((0..20_000).chain([0]));
         assert!(store.load_records(batches, Conflict::Error).await.is_err());
         assert!(contents(&store).await.is_empty());
     }

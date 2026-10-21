@@ -120,22 +120,29 @@ impl RecordWriter {
     /// [`RecordStore::overlaps_writers`](crate::RecordStore::overlaps_writers) reports.
     pub async fn upsert(&self, batches: Vec<Records>) -> Result<(), Error> {
         let dialect = self.backend.dialect();
-        let mut statements = batches.iter().filter_map(|batch| {
-            upsert_statement(batch, dialect).map(|statement| Ok((statement, batch.len())))
-        });
+        let inserts = batches
+            .iter()
+            .filter_map(|batch| upsert_insert(batch, dialect))
+            .map(Ok);
 
-        // The returned count is dropped. It counts what was handed in rather than what
-        // landed because `upsert_statement` keeps only the last of any repeated ID,
-        // and a flush is not asked how much of its input was new.
+        // The returned count is dropped because a flush is not asked how much of its
+        // input was new.
         self.backend
-            .insert_all(Writing::Concurrent, &mut statements)
+            .insert_all(
+                Writing::Concurrent,
+                &mut chunked(inserts, self.backend.parameter_limit()),
+            )
             .await?;
         Ok(())
     }
 }
 
 /// Build the multi-row upsert for one batch, or `None` when the batch is empty.
-fn upsert_statement(records: &Records, dialect: SqlDialect) -> Option<InsertStatement> {
+///
+/// Repeated IDs collapse before any split so the last occurrence wins however many
+/// statements the batch becomes, PostgreSQL refusing an upsert that touches one row
+/// twice.
+fn upsert_insert(records: &Records, dialect: SqlDialect) -> Option<RowInsert> {
     let rows = match records {
         Records::Messages(messages) => deduped_rows(messages, |message| message.id, dialect),
         Records::Particles(particles) => deduped_rows(particles, |particle| particle.id, dialect),
@@ -144,7 +151,6 @@ fn upsert_statement(records: &Records, dialect: SqlDialect) -> Option<InsertStat
     };
 
     let table = crate::records::table_of(records);
-    let mut statement = table.insert_into(rows)?;
 
     // Every non-key column updates from the excluded row, mirroring the query layer's
     // upsert so a rewritten record replaces its earlier form.
@@ -156,9 +162,8 @@ fn upsert_statement(records: &Records, dialect: SqlDialect) -> Option<InsertStat
             .filter(|&&column| column != "id")
             .map(|&column| Alias::new(column)),
     );
-    statement.on_conflict(conflict);
 
-    Some(statement)
+    Some(table.insert_into(rows)?.on_conflict(Some(conflict)))
 }
 
 /// Bind every record in a batch, in file order, for a bulk load.
@@ -166,7 +171,7 @@ fn upsert_statement(records: &Records, dialect: SqlDialect) -> Option<InsertStat
 /// Unlike a flush, a load never collapses duplicate keys. The Python command binds each
 /// row it read so a file naming one key twice reaches the database twice and the
 /// conflict mode decides what happens.
-pub(crate) fn load_statement(records: &Records, dialect: SqlDialect) -> Option<InsertStatement> {
+pub(crate) fn load_insert(records: &Records, dialect: SqlDialect) -> Option<RowInsert> {
     let rows = match records {
         Records::Messages(messages) => rows(messages, dialect),
         Records::Particles(particles) => rows(particles, dialect),
@@ -177,11 +182,8 @@ pub(crate) fn load_statement(records: &Records, dialect: SqlDialect) -> Option<I
     crate::records::table_of(records).insert_into(rows)
 }
 
-/// Bind every entity in a batch, in file order, for a bulk load or a create.
-pub(crate) fn entity_load_statement(
-    entities: &Entities,
-    dialect: SqlDialect,
-) -> Option<InsertStatement> {
+/// Bind every entity in a batch, in file order, for a bulk load.
+pub(crate) fn entity_load_insert(entities: &Entities, dialect: SqlDialect) -> Option<RowInsert> {
     let rows = match entities {
         Entities::Users(users) => rows(users, dialect),
         Entities::Variables(variables) => rows(variables, dialect),
@@ -194,7 +196,7 @@ pub(crate) fn entity_load_statement(
         Entities::GroupPermissions(permissions) => rows(permissions, dialect),
     };
 
-    open_insert(
+    RowInsert::new(
         crate::entities::table_of(entities).schema().name,
         entity_columns(entities),
         rows,
@@ -353,9 +355,9 @@ fn bare_json_value(value: &serde_json::Value, dialect: SqlDialect) -> SimpleExpr
 }
 
 impl RecordTable {
-    /// Open an insert over the table's columns, `None` when there is nothing to bind.
-    fn insert_into(self, rows: Vec<Vec<SimpleExpr>>) -> Option<InsertStatement> {
-        open_insert(self.name(), self.column_names(), rows)
+    /// Hold an insert over the table's columns, `None` when there is nothing to bind.
+    fn insert_into(self, rows: Vec<Vec<SimpleExpr>>) -> Option<RowInsert> {
+        RowInsert::new(self.name(), self.column_names(), rows)
     }
 
     /// The table's stored columns, in the order rows bind them.
@@ -376,25 +378,94 @@ impl RecordTable {
     }
 }
 
-/// Open an insert over named columns, `None` when there is nothing to bind.
-fn open_insert(
-    table: &str,
-    columns: &[&str],
+/// A multi-row insert held as rows until a backend's parameter limit decides its split.
+///
+/// [`chunked`] is the only way one becomes statements so neither a caller nor a backend
+/// can execute a batch whole past the limit.
+pub(crate) struct RowInsert {
+    table: &'static str,
+    columns: &'static [&'static str],
     rows: Vec<Vec<SimpleExpr>>,
-) -> Option<InsertStatement> {
-    if rows.is_empty() {
-        return None;
+    conflict: Option<OnConflict>,
+}
+
+impl RowInsert {
+    /// Hold rows bound in `columns` order, `None` when there is nothing to bind.
+    fn new(
+        table: &'static str,
+        columns: &'static [&'static str],
+        rows: Vec<Vec<SimpleExpr>>,
+    ) -> Option<Self> {
+        if rows.is_empty() {
+            return None;
+        }
+
+        Some(Self {
+            table,
+            columns,
+            rows,
+            conflict: None,
+        })
     }
 
-    let mut statement = Query::insert();
-    statement
-        .into_table(Alias::new(table))
-        .columns(columns.iter().map(|&column| Alias::new(column)));
-    for row in rows {
-        statement.values_panic(row);
+    /// Give every statement of the split this conflict clause.
+    pub(crate) fn on_conflict(mut self, conflict: Option<OnConflict>) -> Self {
+        self.conflict = conflict;
+        self
     }
 
-    Some(statement)
+    /// Build statements binding at most `parameter_limit` values each, with their row
+    /// counts.
+    ///
+    /// A cell binds one value at most, a `NULL` keyword none, so the column count divides
+    /// the limit into whole rows.
+    fn statements(self, parameter_limit: usize) -> impl Iterator<Item = (InsertStatement, usize)> {
+        let Self {
+            table,
+            columns,
+            rows,
+            conflict,
+        } = self;
+        let per_statement = (parameter_limit / columns.len()).max(1);
+        let mut rows = rows.into_iter().peekable();
+        std::iter::from_fn(move || {
+            rows.peek()?;
+            let mut statement = Query::insert();
+            statement
+                .into_table(Alias::new(table))
+                .columns(columns.iter().map(|&column| Alias::new(column)));
+            let mut count = 0;
+            for row in rows.by_ref().take(per_statement) {
+                statement.values_panic(row);
+                count += 1;
+            }
+
+            if let Some(conflict) = &conflict {
+                statement.on_conflict(conflict.clone());
+            }
+
+            Some((statement, count))
+        })
+    }
+}
+
+/// Split every insert into statements under `parameter_limit`, in order, passing a
+/// refused batch through where it fell.
+pub(crate) fn chunked(
+    inserts: impl Iterator<Item = Result<RowInsert, String>> + Send,
+    parameter_limit: usize,
+) -> impl Iterator<Item = Result<(InsertStatement, usize), String>> + Send {
+    inserts.flat_map(move |insert| {
+        let (insert, refusal) = match insert {
+            Ok(insert) => (Some(insert), None),
+            Err(refusal) => (None, Some(Err(refusal))),
+        };
+        insert
+            .into_iter()
+            .flat_map(move |insert| insert.statements(parameter_limit))
+            .map(Ok)
+            .chain(refusal)
+    })
 }
 
 impl RowValues for Message {
@@ -509,28 +580,42 @@ mod tests {
         }
     }
 
-    #[test]
-    fn upserts_update_every_non_key_column() {
-        let records = Records::LogEntries(vec![entry(1, "first")]);
-        let statement = upsert_statement(&records, SqlDialect::SqliteText).unwrap();
-        let sql = statement.to_string(SqliteQueryBuilder);
-        assert!(sql.starts_with("INSERT INTO \"logs\""));
-        assert!(sql.contains("ON CONFLICT (\"id\") DO UPDATE SET"));
-        assert!(sql.contains("\"content\" = \"excluded\".\"content\""));
-        assert!(!sql.contains("\"id\" = \"excluded\""));
+    /// The upsert statements a flush of `records` runs under `parameter_limit`.
+    fn upserts(records: Vec<LogEntry>, parameter_limit: usize) -> Vec<String> {
+        let records = Records::LogEntries(records);
+        let inserts = upsert_insert(&records, SqlDialect::SqliteText).map(Ok);
+        chunked(inserts.into_iter(), parameter_limit)
+            .map(|statement| statement.unwrap().0.to_string(SqliteQueryBuilder))
+            .collect()
     }
 
     #[test]
-    fn duplicate_ids_collapse_to_the_last_occurrence() {
-        let records = Records::LogEntries(vec![entry(1, "first"), entry(1, "second")]);
-        let statement = upsert_statement(&records, SqlDialect::SqliteText).unwrap();
-        let sql = statement.to_string(SqliteQueryBuilder);
-        assert!(sql.contains("second"));
-        assert!(!sql.contains("first"));
+    fn a_single_row_upsert_renders_one_statement() {
+        assert_eq!(
+            upserts(vec![entry(1, "first")], 32_766),
+            [
+                "INSERT INTO \"logs\" (\"id\", \"address\", \"timestamp\", \"level\", \"content\") \
+              VALUES ('00000000-0000-0000-0000-000000000001', '@a', '2026-07-29 00:00:00.000000', \
+              'info', 'first') ON CONFLICT (\"id\") DO UPDATE SET \"address\" = \
+              \"excluded\".\"address\", \"timestamp\" = \"excluded\".\"timestamp\", \"level\" = \
+              \"excluded\".\"level\", \"content\" = \"excluded\".\"content\""
+            ]
+        );
+    }
+
+    #[test]
+    fn duplicate_ids_collapse_to_the_last_occurrence_across_a_split() {
+        // Ten parameters hold two five-column rows a statement.
+        let records = vec![entry(1, "a"), entry(2, "b"), entry(3, "c"), entry(1, "d")];
+        let statements = upserts(records, 10);
+        assert_eq!(statements.len(), 2);
+        assert!(statements[0].contains("'b'") && statements[0].contains("'c'"));
+        assert!(statements[1].contains("'d'") && !statements[1].contains("'a'"));
+        assert!(statements.iter().all(|sql| sql.contains("ON CONFLICT")));
     }
 
     #[test]
     fn empty_batches_build_no_statement() {
-        assert!(upsert_statement(&Records::Messages(Vec::new()), SqlDialect::SqliteText).is_none());
+        assert!(upserts(Vec::new(), 32_766).is_empty());
     }
 }
