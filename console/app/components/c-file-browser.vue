@@ -254,155 +254,195 @@ async function deleteEntry() {
 </script>
 
 <template>
+  <!-- The browser is its own size container, since a widget can be far narrower than the page. -->
   <div
     ref="dropZone"
-    class="flex min-h-full flex-col gap-3"
+    class="@container/files flex h-full min-h-0 flex-col gap-3"
     :class="writable && isOverDropZone && 'bg-elevated'"
   >
-    <div class="flex items-center gap-1">
-      <c-breadcrumb class="min-w-0 flex-1" :items="breadcrumbs" />
-      <c-switch v-model="persisted.hidden" class="mr-2" label="Show hidden" />
-      <template v-if="writable && entry?.kind === 'directory'">
-        <input ref="fileInput" class="hidden" multiple type="file" @change="pickFiles" />
-        <c-tooltip text="Upload">
+    <div class="flex shrink-0 flex-wrap items-center gap-1">
+      <c-breadcrumb class="min-w-24 flex-1" :items="breadcrumbs">
+        <!-- Nuxt UI renders an item without `to` as a bare span, so a button inside it takes
+        the focus, keyboard, and hover a link item has. Its click reaches the span's handler. -->
+        <template #item="{ item, active, ui }">
+          <component
+            :is="item.to == null ? 'button' : 'span'"
+            class="flex min-w-0 items-center gap-1.5"
+            :class="
+              item.to == null && [
+                'outline-primary/25 rounded-md focus-visible:outline-3',
+                !active && 'hover:text-default cursor-pointer transition-colors',
+              ]
+            "
+            :disabled="item.to == null ? active : undefined"
+            :type="item.to == null ? 'button' : undefined"
+          >
+            <c-icon v-if="item.icon" :class="ui.linkLeadingIcon({ active })" :name="item.icon" />
+            <span :class="ui.linkLabel()">{{ item.label }}</span>
+          </component>
+        </template>
+      </c-breadcrumb>
+      <div class="ml-auto flex shrink-0 items-center gap-1">
+        <c-tooltip text="Show hidden">
+          <c-switch
+            v-model="persisted.hidden"
+            class="mr-1"
+            label="Show hidden"
+            :ui="{ wrapper: 'sr-only @min-[480px]/files:not-sr-only' }"
+          />
+        </c-tooltip>
+        <template v-if="writable && entry?.kind === 'directory'">
+          <input ref="fileInput" class="hidden" multiple type="file" @change="pickFiles" />
+          <c-tooltip text="Upload">
+            <c-button
+              color="neutral"
+              :icon="icons.upload"
+              :loading="isUploading"
+              size="xs"
+              variant="ghost"
+              @click="fileInput?.click()"
+            />
+          </c-tooltip>
+          <c-tooltip text="New Folder">
+            <c-button
+              color="neutral"
+              :icon="icons.folderNew"
+              size="xs"
+              variant="ghost"
+              @click="createDirectory"
+            />
+          </c-tooltip>
+        </template>
+        <template v-if="writable && path.length > 0 && entry != null">
+          <c-tooltip text="Rename or Move">
+            <c-button
+              color="neutral"
+              :icon="icons.rename"
+              size="xs"
+              variant="ghost"
+              @click="moveEntry"
+            />
+          </c-tooltip>
+          <c-tooltip text="Delete">
+            <c-button
+              color="error"
+              :icon="icons.delete"
+              size="xs"
+              variant="ghost"
+              @click="deleteEntry"
+            />
+          </c-tooltip>
+        </template>
+        <c-tooltip text="Refresh">
           <c-button
             color="neutral"
-            :icon="icons.upload"
-            :loading="isUploading"
+            :icon="icons.refresh"
             size="xs"
             variant="ghost"
-            @click="fileInput?.click()"
+            @click="refresh"
           />
         </c-tooltip>
-        <c-tooltip text="New Folder">
-          <c-button
-            color="neutral"
-            :icon="icons.folderNew"
-            size="xs"
-            variant="ghost"
-            @click="createDirectory"
-          />
-        </c-tooltip>
-      </template>
-      <template v-if="writable && path.length > 0 && entry != null">
-        <c-tooltip text="Rename or Move">
-          <c-button
-            color="neutral"
-            :icon="icons.rename"
-            size="xs"
-            variant="ghost"
-            @click="moveEntry"
-          />
-        </c-tooltip>
-        <c-tooltip text="Delete">
-          <c-button
-            color="error"
-            :icon="icons.delete"
-            size="xs"
-            variant="ghost"
-            @click="deleteEntry"
-          />
-        </c-tooltip>
-      </template>
-      <c-tooltip text="Refresh">
-        <c-button
-          color="neutral"
-          :icon="icons.refresh"
-          size="xs"
-          variant="ghost"
-          @click="refresh"
-        />
-      </c-tooltip>
+      </div>
     </div>
 
-    <c-text v-if="failureMessage != null" class="text-muted" variant="body2">{{
-      failureMessage
-    }}</c-text>
+    <!-- The content scrolls under the toolbar, which stays in view. -->
+    <div class="flex min-h-0 flex-1 flex-col gap-3 overflow-auto">
+      <c-text v-if="failureMessage != null" class="text-muted" variant="body2">{{
+        failureMessage
+      }}</c-text>
 
-    <template v-else-if="entry?.kind === 'directory'">
-      <c-input
-        v-model="filter"
-        class="w-full max-w-[440px]"
-        :icon="icons.search"
-        :loading="listingQuery.isFetching.value"
-        placeholder="Filter"
-        :spellcheck="false"
-      >
-        <template #trailing>
-          <c-badge color="neutral" size="sm" variant="outline">{{ entries.length }}</c-badge>
-        </template>
-      </c-input>
-      <c-text v-if="listing?.truncated" class="text-warning" variant="body2">
-        Showing the first {{ listing.entries.length.toLocaleString() }} entries. The directory holds
-        more than the engine lists at once.
-      </c-text>
-      <c-list>
-        <c-list-item
-          v-for="current in entries"
-          :key="current.name"
-          v-bind="opener([...path, current.name])"
+      <template v-else-if="entry?.kind === 'directory'">
+        <c-input
+          v-model="filter"
+          class="w-full max-w-[440px]"
+          :icon="icons.search"
+          :loading="listingQuery.isFetching.value"
+          placeholder="Filter"
+          :spellcheck="false"
         >
-          <c-icon class="shrink-0" :name="entryIcon(current)" size="16" />
-          <c-text class="min-w-0 flex-1 truncate" variant="body2">{{ current.name }}</c-text>
-          <c-text class="text-muted w-24 shrink-0 text-right" variant="body2">
-            {{ formatFileSize(current.size) }}
-          </c-text>
-          <c-text class="text-muted w-44 shrink-0 text-right" variant="body2">
-            {{ formatModified(current.modified) }}
-          </c-text>
-        </c-list-item>
-      </c-list>
-    </template>
-
-    <template v-else-if="entry?.kind === 'file'">
-      <div class="flex items-center gap-3">
-        <c-text class="text-muted" variant="body2">
-          {{ formatFileSize(entry.size) }} &middot; {{ formatModified(entry.modified) }}
+          <template #trailing>
+            <c-badge color="neutral" size="sm" variant="outline">{{ entries.length }}</c-badge>
+          </template>
+        </c-input>
+        <c-text v-if="listing?.truncated" class="text-warning" variant="body2">
+          Showing the first {{ listing.entries.length.toLocaleString() }} entries. The directory
+          holds more than the engine lists at once.
         </c-text>
-        <c-button
-          color="neutral"
-          external
-          :href="engine.files.downloadUrl(root, path)"
-          :icon="icons.download"
-          label="Download"
-          size="sm"
-          variant="outline"
-        />
-      </div>
-      <img
-        v-if="preview === 'image'"
-        :alt="entry.name"
-        class="max-w-full self-start"
-        :src="engine.files.sourceUrl(root, path)"
-      />
-      <video
-        v-else-if="preview === 'video'"
-        class="max-w-full self-start"
-        controls
-        :src="engine.files.sourceUrl(root, path)"
-      />
-      <audio
-        v-else-if="preview === 'audio'"
-        class="w-full max-w-[640px]"
-        controls
-        :src="engine.files.sourceUrl(root, path)"
-      />
-      <template v-else-if="preview === 'text'">
-        <c-text v-if="textQuery.data.value === null" class="text-muted" variant="body2">
-          This file is binary. Download it to open it.
-        </c-text>
-        <pre
-          v-else-if="textQuery.data.value != null"
-          class="border-default overflow-auto rounded border p-3 text-sm"
-          >{{ textQuery.data.value }}</pre>
+        <c-list>
+          <c-list-item
+            v-for="current in entries"
+            :key="current.name"
+            v-bind="opener([...path, current.name])"
+          >
+            <c-icon class="shrink-0" :name="entryIcon(current)" size="16" />
+            <c-text class="min-w-0 flex-1 truncate" variant="body2">{{ current.name }}</c-text>
+            <!-- The name column wins as the browser narrows, the modified time going first. -->
+            <c-text
+              class="text-muted hidden w-24 shrink-0 text-right @min-[360px]/files:block"
+              variant="body2"
+            >
+              {{ formatFileSize(current.size) }}
+            </c-text>
+            <c-text
+              class="text-muted hidden w-44 shrink-0 text-right @min-[560px]/files:block"
+              variant="body2"
+            >
+              {{ formatModified(current.modified) }}
+            </c-text>
+          </c-list-item>
+        </c-list>
       </template>
-      <c-text v-else class="text-muted" variant="body2">
-        This file is too large to preview. Download it to open it.
-      </c-text>
-    </template>
 
-    <c-text v-else-if="entry?.kind === 'other'" class="text-muted" variant="body2">
-      This entry is neither a file nor a directory, so it cannot be opened here.
-    </c-text>
+      <template v-else-if="entry?.kind === 'file'">
+        <div class="flex shrink-0 flex-wrap items-center gap-3">
+          <c-text class="text-muted" variant="body2">
+            {{ formatFileSize(entry.size) }} &middot; {{ formatModified(entry.modified) }}
+          </c-text>
+          <c-button
+            color="neutral"
+            external
+            :href="engine.files.downloadUrl(root, path)"
+            :icon="icons.download"
+            label="Download"
+            size="sm"
+            variant="outline"
+          />
+        </div>
+        <img
+          v-if="preview === 'image'"
+          :alt="entry.name"
+          class="max-w-full self-start"
+          :src="engine.files.sourceUrl(root, path)"
+        />
+        <video
+          v-else-if="preview === 'video'"
+          class="max-w-full self-start"
+          controls
+          :src="engine.files.sourceUrl(root, path)"
+        />
+        <audio
+          v-else-if="preview === 'audio'"
+          class="w-full max-w-[640px]"
+          controls
+          :src="engine.files.sourceUrl(root, path)"
+        />
+        <template v-else-if="preview === 'text'">
+          <c-text v-if="textQuery.data.value === null" class="text-muted" variant="body2">
+            This file is binary. Download it to open it.
+          </c-text>
+          <pre
+            v-else-if="textQuery.data.value != null"
+            class="border-default min-h-0 overflow-auto rounded border p-3 text-sm"
+            >{{ textQuery.data.value }}</pre>
+        </template>
+        <c-text v-else class="text-muted" variant="body2">
+          This file is too large to preview. Download it to open it.
+        </c-text>
+      </template>
+
+      <c-text v-else-if="entry?.kind === 'other'" class="text-muted" variant="body2">
+        This entry is neither a file nor a directory, so it cannot be opened here.
+      </c-text>
+    </div>
   </div>
 </template>

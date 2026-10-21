@@ -40,11 +40,13 @@ async function open(target: string[]) {
 </script>
 
 <template>
-  <c-full-page fill title="Files">
-    <div class="flex min-h-full flex-col gap-3 p-4">
+  <c-full-page class="h-[calc(100vh-50px)]" fill title="Files">
+    <!-- The page holds to the window's height, so the browser's toolbar stays in view and its
+    content scrolls under it. -->
+    <div class="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-4">
       <c-file-browser
         v-if="root != null"
-        class="flex-1"
+        class="min-h-0 flex-1"
         :home
         :link-to
         :path

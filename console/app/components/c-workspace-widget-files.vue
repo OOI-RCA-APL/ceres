@@ -31,7 +31,7 @@ const path = $computed({
 </script>
 
 <template>
-  <div class="h-full overflow-auto p-2">
+  <div class="h-full p-2">
     <c-file-browser v-if="widget.root != null" v-model:path="path" :root="widget.root" />
     <div v-else class="flex h-full items-center justify-center text-center">
       <c-tooltip text="Choose Files">
