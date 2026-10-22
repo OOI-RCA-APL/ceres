@@ -8,8 +8,11 @@ import { useEngine } from '@/api/engine'
 import {
   describeExporter,
   describeExportRun,
+  describePlayback,
   type ExporterInfo,
   isExportRunning,
+  isPlaybackRunning,
+  type PlaybackRecord,
 } from '@/api/exporters'
 import { useDialogs } from '@/dialogs'
 import icons from '@/icons'
@@ -32,6 +35,15 @@ const exportersQuery = useQuery({
     isExportRunning(query.state.data) ? 1000 : false,
 })
 
+// A playback's record changes while it goes, polled like the exporters' runs.
+const playbacksQuery = useQuery({
+  queryKey: computed(() => ['component-playbacks', address.toString()]),
+  queryFn: () => engine.components.getPlaybacks(address),
+  retry: false,
+  refetchInterval: (query: { state: { data?: PlaybackRecord[] } }) =>
+    isPlaybackRunning(query.state.data) ? 1000 : false,
+})
+
 // A component stopping or starting changes each schedule's next run, the same push the jobs
 // section refetches on.
 watch(
@@ -42,6 +54,26 @@ watch(
 )
 
 const exporters = $computed(() => exportersQuery.data.value ?? [])
+
+const lastPlayback = $computed(() => playbacksQuery.data.value?.[0])
+
+const canManage = $computed(() => access.canManage(address.toString()))
+
+const playbackBlockedReason = $computed(() => {
+  if (!canManage) {
+    return 'A playback needs manage access.'
+  }
+
+  return running ? null : 'A playback needs the component running.'
+})
+
+function playBack() {
+  // The playback's export runs show on the exporters, so both listings refetch.
+  dialogs.playBack({ address }).onOk(() => {
+    void playbacksQuery.refetch()
+    void exportersQuery.refetch()
+  })
+}
 
 const running = $computed(() => engine.statuses.get(address)?.running ?? false)
 
@@ -65,6 +97,22 @@ function rebuild(exporter: ExporterInfo) {
 
 <template>
   <c-detail-section v-model:expanded="expanded" :title="`Exporters (${exporters.length})`">
+    <c-list-item>
+      <div class="grow">
+        <c-text variant="body3">Playback</c-text>
+        <c-text variant="description">Last playback: {{ describePlayback(lastPlayback) }}</c-text>
+      </div>
+      <c-tooltip :disabled="playbackBlockedReason == null" :text="playbackBlockedReason ?? ''">
+        <c-button
+          :disabled="playbackBlockedReason != null"
+          :icon="icons.revertToOriginal"
+          label="Play Back"
+          size="xs"
+          variant="soft"
+          @click="playBack()"
+        />
+      </c-tooltip>
+    </c-list-item>
     <c-text v-if="exporters.length === 0" class="px-3" variant="description">
       No exporters.
     </c-text>

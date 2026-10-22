@@ -154,6 +154,7 @@ else:
     ConnectionField = Any
 
 with __lazy_imports__(__name__):
+    from ceres.__internal__.playback import PlaybackManager
     from ceres.connection import ComponentConnectionManager
     from ceres.database import Database
     from ceres.exporter import ExporterManager
@@ -1948,6 +1949,11 @@ class ComponentSystem(Node, ComponentSource):
         """Manager for the component's exporters."""
         return ExporterManager(self)
 
+    @cached_property
+    def playbacks(self) -> PlaybackManager:
+        """Manager for the component's playbacks of stored messages."""
+        return PlaybackManager(self)
+
     @override
     async def __node_sync__(self) -> None:
         await super().__node_sync__()
@@ -2587,6 +2593,7 @@ class ComponentSystem(Node, ComponentSource):
                         self.sieves.__run__(),
                         self.pruners.__run__(),
                         self.exporters.__run__(),
+                        self.playbacks.__run__(),
                     )
                 except Exception:
                     self.log.error(

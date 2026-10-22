@@ -4,11 +4,16 @@ import {
   describeExporter,
   describeExportRun,
   describeExportRunFailure,
+  describePlayback,
+  describePlaybackFailure,
   type ExporterInfo,
   type ExportRunSummary,
   exportRunRequest,
   exportRunSchema,
   isExportRunning,
+  isPlaybackRunning,
+  type PlaybackRecord,
+  playbackRequest,
 } from '@/api/exporters'
 import { Failure } from '@/errors'
 
@@ -157,6 +162,76 @@ describe('describeExportRunFailure', () => {
     )
     expect(describeExportRunFailure(failure({ type: 'already-exists-error' }))).toBe(
       'A run of this exporter already waits for another.',
+    )
+  })
+})
+
+function playback(overrides: Partial<PlaybackRecord> = {}): PlaybackRecord {
+  return {
+    id: '1',
+    after: '2026-01-01T00:00:00Z',
+    before: '2026-01-01T03:00:00Z',
+    level: 'particles',
+    export: true,
+    state: 'completed',
+    started: '2026-01-02T04:05:06Z',
+    ended: '2026-01-02T04:05:07Z',
+    deleted: 3,
+    messages: 1,
+    particles: 2,
+    export_runs: [],
+    exception: null,
+    ...overrides,
+  }
+}
+
+describe('describePlayback', () => {
+  it('says a component never played back', () => {
+    expect(describePlayback(undefined)).toBe('Never played back.')
+  })
+
+  it('counts what a playback replayed and replaced', () => {
+    expect(describePlayback(playback())).toBe(
+      '2026-01-02 04:05 UTC, 1 message into 2 particles, replacing 3.',
+    )
+    expect(describePlayback(playback({ state: 'running' }))).toBe(
+      'Playing back, 1 message into 2 particles so far.',
+    )
+  })
+
+  it('shows a failed playback the first line of its exception', () => {
+    expect(describePlayback(playback({ state: 'failed', exception: 'abc\ndef' }))).toBe(
+      '2026-01-02 04:05 UTC, failed: abc',
+    )
+  })
+})
+
+describe('isPlaybackRunning', () => {
+  it('polls only while a playback runs', () => {
+    expect(isPlaybackRunning(undefined)).toBe(false)
+    expect(isPlaybackRunning([playback()])).toBe(false)
+    expect(isPlaybackRunning([playback({ state: 'running' })])).toBe(true)
+  })
+})
+
+describe('playbackRequest', () => {
+  it('sends now for an empty end and defaults the level and export', () => {
+    expect(playbackRequest({ after: 'a' })).toEqual({
+      after: 'a',
+      before: null,
+      level: 'particles',
+      export: true,
+    })
+  })
+})
+
+describe('describePlaybackFailure', () => {
+  it('names a missing manage access and a running playback', () => {
+    expect(describePlaybackFailure(failure({ type: 'not-permitted-error' }))).toBe(
+      'A playback needs manage access.',
+    )
+    expect(describePlaybackFailure(failure({ type: 'already-exists-error' }))).toBe(
+      'A playback of this component already runs.',
     )
   })
 })

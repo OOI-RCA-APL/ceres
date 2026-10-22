@@ -209,7 +209,8 @@ def set_fake_now(value: datetime | None) -> None:
     The value will be returned by `utc()` when called with no arguments. To clear the fake time,
     call this function with `None`.
 
-    This should only ever be used for testing purposes, it should not be used in production code.
+    Use it in tests and in a playback, which sets each stored message's time while the sieve
+    handles it. Tasks started from the context inherit the fake time.
 
     Args:
         value: The fake `datetime` to return, or `None` to clear any previously set value.
@@ -220,7 +221,7 @@ def set_fake_now(value: datetime | None) -> None:
 def get_fake_now() -> datetime | None:
     """Get the currently set fake current time for the current thread or async context.
 
-    This should only ever be used for testing purposes, it should not be used in production code.
+    Tests and playbacks set it through `set_fake_now()`.
 
     Returns:
         The previously configured fake `datetime`, or `None` if no fake-now value is set.

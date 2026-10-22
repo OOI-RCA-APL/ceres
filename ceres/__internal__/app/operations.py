@@ -19,6 +19,7 @@ from ceres.__internal__.app.handlers import engine as engine_handlers
 from ceres.__internal__.app.handlers import exporters as exporter_handlers
 from ceres.__internal__.app.handlers import files as file_handlers
 from ceres.__internal__.app.handlers import permissions as permission_handlers
+from ceres.__internal__.app.handlers import playbacks as playback_handlers
 from ceres.__internal__.app.handlers import settings as setting_handlers
 from ceres.__internal__.app.handlers import workspace_edits as edit_handlers
 from ceres.__internal__.app.handlers import workspaces as workspace_handlers
@@ -480,6 +481,28 @@ async def exporters_run(host: Host, arguments: dict[str, Any]) -> Any:
         address=_address(arguments),
         name=validate(Name, _path(arguments, "name")),
         request=_validated(exporter_handlers.ExportRunRequest, arguments),
+    )
+    return _serialize(started)
+
+
+@operation("playbacks.list")
+async def playbacks_list(host: Host, arguments: dict[str, Any]) -> Any:
+    actor = await _actor(host, arguments)
+    return _entities(
+        await playback_handlers.get_component_playbacks(
+            engine=host.engine, actor=actor, address=_address(arguments)
+        )
+    )
+
+
+@operation("playbacks.run")
+async def playbacks_run(host: Host, arguments: dict[str, Any]) -> Any:
+    actor = await _actor(host, arguments)
+    started = await playback_handlers.start_playback(
+        engine=host.engine,
+        actor=actor,
+        address=_address(arguments),
+        request=_validated(playback_handlers.PlaybackRequest, arguments),
     )
     return _serialize(started)
 

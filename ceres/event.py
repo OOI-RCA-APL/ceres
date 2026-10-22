@@ -751,6 +751,69 @@ ExportRunEvent: TypeAlias = (
 """Union of export run lifecycle events."""
 
 
+class PlaybackStartedEvent(Event, slots=True):
+    """Emitted when a playback starts."""
+
+    type: Literal["playback-started"] = "playback-started"
+    playback: UUID
+    """ID of the playback."""
+    after: DateTime
+    """Inclusive start of the replayed range."""
+    before: DateTime
+    """Exclusive end of the replayed range."""
+    playback_level: str
+    """What the playback does with each particle, `particles` or `full`."""
+    export: bool
+    """Whether the playback rewrites the files of the exporters it replaced particles for."""
+
+
+class PlaybackProgressEvent(Event, slots=True):
+    """Emitted when a playback finishes replaying one sieve's messages."""
+
+    type: Literal["playback-progress"] = "playback-progress"
+    playback: UUID
+    """ID of the playback."""
+    sieve: str | None
+    """Name of the sieve replayed."""
+    messages: int
+    """Messages replayed so far."""
+    particles: int
+    """Particles stored so far."""
+
+
+class PlaybackCompletedEvent(Event, slots=True):
+    """Emitted when a playback completes."""
+
+    type: Literal["playback-completed"] = "playback-completed"
+    playback: UUID
+    """ID of the playback."""
+    deleted: int
+    """Stored particles deleted before the replay."""
+    messages: int
+    """Messages replayed."""
+    particles: int
+    """Particles stored."""
+    export_runs: list[UUID]
+    """IDs of the export runs that rewrote the replaced particles' files."""
+
+
+class PlaybackFailedEvent(Event, slots=True):
+    """Emitted when a playback fails or its component stops before it completes."""
+
+    type: Literal["playback-failed"] = "playback-failed"
+    level: Level = Level.ERROR
+    playback: UUID
+    """ID of the playback."""
+    exception: ExceptionInfo
+    """Captured exception information."""
+
+
+PlaybackEvent: TypeAlias = (
+    PlaybackStartedEvent | PlaybackProgressEvent | PlaybackCompletedEvent | PlaybackFailedEvent
+)
+"""Union of playback lifecycle events."""
+
+
 class SieveAddedEvent(Event, slots=True):
     """Emitted when a sieve is registered."""
 
@@ -957,6 +1020,7 @@ StandardEvent: TypeAlias = (
     | JobEvent
     | PrunerEvent
     | ExportRunEvent
+    | PlaybackEvent
     | SieveEvent
     | ProcedureEvent
     | StreamEvent
