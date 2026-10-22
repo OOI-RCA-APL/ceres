@@ -91,11 +91,11 @@ components:
       output: ./data
 ```
 
-- `Mount.Field(...)` makes the field required. A path default, such as `"./calibration"`, resolves the same way a configured path does, and `Mount.Field()` with no path gives the component a temporary directory, removed once nothing refers to it.
+- `Mount.Field(...)` makes the field required. A path default, such as `"./calibration"`, resolves the same way a configured path does, and `Mount.Field()` with no path gives the component a temporary directory, removed once nothing refers to it. `Mount.Field(default=None)` makes the mount optional, its annotation `Bound[Mount | None]`.
 - A relative path in `ceres.yaml` resolves against the directory holding that file, wherever the engine runs from. One given in code, such as `Mount("./data")`, resolves against the current directory, as `Path` does.
 - `title` names the mount in the console, the field name otherwise, and `name` lists it under another name than the field's. Two fields of one component never share a name.
 - `writable=False` makes the component's own writes raise `PermissionError`, and the console offers the mount for viewing only. Configuration cannot make such a field writable.
-- `access` lowers what the console may do with the mount, `"view"` to browse and download only, `"none"` to hide it. Configuration may set its own with a mapping, `output: {path: ./data, access: view}`. The console grants the least of this, `server.files.access`, and the caller's permission on the component.
+- `access` lowers what the console may do with the mount, `"view"` to browse and download only, `"none"` to hide it. Configuration may lower it further with a mapping, `output: {path: ./data, access: view}`. The console grants the least of this, `server.files.access`, and the caller's permission on the component.
 
 ## Component Trees
 

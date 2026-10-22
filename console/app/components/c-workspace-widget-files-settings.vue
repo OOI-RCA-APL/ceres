@@ -22,7 +22,7 @@ const mounts = $computed(() => mountsQuery.data.value ?? [])
       v-model="widget.mount"
       :schema="{
         type: 'string',
-        title: 'Mount',
+        title: 'Folder',
         enum: mounts.map((current) => current.id),
         enumLabels: mounts.map((current) =>
           current.component == null ? current.label : `${current.label} (${current.component})`,

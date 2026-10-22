@@ -17,7 +17,7 @@ export const FileMountModel = z.object({
   /** The address of the component whose field holds the mount, null for the project mount. */
   component: z.string().nullable(),
   access: MountAccessModel,
-  /** Whether the mount is a temporary directory removed with its component. */
+  /** Whether the mount is a temporary directory, removed once the component releases it. */
   temporary: z.boolean(),
 })
 

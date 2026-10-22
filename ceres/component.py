@@ -2963,8 +2963,8 @@ class MountFieldArgs(BoundFieldArgs, total=False):
     omitted. Configuration cannot widen it."""
 
     access: MountAccessInput | None
-    """Most the files API may do with the mount, see `MountPath.access`. Configuration may set
-    its own."""
+    """Most the files API may do with the mount, see `MountPath.access`. Configuration may
+    lower it further."""
 
 
 class MountField[M: MountPath](BoundField[M]):
@@ -2973,8 +2973,9 @@ class MountField[M: MountPath](BoundField[M]):
     Reached as `Mount.Field` or `AsyncMount.Field`, both this class, and the annotation picks
     the value type, `stills: Bound[Mount] = Mount.Field("./stills")`. A path default stays a
     string until validation, so a relative one resolves beside the configuration file the
-    same way a configured path does. With no path the field holds a temporary mount, and
-    `Mount.Field(...)` makes the field required.
+    same way a configured path does. With no path the field holds a temporary mount,
+    `Mount.Field(...)` makes the field required, and `Mount.Field(default=None)` makes it
+    optional.
     """
 
     __slots__ = ()
@@ -2987,31 +2988,34 @@ class MountField[M: MountPath](BoundField[M]):
         access: MountAccess | None = None
 
         def apply[P: MountPath](self, value: P | None) -> P | None:
-            """Return `value` with the field's `writable` and, unless set, `access` applied."""
+            """Return `value` limited to the field's `writable` and `access`."""
             if value is None:
                 return None
 
             writable = value.writable and self.writable
-            access = value.access if value.access is not None else self.access
+            limits = [limit for limit in (value.access, self.access) if limit is not None]
+            access = min(limits, default=None)
             if writable == value.writable and access == value.access:
                 return value
 
-            return type(value)(value, writable=writable, access=access)
+            return value._replace(writable=writable, access=access)
 
     def __init__(
         self,
         path: StrPath | EllipsisType | None = None,
+        *,
+        default: Any = PydanticUndefined,
         **kwargs: Unpack[MountFieldArgs],
     ):
         writable = kwargs.pop("writable", True)
         access = kwargs.pop("access", None)
-        if path is None and "default_factory" not in kwargs:
+        if path is None and default is PydanticUndefined and "default_factory" not in kwargs:
             kwargs["default_factory"] = Mount
 
         # The default passes the same validator a configured value does, which applies the
         # field's `writable` and resolves a relative path against the project.
         kwargs.setdefault("validate_default", True)
-        super().__init__(PydanticUndefined if path is None else path, **kwargs)
+        super().__init__(default if path is None else path, **kwargs)
 
         marker = cast("MountField.Marker", self.marker)
         marker.writable = writable

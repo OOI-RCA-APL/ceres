@@ -20,7 +20,7 @@ class Hoarder(Component):
     stash: Bound[Mount] = Mount.Field(..., title="Stash")
     ledger: Bound[Mount] = Mount.Field(..., title="Ledger", writable=False)
     vault: Bound[AsyncMount] = Mount.Field(..., access="none")
-    spare: Bound[Mount | None] = Mount.Field(default_factory=lambda: None)
+    spare: Bound[Mount | None] = Mount.Field(default=None)
     scratch: Bound[Mount] = Mount.Field()
     plain: Mount | None = None
 
@@ -77,6 +77,23 @@ def test_mount_field_applies_its_writable_and_access(tmp_path: Path) -> None:
     assert hoarder.scratch.temporary
 
 
+@pytest.mark.parametrize(
+    ("configured", "expected"),
+    [
+        (MountAccess.EDIT, MountAccess.VIEW),
+        (MountAccess.VIEW, MountAccess.VIEW),
+        (MountAccess.NONE, MountAccess.NONE),
+    ],
+)
+def test_mount_field_access_is_never_widened_by_configuration(
+    tmp_path: Path, configured: MountAccess, expected: MountAccess
+) -> None:
+    class Miser(Component):
+        purse: Bound[Mount] = Mount.Field(..., access="view")
+
+    assert Miser(purse=Mount(tmp_path, access=configured)).purse.access == expected
+
+
 def test_mount_field_on_a_field_that_is_not_a_mount_is_refused() -> None:
     class Miser(Component):
         coins: Bound[int] = Mount.Field(...)  # pyright: ignore[reportAssignmentType]
@@ -123,7 +140,8 @@ async def test_mount_access_is_the_least_of_the_mount_and_the_caller(
     actor = await _user(engine, level)
 
     mounts = await get_mounts(engine, actor)
-    assert [mount.access for mount in mounts][:2] == [stash, ledger]
+    # The writable temporary `scratch` mount follows the caller the way `stash` does.
+    assert [mount.access for mount in mounts] == [stash, ledger, stash]
     assert (await resolve_mount(engine, actor, "component:@hoarder:ledger")).access == ledger
 
     await engine.database.dispose()

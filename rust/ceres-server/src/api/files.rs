@@ -1255,7 +1255,7 @@ mod tests {
     }
 
     /// An editable mount holding `files`, each a path and its contents, under `exclude`.
-    fn root(files: &[(&str, &str)], exclude: &[&'static str]) -> FileHost {
+    fn mount(files: &[(&str, &str)], exclude: &[&'static str]) -> FileHost {
         let directory = TempDir::new().unwrap();
         for (path, contents) in files {
             let path = directory.path().join(path);
@@ -1365,7 +1365,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_listing_is_sorted_and_omits_dot_entries_unless_asked() {
-        let host = Arc::new(root(&[("b.txt", "abc"), ("a/c.txt", ""), (".d", "")], &[]));
+        let host = Arc::new(mount(&[("b.txt", "abc"), ("a/c.txt", ""), (".d", "")], &[]));
         let listing = host.json("/api/files/files").await;
         assert_eq!(listing["truncated"], false);
         assert_eq!(listing["entries"][0]["name"], "a");
@@ -1390,7 +1390,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_listing_past_the_cap_is_truncated() {
-        let host = Arc::new(root(&[], &[]));
+        let host = Arc::new(mount(&[], &[]));
         for index in 0..=LISTING_CAP {
             fs::write(host.path(&format!("{index:05}")), "").unwrap();
         }
@@ -1404,7 +1404,7 @@ mod tests {
     #[tokio::test]
     async fn a_listing_sweeps_only_stale_parts() {
         let (stale, fresh) = (part("a"), part("b"));
-        let host = Arc::new(root(&[(&stale, ""), (&fresh, ""), (".c.d.part", "")], &[]));
+        let host = Arc::new(mount(&[(&stale, ""), (&fresh, ""), (".c.d.part", "")], &[]));
         let hour_ago = SystemTime::now() - PART_LIFETIME - Duration::from_secs(60);
         for name in [&stale, ".c.d.part"] {
             File::options()
@@ -1424,7 +1424,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_file_serves_its_bytes_ranges_and_downloads() {
-        let host = Arc::new(root(&[("a/b c.txt", "abcd")], &[]));
+        let host = Arc::new(mount(&[("a/b c.txt", "abcd")], &[]));
         let response = host.get("/api/files/files/a/b%20c.txt").await;
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.headers()[header::CONTENT_TYPE], "text/plain");
@@ -1465,7 +1465,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_file_unchanged_since_its_etag_answers_not_modified() {
-        let host = Arc::new(root(&[("a.txt", "abcd")], &[]));
+        let host = Arc::new(mount(&[("a.txt", "abcd")], &[]));
         let response = host.get("/api/files/files/a.txt").await;
         let etag = response.headers()[header::ETAG].clone();
 
@@ -1480,7 +1480,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_whole_text_file_compresses_and_a_range_of_it_does_not() {
-        let host = Arc::new(root(&[("a.csv", &"x,y\n".repeat(1000))], &[]));
+        let host = Arc::new(mount(&[("a.csv", &"x,y\n".repeat(1000))], &[]));
         let whole = host
             .request(
                 HttpRequest::get("/api/files/files/a.csv").header(header::ACCEPT_ENCODING, "gzip"),
@@ -1502,7 +1502,7 @@ mod tests {
 
     #[tokio::test]
     async fn stat_describes_an_entry_and_the_root() {
-        let host = Arc::new(root(&[("a/b", "abc")], &[]));
+        let host = Arc::new(mount(&[("a/b", "abc")], &[]));
         let stat = host.json("/api/files/files/a/b?stat").await;
         assert_eq!(
             (&stat["name"], &stat["kind"], &stat["size"]),
@@ -1519,7 +1519,7 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn an_excluded_entry_is_never_listed_or_served() {
-        let host = Arc::new(root(
+        let host = Arc::new(mount(
             &[("a/.venv/x", "abc"), ("data/raw/y", ""), ("z", "")],
             &[".venv", "/data/raw"],
         ));
@@ -1548,7 +1548,7 @@ mod tests {
     async fn a_symlink_leaving_the_root_is_listed_as_other_and_never_served() {
         let outside = TempDir::new().unwrap();
         fs::write(outside.path().join("secret"), "abc").unwrap();
-        let host = Arc::new(root(&[("a", "abc")], &[]));
+        let host = Arc::new(mount(&[("a", "abc")], &[]));
         host.link(&outside.path().join("secret"), "out");
         host.link(&host.path("a"), "in");
 
@@ -1570,7 +1570,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_file_replaced_after_the_walk_is_not_opened() {
-        let host = root(&[("a", "abc"), ("b", "abcd")], &[]);
+        let host = mount(&[("a", "abc"), ("b", "abcd")], &[]);
         let walked = fs::metadata(host.path("a")).unwrap();
         fs::rename(host.path("b"), host.path("a")).unwrap();
         assert!(VerifiedFile::open(host.path("a"), &walked).is_none());
@@ -1584,7 +1584,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_unknown_root_answers_what_the_host_does() {
-        let host = Arc::new(root(&[], &[]));
+        let host = Arc::new(mount(&[], &[]));
         assert_eq!(
             host.get("/api/files/other").await.status(),
             StatusCode::NOT_FOUND
@@ -1597,7 +1597,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_upload_creates_then_replaces_a_file_and_leaves_no_part() {
-        let host = Arc::new(root(&[("a/b", "")], &[]));
+        let host = Arc::new(mount(&[("a/b", "")], &[]));
         assert_eq!(host.put("a/c.txt", "abcd").await, StatusCode::CREATED);
         assert_eq!(host.contents("a/c.txt").as_deref(), Some("abcd"));
         assert_eq!(host.put("a/c.txt", "abc").await, StatusCode::NO_CONTENT);
@@ -1611,7 +1611,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_upload_honors_its_preconditions() {
-        let host = Arc::new(root(&[("a", "abc")], &[]));
+        let host = Arc::new(mount(&[("a", "abc")], &[]));
         let create_only = |path: &str| {
             HttpRequest::put(format!("/api/files/files/{path}")).header(header::IF_NONE_MATCH, "*")
         };
@@ -1648,7 +1648,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_upload_past_the_limit_is_refused_and_leaves_nothing() {
-        let mut host = root(&[], &[]);
+        let mut host = mount(&[], &[]);
         host.max_upload = Some(3);
         let host = Arc::new(host);
 
@@ -1665,7 +1665,7 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn an_upload_never_replaces_a_directory_or_a_symlink_or_takes_a_part_name() {
-        let host = Arc::new(root(&[("a/b", ""), ("c", "abc")], &[]));
+        let host = Arc::new(mount(&[("a/b", ""), ("c", "abc")], &[]));
         host.link(&host.path("c"), "d");
         assert_eq!(host.put("a", "x").await, StatusCode::CONFLICT);
         assert_eq!(host.put("d", "x").await, StatusCode::CONFLICT);
@@ -1675,7 +1675,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_directory_is_created_once() {
-        let host = Arc::new(root(&[], &[]));
+        let host = Arc::new(mount(&[], &[]));
         let create = || HttpRequest::put("/api/files/files/a?directory");
         assert_eq!(host.request(create()).await.status(), StatusCode::CREATED);
         assert!(host.path("a").is_dir());
@@ -1684,7 +1684,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_rename_moves_an_entry_within_the_root() {
-        let host = Arc::new(root(&[("a", "abc"), ("b/c", "abcd"), ("d/e", "")], &[]));
+        let host = Arc::new(mount(&[("a", "abc"), ("b/c", "abcd"), ("d/e", "")], &[]));
         assert_eq!(host.patch("a", "b/f").await, StatusCode::NO_CONTENT);
         assert_eq!(host.contents("b/f").as_deref(), Some("abc"));
 
@@ -1709,7 +1709,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_rename_onto_a_hard_link_of_itself_is_refused() {
-        let host = Arc::new(root(&[("a", "abc"), ("b/d", "")], &[]));
+        let host = Arc::new(mount(&[("a", "abc"), ("b/d", "")], &[]));
         fs::hard_link(host.path("a"), host.path("b/a")).unwrap();
         fs::hard_link(host.path("a"), host.path("c")).unwrap();
         for to in ["b/a", "c"] {
@@ -1755,7 +1755,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_delete_removes_a_full_directory_only_when_asked() {
-        let host = Arc::new(root(&[("a", ""), ("b/c", ""), ("d/.e", "")], &[]));
+        let host = Arc::new(mount(&[("a", ""), ("b/c", ""), ("d/.e", "")], &[]));
         assert_eq!(host.delete("a").await, StatusCode::NO_CONTENT);
         assert!(!host.path("a").exists());
         assert_eq!(host.delete("b").await, StatusCode::CONFLICT);
@@ -1766,7 +1766,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_root_itself_is_never_written() {
-        let host = Arc::new(root(&[("a", "")], &[]));
+        let host = Arc::new(mount(&[("a", "")], &[]));
         let root = |method: Method| {
             HttpRequest::builder()
                 .method(method)
@@ -1789,7 +1789,7 @@ mod tests {
     async fn a_symlink_is_deleted_and_renamed_itself() {
         let outside = TempDir::new().unwrap();
         fs::write(outside.path().join("a"), "abc").unwrap();
-        let host = Arc::new(root(&[], &[]));
+        let host = Arc::new(mount(&[], &[]));
         host.link(&outside.path().join("a"), "b");
         host.link(&outside.path().join("a"), "c");
 
@@ -1802,18 +1802,18 @@ mod tests {
 
     #[tokio::test]
     async fn a_write_refuses_a_mount_without_edit_access_and_an_excluded_entry() {
-        let mut host = root(&[("a", "abc")], &[]);
+        let mut host = mount(&[("a", "abc")], &[]);
         host.access = MountAccess::View;
         let host = Arc::new(host);
         assert_eq!(host.put("b", "x").await, StatusCode::FORBIDDEN);
         assert_eq!(host.delete("a").await, StatusCode::FORBIDDEN);
 
-        let mut host = root(&[("a", "abc")], &[]);
+        let mut host = mount(&[("a", "abc")], &[]);
         host.access = MountAccess::None;
         let host = Arc::new(host);
         assert_eq!(host.delete("a").await, StatusCode::NOT_FOUND);
 
-        let host = Arc::new(root(&[("data/raw/a", ""), ("data/b", "")], &["/data/raw"]));
+        let host = Arc::new(mount(&[("data/raw/a", ""), ("data/b", "")], &["/data/raw"]));
         assert_eq!(host.put("data/raw/c", "x").await, StatusCode::NOT_FOUND);
         assert_eq!(host.put("data/raw", "x").await, StatusCode::NOT_FOUND);
         assert_eq!(host.delete("data/raw").await, StatusCode::NOT_FOUND);

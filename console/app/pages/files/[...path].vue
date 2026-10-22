@@ -62,7 +62,7 @@ async function open(target: string[]) {
           class="text-muted"
           variant="body2"
         >
-          No mounts are available to you.
+          No folders are available to you.
         </c-text>
         <c-list>
           <c-file-mount

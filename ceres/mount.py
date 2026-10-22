@@ -308,6 +308,12 @@ class MountPath(PathLike[str]):
         self._copy_into(value, relative)
         return value
 
+    def _replace[M: MountPath](self: M, *, writable: bool, access: MountAccess | None) -> M:
+        value = self._at(type(self), self._relative)
+        value._writable = writable
+        value._access = access
+        return value
+
     def _copy_into(self, value: MountPath, relative: PurePath) -> None:
         value._root = self._root
         value._relative = relative

@@ -143,7 +143,7 @@ function opener(target: string[]) {
 
 // A mount missing from the listing is one this viewer cannot reach, whose ID means nothing to them.
 const mountLabel = $computed(
-  () => mountInfo?.label ?? (mountsQuery.isPending.value ? '' : 'Unavailable Mount'),
+  () => mountInfo?.label ?? (mountsQuery.isPending.value ? '' : 'Unavailable Folder'),
 )
 
 const breadcrumbs = $computed<BreadcrumbItem[]>(() => [

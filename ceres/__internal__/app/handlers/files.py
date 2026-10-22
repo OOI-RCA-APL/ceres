@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 from ceres.__internal__.app.shared import get_component_access, get_components_access
 from ceres.address import Address
 from ceres.component import Component, ComponentAccessLevel
-from ceres.data import DataObject
+from ceres.data import DataObject, Name
 from ceres.error import NotFoundError
 from ceres.mount import MountAccess, MountPath
 
@@ -23,7 +23,7 @@ class MountInfo(DataObject):
     """A mount of the files API that the caller may view."""
 
     id: str
-    name: str
+    name: Name
     label: str
     component: Address | None
     """The component whose field holds the mount, `None` for the project mount."""
