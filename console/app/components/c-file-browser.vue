@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import type { BreadcrumbItem, DropdownMenuItem } from '@nuxt/ui'
+import type { BreadcrumbItem, ContextMenuItem } from '@nuxt/ui'
 import { useQueryClient } from '@tanstack/vue-query'
 import { useDropZone } from '@vueuse/core'
 import multiDownload from 'multi-download'
@@ -26,7 +26,7 @@ import { useNotify } from '@/notify'
 import { usePersisted } from '@/persistence'
 import { clearOnOutsidePress, createRowSelection } from '@/row-selection'
 import { utc } from '@/time'
-import { afterMenuCloses, copyText } from '@/utilities'
+import { afterMenuCloses, copyText, openContextMenu } from '@/utilities'
 
 const {
   root,
@@ -388,11 +388,12 @@ type FileActionView = {
   run: () => void
 }
 
-/** The keys the list answers, shown wherever the action they run is offered beside it. */
+/** The keys the list answers, shown wherever the action they run is offered beside it. Delete shows
+the key each platform's keyboard labels delete, Backspace on a Mac. */
 const actionKeys: Partial<Record<FileAction, string[]>> = {
   open: ['enter'],
   move: ['f2'],
-  delete: ['backspace'],
+  delete: [useKbd().macOS.value ? 'backspace' : 'delete'],
 }
 
 /** How `kind` reads and what it does to `targets`, entries of `directory`. `keyed` shows the key
@@ -440,20 +441,41 @@ function describeAction(
   return { kind, kbds: keyed ? actionKeys[kind] : undefined, ...views[kind] }
 }
 
-/** The selection's actions, in the order a menu lists them, a separator between groups. */
-const menuGroups: FileAction[][] = [['open'], ['download', 'copyPath', 'move'], ['delete']]
+/** The menu's entries in order, a separator between groups. Select All rides along so its key shows
+in a menu too. */
+const menuGroups: (FileAction | 'selectAll')[][] = [
+  ['open'],
+  ['download', 'copyPath', 'move'],
+  ['selectAll'],
+  ['delete'],
+]
 
 /** Actions that open a dialog, which waits for the menu that asked for it to finish closing. */
 const asking: ReadonlySet<FileAction> = new Set(['move', 'delete'])
 
+function selectAll() {
+  rows.replace(entries.map((current) => current.name))
+}
+
 /** The menu every row's "…" button and a right click on any row open, acting on the selection. */
-const menuItems = $computed<DropdownMenuItem[][]>(() => {
+const menuItems = $computed<ContextMenuItem[][]>(() => {
   const offered = fileActions(selectedEntries, writable)
   return menuGroups
     .map((group) =>
       group
-        .filter((kind) => offered.includes(kind))
-        .map((kind): DropdownMenuItem => {
+        .filter((kind) => kind === 'selectAll' || offered.includes(kind))
+        .map((kind): ContextMenuItem => {
+          if (kind === 'selectAll') {
+            const everything = selectedEntries.length === entries.length
+            return {
+              label: 'Select All',
+              icon: icons.selectAll,
+              kbds: ['meta', 'a'],
+              disabled: everything,
+              onSelect: selectAll,
+            }
+          }
+
           const action = describeAction(kind, path, selectedEntries, true)
           return {
             label: action.label,
@@ -506,7 +528,7 @@ function onListKeydown(event: KeyboardEvent) {
   const command = event.metaKey || event.ctrlKey
   const plain = !command && !event.altKey
   if (command && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'a') {
-    rows.replace(entries.map((current) => current.name))
+    selectAll()
   } else if (plain && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
     reveal(rows.step(event.key === 'ArrowDown' ? 1 : -1, event.shiftKey ? 'extend' : 'replace'))
   } else if (plain && event.key === 'Escape' && rows.selected().length > 0) {
@@ -530,19 +552,6 @@ function onListKeydown(event: KeyboardEvent) {
 function onListContext(event: MouseEvent) {
   if (!(event.target instanceof Element && event.target.closest('[data-file-entry]') != null)) {
     event.preventDefault()
-  }
-}
-
-/** The row whose "…" menu opened last, the one dropdown holding the selection's items. The rest
-hold none, so a change of selection updates one dropdown rather than one per row. */
-let menuRow = $ref<string | null>(null)
-const noMenuItems: DropdownMenuItem[][] = []
-
-// A row's "…" menu acts on the selection, so opening it on a row outside one selects the row.
-function onRowMenu(name: string, open: boolean) {
-  if (open) {
-    rows.ensureSelected(name)
-    menuRow = name
   }
 }
 </script>
@@ -729,22 +738,20 @@ function onRowMenu(name: string, open: boolean) {
                 >
                   {{ formatModified(current.modified) }}
                 </c-text>
-                <c-dropdown-menu
-                  :items="menuRow === current.name ? menuItems : noMenuItems"
-                  @update:open="(open: boolean) => onRowMenu(current.name, open)"
+                <!-- The rows share the list's one menu, since a menu per row costs thousands of
+                mounts in a long listing. -->
+                <button
+                  aria-haspopup="menu"
+                  :aria-label="`More Actions for ${current.name}`"
+                  class="flex shrink-0 items-center rounded-full p-0.5 opacity-60 hover:opacity-100"
+                  tabindex="-1"
+                  type="button"
+                  @click.stop="openContextMenu"
+                  @mousedown.stop
+                  @pointerdown.stop
                 >
-                  <button
-                    :aria-label="`More Actions for ${current.name}`"
-                    class="flex shrink-0 items-center rounded-full p-0.5 opacity-60 hover:opacity-100"
-                    tabindex="-1"
-                    type="button"
-                    @click.stop
-                    @mousedown.stop
-                    @pointerdown.stop
-                  >
-                    <c-icon :name="icons.more" size="15" />
-                  </button>
-                </c-dropdown-menu>
+                  <c-icon :name="icons.more" size="15" />
+                </button>
               </c-list-item>
             </c-list>
           </div>

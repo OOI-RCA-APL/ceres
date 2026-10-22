@@ -101,6 +101,7 @@ const icons = {
   revertToOriginal: 'i-mdi-restore',
   search: 'i-mdi-magnify',
   section: 'i-mdi-view-agenda-outline',
+  selectAll: 'i-mdi-select-all',
   send: 'i-mdi-send',
   settings: 'i-mdi-cog',
   share: 'i-mdi-link-variant',
