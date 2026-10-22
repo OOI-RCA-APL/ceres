@@ -433,6 +433,13 @@ class _ExporterConfig[TFilter: MessageFilter | ParticleFilter | AlertFilter | Lo
 
         return f"{self.format.cls.__module__}.{self.format.cls.__qualname__}"
 
+    @property
+    def format_class(self) -> type[Format]:
+        """The configured format's class."""
+        from ceres.exporter import BUILTIN_FORMATS
+
+        return BUILTIN_FORMATS[self.format] if isinstance(self.format, str) else self.format.cls
+
     def create_format(self) -> Format:
         """Create the configured format."""
         from ceres.exporter import BUILTIN_FORMATS
