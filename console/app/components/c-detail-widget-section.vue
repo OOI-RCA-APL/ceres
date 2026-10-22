@@ -134,9 +134,6 @@ function handlersFor(item: T) {
   return {
     click: (event: MouseEvent) => rows.onClick(keyOf(item), event),
     contextmenu: () => rows.ensureSelected(keyOf(item)),
-    // A shift click extends the selection, and the browser would otherwise take it as a text
-    // selection across the rows it spans.
-    mousedown: (event: MouseEvent) => event.shiftKey && event.preventDefault(),
     pointerdown: (event: PointerEvent) => onRowPress(item, event),
   }
 }
@@ -196,14 +193,10 @@ workspace to build widgets from what they name. -->
         <c-list-item
           v-for="item in items"
           :key="keyOf(item)"
-          :class="[
-            disabled?.(item) !== true && 'select-none',
-            // Neutral rather than a semantic color, so the highlight never fights the text.
-            rows.isSelected(keyOf(item)) && 'bg-[#80808029]',
-          ]"
           :data-detail-blocked="disabled?.(item) === true ? '' : undefined"
           data-detail-row
           :selectable="disabled?.(item) !== true"
+          :selected="rows.isSelected(keyOf(item))"
           v-on="handlersFor(item)"
         >
           <slot :item="item" name="row" :selected="rows.isSelected(keyOf(item))" />

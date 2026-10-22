@@ -100,6 +100,30 @@ export function filterEntries(entries: readonly FileEntry[], filter: string): Fi
     : entries.filter((entry) => entry.name.toLowerCase().includes(text))
 }
 
+/** Something the file browser does to the entries picked out of one directory. */
+export type FileAction = 'open' | 'download' | 'copyPath' | 'move' | 'delete'
+
+/** What applies to `targets`, in the order every menu lists it. Opening takes a single entry, a
+download takes the files among them, and a change takes a writable root. */
+export function fileActions(targets: readonly FileEntry[], writable: boolean): FileAction[] {
+  if (targets.length === 0) {
+    return []
+  }
+
+  return [
+    ...(targets.length === 1 ? (['open'] as const) : []),
+    ...(targets.some((entry) => entry.kind === 'file') ? (['download'] as const) : []),
+    'copyPath',
+    ...(writable ? (['move', 'delete'] as const) : []),
+  ]
+}
+
+/** The segments of `text`, a path under a root typed with `/` between its names. A leading,
+trailing, or doubled `/` adds none, so `/` alone is the root itself. */
+export function parseFilePath(text: string): string[] {
+  return text.split('/').filter((name) => name !== '')
+}
+
 /** `bytes` as UTF-8 text, or null when it holds a NUL or does not decode, which marks it binary.
 With `partial`, `bytes` is the start of a file, and a character cut off at its end still counts
 as text. */

@@ -7,6 +7,7 @@ const {
   to = null,
   disabled = false,
   selectable = false,
+  selected = false,
 } = defineProps<{
   /** Where the row leads, which makes it a link. */
   to?: string | null
@@ -16,7 +17,17 @@ const {
   plain element, a button being able to hold only one line of phrasing and taking a stop in
   the tab order that a list of them would fill. */
   selectable?: boolean
+  /** Whether a selectable row is picked out. */
+  selected?: boolean
 }>()
+
+// A shift click extends the selection, and the browser would otherwise take it as a text selection
+// across the rows it spans.
+function onMousedown(event: MouseEvent) {
+  if (selectable && event.shiftKey) {
+    event.preventDefault()
+  }
+}
 
 const attrs = useAttrs()
 
@@ -46,10 +57,14 @@ const isPressable = $computed(() => element !== 'div' || selectable)
       isPressable && 'hover:bg-elevated w-full text-left disabled:opacity-50',
       // Held back for a selectable row, whose click picks it out of the list rather than acting.
       isPressable && !selectable && 'cursor-pointer',
+      selectable && 'select-none',
+      // Neutral rather than a semantic color, so the highlight never fights the text.
+      selected && 'bg-[#80808029]',
     ]"
     :disabled="isButton ? disabled : undefined"
     :to="to ?? undefined"
     :type="isButton ? 'button' : undefined"
+    @mousedown="onMousedown"
   >
     <slot />
   </component>

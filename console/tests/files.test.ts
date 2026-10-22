@@ -6,15 +6,21 @@ import {
   decodeText,
   describeFileWriteStatus,
   droppedFiles,
+  fileActions,
   filesApiPath,
   filesPagePath,
   filterEntries,
   formatFileSize,
+  parseFilePath,
   previewOf,
 } from '@/api/files'
 
 function file(name: string, size: number | null = 1): FileEntry {
   return { name, kind: 'file', size, modified: null }
+}
+
+function folder(name: string): FileEntry {
+  return { name, kind: 'directory', size: null, modified: null }
 }
 
 describe('previewOf', () => {
@@ -58,6 +64,30 @@ describe('filterEntries', () => {
     const entries = [file('abc'), file('ABD'), file('xyz')]
     expect(filterEntries(entries, ' ab ').map((entry) => entry.name)).toEqual(['abc', 'ABD'])
     expect(filterEntries(entries, '')).toEqual(entries)
+  })
+})
+
+describe('fileActions', () => {
+  it('opens one entry, downloads only files, and changes nothing in a read-only root', () => {
+    expect(fileActions([file('a')], false)).toEqual(['open', 'download', 'copyPath'])
+    expect(fileActions([folder('a')], false)).toEqual(['open', 'copyPath'])
+    expect(fileActions([folder('a')], true)).toEqual(['open', 'copyPath', 'move', 'delete'])
+    expect(fileActions([file('a'), folder('b')], true)).toEqual([
+      'download',
+      'copyPath',
+      'move',
+      'delete',
+    ])
+    expect(fileActions([folder('a'), folder('b')], false)).toEqual(['copyPath'])
+    expect(fileActions([], true)).toEqual([])
+  })
+})
+
+describe('parseFilePath', () => {
+  it('splits on slashes and drops the empty names around them', () => {
+    expect(parseFilePath('a/b c')).toEqual(['a', 'b c'])
+    expect(parseFilePath('/a//b/')).toEqual(['a', 'b'])
+    expect(parseFilePath('/')).toEqual([])
   })
 })
 
