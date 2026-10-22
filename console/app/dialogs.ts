@@ -7,6 +7,7 @@ import CFileInfoDialog, { type FileInfoDialogProps } from '@/components/c-file-i
 import CFileNameDialog, { type FileNameDialogProps } from '@/components/c-file-name-dialog.vue'
 import CFilePlaceDialog, { type FilePlaceDialogProps } from '@/components/c-file-place-dialog.vue'
 import CFilterGroupDialog from '@/components/c-filter-group-dialog.vue'
+import CPlaybackDialog, { type PlaybackDialogProps } from '@/components/c-playback-dialog.vue'
 import CWorkspaceDialog from '@/components/c-workspace-dialog.vue'
 import CWorkspaceMoveDialog, {
   type WorkspaceMove,
@@ -41,6 +42,7 @@ export const useDialogs = defineStore('dialogs', () => {
   const fileInfoDialog = overlay.create(CFileInfoDialog)
   const filePlaceDialog = overlay.create(CFilePlaceDialog)
   const exportRunDialog = overlay.create(CExportRunDialog)
+  const playbackDialog = overlay.create(CPlaybackDialog)
 
   function handleOf<TPayload>(result: Promise<TPayload>): DialogHandle<TPayload> {
     const handle: DialogHandle<TPayload> = {
@@ -81,6 +83,9 @@ export const useDialogs = defineStore('dialogs', () => {
     /** Ask for a range and start a run of an exporter over it. Resolves with the run's ID. */
     runExporter: (props: ExportRunDialogProps) =>
       handleOf(exportRunDialog.open(props).result) as DialogHandle<string | false>,
+    /** Ask for a range and level and start a playback of a component. Resolves with its ID. */
+    playBack: (props: PlaybackDialogProps) =>
+      handleOf(playbackDialog.open(props).result) as DialogHandle<string | false>,
     changePassword: (userId: string) => handleOf(changePasswordDialog.open({ userId }).result),
     /** Ask how two filter chips dropped onto each other should be joined. Resolves with the
     operator.

@@ -203,3 +203,50 @@ Each run emits `ExportRunStartedEvent`, one `ExportRunProgressEvent` per file it
 `ExportRunCompletedEvent` or `ExportRunFailedEvent`. A completed run also writes one log entry
 naming its range, its record count and its files. With `logging.events` on, every event becomes a
 log entry too, so a year of hourly files logs 8760 progress entries.
+
+## Playing Back Stored Messages
+
+A playback parses a component's stored messages again, for example after a sieve's fix. It covers
+a range from `after` up to `before`, and it runs every sieve of the component that stores its
+particles. First it deletes the component's stored particles in the range of every type those
+sieves declare, then it runs each sieve over its stored messages in the range and stores what the
+sieve yields. While a sieve handles a message, `utc()` returns that message's time, so a particle
+built with the current time takes its message's time.
+
+A playback runs only when each storing sieve declares the particle types it yields, through its
+return annotation or the component's `__particles__`. It refuses a range starting before the oldest
+stored message a sieve reads, and names the range of messages stored, since a playback of less than
+the range asked would delete particles it cannot regenerate.
+
+A particle of a replayed type that something other than a sieve stored, such as an action calling
+`store`, is lost. Particles of child components stay.
+
+Start a playback through the HTTP API, with manage access to the component:
+
+```text
+POST /api/components/@sensor/playbacks
+{"after": "2026-01-01T00:00:00Z", "before": "2026-01-02T00:00:00Z", "level": "particles", "export": true}
+```
+
+`before` defaults to, and is capped at, the current time. One playback of a component runs at a
+time. `GET /api/components/@sensor/playbacks` lists the last 20, newest first. The console's
+"Play Back" button in the "Exporters" section asks for the same values.
+
+- `level: particles`, the default, stores each particle and emits nothing.
+- `level: full` also emits each particle's `ParticleEvent`, so every listener runs as if live,
+  actions included. A listener that commands hardware or stores records does so once per replayed
+  particle, and a record it builds takes the current time.
+
+With `export`, the default, the playback then runs every particle exporter of the component whose
+type it replayed, or that exports every type, as a replace over the range. An exporter of several
+types loses from its files the pruned records of the types the playback did not replay. When an
+exporter already has a run waiting, the playback fails naming it, the particles stay stored, and a
+"Rebuild" of that exporter writes its files. Without `export`, a live exporter's files keep the
+deleted particles beside the new ones until a replace run.
+
+The live sieves keep running. Readers see the range without particles while the playback runs. A
+sieve that buffers bytes across messages may store a particle at `before` from live data after the
+delete, so keep `before` behind the newest live messages.
+
+Each playback emits `PlaybackStartedEvent`, one `PlaybackProgressEvent` per sieve, and then
+`PlaybackCompletedEvent` or `PlaybackFailedEvent`, and a completed one writes one log entry.

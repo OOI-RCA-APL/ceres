@@ -155,6 +155,13 @@ caller themselves against the resource they name.
 | `PUT` | `/api/permissions/user/{id}` | required | Assign a user permission. |
 | `DELETE` | `/api/permissions/user/{id}` | required | Delete a user permission, the target named in the request body. |
 
+## Playbacks
+
+| Method | Path | Token | Description |
+| --- | --- | --- | --- |
+| `GET` | `/api/components/{id}/playbacks` | required | List one component's recent playbacks, newest first. |
+| `POST` | `/api/components/{id}/playbacks` | optional | Start a playback of stored messages over a range, access checked by the operation. |
+
 ## Procedures
 
 | Method | Path | Token | Description |
