@@ -14,9 +14,9 @@ from ceres import (
     Bound,
     Component,
     Connection,
-    Directory,
     Level,
     Message,
+    Mount,
     ParseFailed,
     ParticleData,
     GroupedRegexParticle,
@@ -130,9 +130,9 @@ class OmnibusDriver(Component):
         receive_timeout=15,
     )
 
-    # `Directory` is a managed output directory for writing files. The path is
-    # set in `ceres.yaml`.
-    output: Directory
+    # `Mount` is a directory the component writes files into. The path is set in
+    # `ceres.yaml`.
+    output: Mount
 
     # Typed configuration objects populated from `ceres.yaml` arguments.
     depth_limits: DepthLimits
@@ -369,5 +369,4 @@ class OmnibusDriver(Component):
     def _write_data_file(self, category: str, line: str) -> None:
         """Append a line to a daily CSV file organized by category and date."""
         path = utc().strftime(f"{category}/%Y/%m-%d.csv")
-        with self.output.open(path, "a") as stream:
-            stream.write(line)
+        self.output.append(path, line.encode())

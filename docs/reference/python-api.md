@@ -240,6 +240,18 @@ from the package, `from ceres import Component`.
     options:
       heading_level: 3
 
+::: ceres.mount.AsyncMount
+    options:
+      heading_level: 3
+
+::: ceres.mount.Mount
+    options:
+      heading_level: 3
+
+::: ceres.mount.MountAccess
+    options:
+      heading_level: 3
+
 ::: ceres.directory.Directory
     options:
       heading_level: 3

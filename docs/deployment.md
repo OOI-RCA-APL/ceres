@@ -190,16 +190,16 @@ ceres console url     # Print the URL.
 
 ### Files
 
-The console's "Files" page browses, previews, downloads, and changes the files a deployment keeps. A component offers one of its `Directory` fields there by marking it with `Files`, and anyone who may view the component may browse it. The component's page links each of its roots, and a "Files View" widget puts one root in a workspace, each browser keeping its own open directory.
+The console's "Files" page browses, previews, downloads, and changes the files a deployment keeps. A component offers one of its `Mount` fields there by marking it with `Files`, and anyone who may view the component may browse it. The component's page links each of its roots, and a "Files View" widget puts one root in a workspace, each browser keeping its own open directory.
 
 ```python
 from typing import Annotated
 
-from ceres import Component, Directory, Files
+from ceres import Component, Files, Mount
 
 
 class Recorder(Component):
-    output: Annotated[Directory, Files("Recordings")]
+    output: Annotated[Mount, Files("Recordings")]
 ```
 
 A field set to `None` or holding a temporary directory offers nothing, and a component the project configures logs a warning for each temporary one at startup, while one a library attaches with `engine.attach()` does not. Administrators also see the project directory, or `server.files.root` when that names another. The page hides entries whose names start with a dot until "Show hidden" is on, which is a convenience and never access control. `server.files.exclude` is what keeps an entry out of reach, since the engine never lists or serves a match in any root. A pattern without a `/` matches a name at any depth, and one with a `/` matches a path from the root. A listing reads every entry of a directory and stats up to 10000 of them, which is quick on a local disk and one round trip per entry on a network share.

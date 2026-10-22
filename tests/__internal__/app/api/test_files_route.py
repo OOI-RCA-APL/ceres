@@ -4,7 +4,7 @@ from typing import Annotated
 import pytest
 from pydantic import Field
 
-from ceres import Component, Directory, Engine, Files, LogEntry
+from ceres import Component, Engine, Files, LogEntry, Mount
 from ceres.__internal__.app.handlers.components import get_component
 from ceres.__internal__.app.handlers.files import get_file_roots, resolve_file_root
 from ceres.__internal__.app.shared import Actor
@@ -18,11 +18,11 @@ _UNRESTRICTED = Actor(user=None, unrestricted=True)
 
 
 class Hoarder(Component):
-    stash: Annotated[Directory, Files("Stash")]
-    ledger: Annotated[Directory, Files("Ledger", writable=False)]
-    spare: Annotated[Directory | None, Files()] = None
-    scratch: Annotated[Directory, Files()] = Field(default_factory=Directory)
-    plain: Directory | None = None
+    stash: Annotated[Mount, Files("Stash")]
+    ledger: Annotated[Mount, Files("Ledger", writable=False)]
+    spare: Annotated[Mount | None, Files()] = None
+    scratch: Annotated[Mount, Files()] = Field(default_factory=Mount)
+    plain: Mount | None = None
 
 
 async def _engine(tmp_path: Path) -> tuple[Engine, Hoarder]:
@@ -31,8 +31,8 @@ async def _engine(tmp_path: Path) -> tuple[Engine, Hoarder]:
     hoarder = Hoarder(
         __with_name__="hoarder",
         __with_config__=ComponentConfig(name="hoarder", access=ComponentAccessLevel.DENY),
-        stash=Directory(tmp_path),
-        ledger=Directory(tmp_path),
+        stash=Mount(tmp_path),
+        ledger=Mount(tmp_path),
     )
     engine.attach(hoarder)
     return engine, hoarder

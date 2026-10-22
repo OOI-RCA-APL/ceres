@@ -77,7 +77,7 @@ class ParticleTypeInfo(DataObject):
 
 
 class ComponentFilesInfo(DataObject):
-    """A `Directory` field of a component that the console's file browser serves."""
+    """A `Mount` field of a component that the console's file browser serves."""
 
     field: Name
     label: str

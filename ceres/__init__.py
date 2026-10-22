@@ -88,6 +88,10 @@ __all__ = [
     "Message",
     "MessageData",
     "MessageDirection",
+    # .mount
+    "AsyncMount",
+    "Mount",
+    "MountAccess",
     # .notifier
     "Notification",
     "Notifier",
@@ -196,6 +200,7 @@ with __lazy_imports__(__name__, export=True):
     from ceres.loaded import Loaded, Loader
     from ceres.logs import LogEntry
     from ceres.message import Message, MessageData, MessageDirection
+    from ceres.mount import AsyncMount, Mount, MountAccess
     from ceres.notifier import Notification, Notifier, SMTPNotifier
     from ceres.particle import (
         BinaryParticle,

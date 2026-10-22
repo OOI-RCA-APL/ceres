@@ -99,7 +99,7 @@ from ceres.data import (
     WithDefaults,
     adapt,
 )
-from ceres.directory import Directory, Files
+from ceres.directory import Files
 from ceres.error import (
     ProcedureInternalError,
     ProcedureInvalidArgumentsError,
@@ -132,6 +132,7 @@ from ceres.event import (
     WillDetachEvent,
 )
 from ceres.message import Message, MessageData, MessageDirectionInput, MessageFilter
+from ceres.mount import Mount
 from ceres.node import Node
 from ceres.timing import delta
 from ceres.variable import InternalVariableName, Variable
@@ -491,10 +492,10 @@ def get_connection_bindings(cls: type, /) -> Mapping[Name, ConnectionBinding]:
 
 
 class FileRootBinding(DataObject.Frozen):
-    """A component's `Directory` field that the console's file browser serves as a root."""
+    """A component's `Mount` field that the console's file browser serves as a root."""
 
     field: Name
-    """Attribute name on the component class that holds the `Directory`."""
+    """Attribute name on the component class that holds the `Mount`."""
 
     label: str
     """Name the console shows for the root."""
@@ -505,7 +506,7 @@ class FileRootBinding(DataObject.Frozen):
 
 @cached(weak=True)
 def get_file_root_bindings(cls: type, /) -> Mapping[Name, FileRootBinding]:
-    """Discover every `Directory` field on `cls` marked with `Files` and return their bindings.
+    """Discover every `Mount` field on `cls` marked with `Files` and return their bindings.
 
     Args:
         cls: A component class to inspect.
@@ -514,7 +515,7 @@ def get_file_root_bindings(cls: type, /) -> Mapping[Name, FileRootBinding]:
         A mapping of field name to `FileRootBinding`, in field order.
 
     Raises:
-        TypeError: If a field marked with `Files` is not typed `Directory` or `Directory | None`.
+        TypeError: If a field marked with `Files` is not typed `Mount` or `Mount | None`.
     """
     __pydantic_fields__: dict[str, FieldInfo] = getattr(cls, "__pydantic_fields__", {})
 
@@ -532,10 +533,13 @@ def get_file_root_bindings(cls: type, /) -> Mapping[Name, FileRootBinding]:
             if annotation.type in (Union, UnionType)
             else {annotation.type}
         )
-        if Directory not in members or not members <= {Directory, NoneType}:
+        mounts = [
+            member for member in members if isinstance(member, type) and issubclass(member, Mount)
+        ]
+        if len(mounts) != 1 or not members - set(mounts) <= {NoneType}:
             raise TypeError(
                 f"Field '{field}' in component '{cls}' is marked with `Files` but is not typed "
-                "`Directory` or `Directory | None`."
+                "`Mount` or `Mount | None`."
             )
 
         bindings[field] = FileRootBinding(
@@ -2036,21 +2040,21 @@ class ComponentSystem(Node, ComponentSource):
         """Return a mapping of field names to file root bindings on the underlying class."""
         return get_file_root_bindings(type(self.component))
 
-    def get_file_root(self, field: Name, /) -> Directory | None:
-        """Return the directory the file root bound to `field` serves.
+    def get_file_root(self, field: Name, /) -> Mount | None:
+        """Return the mount the file root bound to `field` serves.
 
         Returns:
-            The field's `Directory`, or `None` when no root is bound to `field`, the field holds
-            `None`, or the directory is temporary.
+            The field's `Mount`, or `None` when no root is bound to `field`, the field holds
+            `None`, or the mount is temporary.
         """
         if field not in self.get_file_root_bindings():
             return None
 
-        directory = getattr(self.component, field, None)
-        if not isinstance(directory, Directory) or directory.temporary:
+        mount = getattr(self.component, field, None)
+        if not isinstance(mount, Mount) or mount.temporary:
             return None
 
-        return directory
+        return mount
 
     def warn_temporary_file_roots(self) -> None:
         """Log a warning for each file root holding a temporary directory.
@@ -2059,8 +2063,8 @@ class ComponentSystem(Node, ComponentSource):
         warning says why a declared root is missing.
         """
         for binding in self.get_file_root_bindings().values():
-            directory = getattr(self.component, binding.field, None)
-            if isinstance(directory, Directory) and directory.temporary:
+            mount = getattr(self.component, binding.field, None)
+            if isinstance(mount, Mount) and mount.temporary:
                 self.log.warning(
                     f"File root '{binding.field}' holds a temporary directory, which the file "
                     "browser does not serve."

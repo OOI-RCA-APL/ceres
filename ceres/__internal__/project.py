@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING
 
 from ceres.data import to_json, validate_json
-from ceres.directory import Directory
+from ceres.mount import Mount
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -29,13 +29,13 @@ class Project:
         return self._config_path
 
     @property
-    def directory(self) -> Directory:
-        return Directory(self._config_path.parent)
+    def directory(self) -> Mount:
+        return Mount(self._config_path.parent)
 
     @property
     def state_directory(self) -> Path:
         """The `.ceres` directory, holding runtime state and generated TLS material."""
-        return self.directory / STATE_DIRECTORY
+        return self._config_path.parent / STATE_DIRECTORY
 
     def create_state_directory(self) -> Path:
         """Create the `.ceres` directory if needed, answering its path.

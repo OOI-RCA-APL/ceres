@@ -17,7 +17,6 @@ from ceres.address import Address, AddressSelector, DynamicAddress
 from ceres.concurrency import sleep
 from ceres.config import Config, ConfigCheckType, ConfigSource, collect_unresolved_reference_errors
 from ceres.data import DataObject, Name, PasswordHash, dump, to_json
-from ceres.directory import Directory
 from ceres.error import (
     ComponentCombinedError,
     ComponentError,
@@ -28,6 +27,7 @@ from ceres.error import (
     trace,
 )
 from ceres.event import AttachedEvent, StoppedEvent, StoppingEvent
+from ceres.mount import Mount
 from ceres.node import Node
 
 if TYPE_CHECKING:
@@ -240,12 +240,12 @@ class Engine(Node):
         return self._config.access
 
     @property
-    def project_directory(self) -> Directory | None:
+    def project_directory(self) -> Mount | None:
         """Directory containing the configuration file, or `None` if no path is known."""
         if self.config_path is None:
             return None
 
-        return Directory(self.config_path.parent)
+        return Mount(self.config_path.parent)
 
     @override
     async def __run__(self) -> None:
