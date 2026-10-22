@@ -13,10 +13,8 @@ if TYPE_CHECKING:
     from ceres.engine import Engine
 
 PROJECT_MOUNT = "project"
-"""ID of the mount serving the project directory, to administrators only."""
-
-COMPONENT_MOUNT_PREFIX = "component:"
-"""Prefix of a component mount's ID, followed by `<address>:<name>`."""
+"""ID of the mount serving the project directory, to administrators only. A component mount's
+ID is `<address>/<name>`, which an address's leading `@` keeps apart from this one."""
 
 
 class MountInfo(DataObject):
@@ -53,7 +51,7 @@ class ResolvedMount(DataObject):
 
 def component_mount_id(address: Address, name: str) -> str:
     """Return the ID of the mount the component at `address` lists under `name`."""
-    return f"{COMPONENT_MOUNT_PREFIX}{address}:{name}"
+    return f"{address}/{name}"
 
 
 def _cap(engine: Engine) -> MountAccess:
@@ -166,11 +164,15 @@ async def resolve_mount(engine: Engine, actor: Actor, id: str) -> ResolvedMount:
             max_upload=max_upload,
         )
 
-    address, separator, name = id.removeprefix(COMPONENT_MOUNT_PREFIX).rpartition(":")
-    if not id.startswith(COMPONENT_MOUNT_PREFIX) or not separator:
+    address, separator, name = id.partition("/")
+    if not id.startswith("@") or not separator:
         raise NotFoundError()
 
-    component = engine.get_component(address)
+    try:
+        component = engine.get_component(address)
+    except ValueError:
+        raise NotFoundError() from None
+
     mount = None if component is None else component.system.get_mount(name)
     if component is None or mount is None:
         raise NotFoundError()

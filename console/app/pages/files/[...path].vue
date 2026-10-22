@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { useQuery } from '@/api/client'
 import { useEngine } from '@/api/engine'
-import { type FileMount, filesPagePath } from '@/api/files'
+import { type FileMount, filesPagePath, parseFilesRoute } from '@/api/files'
 import icons from '@/icons'
 
 definePageMeta({ auth: true })
@@ -12,14 +12,13 @@ definePageMeta({ auth: true })
 const engine = useEngine()
 const router = useRouter()
 
-// Read once, since a page instance belongs to one path (see `usePageParameter`). The first
-// segment names the mount, the rest is the path under it.
-const segments = (() => {
+// Read once, since a page instance belongs to one path (see `usePageParameter`).
+const { mount, path } = (() => {
   const value = useRoute().params.path
-  return Array.isArray(value) ? [...value] : value != null && value !== '' ? [value] : []
+  return parseFilesRoute(
+    Array.isArray(value) ? value : value != null && value !== '' ? [value] : [],
+  )
 })()
-const mount = segments[0] ?? null
-const path = segments.slice(1)
 
 const mountsQuery = useQuery({
   queryKey: ['files', 'mounts'],

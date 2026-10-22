@@ -67,20 +67,34 @@ pub(crate) fn documented_routes() -> Vec<schema::Documented> {
             "procedures", params("id", "second"), open: true;
         Delete whep::CLOSE => "End a WebRTC session.", "procedures",
             params("id", "second", "session"), open: true;
-        Get "/api/files/{root}" => "List the top directory of a file root.", "files",
-            params("root");
-        Get "/api/files/{root}/{*path}" =>
-            "List a directory, serve a file, or describe an entry under a file root.", "files",
-            params("root", "path");
-        Put "/api/files/{root}/{*path}" =>
-            "Upload a file, or create a directory with `?directory`, under a file root.", "files",
-            params("root", "path");
-        Patch "/api/files/{root}/{*path}" =>
-            "Rename or move an entry to another path under the same file root.", "files",
-            params("root", "path");
-        Delete "/api/files/{root}/{*path}" =>
+        Get "/api/files/project" => "List the top directory of the project mount.", "files";
+        Get "/api/files/project/{*path}" =>
+            "List a directory, serve a file, or describe an entry under the project mount.",
+            "files", params("path");
+        Put "/api/files/project/{*path}" =>
+            "Upload a file, or create a directory with `?directory`, under the project mount.",
+            "files", params("path");
+        Patch "/api/files/project/{*path}" =>
+            "Rename or move an entry to another path under the project mount.", "files",
+            params("path");
+        Delete "/api/files/project/{*path}" =>
             "Delete a file, or a directory with `?recursive` when it is not empty.", "files",
-            params("root", "path");
+            params("path");
+        Get "/api/files/{address}/{name}" =>
+            "List the top directory of a component's mount.", "files",
+            params("address", "name");
+        Get "/api/files/{address}/{name}/{*path}" =>
+            "List a directory, serve a file, or describe an entry under a component's mount.",
+            "files", params("address", "name", "path");
+        Put "/api/files/{address}/{name}/{*path}" =>
+            "Upload a file, or create a directory with `?directory`, under a component's mount.",
+            "files", params("address", "name", "path");
+        Patch "/api/files/{address}/{name}/{*path}" =>
+            "Rename or move an entry to another path under the same component mount.", "files",
+            params("address", "name", "path");
+        Delete "/api/files/{address}/{name}/{*path}" =>
+            "Delete a file, or a directory with `?recursive` when it is not empty.", "files",
+            params("address", "name", "path");
     };
 
     macro_rules! record_tables {

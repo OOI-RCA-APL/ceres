@@ -117,9 +117,9 @@ async def test_mounts_lists_present_mounts_the_caller_may_view(tmp_path: Path) -
     mounts = await get_mounts(engine, _UNRESTRICTED)
     assert [(mount.id, mount.label, mount.access, mount.temporary) for mount in mounts] == [
         ("project", "Project", MountAccess.EDIT, False),
-        ("component:@hoarder:stash", "Stash", MountAccess.EDIT, False),
-        ("component:@hoarder:ledger", "Ledger", MountAccess.VIEW, False),
-        ("component:@hoarder:scratch", "scratch", MountAccess.EDIT, True),
+        ("@hoarder/stash", "Stash", MountAccess.EDIT, False),
+        ("@hoarder/ledger", "Ledger", MountAccess.VIEW, False),
+        ("@hoarder/scratch", "scratch", MountAccess.EDIT, True),
     ]
 
     await engine.database.dispose()
@@ -142,7 +142,7 @@ async def test_mount_access_is_the_least_of_the_mount_and_the_caller(
     mounts = await get_mounts(engine, actor)
     # The writable temporary `scratch` mount follows the caller the way `stash` does.
     assert [mount.access for mount in mounts] == [stash, ledger, stash]
-    assert (await resolve_mount(engine, actor, "component:@hoarder:ledger")).access == ledger
+    assert (await resolve_mount(engine, actor, "@hoarder/ledger")).access == ledger
 
     await engine.database.dispose()
 
@@ -150,7 +150,7 @@ async def test_mount_access_is_the_least_of_the_mount_and_the_caller(
 @pytest.mark.parametrize(
     ("cap", "ids"),
     [
-        (MountAccess.VIEW, ["project", "component:@hoarder:stash"]),
+        (MountAccess.VIEW, ["project", "@hoarder/stash"]),
         (MountAccess.NONE, []),
     ],
 )
@@ -199,7 +199,7 @@ async def test_mounts_hides_every_mount_from_a_caller_without_access(tmp_path: P
 async def test_resolve_finds_a_mount_the_caller_may_view(tmp_path: Path) -> None:
     engine, _ = await _engine(tmp_path)
 
-    resolved = await resolve_mount(engine, _UNRESTRICTED, "component:@hoarder:stash")
+    resolved = await resolve_mount(engine, _UNRESTRICTED, "@hoarder/stash")
     assert (resolved.path, resolved.access) == (str(tmp_path), MountAccess.EDIT)
 
     await engine.database.dispose()
@@ -209,11 +209,11 @@ async def test_resolve_finds_a_mount_the_caller_may_view(tmp_path: Path) -> None
     "id",
     [
         "project",
-        "component:@hoarder:stash",
-        "component:@hoarder:vault",
-        "component:@hoarder:spare",
-        "component:@hoarder:plain",
-        "component:@missing:stash",
+        "@hoarder/stash",
+        "@hoarder/vault",
+        "@hoarder/spare",
+        "@hoarder/plain",
+        "@missing/stash",
         "stash",
     ],
 )
@@ -226,14 +226,26 @@ async def test_resolve_refuses_a_mount_the_caller_may_not_reach(tmp_path: Path, 
     await engine.database.dispose()
 
 
+@pytest.mark.parametrize(
+    "id", ["@hoarder", "@hoarder/", "hoarder/stash", "@hoarder/stash/abc", "@/stash", "@a b/stash"]
+)
+async def test_resolve_refuses_a_malformed_id(tmp_path: Path, id: str) -> None:
+    engine, _ = await _engine(tmp_path)
+
+    with pytest.raises(NotFoundError):
+        await resolve_mount(engine, _UNRESTRICTED, id)
+
+    await engine.database.dispose()
+
+
 async def test_component_lists_its_present_mounts(tmp_path: Path) -> None:
     engine, hoarder = await _engine(tmp_path)
 
     info = await get_component(engine, _UNRESTRICTED, hoarder.system.address)
     assert [(mount.name, mount.id) for mount in info.mounts] == [
-        ("stash", "component:@hoarder:stash"),
-        ("ledger", "component:@hoarder:ledger"),
-        ("scratch", "component:@hoarder:scratch"),
+        ("stash", "@hoarder/stash"),
+        ("ledger", "@hoarder/ledger"),
+        ("scratch", "@hoarder/scratch"),
     ]
 
     await engine.database.dispose()

@@ -10,7 +10,7 @@ export const MountAccessModel = z.enum(['none', 'view', 'edit'])
 
 export type FileMount = z.infer<typeof FileMountModel>
 export const FileMountModel = z.object({
-  /** Opaque, assigned by the engine, safe in a path once escaped. */
+  /** `project`, or a component's address and the mount's name, `@rig/stills`. */
   id: z.string(),
   name: z.string(),
   label: z.string(),
@@ -80,16 +80,45 @@ export function previewOf(entry: FileEntry): FilePreview {
   )
 }
 
-/** The engine's path for `path` under `mount`, each segment escaped. */
+/** Name of the mount serving the project directory. */
+const PROJECT_MOUNT = 'project'
+
+/** `base`, then the mount's URL segments, then `path`, each segment escaped. A component
+mount's ID, `<address>/<name>`, spans two segments, and `@` stays bare where a URL allows it. */
+function filesUrl(base: string, mount: string, path: readonly string[]): string {
+  const segments = [...mount.split('/'), ...path]
+  return [
+    base,
+    ...segments.map((segment) => encodeURIComponent(segment).replaceAll('%40', '@')),
+  ].join('/')
+}
+
+/** Split a files URL's `segments` into the mount, its own one segment for `project` and two for
+a component's, and the path under it. A malformed mount is kept whole, which no mount matches. */
+export function parseFilesRoute(segments: readonly string[]): {
+  mount: string | null
+  path: string[]
+} {
+  const [first, second, ...rest] = segments
+  if (first == null) {
+    return { mount: null, path: [] }
+  }
+
+  if (first !== PROJECT_MOUNT && first.startsWith('@') && second != null) {
+    return { mount: `${first}/${second}`, path: rest }
+  }
+
+  return { mount: first, path: segments.slice(1) }
+}
+
+/** The engine's path for `path` under `mount`. */
 export function filesApiPath(mount: string, path: readonly string[] = []): string {
-  return ['/api/files', ...[mount, ...path].map(encodeURIComponent)].join('/')
+  return filesUrl('/api/files', mount, path)
 }
 
 /** The console's page for `path` under `mount`, or the mount picker without a mount. */
 export function filesPagePath(mount: string | null, path: readonly string[] = []): string {
-  return mount == null
-    ? '/files'
-    : ['/files', ...[mount, ...path].map(encodeURIComponent)].join('/')
+  return mount == null ? '/files' : filesUrl('/files', mount, path)
 }
 
 /** `size` bytes in the largest binary unit that keeps the number at one or more. */

@@ -13,6 +13,7 @@ import {
   findFileMount,
   formatFileSize,
   parseFilePath,
+  parseFilesRoute,
   previewOf,
 } from '@/api/files'
 
@@ -45,10 +46,8 @@ describe('previewOf', () => {
 })
 
 describe('filesApiPath', () => {
-  it('escapes the mount and every segment on its own', () => {
-    expect(filesApiPath('component:@a.b:c', ['d e', 'f%g'])).toBe(
-      '/api/files/component%3A%40a.b%3Ac/d%20e/f%25g',
-    )
+  it('spells a component mount in two segments and escapes every segment on its own', () => {
+    expect(filesApiPath('@a.b/c', ['d e', 'f%g', '@h'])).toBe('/api/files/@a.b/c/d%20e/f%25g/@h')
     expect(filesApiPath('project')).toBe('/api/files/project')
   })
 })
@@ -57,6 +56,24 @@ describe('filesPagePath', () => {
   it('leads to the mount picker without a mount', () => {
     expect(filesPagePath(null)).toBe('/files')
     expect(filesPagePath('project', ['a', 'b c'])).toBe('/files/project/a/b%20c')
+  })
+})
+
+describe('parseFilesRoute', () => {
+  it('reads the mount from one segment for the project and two for a component', () => {
+    expect(parseFilesRoute([])).toEqual({ mount: null, path: [] })
+    expect(parseFilesRoute(['project', '@a', 'b'])).toEqual({ mount: 'project', path: ['@a', 'b'] })
+    expect(parseFilesRoute(['@a.b', 'c', 'd'])).toEqual({ mount: '@a.b/c', path: ['d'] })
+  })
+
+  it('keeps a malformed mount whole', () => {
+    expect(parseFilesRoute(['@a'])).toEqual({ mount: '@a', path: [] })
+    expect(parseFilesRoute(['a', 'b'])).toEqual({ mount: 'a', path: ['b'] })
+  })
+
+  it('round trips the page path', () => {
+    const segments = filesPagePath('@a.b/c', ['d']).split('/').slice(2).map(decodeURIComponent)
+    expect(parseFilesRoute(segments)).toEqual({ mount: '@a.b/c', path: ['d'] })
   })
 })
 

@@ -1,8 +1,8 @@
 //! The console's file browser.
 //!
 //! Each request asks the host once where its mount lives and what the caller may do there,
-//! then lists, describes, serves, or changes the entry under that mount. The mount ID stays
-//! opaque here, only the host reads it.
+//! then lists, describes, serves, or changes the entry under that mount. A URL names the
+//! mount `project`, or by a component address and the mount's name in two segments.
 
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
@@ -21,7 +21,8 @@ use axum::extract::{Path as Captured, Request, State};
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
-use ceres_config::{FileExclusion, MountAccess};
+use ceres_config::{FileExclusion, MountAccess, Name};
+use ceres_entities::Address;
 use chrono::{DateTime, SecondsFormat, Utc};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -47,36 +48,93 @@ const PART_LIFETIME: Duration = Duration::from_secs(60 * 60);
 /// Largest `PATCH` body read, far above any path the filesystem accepts.
 const RENAME_BODY_LIMIT: usize = 64 * 1024;
 
+/// ID of the mount serving the project directory.
+const PROJECT_MOUNT: &str = "project";
+
 /// Register the file browser's routes, beside the host-dispatched `/api/files`.
 pub(crate) fn register(router: Router<Arc<AppState>>) -> Router<Arc<AppState>> {
     router
         .route(
-            "/api/files/{mount}",
-            get(mount_entry)
-                .put(mount_entry)
-                .patch(mount_entry)
-                .delete(mount_entry),
+            "/api/files/project",
+            get(project_top)
+                .put(project_top)
+                .patch(project_top)
+                .delete(project_top),
         )
         .route(
-            "/api/files/{mount}/{*path}",
-            get(entry).put(entry).patch(entry).delete(entry),
+            "/api/files/project/{*path}",
+            get(project_entry)
+                .put(project_entry)
+                .patch(project_entry)
+                .delete(project_entry),
+        )
+        .route(
+            "/api/files/{address}/{name}",
+            get(component_top)
+                .put(component_top)
+                .patch(component_top)
+                .delete(component_top),
+        )
+        .route(
+            "/api/files/{address}/{name}/{*path}",
+            get(component_entry)
+                .put(component_entry)
+                .patch(component_entry)
+                .delete(component_entry),
         )
 }
 
-async fn mount_entry(
+async fn project_top(
     State(state): State<Arc<AppState>>,
-    Captured(mount): Captured<String>,
     request: Request,
 ) -> Result<Response, ApiError> {
+    respond(&state, MountId::project(), String::new(), request).await
+}
+
+async fn project_entry(
+    State(state): State<Arc<AppState>>,
+    Captured(path): Captured<String>,
+    request: Request,
+) -> Result<Response, ApiError> {
+    respond(&state, MountId::project(), path, request).await
+}
+
+async fn component_top(
+    State(state): State<Arc<AppState>>,
+    Captured((address, name)): Captured<(String, String)>,
+    request: Request,
+) -> Result<Response, ApiError> {
+    let mount = MountId::component(&address, &name)?;
     respond(&state, mount, String::new(), request).await
 }
 
-async fn entry(
+async fn component_entry(
     State(state): State<Arc<AppState>>,
-    Captured((mount, path)): Captured<(String, String)>,
+    Captured((address, name, path)): Captured<(String, String, String)>,
     request: Request,
 ) -> Result<Response, ApiError> {
+    let mount = MountId::component(&address, &name)?;
     respond(&state, mount, path, request).await
+}
+
+/// A mount's ID as the host knows it, `project` or `<address>/<name>`.
+struct MountId(String);
+
+impl MountId {
+    fn project() -> Self {
+        Self(PROJECT_MOUNT.to_string())
+    }
+
+    /// The ID of the mount `name` of the component at `address`, not found unless both are
+    /// valid and `address` names a component rather than the engine.
+    fn component(address: &str, name: &str) -> Result<Self, ApiError> {
+        let address = Address::parse(address).map_err(|_| ApiError::not_found())?;
+        if !address.as_str().starts_with('@') || Name::parse(name).is_err() {
+            return Err(ApiError::not_found());
+        }
+
+        Ok(Self(format!("{address}/{name}")))
+    }
 }
 
 /// Where a mount lives and what the caller may do there, as the host resolved it.
@@ -931,13 +989,13 @@ async fn blocking<T: Send + 'static>(
 
 async fn respond(
     state: &AppState,
-    mount: String,
+    mount: MountId,
     path: String,
     request: Request,
 ) -> Result<Response, ApiError> {
     let query = FileQuery::parse(request.uri().query());
     let Answer::Payload(payload) =
-        Dispatch::lookup(Gate::Authenticated, "files.resolve", [("mount", mount)])
+        Dispatch::lookup(Gate::Authenticated, "files.resolve", [("mount", mount.0)])
             .answer(state, request.headers(), None)
             .await?
     else {
@@ -1204,7 +1262,8 @@ mod tests {
     use crate::host::{Host, UserRecord};
     use crate::layers::apply_compression;
 
-    /// A host serving one mount, `files`, over a temporary directory.
+    /// A host serving one temporary directory as both `project` and the component mount
+    /// `@a.b/c`.
     struct FileHost {
         directory: TempDir,
         exclude: Vec<&'static str>,
@@ -1237,7 +1296,7 @@ mod tests {
 
         async fn operate(&self, operation: &str, arguments: Value) -> Result<Answer, HostError> {
             assert_eq!(operation, "files.resolve");
-            if arguments["path"]["mount"] != "files" {
+            if !["project", "@a.b/c"].contains(&arguments["path"]["mount"].as_str().unwrap()) {
                 return Err(HostError::Typed {
                     status: 404,
                     envelope: "{}".into(),
@@ -1315,18 +1374,18 @@ mod tests {
         }
 
         async fn put(self: &Arc<Self>, path: &str, contents: &'static str) -> StatusCode {
-            let uri = format!("/api/files/files/{path}");
+            let uri = format!("/api/files/project/{path}");
             self.send(HttpRequest::put(uri), contents).await.status()
         }
 
         async fn patch(self: &Arc<Self>, path: &str, to: &str) -> StatusCode {
-            let uri = format!("/api/files/files/{path}");
+            let uri = format!("/api/files/project/{path}");
             let body = json!({ "to": to }).to_string();
             self.send(HttpRequest::patch(uri), body).await.status()
         }
 
         async fn delete(self: &Arc<Self>, path: &str) -> StatusCode {
-            let uri = format!("/api/files/files/{path}");
+            let uri = format!("/api/files/project/{path}");
             self.request(HttpRequest::delete(uri)).await.status()
         }
 
@@ -1366,7 +1425,7 @@ mod tests {
     #[tokio::test]
     async fn a_listing_is_sorted_and_omits_dot_entries_unless_asked() {
         let host = Arc::new(mount(&[("b.txt", "abc"), ("a/c.txt", ""), (".d", "")], &[]));
-        let listing = host.json("/api/files/files").await;
+        let listing = host.json("/api/files/project").await;
         assert_eq!(listing["truncated"], false);
         assert_eq!(listing["entries"][0]["name"], "a");
         assert_eq!(listing["entries"][0]["kind"], "directory");
@@ -1381,11 +1440,11 @@ mod tests {
         );
 
         assert_eq!(
-            host.names("/api/files/files?hidden=true").await,
+            host.names("/api/files/project?hidden=true").await,
             [".d", "a", "b.txt"]
         );
-        assert_eq!(host.names("/api/files/files/a").await, ["c.txt"]);
-        assert_eq!(host.names("/api/files/files?after=a").await, ["b.txt"]);
+        assert_eq!(host.names("/api/files/project/a").await, ["c.txt"]);
+        assert_eq!(host.names("/api/files/project?after=a").await, ["b.txt"]);
     }
 
     #[tokio::test]
@@ -1395,10 +1454,13 @@ mod tests {
             fs::write(host.path(&format!("{index:05}")), "").unwrap();
         }
 
-        let listing = host.json("/api/files/files").await;
+        let listing = host.json("/api/files/project").await;
         assert_eq!(listing["truncated"], true);
         assert_eq!(listing["entries"].as_array().unwrap().len(), LISTING_CAP);
-        assert_eq!(host.names("/api/files/files?after=09999").await, ["10000"]);
+        assert_eq!(
+            host.names("/api/files/project?after=09999").await,
+            ["10000"]
+        );
     }
 
     #[tokio::test]
@@ -1416,7 +1478,7 @@ mod tests {
         }
 
         assert_eq!(
-            host.names("/api/files/files?hidden=true").await,
+            host.names("/api/files/project?hidden=true").await,
             [fresh, ".c.d.part".to_string()]
         );
         assert!(!host.path(&stale).exists());
@@ -1425,7 +1487,7 @@ mod tests {
     #[tokio::test]
     async fn a_file_serves_its_bytes_ranges_and_downloads() {
         let host = Arc::new(mount(&[("a/b c.txt", "abcd")], &[]));
-        let response = host.get("/api/files/files/a/b%20c.txt").await;
+        let response = host.get("/api/files/project/a/b%20c.txt").await;
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.headers()[header::CONTENT_TYPE], "text/plain");
         assert_eq!(
@@ -1440,25 +1502,26 @@ mod tests {
 
         let ranged = host
             .request(
-                HttpRequest::get("/api/files/files/a/b%20c.txt").header(header::RANGE, "bytes=1-2"),
+                HttpRequest::get("/api/files/project/a/b%20c.txt")
+                    .header(header::RANGE, "bytes=1-2"),
             )
             .await;
         assert_eq!(ranged.status(), StatusCode::PARTIAL_CONTENT);
         assert_eq!(body(ranged).await, b"bc");
 
         let head = host
-            .request(HttpRequest::head("/api/files/files/a/b%20c.txt"))
+            .request(HttpRequest::head("/api/files/project/a/b%20c.txt"))
             .await;
         assert_eq!(head.headers()[header::CONTENT_LENGTH], "4");
         assert!(body(head).await.is_empty());
 
-        let download = host.get("/api/files/files/a/b%20c.txt?download").await;
+        let download = host.get("/api/files/project/a/b%20c.txt?download").await;
         assert_eq!(
             download.headers()[header::CONTENT_DISPOSITION],
             "attachment; filename=\"b c.txt\"; filename*=UTF-8''b%20c%2Etxt"
         );
         assert_eq!(
-            host.get("/api/files/files/a?download").await.status(),
+            host.get("/api/files/project/a?download").await.status(),
             StatusCode::BAD_REQUEST
         );
     }
@@ -1466,11 +1529,13 @@ mod tests {
     #[tokio::test]
     async fn a_file_unchanged_since_its_etag_answers_not_modified() {
         let host = Arc::new(mount(&[("a.txt", "abcd")], &[]));
-        let response = host.get("/api/files/files/a.txt").await;
+        let response = host.get("/api/files/project/a.txt").await;
         let etag = response.headers()[header::ETAG].clone();
 
         let cached = host
-            .request(HttpRequest::get("/api/files/files/a.txt").header(header::IF_NONE_MATCH, etag))
+            .request(
+                HttpRequest::get("/api/files/project/a.txt").header(header::IF_NONE_MATCH, etag),
+            )
             .await;
         assert_eq!(cached.status(), StatusCode::NOT_MODIFIED);
         assert_eq!(cached.headers()[header::CONTENT_SECURITY_POLICY], "sandbox");
@@ -1483,14 +1548,15 @@ mod tests {
         let host = Arc::new(mount(&[("a.csv", &"x,y\n".repeat(1000))], &[]));
         let whole = host
             .request(
-                HttpRequest::get("/api/files/files/a.csv").header(header::ACCEPT_ENCODING, "gzip"),
+                HttpRequest::get("/api/files/project/a.csv")
+                    .header(header::ACCEPT_ENCODING, "gzip"),
             )
             .await;
         assert_eq!(whole.headers()[header::CONTENT_ENCODING], "gzip");
 
         let ranged = host
             .request(
-                HttpRequest::get("/api/files/files/a.csv")
+                HttpRequest::get("/api/files/project/a.csv")
                     .header(header::ACCEPT_ENCODING, "gzip")
                     .header(header::RANGE, "bytes=0-3"),
             )
@@ -1503,13 +1569,13 @@ mod tests {
     #[tokio::test]
     async fn stat_describes_an_entry_and_the_root() {
         let host = Arc::new(mount(&[("a/b", "abc")], &[]));
-        let stat = host.json("/api/files/files/a/b?stat").await;
+        let stat = host.json("/api/files/project/a/b?stat").await;
         assert_eq!(
             (&stat["name"], &stat["kind"], &stat["size"]),
             (&json!("b"), &json!("file"), &json!(3))
         );
 
-        let stat = host.json("/api/files/files?stat").await;
+        let stat = host.json("/api/files/project?stat").await;
         assert_eq!(
             (&stat["name"], &stat["kind"]),
             (&json!(""), &json!("directory"))
@@ -1526,19 +1592,19 @@ mod tests {
         host.link(&host.path("data/raw/y"), "link");
 
         assert_eq!(
-            host.names("/api/files/files?hidden=true").await,
+            host.names("/api/files/project?hidden=true").await,
             ["a", "data", "z"]
         );
         assert_eq!(
-            host.names("/api/files/files/a?hidden=true").await,
+            host.names("/api/files/project/a?hidden=true").await,
             Vec::<String>::new()
         );
         assert_eq!(
-            host.names("/api/files/files/data").await,
+            host.names("/api/files/project/data").await,
             Vec::<String>::new()
         );
         for path in ["a/.venv", "a/.venv/x", "data/raw/y", "link", "missing"] {
-            let response = host.get(&format!("/api/files/files/{path}")).await;
+            let response = host.get(&format!("/api/files/project/{path}")).await;
             assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
         }
     }
@@ -1552,7 +1618,7 @@ mod tests {
         host.link(&outside.path().join("secret"), "out");
         host.link(&host.path("a"), "in");
 
-        let listing = host.json("/api/files/files").await;
+        let listing = host.json("/api/files/project").await;
         let kinds: Vec<_> = listing["entries"]
             .as_array()
             .unwrap()
@@ -1561,10 +1627,10 @@ mod tests {
             .collect();
         assert_eq!(kinds, [json!("file"), json!("file"), json!("other")]);
         assert_eq!(
-            host.get("/api/files/files/out").await.status(),
+            host.get("/api/files/project/out").await.status(),
             StatusCode::NOT_FOUND
         );
-        assert_eq!(body(host.get("/api/files/files/in").await).await, b"abc");
+        assert_eq!(body(host.get("/api/files/project/in").await).await, b"abc");
     }
 
     #[cfg(unix)]
@@ -1583,14 +1649,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_unknown_root_answers_what_the_host_does() {
-        let host = Arc::new(mount(&[], &[]));
+    async fn a_mount_is_project_or_a_component_address_and_a_name() {
+        let host = Arc::new(mount(&[("@d/e", "abc")], &[]));
+        assert_eq!(host.names("/api/files/@a.b/c").await, ["@d"]);
         assert_eq!(
-            host.get("/api/files/other").await.status(),
-            StatusCode::NOT_FOUND
+            body(host.get("/api/files/project/@d/e").await).await,
+            b"abc"
         );
+        for uri in [
+            "/api/files/other",
+            "/api/files/@a.b",
+            "/api/files/@nope/c",
+            "/api/files/a.b/c",
+            "/api/files/~/c",
+            "/api/files/@a.b/c%20d",
+        ] {
+            assert_eq!(host.get(uri).await.status(), StatusCode::NOT_FOUND, "{uri}");
+        }
+
         assert_eq!(
-            host.get("/api/files/files/%2E%2E").await.status(),
+            host.get("/api/files/project/%2E%2E").await.status(),
             StatusCode::BAD_REQUEST
         );
     }
@@ -1603,7 +1681,7 @@ mod tests {
         assert_eq!(host.put("a/c.txt", "abc").await, StatusCode::NO_CONTENT);
         assert_eq!(host.contents("a/c.txt").as_deref(), Some("abc"));
         assert_eq!(
-            host.names("/api/files/files/a?hidden=true").await,
+            host.names("/api/files/project/a?hidden=true").await,
             ["b", "c.txt"]
         );
         assert_eq!(host.put("missing/c.txt", "").await, StatusCode::NOT_FOUND);
@@ -1613,10 +1691,11 @@ mod tests {
     async fn an_upload_honors_its_preconditions() {
         let host = Arc::new(mount(&[("a", "abc")], &[]));
         let create_only = |path: &str| {
-            HttpRequest::put(format!("/api/files/files/{path}")).header(header::IF_NONE_MATCH, "*")
+            HttpRequest::put(format!("/api/files/project/{path}"))
+                .header(header::IF_NONE_MATCH, "*")
         };
         let if_match =
-            |tag: &str| HttpRequest::put("/api/files/files/a").header(header::IF_MATCH, tag);
+            |tag: &str| HttpRequest::put("/api/files/project/a").header(header::IF_MATCH, tag);
 
         assert_eq!(
             host.send(create_only("a"), "x").await.status(),
@@ -1632,18 +1711,21 @@ mod tests {
         );
         assert_eq!(host.contents("a").as_deref(), Some("abc"));
 
-        let served = host.get("/api/files/files/a").await.headers()[header::ETAG].clone();
+        let served = host.get("/api/files/project/a").await.headers()[header::ETAG].clone();
         let tag = served.to_str().unwrap();
         assert_eq!(
             host.send(if_match(tag), "abcd").await.status(),
             StatusCode::NO_CONTENT
         );
-        let missing = HttpRequest::put("/api/files/files/c").header(header::IF_MATCH, "*");
+        let missing = HttpRequest::put("/api/files/project/c").header(header::IF_MATCH, "*");
         assert_eq!(
             host.send(missing, "x").await.status(),
             StatusCode::PRECONDITION_FAILED
         );
-        assert_eq!(host.names("/api/files/files?hidden=true").await, ["a", "b"]);
+        assert_eq!(
+            host.names("/api/files/project?hidden=true").await,
+            ["a", "b"]
+        );
     }
 
     #[tokio::test]
@@ -1652,14 +1734,14 @@ mod tests {
         host.max_upload = Some(3);
         let host = Arc::new(host);
 
-        let declared = HttpRequest::put("/api/files/files/a").header(header::CONTENT_LENGTH, "4");
+        let declared = HttpRequest::put("/api/files/project/a").header(header::CONTENT_LENGTH, "4");
         assert_eq!(
             host.send(declared, "abcd").await.status(),
             StatusCode::PAYLOAD_TOO_LARGE
         );
         assert_eq!(host.put("a", "abcd").await, StatusCode::PAYLOAD_TOO_LARGE);
         assert_eq!(host.put("b", "abc").await, StatusCode::CREATED);
-        assert_eq!(host.names("/api/files/files?hidden=true").await, ["b"]);
+        assert_eq!(host.names("/api/files/project?hidden=true").await, ["b"]);
     }
 
     #[cfg(unix)]
@@ -1676,7 +1758,7 @@ mod tests {
     #[tokio::test]
     async fn a_directory_is_created_once() {
         let host = Arc::new(mount(&[], &[]));
-        let create = || HttpRequest::put("/api/files/files/a?directory");
+        let create = || HttpRequest::put("/api/files/project/a?directory");
         assert_eq!(host.request(create()).await.status(), StatusCode::CREATED);
         assert!(host.path("a").is_dir());
         assert_eq!(host.request(create()).await.status(), StatusCode::CONFLICT);
@@ -1770,7 +1852,7 @@ mod tests {
         let root = |method: Method| {
             HttpRequest::builder()
                 .method(method)
-                .uri("/api/files/files")
+                .uri("/api/files/project")
         };
         for method in [Method::PUT, Method::PATCH, Method::DELETE] {
             let status = host
