@@ -159,8 +159,28 @@ export function exportRunRequest(
 
 /** Why the server refused a run, as a sentence. */
 export function describeExportRunFailure(error: unknown): string {
+  return describeRefusal(error, {
+    'failed-to-start': 'The run failed to start.',
+    'not-permitted-error': 'Starting a run needs operate access.',
+    'already-exists-error': 'A run of this exporter already waits for another.',
+  })
+}
+
+/** Why the server refused a playback, as a sentence. */
+export function describePlaybackFailure(error: unknown): string {
+  return describeRefusal(error, {
+    'failed-to-start': 'The playback failed to start.',
+    'not-permitted-error': 'A playback needs manage access.',
+    'already-exists-error': 'A playback of this component already runs.',
+  })
+}
+
+function describeRefusal(
+  error: unknown,
+  sentences: Record<'failed-to-start' | 'not-permitted-error' | 'already-exists-error', string>,
+): string {
   if (!(error instanceof Failure)) {
-    return 'The run failed to start.'
+    return sentences['failed-to-start']
   }
 
   const info = error.error as { type: string; problems?: { message: string }[] }
@@ -168,9 +188,8 @@ export function describeExportRunFailure(error: unknown): string {
     case 'not-running-error':
       return 'The component is not running.'
     case 'not-permitted-error':
-      return 'Starting a run needs operate access.'
     case 'already-exists-error':
-      return 'A run of this exporter already waits for another.'
+      return sentences[info.type]
   }
 
   const messages = info.problems?.map((problem) => problem.message) ?? []
@@ -179,4 +198,107 @@ export function describeExportRunFailure(error: unknown): string {
   }
 
   return `The server responded with "${info.type}".`
+}
+
+export type PlaybackLevel = z.infer<typeof PlaybackLevelModel>
+export const PlaybackLevelModel = z.enum(['particles', 'full'])
+
+/** One playback of a component's stored messages through its stored sieves. */
+export type PlaybackRecord = z.infer<typeof PlaybackRecordModel>
+export const PlaybackRecordModel = z.object({
+  id: z.string(),
+  after: z.string(),
+  before: z.string(),
+  level: PlaybackLevelModel,
+  export: z.boolean(),
+  state: ExportRunStateModel,
+  started: z.string(),
+  ended: z.string().nullable(),
+  /** Stored particles deleted before the replay. */
+  deleted: z.number(),
+  messages: z.number(),
+  /** Particles stored so far. */
+  particles: z.number(),
+  export_runs: z.array(z.string()),
+  exception: z.string().nullable(),
+})
+
+/** Body of a request to start a playback over `[after, before)`, `before` defaulting to now. */
+export type PlaybackRequest = {
+  after: string
+  before: string | null
+  level: PlaybackLevel
+  export: boolean
+}
+
+/** How a component's last playback went, as one line, or that it never ran. */
+export function describePlayback(run: PlaybackRecord | undefined): string {
+  if (run == null) {
+    return 'Never played back.'
+  }
+
+  const counts = `${counted(run.messages, 'message')} into ${counted(run.particles, 'particle')}`
+  switch (run.state) {
+    case 'running':
+      return `Playing back, ${counts} so far.`
+    case 'completed':
+      return `${minute(run.started)}, ${counts}, replacing ${run.deleted}.`
+    case 'failed': {
+      const [first = ''] = (run.exception ?? 'unknown error').split('\n')
+      const shown =
+        first.length > exceptionLength ? `${first.slice(0, exceptionLength - 3)}...` : first
+      return `${minute(run.started)}, failed: ${shown}`
+    }
+  }
+}
+
+/** Whether a playback is still going, which keeps the listing polled. */
+export function isPlaybackRunning(runs: PlaybackRecord[] | undefined): boolean {
+  return runs?.some((run) => run.state === 'running') ?? false
+}
+
+/** The form a playback asks for. */
+export function playbackSchema(): SchemaObject {
+  return {
+    type: 'object',
+    description:
+      'Replaces the stored particles in the range with ones parsed again from stored messages.',
+    properties: {
+      after: { type: 'string', format: 'date-time', title: 'After' },
+      before: {
+        type: 'string',
+        format: 'date-time',
+        title: 'Before',
+        description: 'Now when left empty.',
+      },
+      level: {
+        type: 'string',
+        title: 'Level',
+        enum: ['particles', 'full'],
+        default: 'particles',
+        description: 'Full also runs every particle listener as if live.',
+      },
+      export: {
+        type: 'boolean',
+        title: 'Rebuild exporter files',
+        default: true,
+      },
+    },
+    required: ['after'],
+  }
+}
+
+/** The request a playback form's values send. */
+export function playbackRequest(values: {
+  after: string
+  before?: string | null
+  level?: PlaybackLevel
+  export?: boolean
+}): PlaybackRequest {
+  return {
+    after: values.after,
+    before: values.before ?? null,
+    level: values.level ?? 'particles',
+    export: values.export ?? true,
+  }
 }

@@ -703,6 +703,61 @@
         ]
       }
     },
+    "/api/components/{id}/playbacks": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List one component's recent playbacks, newest first.",
+        "tags": [
+          "playbacks"
+        ]
+      },
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
+        "summary": "Start a playback of stored messages over a range, access checked by the operation.",
+        "tags": [
+          "playbacks"
+        ]
+      }
+    },
     "/api/components/{id}/procedures": {
       "get": {
         "parameters": [
@@ -2655,6 +2710,9 @@
     },
     {
       "name": "exporters"
+    },
+    {
+      "name": "playbacks"
     },
     {
       "name": "queries"

@@ -1,6 +1,6 @@
 # Coverage
 
-<!-- coverage:fingerprint:49cc6bc30e5ac09b -->
+<!-- coverage:fingerprint:0e0157d5663bb6a7 -->
 
 ## Python
 
@@ -31,7 +31,8 @@
 | `ceres/__internal__/models/variables.py` | 100% |
 | `ceres/__internal__/models/workspaces.py` | 100% |
 | `ceres/__internal__/netcdf.py` | 98% |
-| `ceres/__internal__/particles.py` | 94% |
+| `ceres/__internal__/particles.py` | 96% |
+| `ceres/__internal__/playback.py` | 91% |
 | `ceres/__internal__/project.py` | 96% |
 | `ceres/__internal__/protocols.py` | 100% |
 | `ceres/__internal__/record.py` | 82% |
@@ -140,9 +141,9 @@
 | `rust/ceres-cli/src/output.rs` | 91% |
 | `rust/ceres-cli/src/project.rs` | 84% |
 | `rust/ceres-cli/src/reference.rs` | 100% |
-| `rust/ceres-cli/src/runtime.rs` | 8% |
+| `rust/ceres-cli/src/runtime.rs` | 10% |
 | `rust/ceres-cli/src/selector.rs` | 100% |
-| `rust/ceres-cli/src/service.rs` | 42% |
+| `rust/ceres-cli/src/service.rs` | 41% |
 | `rust/ceres-config/src/database.rs` | 89% |
 | `rust/ceres-config/src/error.rs` | 95% |
 | `rust/ceres-config/src/logging.rs` | 91% |
