@@ -4,11 +4,12 @@ import inspect
 import os
 from collections.abc import Callable, Iterable
 from pathlib import Path, PurePath
-from typing import TYPE_CHECKING, BinaryIO
+from typing import TYPE_CHECKING, Any, BinaryIO
 
 import pytest
+import yaml
 
-from ceres import AsyncMount, Mount
+from ceres import AsyncMount, Component, Config, Mount, Project
 from ceres.data import dump, validate
 
 if TYPE_CHECKING:
@@ -81,6 +82,55 @@ class TestIdentity:
         assert validate(AsyncMount, mount) == mount
         assert validate(Mount, tmp_path) == mount
         assert dump(mount) == str(tmp_path)
+
+
+class Recorder(Component):
+    output: Mount
+
+
+RECORDER_CONFIG = {
+    "components": [
+        {
+            "name": "recorder",
+            "class": "tests.test_mount:Recorder",
+            "arguments": {"output": "./data"},
+        }
+    ]
+}
+
+
+class TestProjectPaths:
+    @pytest.fixture
+    def elsewhere(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        """Run from a directory other than the project's."""
+        path = tmp_path / "elsewhere"
+        path.mkdir()
+        monkeypatch.chdir(path)
+        return path
+
+    def create(self, source: Path | dict[str, Any]) -> Recorder:
+        recorder = Config.read(source).components[0].create()
+        assert isinstance(recorder, Recorder)
+        return recorder
+
+    def test_resolves_a_file_path_beside_the_file(self, tmp_path: Path, elsewhere: Path) -> None:
+        path = tmp_path / "ceres.yaml"
+        path.write_text(yaml.safe_dump(RECORDER_CONFIG))
+        recorder = self.create(path)
+        assert recorder.output == Mount(tmp_path / "data")
+        assert dump(recorder.output) == str(tmp_path / "data")
+
+    def test_keeps_a_linked_project_path_as_written(self, tmp_path: Path, elsewhere: Path) -> None:
+        real = tmp_path / "real"
+        real.mkdir()
+        (real / "ceres.yaml").write_text(yaml.safe_dump(RECORDER_CONFIG))
+        link = tmp_path / "link"
+        link.symlink_to(real)
+        assert self.create(link / "ceres.yaml").output == Mount(link / "data")
+        assert Project(link / "ceres.yaml").directory == Mount(link)
+
+    def test_resolves_a_mapping_path_against_the_current_directory(self, elsewhere: Path) -> None:
+        assert self.create(RECORDER_CONFIG).output == Mount(elsewhere / "data")
 
 
 class TestTemporary:

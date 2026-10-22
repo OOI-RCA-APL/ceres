@@ -79,9 +79,12 @@ from ceres.level import Level
 from ceres.logs import LogEntryFilter
 from ceres.message import MessageFilter
 from ceres.particle import ParticleFilter
+from ceres.project import Project
 from ceres.schedule import ScheduleExpr
 
 if TYPE_CHECKING:
+    import dataclasses
+
     from ceres.component import Component, ComponentSystem
     from ceres.connection import Connection, ConnectionField
     from ceres.engine import Engine
@@ -531,6 +534,14 @@ class ComponentConfig(DataObject):
     components: list[ComponentConfig] = Field(default_factory=list)
     """Nested child component configurations."""
 
+    # The project of the file this configuration was read from, passed again to validation
+    # when the component is created. No field holds it, so it never serializes and reload
+    # never compares it. `copy.copy`, `copy.deepcopy`, and `dataclasses.replace` drop it.
+    if TYPE_CHECKING:
+        _project: Project | None = dataclasses.field(init=False, repr=False, compare=False)
+    else:
+        _project = None
+
     @field_validator("cls")
     def _validate_cls(cls, value: ImportString[type]) -> ImportString[type[Component]]:
         from ceres.component import Component
@@ -541,14 +552,15 @@ class ComponentConfig(DataObject):
         return value
 
     @model_validator(mode="after")
-    def _validate_arguments(self) -> Self:
+    def _validate_arguments(self, info: ValidationInfo) -> Self:
         # Reserve the `__with` prefix for internal injection of name, config, and container
         # during component construction, user-supplied arguments must not collide.
         for argument in self.arguments:
             if argument.startswith("__with"):
                 raise ValueError(f"arguments starting with '__with' are reserved, got '{argument}'")
 
-        validate(self.cls, self.arguments)
+        self._project = Project.from_context(info.context)
+        validate(self.cls, self.arguments, context=self._validation_context)
         return self
 
     @field_validator("name")
@@ -598,6 +610,10 @@ class ComponentConfig(DataObject):
                 )
 
         return components
+
+    @property
+    def _validation_context(self) -> dict[str, Any] | None:
+        return None if self._project is None else {"project": self._project}
 
     def create(
         self,
@@ -686,6 +702,7 @@ class ComponentConfig(DataObject):
                     "__with_config__": self,
                     "__with_container__": container,
                 },
+                context=self._validation_context,
             )
         except ValidationError as error:
             errors.append(
@@ -1037,6 +1054,9 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
     def read(cls, source: ConfigSource[Self]) -> Self:
         """Read and validate a configuration from a path, mapping, or existing instance.
 
+        A relative `Mount` path in a file resolves against the file's directory, and one in a
+        mapping against the current directory.
+
         Args:
             source: A path to a YAML file, an in-memory mapping, or an already-validated
                 instance of this class.
@@ -1057,6 +1077,7 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
         if isinstance(source, cls):
             return source
 
+        context: dict[str, Any] | None = None
         if isinstance(source, Mapping):
             data = source
         elif isinstance(source, Path):
@@ -1084,11 +1105,13 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
                         )
 
                 raise ConfigParseError(message=message, location=location)
+
+            context = {"project": Project(source)}
         else:
             raise ConfigInvalidSourceError(message=f"invalid source type: {type(source)}")
 
         try:
-            instance = validate(cls, data)
+            instance = validate(cls, data, context=context)
         except ValidationError as error:
             raise ConfigValidationError(problems=ValidationProblem.extract(error, data))
 

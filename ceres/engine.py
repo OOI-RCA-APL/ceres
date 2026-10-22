@@ -27,8 +27,8 @@ from ceres.error import (
     trace,
 )
 from ceres.event import AttachedEvent, StoppedEvent, StoppingEvent
-from ceres.mount import Mount
 from ceres.node import Node
+from ceres.project import Project
 
 if TYPE_CHECKING:
     from ceres.__internal__.entity import BaseEntityManager
@@ -141,7 +141,7 @@ class Engine(Node):
     __slots__ = (
         "_loaded",
         "_config",
-        "_config_path",
+        "_project",
         "_apply_lock",
         "_database",
         "_components",
@@ -157,7 +157,7 @@ class Engine(Node):
         self._server_override: Callable[[ServerConfig], ServerConfig] | None = None
         self._loaded = False
         self._config = Config()
-        self._config_path: Path | None = None
+        self._project: Project | None = None
         # Serializes concurrent `_apply` invocations so configuration reloads can't interleave.
         self._apply_lock = asyncio.Lock()
         self._database = Database()
@@ -227,7 +227,13 @@ class Engine(Node):
     @property
     def config_path(self) -> Path | None:
         """Filesystem path the current configuration was loaded from, if any."""
-        return self._config_path
+        return None if self._project is None else self._project.config_path
+
+    @property
+    def project(self) -> Project | None:
+        """The project of the configuration file loaded, or `None` for a configuration given
+        as a mapping or an instance."""
+        return self._project
 
     @property
     def default_tags(self) -> list[str]:
@@ -238,14 +244,6 @@ class Engine(Node):
     def default_access(self) -> ComponentAccessLevel | None:
         """Config-level default access for components with none declared, or `None`."""
         return self._config.access
-
-    @property
-    def project_directory(self) -> Mount | None:
-        """Directory containing the configuration file, or `None` if no path is known."""
-        if self.config_path is None:
-            return None
-
-        return Mount(self.config_path.parent)
 
     @override
     async def __run__(self) -> None:
@@ -575,7 +573,7 @@ class Engine(Node):
             if self._server_override is not None:
                 config.server = self._server_override(config.server)
 
-            self._config_path = config_path
+            self._project = None if config_path is None else Project(config_path)
             self._config = config
 
             # Snapshot which components are currently running, we'll restart them at the end.

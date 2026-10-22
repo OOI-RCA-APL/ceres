@@ -5,9 +5,10 @@ from __future__ import annotations
 import stat
 from typing import TYPE_CHECKING
 
-from ceres.__internal__.project import LoadedProject, Project
+from ceres.__internal__.project import LoadedProject
 from ceres.__internal__.server import CLIServerInfo
 from ceres.config import ConfigMeta
+from ceres.project import Project
 
 if TYPE_CHECKING:
     from pathlib import Path

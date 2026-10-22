@@ -1,55 +1,13 @@
 from typing import TYPE_CHECKING
 
 from ceres.data import to_json, validate_json
-from ceres.mount import Mount
+from ceres.project import Project
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     from ceres.__internal__.server import CLIServerInfo
     from ceres.config import ConfigMeta
-
-
-STATE_DIRECTORY = ".ceres"
-"""Name of the directory in a project that holds what Ceres writes for itself."""
-
-
-class Project:
-    """Represent a Ceres project identified by its configuration file path.
-
-    Provide access to derived paths such as the project directory and the `.ceres` state
-    directory beside the configuration.
-    """
-
-    def __init__(self, config_path: Path) -> None:
-        self._config_path = config_path.resolve()
-
-    @property
-    def config_path(self) -> Path:
-        return self._config_path
-
-    @property
-    def directory(self) -> Mount:
-        return Mount(self._config_path.parent)
-
-    @property
-    def state_directory(self) -> Path:
-        """The `.ceres` directory, holding runtime state and generated TLS material."""
-        return self._config_path.parent / STATE_DIRECTORY
-
-    def create_state_directory(self) -> Path:
-        """Create the `.ceres` directory if needed, answering its path.
-
-        It ignores itself through its own `.gitignore`, so nothing in it reaches version
-        control whatever the project's own ignore rules say.
-        """
-        directory = self.state_directory
-        directory.mkdir(parents=True, exist_ok=True)
-        ignore = directory / ".gitignore"
-        if not ignore.exists():
-            ignore.write_text("*\n")
-
-        return directory
 
 
 class LoadedProject(Project):

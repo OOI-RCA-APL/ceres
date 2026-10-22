@@ -407,6 +407,10 @@ from the package, `from ceres import Component`.
     options:
       heading_level: 3
 
+::: ceres.project.Project
+    options:
+      heading_level: 3
+
 
 ## Concurrency
 

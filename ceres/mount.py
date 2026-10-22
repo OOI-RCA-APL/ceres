@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from _typeshed import OpenBinaryMode, OpenTextMode
     from pydantic import GetCoreSchemaHandler
     from pydantic_core import CoreSchema
+    from pydantic_core.core_schema import ValidationInfo
 
 __all__ = [
     "AsyncMount",
@@ -77,7 +78,8 @@ class MountPath(PathLike[str]):
 
         Args:
             path: The mount's root directory, a relative path resolving against the current
-                directory. Another `Mount` or `AsyncMount` converts to this type at the same
+                directory. A relative path in a configuration file resolves against the
+                directory holding the file instead. Another `Mount` or `AsyncMount` converts to this type at the same
                 place. `None` creates a temporary directory removed with the last value that
                 refers to it, or at interpreter exit.
             writable: Whether the component's own code may change files through this value.
@@ -111,19 +113,30 @@ class MountPath(PathLike[str]):
     ) -> CoreSchema:
         from pydantic_core.core_schema import (
             is_instance_schema,
-            no_info_after_validator_function,
             plain_serializer_function_ser_schema,
             str_schema,
             union_schema,
+            with_info_after_validator_function,
         )
 
-        def validate(value: StrPath) -> Self:
+        def validate(value: StrPath | MountPath, info: ValidationInfo) -> Self:
             if isinstance(value, cls):
                 return value
 
-            return cls(value)
+            if isinstance(value, MountPath):
+                return cls(value)
 
-        return no_info_after_validator_function(
+            from ceres.project import Project
+
+            # A relative path read from a configuration file resolves beside the file.
+            path = Path(value)
+            project = Project.from_context(info.context)
+            if project is not None and not path.is_absolute():
+                path = project.directory.path / path
+
+            return cls(path)
+
+        return with_info_after_validator_function(
             validate,
             union_schema([is_instance_schema(PathLike), str_schema()]),
             serialization=plain_serializer_function_ser_schema(str),

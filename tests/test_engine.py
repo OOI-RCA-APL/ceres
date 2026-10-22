@@ -1,4 +1,4 @@
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from pydantic import ValidationError, model_validator
@@ -9,7 +9,11 @@ from ceres.config import Config, ConfigCheckType
 from ceres.data import validate
 from ceres.engine import Engine
 from ceres.error import ComponentCombinedError, ConfigCombinedError
+from ceres.project import Project
 from ceres.reference import Ref, unref
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class JobbedComponent(Component):
@@ -282,3 +286,33 @@ async def test_checking_a_configuration_logs_nothing_about_what_it_built(
     # moment later, so nothing happened that anyone reading the verdict needs told.
     captured = capsys.readouterr()
     assert "job-added" not in captured.out + captured.err
+
+
+async def test_engine_names_the_project_of_a_loaded_file(tmp_path: Path) -> None:
+    path = tmp_path / "ceres.yaml"
+    path.write_text(
+        "components: [{name: alpha}]\n"
+        f"database:\n  type: sqlite\n  path: {tmp_path / 'records.sqlite'}\n"
+    )
+    engine = Engine()
+    await engine.load(path, checks=())
+    try:
+        assert engine.project == Project(path)
+        alpha = engine.get_component("alpha")
+
+        # Each component configuration holds the project outside its comparison, so an
+        # unchanged file reloads without rebuilding anything.
+        await engine.reload(checks=())
+        assert engine.get_component("alpha") is alpha
+    finally:
+        if engine.server is not None:
+            await engine.server.stop()
+
+        await engine.database.dispose()
+
+
+async def test_engine_has_no_project_for_a_mapping() -> None:
+    engine = Engine()
+    await engine.load(_config({}), checks=())
+    assert engine.project is None
+    await engine.database.dispose()

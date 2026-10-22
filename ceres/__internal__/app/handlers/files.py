@@ -69,8 +69,8 @@ def _served_components(engine: Engine) -> list[Component]:
 
 
 def _project_root(engine: Engine) -> Path:
-    project = engine.project_directory
-    base = project.path if project is not None else Path.cwd()
+    project = engine.project
+    base = project.directory.path if project is not None else Path.cwd()
     root = engine.config.server.files.root
     return base if root is None else base / root
 

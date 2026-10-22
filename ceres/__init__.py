@@ -110,6 +110,8 @@ __all__ = [
     "GroupPermission",
     "PermissionTargetType",
     "UserPermission",
+    # .project
+    "Project",
     # .record
     "Record",
     "RecordType",
@@ -214,6 +216,7 @@ with __lazy_imports__(__name__, export=True):
         RegexParticle,
     )
     from ceres.permission import GroupPermission, PermissionTargetType, UserPermission
+    from ceres.project import Project
     from ceres.record import Record, RecordType
     from ceres.reference import Ref, Reference, unref
     from ceres.schedule import Schedule, ScheduleType
