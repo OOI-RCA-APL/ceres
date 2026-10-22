@@ -1,9 +1,9 @@
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING
 
 import pytest
 
-from ceres import Component, Files, Mount
-from ceres.component import get_file_root_bindings
+from ceres import Bound, Component, Mount
+from ceres.component import get_mount_bindings
 from ceres.directory import Directory
 
 if TYPE_CHECKING:
@@ -26,12 +26,12 @@ def test_directory_child_is_a_plain_mount(tmp_path: Path) -> None:
     assert type(directory.parent) is Mount
 
 
-def test_directory_field_serves_a_file_root(tmp_path: Path) -> None:
+def test_directory_field_binds_a_mount(tmp_path: Path) -> None:
     class Hoarder(Component):
-        stash: Annotated[Directory | None, Files()] = None
+        stash: Bound[Directory] = Mount.Field(...)
 
     with pytest.warns(FutureWarning):
         hoarder = Hoarder(stash=Directory(tmp_path))
 
-    assert list(get_file_root_bindings(Hoarder)) == ["stash"]
-    assert hoarder.system.get_file_root("stash") == Mount(tmp_path)
+    assert list(get_mount_bindings(Hoarder)) == ["stash"]
+    assert hoarder.system.get_mount("stash") == Mount(tmp_path)

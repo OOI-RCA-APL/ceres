@@ -1186,12 +1186,18 @@ class ServerFilesConfig:
         r"""
         Largest file one upload may write, in bytes, unlimited when `None`.
         """
+    @property
+    def access(self) -> str:
+        r"""
+        Most any caller may do with any mount, `"none"`, `"view"`, or `"edit"`.
+        """
     def __new__(
         cls,
         *,
         root: str | PathLike[str] | Path | None = None,
         exclude: Sequence[str] | None = None,
         max_upload: int | str | None = None,
+        access: str | None = None,
     ) -> Self: ...
     def __to_dict__(self) -> dict[str, Any]:
         r"""

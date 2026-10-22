@@ -185,9 +185,9 @@ export type FilesWidget = z.infer<typeof FilesWidgetModel>
 export const FilesWidgetModel = BaseWidgetModel.extend({
   type: z.literal('files'),
   name: z.string().catch('Files'),
-  /** The file root the widget browses, its ID as the engine lists it. The directory open in it
-  is each browser's own. */
-  root: z.string().nullish(),
+  /** The mount the widget browses, its ID as the engine lists it. The directory open in it is
+  each browser's own. */
+  mount: z.string().nullish(),
 })
 
 /** A stored control color, in the vocabulary the old console wrote and the engine still holds. */

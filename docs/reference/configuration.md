@@ -123,6 +123,7 @@ What the console's file browser serves.
 | `root` | string |  | Directory the project root serves to administrators, the project directory when omitted. A relative path resolves against the project directory. On a network share each listed entry costs a round trip. |
 | `exclude` | list of string |  | Glob patterns naming entries that are never listed or served, in any root, such as `.venv` and `node_modules`. A pattern without a `/` matches an entry's name at any depth, and a pattern with one, or starting with one, matches the path from the root. |
 | `max-upload` | integer or string |  | Largest file one upload may write, such as `2GiB`, unlimited when omitted. |
+| `access` | string or string or string |  | Most any caller may do with any mount, `edit` when omitted. `view` makes every mount read-only and `none` turns the file browser off. |
 
 ### `ServerCertificateConfig`
 

@@ -27,6 +27,10 @@ from the package, `from ceres import Component`.
     options:
       heading_level: 3
 
+::: ceres.component.MountField
+    options:
+      heading_level: 3
+
 ::: ceres.component.ProcedureType
     options:
       heading_level: 3
@@ -253,10 +257,6 @@ from the package, `from ceres import Component`.
       heading_level: 3
 
 ::: ceres.directory.Directory
-    options:
-      heading_level: 3
-
-::: ceres.directory.Files
     options:
       heading_level: 3
 

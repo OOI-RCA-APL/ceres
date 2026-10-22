@@ -907,11 +907,6 @@ class Engine(Node):
 
             creation_errors.extend(reference_errors)
 
-            # Warned here, since a component logs nowhere until it is attached to the engine.
-            if not silent:
-                for target in reference_targets:
-                    target.system.warn_temporary_file_roots()
-
         if strict and creation_errors:
             raise ComponentCombinedError(errors=creation_errors)
 

@@ -89,7 +89,7 @@ caller themselves against the resource they name.
 
 | Method | Path | Token | Description |
 | --- | --- | --- | --- |
-| `GET` | `/api/files` | required | List the file roots the caller may view. |
+| `GET` | `/api/files` | required | List the mounts the caller may view. |
 | `GET` | `/api/files/{root}` | required | List the top directory of a file root. |
 | `GET` | `/api/files/{root}/{*path}` | required | List a directory, serve a file, or describe an entry under a file root. |
 | `PUT` | `/api/files/{root}/{*path}` | required | Upload a file, or create a directory with `?directory`, under a file root. |

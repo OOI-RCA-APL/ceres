@@ -47,10 +47,10 @@ describe('the widget registry', () => {
     expect(pagesOf(createWidget('meter'))).toHaveLength(0)
   })
 
-  it('stores a files widget root and leaves the open directory to each browser', () => {
+  it('stores a files widget mount and leaves the open directory to each browser', () => {
     expect(createWidget('files')).toMatchObject({ type: 'files', name: 'Files' })
-    const stored = WidgetModel.parse({ type: 'files', root: 'abc', path: ['abcd'] })
-    expect(stored).toMatchObject({ type: 'files', root: 'abc' })
+    const stored = WidgetModel.parse({ type: 'files', mount: 'abc', path: ['abcd'] })
+    expect(stored).toMatchObject({ type: 'files', mount: 'abc' })
     expect(stored).not.toHaveProperty('path')
   })
 })

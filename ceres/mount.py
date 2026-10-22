@@ -6,7 +6,19 @@ from collections.abc import Callable, Iterator
 from os import PathLike
 from pathlib import Path, PurePath
 from tempfile import mkdtemp
-from typing import IO, TYPE_CHECKING, Any, BinaryIO, Literal, Self, overload, override
+from typing import (
+    IO,
+    TYPE_CHECKING,
+    Any,
+    BinaryIO,
+    ClassVar,
+    Literal,
+    NotRequired,
+    Self,
+    TypedDict,
+    overload,
+    override,
+)
 
 from ceres.concurrency import spawn
 from ceres.data import uuid4
@@ -17,6 +29,8 @@ if TYPE_CHECKING:
     from pydantic import GetCoreSchemaHandler
     from pydantic_core import CoreSchema
     from pydantic_core.core_schema import ValidationInfo
+
+    from ceres.component import MountField
 
 __all__ = [
     "AsyncMount",
@@ -48,6 +62,21 @@ class MountAccess(OrderedStrEnum):
 MountAccessInput = MountAccess | Literal["none", "view", "edit"]
 
 
+class MountSetting(TypedDict):
+    """A mount written in configuration as a mapping, to set its `access` beside its path."""
+
+    path: StrPath
+    access: NotRequired[MountAccessInput]
+
+
+class _MountFieldReference:
+    # Resolves at first use, since `ceres.component` imports this module.
+    def __get__(self, instance: object, owner: type) -> type[MountField]:
+        from ceres.component import MountField
+
+        return MountField
+
+
 class MountPath(PathLike[str]):
     """A place inside a mount, the root directory plus a path relative to it.
 
@@ -59,6 +88,7 @@ class MountPath(PathLike[str]):
         "_root",
         "_relative",
         "_writable",
+        "_access",
         "_temporary",
         "_owner",
         "__weakref__",
@@ -67,33 +97,52 @@ class MountPath(PathLike[str]):
     _root: Path
     _relative: PurePath
     _writable: bool
+    _access: MountAccess | None
     _temporary: bool
     _owner: MountPath | None
     """The value carrying a temporary root's finalizer, held so the directory outlives every
     value inside it. `None` on that value itself, since a reference to itself would delay its
     removal to the next garbage collection."""
 
-    def __init__(self, path: StrPath | MountPath | None = None, *, writable: bool | None = None):
+    if TYPE_CHECKING:
+        Field: ClassVar[type[MountField]]
+        """Declares a component field holding a mount, see `MountField`."""
+    else:
+        Field = _MountFieldReference()
+
+    def __init__(
+        self,
+        path: StrPath | MountPath | None = None,
+        *,
+        writable: bool | None = None,
+        access: MountAccessInput | None = None,
+    ):
         """Construct a value at `path`.
 
         Args:
             path: The mount's root directory, a relative path resolving against the current
                 directory. A relative path in a configuration file resolves against the
-                directory holding the file instead. Another `Mount` or `AsyncMount` converts to this type at the same
-                place. `None` creates a temporary directory removed with the last value that
-                refers to it, or at interpreter exit.
+                directory holding the file instead. Another `Mount` or `AsyncMount` converts to
+                this type at the same place. `None` creates a temporary directory removed with
+                the last value that refers to it, or at interpreter exit.
             writable: Whether the component's own code may change files through this value.
                 Defaults to the converted value's setting, `True` otherwise.
+            access: Most the files API may do with the mount, see `access`. Defaults to the
+                converted value's setting, `None` otherwise.
         """
         if isinstance(path, MountPath):
             path._copy_into(self, path._relative)
             if writable is not None:
                 self._writable = writable
 
+            if access is not None:
+                self._access = MountAccess(access)
+
             return
 
         self._relative = PurePath()
         self._writable = True if writable is None else writable
+        self._access = None if access is None else MountAccess(access)
         self._temporary = path is None
         self._owner = None
         if path is not None:
@@ -115,31 +164,50 @@ class MountPath(PathLike[str]):
             is_instance_schema,
             plain_serializer_function_ser_schema,
             str_schema,
+            typed_dict_field,
+            typed_dict_schema,
             union_schema,
             with_info_after_validator_function,
         )
 
-        def validate(value: StrPath | MountPath, info: ValidationInfo) -> Self:
-            if isinstance(value, cls):
-                return value
+        def validate(value: StrPath | MountSetting, info: ValidationInfo) -> Self:
+            given, access = (
+                (value["path"], value.get("access")) if isinstance(value, dict) else (value, None)
+            )
+            if isinstance(given, MountPath):
+                if isinstance(given, cls) and access is None:
+                    return given
 
-            if isinstance(value, MountPath):
-                return cls(value)
+                return cls(given, access=access)
 
             from ceres.project import Project
 
             # A relative path read from a configuration file resolves beside the file.
-            path = Path(value)
+            path = Path(given)
             project = Project.from_context(info.context)
             if project is not None and not path.is_absolute():
                 path = project.directory.path / path
 
-            return cls(path)
+            return cls(path, access=access)
 
+        def serialize(value: MountPath) -> str | dict[str, str]:
+            if value._access is None:
+                return str(value)
+
+            return {"path": str(value), "access": value._access.value}
+
+        path = union_schema([is_instance_schema(PathLike), str_schema()])
+        setting = typed_dict_schema(
+            {
+                "path": typed_dict_field(path),
+                "access": typed_dict_field(handler.generate_schema(MountAccess), required=False),
+            },
+            extra_behavior="forbid",
+        )
         return with_info_after_validator_function(
             validate,
-            union_schema([is_instance_schema(PathLike), str_schema()]),
-            serialization=plain_serializer_function_ser_schema(str),
+            union_schema([path, setting]),
+            serialization=plain_serializer_function_ser_schema(serialize),
         )
 
     @property
@@ -166,6 +234,16 @@ class MountPath(PathLike[str]):
     def writable(self) -> bool:
         """Whether the component's own code may change files through this value."""
         return self._writable
+
+    @property
+    def access(self) -> MountAccess | None:
+        """Most the files API may do with the mount, `None` to follow `writable`.
+
+        A `None` value allows `MountAccess.EDIT` on a writable mount and `MountAccess.VIEW` on
+        a read-only one. The server's `server.files.access` cap and each caller's access level
+        on the component lower it further.
+        """
+        return self._access
 
     @property
     def temporary(self) -> bool:
@@ -234,6 +312,7 @@ class MountPath(PathLike[str]):
         value._root = self._root
         value._relative = relative
         value._writable = self._writable
+        value._access = self._access
         value._temporary = self._temporary
         value._owner = self._owner if self._owner is not None or not self._temporary else self
 

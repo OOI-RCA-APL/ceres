@@ -9,22 +9,22 @@ const { widget } = defineProps<{
 
 const engine = useEngine()
 
-const rootsQuery = useQuery({
-  queryKey: ['files', 'roots'],
-  queryFn: () => engine.files.getRoots(),
+const mountsQuery = useQuery({
+  queryKey: ['files', 'mounts'],
+  queryFn: () => engine.files.getMounts(),
 })
-const roots = $computed(() => rootsQuery.data.value ?? [])
+const mounts = $computed(() => mountsQuery.data.value ?? [])
 </script>
 
 <template>
   <c-workspace-widget-settings :widget>
     <c-schema-form-value
-      v-model="widget.root"
+      v-model="widget.mount"
       :schema="{
         type: 'string',
-        title: 'Root',
-        enum: roots.map((current) => current.id),
-        enumLabels: roots.map((current) =>
+        title: 'Mount',
+        enum: mounts.map((current) => current.id),
+        enumLabels: mounts.map((current) =>
           current.component == null ? current.label : `${current.label} (${current.component})`,
         ),
         optional: true,

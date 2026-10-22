@@ -2,20 +2,29 @@ import { defineStore } from 'pinia'
 import * as z from 'zod'
 
 import { useClient } from '@/api/client'
-import { ComponentAccessLevelModel } from '@/api/permissions'
 import { getHttpUrl } from '@/utilities'
 
-export type FileRoot = z.infer<typeof FileRootModel>
-export const FileRootModel = z.object({
+export type MountAccess = z.infer<typeof MountAccessModel>
+/** What the caller may do with a mount, `edit` adding upload, create, rename, and delete. */
+export const MountAccessModel = z.enum(['none', 'view', 'edit'])
+
+export type FileMount = z.infer<typeof FileMountModel>
+export const FileMountModel = z.object({
   /** Opaque, assigned by the engine, safe in a path once escaped. */
   id: z.string(),
+  name: z.string(),
   label: z.string(),
-  /** The address of the component whose field declares the root, null for the project root. */
+  /** The address of the component whose field holds the mount, null for the project mount. */
   component: z.string().nullable(),
-  level: ComponentAccessLevelModel,
-  /** Whether the caller may upload, create, rename, and delete under the root. */
-  writable: z.boolean(),
+  access: MountAccessModel,
+  /** Whether the mount is a temporary directory removed with its component. */
+  temporary: z.boolean(),
 })
+
+/** The mount in `mounts` with `id`, null when the caller cannot reach it. */
+export function findFileMount(mounts: readonly FileMount[] | undefined, id: string) {
+  return mounts?.find((mount) => mount.id === id) ?? null
+}
 
 export type FileKind = z.infer<typeof FileKindModel>
 export const FileKindModel = z.enum(['file', 'directory', 'other'])
@@ -71,14 +80,16 @@ export function previewOf(entry: FileEntry): FilePreview {
   )
 }
 
-/** The engine's path for `path` under `root`, each segment escaped. */
-export function filesApiPath(root: string, path: readonly string[] = []): string {
-  return ['/api/files', ...[root, ...path].map(encodeURIComponent)].join('/')
+/** The engine's path for `path` under `mount`, each segment escaped. */
+export function filesApiPath(mount: string, path: readonly string[] = []): string {
+  return ['/api/files', ...[mount, ...path].map(encodeURIComponent)].join('/')
 }
 
-/** The console's page for `path` under `root`, or the root picker without a root. */
-export function filesPagePath(root: string | null, path: readonly string[] = []): string {
-  return root == null ? '/files' : ['/files', ...[root, ...path].map(encodeURIComponent)].join('/')
+/** The console's page for `path` under `mount`, or the mount picker without a mount. */
+export function filesPagePath(mount: string | null, path: readonly string[] = []): string {
+  return mount == null
+    ? '/files'
+    : ['/files', ...[mount, ...path].map(encodeURIComponent)].join('/')
 }
 
 /** `size` bytes in the largest binary unit that keeps the number at one or more. */
@@ -104,8 +115,8 @@ export function filterEntries(entries: readonly FileEntry[], filter: string): Fi
 export type FileAction = 'open' | 'download' | 'copyPath' | 'move' | 'delete'
 
 /** What applies to `targets`, in the order every menu lists it. Opening takes a single entry, a
-download takes the files among them, and a change takes a writable root. */
-export function fileActions(targets: readonly FileEntry[], writable: boolean): FileAction[] {
+download takes the files among them, and a change takes a mount the caller may edit. */
+export function fileActions(targets: readonly FileEntry[], editable: boolean): FileAction[] {
   if (targets.length === 0) {
     return []
   }
@@ -114,12 +125,12 @@ export function fileActions(targets: readonly FileEntry[], writable: boolean): F
     ...(targets.length === 1 ? (['open'] as const) : []),
     ...(targets.some((entry) => entry.kind === 'file') ? (['download'] as const) : []),
     'copyPath',
-    ...(writable ? (['move', 'delete'] as const) : []),
+    ...(editable ? (['move', 'delete'] as const) : []),
   ]
 }
 
-/** The segments of `text`, a path under a root typed with `/` between its names. A leading,
-trailing, or doubled `/` adds none, so `/` alone is the root itself. */
+/** The segments of `text`, a path under a mount typed with `/` between its names. A leading,
+trailing, or doubled `/` adds none, so `/` alone is the mount itself. */
 export function parseFilePath(text: string): string[] {
   return text.split('/').filter((name) => name !== '')
 }
@@ -182,11 +193,11 @@ export function describeFileWriteStatus(status: number, message?: string): strin
 
 async function writeFile(
   method: 'PUT' | 'PATCH' | 'DELETE',
-  root: string,
+  mount: string,
   path: readonly string[],
   { query = '', body, headers }: { query?: string; body?: BodyInit; headers?: HeadersInit } = {},
 ): Promise<void> {
-  const url = new URL(filesApiPath(root, path) + query, window.location.href)
+  const url = new URL(filesApiPath(mount, path) + query, window.location.href)
   const response = await fetch(url, { method, body, headers, credentials: 'include' })
   if (!response.ok) {
     const error = await response.json().catch(() => null)
@@ -198,32 +209,32 @@ async function writeFile(
 export const useFiles = defineStore('files', () => {
   const client = useClient()
 
-  async function getRoots(): Promise<FileRoot[]> {
-    return await client.get('/api/files', { parse: z.array(FileRootModel) })
+  async function getMounts(): Promise<FileMount[]> {
+    return await client.get('/api/files', { parse: z.array(FileMountModel) })
   }
 
-  /** List the directory at `path` under `root`, dot entries included when `hidden`. */
+  /** List the directory at `path` under `mount`, dot entries included when `hidden`. */
   async function list(
-    root: string,
+    mount: string,
     path: readonly string[],
     { hidden = false }: { hidden?: boolean } = {},
   ): Promise<FileListing> {
-    return await client.get(filesApiPath(root, path), {
+    return await client.get(filesApiPath(mount, path), {
       query: hidden ? { hidden: true } : null,
       parse: FileListingModel,
     })
   }
 
-  /** Describe the entry at `path` under `root`, the root itself when `path` is empty. */
-  async function stat(root: string, path: readonly string[]): Promise<FileEntry> {
-    return await client.get(filesApiPath(root, path), {
+  /** Describe the entry at `path` under `mount`, the mount itself when `path` is empty. */
+  async function stat(mount: string, path: readonly string[]): Promise<FileEntry> {
+    return await client.get(filesApiPath(mount, path), {
       query: { stat: true },
       parse: FileEntryModel,
     })
   }
 
-  async function readBytes(root: string, path: readonly string[], end?: number) {
-    const response = await fetch(new URL(filesApiPath(root, path), window.location.href), {
+  async function readBytes(mount: string, path: readonly string[], end?: number) {
+    const response = await fetch(new URL(filesApiPath(mount, path), window.location.href), {
       credentials: 'include',
       headers: end == null ? undefined : { Range: `bytes=0-${end - 1}` },
     })
@@ -234,68 +245,68 @@ export const useFiles = defineStore('files', () => {
     return await response.arrayBuffer()
   }
 
-  /** The file at `path` under `root`, `size` bytes long, as text, or null when it is binary. Only
+  /** The file at `path` under `mount`, `size` bytes long, as text, or null when it is binary. Only
   its start is fetched for a file that turns out binary. */
   async function readText(
-    root: string,
+    mount: string,
     path: readonly string[],
     size: number,
   ): Promise<string | null> {
     if (size <= TEXT_SNIFF_LENGTH) {
-      return decodeText(await readBytes(root, path))
+      return decodeText(await readBytes(mount, path))
     }
 
-    const start = await readBytes(root, path, TEXT_SNIFF_LENGTH)
+    const start = await readBytes(mount, path, TEXT_SNIFF_LENGTH)
     if (decodeText(start, { partial: true }) == null) {
       return null
     }
 
-    return decodeText(await readBytes(root, path))
+    return decodeText(await readBytes(mount, path))
   }
 
-  /** Upload `file` to `path` under `root`. Without `replace` an existing file is kept and the
+  /** Upload `file` to `path` under `mount`. Without `replace` an existing file is kept and the
   upload fails with status 412. */
   async function upload(
-    root: string,
+    mount: string,
     path: readonly string[],
     file: Blob,
     { replace = false }: { replace?: boolean } = {},
   ): Promise<void> {
-    await writeFile('PUT', root, path, {
+    await writeFile('PUT', mount, path, {
       body: file,
       headers: replace ? undefined : { 'If-None-Match': '*' },
     })
   }
 
-  async function createDirectory(root: string, path: readonly string[]): Promise<void> {
-    await writeFile('PUT', root, path, { query: '?directory' })
+  async function createDirectory(mount: string, path: readonly string[]): Promise<void> {
+    await writeFile('PUT', mount, path, { query: '?directory' })
   }
 
-  /** Rename or move the entry at `path` under `root` to `to`, a path under the same root. */
-  async function move(root: string, path: readonly string[], to: readonly string[]) {
-    await writeFile('PATCH', root, path, {
+  /** Rename or move the entry at `path` under `mount` to `to`, a path under the same mount. */
+  async function move(mount: string, path: readonly string[], to: readonly string[]) {
+    await writeFile('PATCH', mount, path, {
       body: JSON.stringify({ to: to.join('/') }),
       headers: { 'Content-Type': 'application/json' },
     })
   }
 
-  /** Delete the entry at `path` under `root`, a directory with everything in it. */
-  async function remove(root: string, path: readonly string[]): Promise<void> {
-    await writeFile('DELETE', root, path, { query: '?recursive' })
+  /** Delete the entry at `path` under `mount`, a directory with everything in it. */
+  async function remove(mount: string, path: readonly string[]): Promise<void> {
+    await writeFile('DELETE', mount, path, { query: '?recursive' })
   }
 
-  /** The address an element's `src` loads the file at `path` under `root` from. */
-  function sourceUrl(root: string, path: readonly string[]): string {
-    return getHttpUrl(filesApiPath(root, path))
+  /** The address an element's `src` loads the file at `path` under `mount` from. */
+  function sourceUrl(mount: string, path: readonly string[]): string {
+    return getHttpUrl(filesApiPath(mount, path))
   }
 
-  /** The address that downloads the file at `path` under `root` instead of showing it. */
-  function downloadUrl(root: string, path: readonly string[]): string {
-    return `${filesApiPath(root, path)}?download`
+  /** The address that downloads the file at `path` under `mount` instead of showing it. */
+  function downloadUrl(mount: string, path: readonly string[]): string {
+    return `${filesApiPath(mount, path)}?download`
   }
 
   return {
-    getRoots,
+    getMounts,
     list,
     stat,
     readText,

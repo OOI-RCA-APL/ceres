@@ -10,6 +10,7 @@ import {
   filesApiPath,
   filesPagePath,
   filterEntries,
+  findFileMount,
   formatFileSize,
   parseFilePath,
   previewOf,
@@ -44,7 +45,7 @@ describe('previewOf', () => {
 })
 
 describe('filesApiPath', () => {
-  it('escapes the root and every segment on its own', () => {
+  it('escapes the mount and every segment on its own', () => {
     expect(filesApiPath('component:@a.b:c', ['d e', 'f%g'])).toBe(
       '/api/files/component%3A%40a.b%3Ac/d%20e/f%25g',
     )
@@ -53,9 +54,25 @@ describe('filesApiPath', () => {
 })
 
 describe('filesPagePath', () => {
-  it('leads to the root picker without a root', () => {
+  it('leads to the mount picker without a mount', () => {
     expect(filesPagePath(null)).toBe('/files')
     expect(filesPagePath('project', ['a', 'b c'])).toBe('/files/project/a/b%20c')
+  })
+})
+
+describe('findFileMount', () => {
+  it('finds a listed mount and nothing for an unlisted one', () => {
+    const mount = {
+      id: 'project',
+      name: 'project',
+      label: 'Project',
+      component: null,
+      access: 'view' as const,
+      temporary: false,
+    }
+    expect(findFileMount([mount], 'project')).toBe(mount)
+    expect(findFileMount([mount], 'abc')).toBeNull()
+    expect(findFileMount(undefined, 'project')).toBeNull()
   })
 })
 
@@ -68,7 +85,7 @@ describe('filterEntries', () => {
 })
 
 describe('fileActions', () => {
-  it('opens one entry, downloads only files, and changes nothing in a read-only root', () => {
+  it('opens one entry, downloads only files, and changes nothing in a mount it may only view', () => {
     expect(fileActions([file('a')], false)).toEqual(['open', 'download', 'copyPath'])
     expect(fileActions([folder('a')], false)).toEqual(['open', 'copyPath'])
     expect(fileActions([folder('a')], true)).toEqual(['open', 'copyPath', 'move', 'delete'])

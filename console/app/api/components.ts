@@ -5,6 +5,7 @@ import * as z from 'zod'
 import { type Address, AddressModel } from '@/api/address'
 import { useAuth } from '@/api/auth'
 import { useClient, useQuery } from '@/api/client'
+import { type FileMount, FileMountModel } from '@/api/files'
 import { MessageModel } from '@/api/messages'
 import type { ComponentAccessLevel } from '@/api/permissions'
 import { AnyResultModel, ConnectivityModel } from '@/api/shared'
@@ -162,14 +163,6 @@ export const ParticleTypeInfoModel = z.object({
   connections: z.array(z.string()).default([]),
 })
 
-export type ComponentFilesInfo = z.infer<typeof ComponentFilesInfoModel>
-export const ComponentFilesInfoModel = z.object({
-  field: z.string(),
-  label: z.string(),
-  /** The root's ID under `/api/files`. */
-  root: z.string(),
-})
-
 export type ComponentInfo = {
   name: string
   address: Address
@@ -178,7 +171,7 @@ export type ComponentInfo = {
   connections: ConnectionInfo[]
   components: ComponentInfo[]
   particles: ParticleTypeInfo[]
-  files: ComponentFilesInfo[]
+  mounts: FileMount[]
 }
 
 export const ComponentInfoModel: z.ZodType<ComponentInfo> = z.object({
@@ -191,7 +184,7 @@ export const ComponentInfoModel: z.ZodType<ComponentInfo> = z.object({
     return z.array(ComponentInfoModel)
   },
   particles: z.array(ParticleTypeInfoModel),
-  files: z.array(ComponentFilesInfoModel).default([]),
+  mounts: z.array(FileMountModel).default([]),
 }) as z.ZodType<ComponentInfo>
 
 export const useComponents = defineStore('components', () => {

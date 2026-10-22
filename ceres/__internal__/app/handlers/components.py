@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import Field
 
-from ceres.__internal__.app.handlers.files import component_root_id
+from ceres.__internal__.app.handlers.files import MountInfo, component_mounts
 from ceres.__internal__.app.shared import (
     get_component_access,
     get_components_access,
@@ -76,15 +76,6 @@ class ParticleTypeInfo(DataObject):
     """
 
 
-class ComponentFilesInfo(DataObject):
-    """A `Mount` field of a component that the console's file browser serves."""
-
-    field: Name
-    label: str
-    root: str
-    """ID of the file root, for `/api/files/{root}`."""
-
-
 class ComponentInfo(DataObject):
     """Recursive description of a component, its procedures, connections, and children."""
 
@@ -96,22 +87,24 @@ class ComponentInfo(DataObject):
     tags: list[str]
     particles: list[ParticleTypeInfo]
     """The particle types the component declares, with their field schemas."""
-    files: list[ComponentFilesInfo]
-    """The file roots the component's fields serve."""
+    mounts: list[MountInfo]
+    """The mounts the component's fields hold that the caller may view."""
 
 
 ComponentInfo.__name__ = "Component"
 ComponentInfo.__qualname__ = "Component"
 
 
-def _describe_component(component: Component, *, visible: bool) -> ComponentInfo:
-    """Build a `ComponentInfo` for `component`, its own details omitted when `visible` is `False`.
+def _describe_component(
+    engine: Engine, component: Component, level: ComponentAccessLevel | None
+) -> ComponentInfo:
+    """Build a `ComponentInfo` for `component`, its own details omitted when `level` is `None`.
 
     A component the caller cannot view is still returned as a bare container so the tree stays
     connected to any visible descendant, but its procedures, connections, and tags are withheld.
     """
     system = component.system
-    if visible:
+    if level is not None:
         procedures = list(system.get_procedure_bindings().values())
         connections = [
             ConnectionInfo(
@@ -125,21 +118,13 @@ def _describe_component(component: Component, *, visible: bool) -> ComponentInfo
         ]
         tags = system.tags
         particles = _described_particle_classes(component)
-        files = [
-            ComponentFilesInfo(
-                field=binding.field,
-                label=binding.label,
-                root=component_root_id(system.address, binding.field),
-            )
-            for binding in system.get_file_root_bindings().values()
-            if system.get_file_root(binding.field) is not None
-        ]
+        mounts = component_mounts(engine, component, level)
     else:
         procedures = []
         connections = []
         tags = []
         particles = []
-        files = []
+        mounts = []
 
     return ComponentInfo(
         name=system.name,
@@ -149,11 +134,12 @@ def _describe_component(component: Component, *, visible: bool) -> ComponentInfo
         components=[],
         tags=tags,
         particles=particles,
-        files=files,
+        mounts=mounts,
     )
 
 
 def _build_tree(
+    engine: Engine,
     component: Component,
     access: dict[Address, ComponentAccessLevel | None] | None,
 ) -> ComponentInfo | None:
@@ -168,15 +154,15 @@ def _build_tree(
     """
     children: list[ComponentInfo] = []
     for child in component.system.children:
-        described = _build_tree(child.component, access)
+        described = _build_tree(engine, child.component, access)
         if described is not None:
             children.append(described)
 
-    visible = access is None or access.get(component.system.address) is not None
-    if not visible and not children:
+    level = ComponentAccessLevel.MANAGE if access is None else access.get(component.system.address)
+    if level is None and not children:
         return None
 
-    info = _describe_component(component, visible=visible)
+    info = _describe_component(engine, component, level)
     info.components = children
     return info
 
@@ -194,7 +180,7 @@ async def get_components(engine: Engine, actor: Actor) -> list[ComponentInfo]:
         if component.system.parent is not None:
             continue
 
-        described = _build_tree(component, access)
+        described = _build_tree(engine, component, access)
         if described is not None:
             result.append(described)
 
@@ -220,7 +206,7 @@ async def get_component(engine: Engine, actor: Actor, address: Address) -> Compo
         )
 
     try:
-        info = _build_tree(component, access)
+        info = _build_tree(engine, component, access)
     except Exception:
         traceback.print_exc()
         raise

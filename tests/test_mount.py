@@ -9,8 +9,9 @@ from typing import TYPE_CHECKING, Any, BinaryIO
 import pytest
 import yaml
 
-from ceres import AsyncMount, Component, Config, Mount, Project
+from ceres import AsyncMount, Bound, Component, Config, Mount, Project
 from ceres.data import dump, validate
+from ceres.mount import MountAccess
 
 if TYPE_CHECKING:
     from ceres.mount import MountPath
@@ -99,6 +100,22 @@ RECORDER_CONFIG = {
 }
 
 
+class Archivist(Component):
+    output: Bound[Mount] = Mount.Field(...)
+    stills: Bound[Mount] = Mount.Field("./stills", writable=False)
+
+
+ARCHIVIST_CONFIG = {
+    "components": [
+        {
+            "name": "archivist",
+            "class": "tests.test_mount:Archivist",
+            "arguments": {"output": {"path": "./data", "access": "view"}},
+        }
+    ]
+}
+
+
 class TestProjectPaths:
     @pytest.fixture
     def elsewhere(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -131,6 +148,18 @@ class TestProjectPaths:
 
     def test_resolves_a_mapping_path_against_the_current_directory(self, elsewhere: Path) -> None:
         assert self.create(RECORDER_CONFIG).output == Mount(elsewhere / "data")
+
+    def test_reads_and_dumps_a_setting_with_access(self, tmp_path: Path, elsewhere: Path) -> None:
+        path = tmp_path / "ceres.yaml"
+        path.write_text(yaml.safe_dump(ARCHIVIST_CONFIG))
+        archivist = Config.read(path).components[0].create()
+        assert isinstance(archivist, Archivist)
+        assert (archivist.output.access, archivist.stills) == (
+            MountAccess.VIEW,
+            Mount(tmp_path / "stills"),
+        )
+        assert dump(archivist.output) == {"path": str(tmp_path / "data"), "access": "view"}
+        assert not archivist.stills.writable
 
 
 class TestTemporary:

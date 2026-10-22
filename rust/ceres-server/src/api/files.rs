@@ -1,7 +1,7 @@
 //! The console's file browser.
 //!
-//! Each request asks the host once where its root lives and what the caller may do there,
-//! then lists, describes, serves, or changes the entry under that root. The root ID stays
+//! Each request asks the host once where its mount lives and what the caller may do there,
+//! then lists, describes, serves, or changes the entry under that mount. The mount ID stays
 //! opaque here, only the host reads it.
 
 use std::cmp::Ordering;
@@ -21,7 +21,7 @@ use axum::extract::{Path as Captured, Request, State};
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
-use ceres_config::FileExclusion;
+use ceres_config::{FileExclusion, MountAccess};
 use chrono::{DateTime, SecondsFormat, Utc};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -51,39 +51,39 @@ const RENAME_BODY_LIMIT: usize = 64 * 1024;
 pub(crate) fn register(router: Router<Arc<AppState>>) -> Router<Arc<AppState>> {
     router
         .route(
-            "/api/files/{root}",
-            get(root_entry)
-                .put(root_entry)
-                .patch(root_entry)
-                .delete(root_entry),
+            "/api/files/{mount}",
+            get(mount_entry)
+                .put(mount_entry)
+                .patch(mount_entry)
+                .delete(mount_entry),
         )
         .route(
-            "/api/files/{root}/{*path}",
+            "/api/files/{mount}/{*path}",
             get(entry).put(entry).patch(entry).delete(entry),
         )
 }
 
-async fn root_entry(
+async fn mount_entry(
     State(state): State<Arc<AppState>>,
-    Captured(root): Captured<String>,
+    Captured(mount): Captured<String>,
     request: Request,
 ) -> Result<Response, ApiError> {
-    respond(&state, root, String::new(), request).await
+    respond(&state, mount, String::new(), request).await
 }
 
 async fn entry(
     State(state): State<Arc<AppState>>,
-    Captured((root, path)): Captured<(String, String)>,
+    Captured((mount, path)): Captured<(String, String)>,
     request: Request,
 ) -> Result<Response, ApiError> {
-    respond(&state, root, path, request).await
+    respond(&state, mount, path, request).await
 }
 
-/// Where a root lives and what the caller may do there, as the host resolved it.
+/// Where a mount lives and what the caller may do there, as the host resolved it.
 #[derive(Deserialize)]
-struct ResolvedRoot {
+struct ResolvedMount {
     path: PathBuf,
-    writable: bool,
+    access: MountAccess,
     exclude: Vec<String>,
     max_upload: Option<u64>,
 }
@@ -179,14 +179,14 @@ enum Found {
     File(VerifiedFile, String),
 }
 
-/// A root opened for one request, its canonical path and exclusions.
-struct OpenRoot {
+/// A mount opened for one request, its root's canonical path and exclusions.
+struct OpenMount {
     canonical: PathBuf,
     exclusion: FileExclusion,
 }
 
-impl OpenRoot {
-    fn open(resolved: ResolvedRoot) -> Result<Self, ApiError> {
+impl OpenMount {
+    fn open(resolved: ResolvedMount) -> Result<Self, ApiError> {
         let exclusion = FileExclusion::new(&resolved.exclude)
             .map_err(|error| HostError::Internal(format!("invalid `exclude` pattern: {error}")))?;
         let canonical = fs::canonicalize(&resolved.path).map_err(|_| ApiError::not_found())?;
@@ -931,28 +931,31 @@ async fn blocking<T: Send + 'static>(
 
 async fn respond(
     state: &AppState,
-    root: String,
+    mount: String,
     path: String,
     request: Request,
 ) -> Result<Response, ApiError> {
     let query = FileQuery::parse(request.uri().query());
     let Answer::Payload(payload) =
-        Dispatch::lookup(Gate::Authenticated, "files.resolve", [("root", root)])
+        Dispatch::lookup(Gate::Authenticated, "files.resolve", [("mount", mount)])
             .answer(state, request.headers(), None)
             .await?
     else {
         return Err(HostError::Internal("files.resolve answered without a payload".into()).into());
     };
-    let resolved: ResolvedRoot = serde_json::from_str(&payload)
+    let resolved: ResolvedMount = serde_json::from_str(&payload)
         .map_err(|error| HostError::Internal(format!("files.resolve answered {error}")))?;
     let names = split_path(&path)?;
+    if resolved.access == MountAccess::None {
+        return Err(ApiError::not_found());
+    }
 
     let method = request.method().clone();
     if method == Method::GET || method == Method::HEAD {
         return read(resolved, names, query, request).await;
     }
 
-    if !resolved.writable {
+    if resolved.access != MountAccess::Edit {
         return Err(ApiError::not_permitted());
     }
 
@@ -966,13 +969,13 @@ async fn respond(
 }
 
 async fn read(
-    resolved: ResolvedRoot,
+    resolved: ResolvedMount,
     names: Vec<String>,
     query: FileQuery,
     request: Request,
 ) -> Result<Response, ApiError> {
     let download = query.download;
-    let found = blocking(move || OpenRoot::open(resolved)?.find(&names, &query)).await?;
+    let found = blocking(move || OpenMount::open(resolved)?.find(&names, &query)).await?;
 
     match found {
         Found::Listing(listing) => Ok(json(&listing)),
@@ -1009,7 +1012,7 @@ async fn read(
 
 /// Stream the request's body into a part beside the target, then move it into place.
 async fn upload(
-    resolved: ResolvedRoot,
+    resolved: ResolvedMount,
     names: Vec<String>,
     request: Request,
 ) -> Result<Response, ApiError> {
@@ -1026,7 +1029,7 @@ async fn upload(
 
     let conditions = UploadConditions::parse(request.headers());
     let (target, part, file, conditions) = blocking(move || {
-        let target = OpenRoot::open(resolved)?.target(&names)?;
+        let target = OpenMount::open(resolved)?.target(&names)?;
         if is_part(&target.name) {
             return Err(ApiError::http(StatusCode::BAD_REQUEST));
         }
@@ -1084,11 +1087,11 @@ async fn write_body(
 }
 
 async fn create_directory(
-    resolved: ResolvedRoot,
+    resolved: ResolvedMount,
     names: Vec<String>,
 ) -> Result<Response, ApiError> {
     blocking(move || {
-        let target = OpenRoot::open(resolved)?.target(&names)?;
+        let target = OpenMount::open(resolved)?.target(&names)?;
         fs::create_dir(target.path()).map_err(write_error)?;
         Ok(StatusCode::CREATED.into_response())
     })
@@ -1102,7 +1105,7 @@ struct RenameBody {
 }
 
 async fn rename(
-    resolved: ResolvedRoot,
+    resolved: ResolvedMount,
     names: Vec<String>,
     query: FileQuery,
     request: Request,
@@ -1115,7 +1118,7 @@ async fn rename(
     let destination = split_path(&body.to)?;
 
     blocking(move || {
-        let root = OpenRoot::open(resolved)?;
+        let root = OpenMount::open(resolved)?;
         let source = root.target(&names)?;
         let destination = root.target(&destination)?;
         if is_part(&destination.name) {
@@ -1158,12 +1161,12 @@ async fn rename(
 }
 
 async fn delete(
-    resolved: ResolvedRoot,
+    resolved: ResolvedMount,
     names: Vec<String>,
     query: FileQuery,
 ) -> Result<Response, ApiError> {
     blocking(move || {
-        let root = OpenRoot::open(resolved)?;
+        let root = OpenMount::open(resolved)?;
         let target = root.target(&names)?;
         let existing = target.existing()?.ok_or_else(ApiError::not_found)?;
         let path = target.path();
@@ -1201,11 +1204,11 @@ mod tests {
     use crate::host::{Host, UserRecord};
     use crate::layers::apply_compression;
 
-    /// A host serving one root, `files`, over a temporary directory.
+    /// A host serving one mount, `files`, over a temporary directory.
     struct FileHost {
         directory: TempDir,
         exclude: Vec<&'static str>,
-        writable: bool,
+        access: MountAccess,
         max_upload: Option<u64>,
     }
 
@@ -1234,25 +1237,24 @@ mod tests {
 
         async fn operate(&self, operation: &str, arguments: Value) -> Result<Answer, HostError> {
             assert_eq!(operation, "files.resolve");
-            if arguments["path"]["root"] != "files" {
+            if arguments["path"]["mount"] != "files" {
                 return Err(HostError::Typed {
                     status: 404,
                     envelope: "{}".into(),
                 });
             }
 
-            let root = json!({
+            let mount = json!({
                 "path": self.directory.path(),
-                "level": "view",
-                "writable": self.writable,
+                "access": self.access,
                 "exclude": self.exclude,
                 "max_upload": self.max_upload,
             });
-            Ok(Answer::Payload(root.to_string()))
+            Ok(Answer::Payload(mount.to_string()))
         }
     }
 
-    /// A writable root holding `files`, each a path and its contents, under `exclude`.
+    /// An editable mount holding `files`, each a path and its contents, under `exclude`.
     fn root(files: &[(&str, &str)], exclude: &[&'static str]) -> FileHost {
         let directory = TempDir::new().unwrap();
         for (path, contents) in files {
@@ -1264,7 +1266,7 @@ mod tests {
         FileHost {
             directory,
             exclude: exclude.to_vec(),
-            writable: true,
+            access: MountAccess::Edit,
             max_upload: None,
         }
     }
@@ -1799,12 +1801,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_write_refuses_a_read_only_root_and_an_excluded_entry() {
+    async fn a_write_refuses_a_mount_without_edit_access_and_an_excluded_entry() {
         let mut host = root(&[("a", "abc")], &[]);
-        host.writable = false;
+        host.access = MountAccess::View;
         let host = Arc::new(host);
         assert_eq!(host.put("b", "x").await, StatusCode::FORBIDDEN);
         assert_eq!(host.delete("a").await, StatusCode::FORBIDDEN);
+
+        let mut host = root(&[("a", "abc")], &[]);
+        host.access = MountAccess::None;
+        let host = Arc::new(host);
+        assert_eq!(host.delete("a").await, StatusCode::NOT_FOUND);
 
         let host = Arc::new(root(&[("data/raw/a", ""), ("data/b", "")], &["/data/raw"]));
         assert_eq!(host.put("data/raw/c", "x").await, StatusCode::NOT_FOUND);

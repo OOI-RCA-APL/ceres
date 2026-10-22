@@ -375,18 +375,18 @@ async def statuses_stream(host: Host, arguments: dict[str, Any]) -> AsyncIterato
         yield to_json(statuses)
 
 
-@operation("files.roots")
-async def files_roots(host: Host, arguments: dict[str, Any]) -> Any:
+@operation("files.mounts")
+async def files_mounts(host: Host, arguments: dict[str, Any]) -> Any:
     actor = await _actor(host, arguments)
-    return _entities(await file_handlers.get_file_roots(host.engine, actor))
+    return _entities(await file_handlers.get_mounts(host.engine, actor))
 
 
 @operation("files.resolve")
 async def files_resolve(host: Host, arguments: dict[str, Any]) -> Any:
     actor = await _actor(host, arguments)
     _require_not_disabled(actor)
-    root = await file_handlers.resolve_file_root(host.engine, actor, _path(arguments, "root"))
-    return _serialize(root)
+    mount = await file_handlers.resolve_mount(host.engine, actor, _path(arguments, "mount"))
+    return _serialize(mount)
 
 
 @operation("components.list")

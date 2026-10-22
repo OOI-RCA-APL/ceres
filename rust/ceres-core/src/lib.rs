@@ -162,6 +162,9 @@ python_config! {
         exclude: Vec<String>,
         /// Largest file one upload may write, in bytes, unlimited when `None`.
         max_upload: Option<ByteSize>,
+        /// Most any caller may do with any mount, `"none"`, `"view"`, or `"edit"`.
+        #[python(any = "str")]
+        access: ceres_config::MountAccess,
     }
 
     /// Configuration for the engine's HTTP server.

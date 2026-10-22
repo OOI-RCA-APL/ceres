@@ -1121,7 +1121,7 @@
             "bearer": []
           }
         ],
-        "summary": "List the file roots the caller may view.",
+        "summary": "List the mounts the caller may view.",
         "tags": [
           "files"
         ]

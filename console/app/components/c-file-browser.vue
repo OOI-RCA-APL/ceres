@@ -10,10 +10,10 @@ import { useEngine } from '@/api/engine'
 import {
   type FileAction,
   type FileEntry,
-  type FileRoot,
   FileWriteError,
   droppedFiles,
   fileActions,
+  findFileMount,
   filterEntries,
   formatFileSize,
   parseFilePath,
@@ -29,20 +29,20 @@ import { utc } from '@/time'
 import { afterMenuCloses, copyText, openContextMenu } from '@/utilities'
 
 const {
-  root,
+  mount,
   home = [],
   linkTo,
 } = defineProps<{
-  /** The ID of the root to browse. */
-  root: string
-  /** Breadcrumbs shown ahead of the root's own. */
+  /** The ID of the mount to browse. */
+  mount: string
+  /** Breadcrumbs shown ahead of the mount's own. */
   home?: BreadcrumbItem[]
   /** Where an entry at a path leads, which makes every entry a link. Without it, opening an entry
   only changes `path`. */
   linkTo?: (path: string[]) => string
 }>()
 
-/** The entry open under the root, the root itself when empty. */
+/** The entry open under the mount, the mount itself when empty. */
 let path = $(defineModel<string[]>('path', { required: true }))
 
 const engine = useEngine()
@@ -50,27 +50,25 @@ const queryClient = useQueryClient()
 const dialogs = useDialogs()
 const notify = useNotify()
 
-// One setting per root, since a root full of dot entries worth seeing says nothing about another.
+// One setting per mount, since a mount full of dot entries worth seeing says nothing about another.
 const persisted = usePersisted({
   schema: ({ object, boolean }) => object({ hidden: boolean().default(false) }),
-  methods: computed(() => [{ type: 'local-storage' as const, key: ['files', root] }]),
+  methods: computed(() => [{ type: 'local-storage' as const, key: ['files', mount] }]),
 })
 
 let filter = $ref('')
 
-const rootsQuery = useQuery({
-  queryKey: ['files', 'roots'],
-  queryFn: () => engine.files.getRoots(),
+const mountsQuery = useQuery({
+  queryKey: ['files', 'mounts'],
+  queryFn: () => engine.files.getMounts(),
 })
-const rootInfo = $computed(
-  () => (rootsQuery.data.value ?? []).find((current: FileRoot) => current.id === root) ?? null,
-)
-const writable = $computed(() => rootInfo?.writable === true)
+const mountInfo = $computed(() => findFileMount(mountsQuery.data.value, mount))
+const writable = $computed(() => mountInfo?.access === 'edit')
 
-// A root is always a directory, so only a path under one needs asking what it is.
+// A mount is always a directory, so only a path under one needs asking what it is.
 const statQuery = useQuery({
-  queryKey: computed(() => ['files', 'stat', root, ...path]),
-  queryFn: () => engine.files.stat(root, path),
+  queryKey: computed(() => ['files', 'stat', mount, ...path]),
+  queryFn: () => engine.files.stat(mount, path),
   enabled: computed(() => path.length > 0),
 })
 const entry = $computed<FileEntry | null>(() =>
@@ -85,8 +83,8 @@ const openedEntry = $computed<FileEntry | null>(() =>
 )
 
 const listingQuery = useQuery({
-  queryKey: computed(() => ['files', 'list', root, persisted.hidden, ...path]),
-  queryFn: () => engine.files.list(root, path, { hidden: persisted.hidden }),
+  queryKey: computed(() => ['files', 'list', mount, persisted.hidden, ...path]),
+  queryFn: () => engine.files.list(mount, path, { hidden: persisted.hidden }),
   enabled: computed(() => entry?.kind === 'directory'),
   placeholderData: (previous) => previous,
 })
@@ -117,8 +115,8 @@ clearOnOutsidePress(
 
 const preview = $computed(() => (entry == null ? 'none' : previewOf(entry)))
 const textQuery = useQuery({
-  queryKey: computed(() => ['files', 'text', root, ...path]),
-  queryFn: () => engine.files.readText(root, path, entry?.size ?? 0),
+  queryKey: computed(() => ['files', 'text', mount, ...path]),
+  queryFn: () => engine.files.readText(mount, path, entry?.size ?? 0),
   enabled: computed(() => preview === 'text'),
 })
 
@@ -143,19 +141,19 @@ function opener(target: string[]) {
   return linkTo == null ? { onClick: () => (path = target) } : { to: linkTo(target) }
 }
 
-// A root missing from the listing is one this viewer cannot reach, whose ID means nothing to them.
-const rootLabel = $computed(
-  () => rootInfo?.label ?? (rootsQuery.isPending.value ? '' : 'Unavailable Root'),
+// A mount missing from the listing is one this viewer cannot reach, whose ID means nothing to them.
+const mountLabel = $computed(
+  () => mountInfo?.label ?? (mountsQuery.isPending.value ? '' : 'Unavailable Mount'),
 )
 
 const breadcrumbs = $computed<BreadcrumbItem[]>(() => [
   ...home,
-  { label: rootLabel, ...opener([]) },
+  { label: mountLabel, icon: icons.mount, ...opener([]) },
   ...path.map((name, index) => ({ label: name, ...opener(path.slice(0, index + 1)) })),
 ])
 
 function entryIcon(current: FileEntry) {
-  return { directory: icons.directory, file: icons.file, other: icons.fileOther }[current.kind]
+  return { directory: icons.folder, file: icons.file, other: icons.fileOther }[current.kind]
 }
 
 function formatModified(modified: string | null) {
@@ -183,7 +181,7 @@ async function write(change: () => Promise<void>): Promise<boolean> {
   }
 }
 
-/** Whether two paths under the root name the same entry. A name never holds a slash, so the
+/** Whether two paths under the mount name the same entry. A name never holds a slash, so the
 joined forms compare exactly. */
 function isSamePath(left: string[], right: string[]) {
   return left.join('/') === right.join('/')
@@ -215,7 +213,7 @@ async function uploadFiles(files: readonly File[]) {
   try {
     for (const file of files) {
       const target = [...directory, file.name]
-      const created = await engine.files.upload(root, target, file).then(
+      const created = await engine.files.upload(mount, target, file).then(
         () => true,
         (error: unknown) => error,
       )
@@ -224,7 +222,7 @@ async function uploadFiles(files: readonly File[]) {
           dialogs.confirm({ message: `Replace "${file.name}"?`, okLabel: 'Replace' }),
         )
         if (replace) {
-          await write(() => engine.files.upload(root, target, file, { replace: true }))
+          await write(() => engine.files.upload(mount, target, file, { replace: true }))
         }
       } else if (created !== true) {
         await write(() => Promise.reject(created))
@@ -247,7 +245,7 @@ async function createDirectory() {
   const name = await answer(
     dialogs.fileName({ title: 'New Folder', label: 'Name', okLabel: 'Create' }),
   )
-  if (name !== false && (await write(() => engine.files.createDirectory(root, [...path, name])))) {
+  if (name !== false && (await write(() => engine.files.createDirectory(mount, [...path, name])))) {
     await refresh()
   }
 }
@@ -256,11 +254,11 @@ async function createDirectory() {
 async function download(directory: string[], targets: FileEntry[]) {
   const files = targets.filter((target) => target.kind === 'file')
   await multiDownload(
-    files.map((target) => engine.files.downloadUrl(root, [...directory, target.name])),
+    files.map((target) => engine.files.downloadUrl(mount, [...directory, target.name])),
   )
 }
 
-/** Copy the path of each of `targets` under the root, one per line. */
+/** Copy the path of each of `targets` under the mount, one per line. */
 async function copyPaths(directory: string[], targets: FileEntry[]) {
   await copyText(targets.map((target) => [...directory, target.name].join('/')).join('\n'))
   notify.success(targets.length > 1 ? 'Paths copied to clipboard.' : 'Path copied to clipboard.')
@@ -290,7 +288,7 @@ async function moveEntries(directory: string[], targets: FileEntry[]) {
   )
   const destination = to === false ? [] : parseFilePath(to)
   const moved =
-    destination.length > 0 && (await write(() => engine.files.move(root, source, destination)))
+    destination.length > 0 && (await write(() => engine.files.move(mount, source, destination)))
   if (!moved) {
     return
   }
@@ -325,7 +323,7 @@ async function moveInto(directory: string[], targets: FileEntry[]) {
   const folder = parseFilePath(to)
   for (const target of targets) {
     const name = target.name
-    if (!(await write(() => engine.files.move(root, [...directory, name], [...folder, name])))) {
+    if (!(await write(() => engine.files.move(mount, [...directory, name], [...folder, name])))) {
       break
     }
   }
@@ -367,7 +365,7 @@ async function deleteEntries(directory: string[], targets: FileEntry[]) {
 
   for (const target of targets) {
     const targetPath = [...directory, target.name]
-    if (!(await write(() => engine.files.remove(root, targetPath)))) {
+    if (!(await write(() => engine.files.remove(mount, targetPath)))) {
       break
     }
 
@@ -606,7 +604,7 @@ function onListContext(event: MouseEvent) {
         <c-button
           color="neutral"
           external
-          :href="engine.files.downloadUrl(root, path)"
+          :href="engine.files.downloadUrl(mount, path)"
           :icon="icons.download"
           label="Download"
           size="sm"
@@ -763,19 +761,19 @@ function onListContext(event: MouseEvent) {
           v-if="preview === 'image'"
           :alt="entry.name"
           class="max-w-full self-start"
-          :src="engine.files.sourceUrl(root, path)"
+          :src="engine.files.sourceUrl(mount, path)"
         />
         <video
           v-else-if="preview === 'video'"
           class="max-w-full self-start"
           controls
-          :src="engine.files.sourceUrl(root, path)"
+          :src="engine.files.sourceUrl(mount, path)"
         />
         <audio
           v-else-if="preview === 'audio'"
           class="w-full max-w-[640px]"
           controls
-          :src="engine.files.sourceUrl(root, path)"
+          :src="engine.files.sourceUrl(mount, path)"
         />
         <template v-else-if="preview === 'text'">
           <c-text v-if="textQuery.data.value === null" class="text-muted" variant="body2">

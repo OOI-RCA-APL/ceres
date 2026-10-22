@@ -28,6 +28,25 @@ pub struct RawServerFilesConfig {
 
     /// Largest file one upload may write, such as `2GiB`, unlimited when omitted.
     pub max_upload: Option<ByteSize>,
+
+    /// Most any caller may do with any mount, `edit` when omitted. `view` makes every mount
+    /// read-only and `none` turns the file browser off.
+    pub access: Option<MountAccess>,
+}
+
+/// What the files API may do with a mount, each level implying every level below it.
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum MountAccess {
+    /// The mount is unlisted and every route answers 404.
+    None,
+    /// Callers may list, preview, and download files.
+    View,
+    /// Callers may also upload, rename, move, and delete files.
+    #[default]
+    Edit,
 }
 
 /// Validated configuration of the console's file browser.
@@ -36,6 +55,7 @@ pub struct ServerFilesConfig {
     pub root: Option<PathBuf>,
     pub exclude: Vec<String>,
     pub max_upload: Option<ByteSize>,
+    pub access: MountAccess,
 }
 
 impl TryFrom<RawServerFilesConfig> for ServerFilesConfig {
@@ -57,6 +77,7 @@ impl TryFrom<RawServerFilesConfig> for ServerFilesConfig {
             root: raw.root,
             exclude,
             max_upload: raw.max_upload,
+            access: raw.access.unwrap_or_default(),
         })
     }
 }
@@ -183,5 +204,17 @@ mod tests {
         let problems = ServerFilesConfig::try_from(raw).unwrap_err();
         assert_eq!(problems.0.len(), 1);
         assert_eq!(problems.0[0].location, "exclude");
+    }
+
+    #[test]
+    fn access_defaults_to_edit_and_orders_by_what_it_permits() {
+        let access = |yaml: &str| {
+            let raw: RawServerFilesConfig = yaml_serde::from_str(yaml).unwrap();
+            ServerFilesConfig::try_from(raw).unwrap().access
+        };
+        assert_eq!(access("{}"), MountAccess::Edit);
+        assert_eq!(access("access: view"), MountAccess::View);
+        assert_eq!(access("access: none"), MountAccess::None);
+        assert!(MountAccess::None < MountAccess::View && MountAccess::View < MountAccess::Edit);
     }
 }

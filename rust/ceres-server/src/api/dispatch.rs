@@ -249,8 +249,8 @@ host_routes! {
     StatusesMember: typed_get "/api/statuses/{id}" => Gate::Authenticated, "statuses.get",
         params(id => "address": Raw);
 
-    /// List the file roots the caller may view.
-    FilesCollection: typed_get "/api/files" => Gate::Authenticated, "files.roots";
+    /// List the mounts the caller may view.
+    FilesCollection: typed_get "/api/files" => Gate::Authenticated, "files.mounts";
 
     /// Describe every component the caller may view.
     ComponentsCollection: typed_get "/api/components" => Gate::Authenticated, "components.list";

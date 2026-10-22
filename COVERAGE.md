@@ -1,6 +1,6 @@
 # Coverage
 
-<!-- coverage:fingerprint:a41e38233ce40fe4 -->
+<!-- coverage:fingerprint:e493208d8eedf61a -->
 
 ## Python
 
@@ -31,7 +31,7 @@
 | `ceres/__internal__/models/variables.py` | 100% |
 | `ceres/__internal__/models/workspaces.py` | 100% |
 | `ceres/__internal__/particles.py` | 94% |
-| `ceres/__internal__/project.py` | 96% |
+| `ceres/__internal__/project.py` | 97% |
 | `ceres/__internal__/protocols.py` | 100% |
 | `ceres/__internal__/record.py` | 82% |
 | `ceres/__internal__/server.py` | 96% |
@@ -75,7 +75,7 @@
 | `ceres/database/__init__.py` | 100% |
 | `ceres/database/database.py` | 92% |
 | `ceres/database/enums.py` | 100% |
-| `ceres/directory.py` | 98% |
+| `ceres/directory.py` | 100% |
 | `ceres/dispatcher.py` | 65% |
 | `ceres/engine.py` | 85% |
 | `ceres/entity.py` | 99% |
@@ -88,11 +88,13 @@
 | `ceres/loaded.py` | 94% |
 | `ceres/logs.py` | 86% |
 | `ceres/message.py` | 96% |
+| `ceres/mount.py` | 94% |
 | `ceres/node.py` | 87% |
 | `ceres/notifier.py` | 100% |
 | `ceres/particle.py` | 91% |
 | `ceres/paths.py` | 100% |
 | `ceres/permission.py` | 95% |
+| `ceres/project.py` | 100% |
 | `ceres/pruner.py` | 58% |
 | `ceres/record.py` | 89% |
 | `ceres/reference.py` | 71% |
@@ -109,7 +111,7 @@
 | `ceres/variable.py` | 81% |
 | `ceres/version.py` | 92% |
 | `ceres/workspace.py` | 100% |
-| **Total** | **88%** |
+| **Total** | **89%** |
 <!-- coverage:python:end -->
 
 ## Rust
@@ -237,7 +239,7 @@
 | `rust/ceres-webrtc/src/parameter_sets.rs` | 98% |
 | `rust/ceres-webrtc/src/picture.rs` | 100% |
 | `rust/ceres-webrtc/src/server.rs` | 85% |
-| `rust/ceres-webrtc/src/session.rs` | 88% |
+| `rust/ceres-webrtc/src/session.rs` | 87% |
 | `rust/ceres-webrtc/src/socket.rs` | 96% |
 | **Total** | **76%** |
 <!-- coverage:rust:end -->

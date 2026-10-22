@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { useQuery } from '@/api/client'
 import { useEngine } from '@/api/engine'
-import { type FileRoot, filesPagePath } from '@/api/files'
+import { type FileMount, filesPagePath } from '@/api/files'
 import icons from '@/icons'
 
 definePageMeta({ auth: true })
@@ -13,24 +13,24 @@ const engine = useEngine()
 const router = useRouter()
 
 // Read once, since a page instance belongs to one path (see `usePageParameter`). The first
-// segment names the root, the rest is the path under it.
+// segment names the mount, the rest is the path under it.
 const segments = (() => {
   const value = useRoute().params.path
   return Array.isArray(value) ? [...value] : value != null && value !== '' ? [value] : []
 })()
-const root = segments[0] ?? null
+const mount = segments[0] ?? null
 const path = segments.slice(1)
 
-const rootsQuery = useQuery({
-  queryKey: ['files', 'roots'],
-  queryFn: () => engine.files.getRoots(),
+const mountsQuery = useQuery({
+  queryKey: ['files', 'mounts'],
+  queryFn: () => engine.files.getMounts(),
 })
-const roots = $computed<FileRoot[]>(() => rootsQuery.data.value ?? [])
+const mounts = $computed<FileMount[]>(() => mountsQuery.data.value ?? [])
 
 const home: BreadcrumbItem[] = [{ label: 'Files', icon: icons.files, to: filesPagePath(null) }]
 
 function linkTo(target: string[]) {
-  return filesPagePath(root, target)
+  return filesPagePath(mount, target)
 }
 
 // A move or delete changes the path in place, which on this page means going to the new one.
@@ -45,33 +45,32 @@ async function open(target: string[]) {
     content scrolls under it. -->
     <div class="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-4">
       <c-file-browser
-        v-if="root != null"
+        v-if="mount != null"
         class="min-h-0 flex-1"
         :home
         :link-to
+        :mount
         :path
-        :root
         @update:path="open"
       />
 
-      <!-- The root picker. -->
+      <!-- The mount picker. -->
       <template v-else>
         <c-breadcrumb :items="home" />
         <c-text
-          v-if="rootsQuery.isSuccess.value && roots.length === 0"
+          v-if="mountsQuery.isSuccess.value && mounts.length === 0"
           class="text-muted"
           variant="body2"
         >
-          No file roots are available to you.
+          No mounts are available to you.
         </c-text>
         <c-list>
-          <c-list-item v-for="current in roots" :key="current.id" :to="filesPagePath(current.id)">
-            <c-icon class="shrink-0" :name="icons.directory" size="16" />
-            <c-text class="min-w-0 flex-1 truncate" variant="body2">{{ current.label }}</c-text>
-            <c-text class="text-muted min-w-0 truncate" variant="body2">
-              {{ current.component ?? 'Project' }}
-            </c-text>
-          </c-list-item>
+          <c-file-mount
+            v-for="current in mounts"
+            :key="current.id"
+            :mount="current"
+            show-component
+          />
         </c-list>
       </template>
     </div>

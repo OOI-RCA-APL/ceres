@@ -64,6 +64,39 @@ components:
       interval: 1s
 ```
 
+## Mounts
+
+A `Mount` is a directory a component reads or writes. Each of its methods mirrors its `pathlib.Path` namesake, joining with `/` never leaves the directory, and `parent` stops at it. `AsyncMount` offers the same methods as coroutines, which run the filesystem call off the event loop. Either converts to the other at the same place, `AsyncMount(mount)`.
+
+A component declares a mount with `Mount.Field`, and the console's "Files" page then lists it for anyone who may view the component (see [Files](deployment.md#files)). The annotation picks the value type, and `AsyncMount.Field` is the same declaration.
+
+```python
+from ceres import AsyncMount, Bound, Component, Mount
+
+
+class Recorder(Component):
+    output: Bound[AsyncMount] = Mount.Field(..., title="Recordings")
+    calibration: Bound[Mount] = Mount.Field("./calibration", writable=False)
+    scratch: Bound[Mount] = Mount.Field()
+
+    async def save(self, name: str, data: bytes) -> None:
+        await (self.output / name).write_bytes(data)
+```
+
+```yaml
+components:
+  - name: recorder
+    class: recorder.Recorder
+    arguments:
+      output: ./data
+```
+
+- `Mount.Field(...)` makes the field required. A path default, such as `"./calibration"`, resolves the same way a configured path does, and `Mount.Field()` with no path gives the component a temporary directory, removed once nothing refers to it.
+- A relative path in `ceres.yaml` resolves against the directory holding that file, wherever the engine runs from. One given in code, such as `Mount("./data")`, resolves against the current directory, as `Path` does.
+- `title` names the mount in the console, the field name otherwise, and `name` lists it under another name than the field's. Two fields of one component never share a name.
+- `writable=False` makes the component's own writes raise `PermissionError`, and the console offers the mount for viewing only. Configuration cannot make such a field writable.
+- `access` lowers what the console may do with the mount, `"view"` to browse and download only, `"none"` to hide it. Configuration may set its own with a mapping, `output: {path: ./data, access: view}`. The console grants the least of this, `server.files.access`, and the caller's permission on the component.
+
 ## Component Trees
 
 Components can be organized into hierarchies called _component trees_. Each component is a node with an arbitrary number of children and at most one parent. Component names must be unique within their parent.

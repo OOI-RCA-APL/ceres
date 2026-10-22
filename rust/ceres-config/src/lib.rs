@@ -26,7 +26,7 @@ pub use database::{
     TursoDatabaseConfig, resolve_path,
 };
 pub use error::{Problem, Problems};
-pub use files::{FileExclusion, RawServerFilesConfig, ServerFilesConfig};
+pub use files::{FileExclusion, MountAccess, RawServerFilesConfig, ServerFilesConfig};
 pub use logging::{Level, LogToggle, LoggingConfig, RawLoggingConfig};
 pub use meta::ConfigMeta;
 pub use server::{

@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import { computed } from 'vue'
 
+import icons from '@/icons'
 import { usePersisted } from '@/persistence'
 import type { FilesWidget } from '@/workspace'
 
@@ -16,15 +17,15 @@ const emit = defineEmits<{
 // workspace each keep their own place in it.
 const persisted = usePersisted({
   schema: ({ object, string, array }) =>
-    object({ root: string().nullable().default(null), path: array(string()).default([]) }),
+    object({ mount: string().nullable().default(null), path: array(string()).default([]) }),
   methods: computed(() => [{ type: 'local-storage' as const, key: ['files-widget', widget.id] }]),
 })
 
-// A place stored under another root means nothing in this one.
+// A place stored under another mount means nothing in this one.
 const path = $computed({
-  get: () => (persisted.root === widget.root ? persisted.path : []),
+  get: () => (persisted.mount === widget.mount ? persisted.path : []),
   set: (value: string[]) => {
-    persisted.root = widget.root ?? null
+    persisted.mount = widget.mount ?? null
     persisted.path = value
   },
 })
@@ -32,14 +33,14 @@ const path = $computed({
 
 <template>
   <div class="h-full p-2">
-    <c-file-browser v-if="widget.root != null" v-model:path="path" :root="widget.root" />
+    <c-file-browser v-if="widget.mount != null" v-model:path="path" :mount="widget.mount" />
     <div v-else class="flex h-full items-center justify-center text-center">
       <c-tooltip text="Choose Files">
         <c-button
           aria-label="Choose Files"
           class="rounded-full"
           color="primary"
-          icon="i-mdi-folder-plus-outline"
+          :icon="icons.folderNew"
           @click="emit('settingsRequested')"
         />
       </c-tooltip>

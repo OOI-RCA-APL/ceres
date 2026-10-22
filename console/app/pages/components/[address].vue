@@ -17,7 +17,6 @@ import type {
 } from '@/api/components'
 import { canInvokeProcedure, describeProcedurePermissions } from '@/api/components'
 import { useEngine } from '@/api/engine'
-import { filesPagePath } from '@/api/files'
 import type { ComponentAccessLevel } from '@/api/permissions'
 import CWorkspaceHost from '@/components/c-workspace-host.vue'
 import { useDialogs } from '@/dialogs'
@@ -414,18 +413,11 @@ const configHighlighted = $computed(() =>
                 </c-list-item>
               </c-detail-section>
               <c-detail-section
-                v-if="component.files.length > 0"
+                v-if="component.mounts.length > 0"
                 v-model:expanded="persisted.files"
-                :title="`Files (${component.files.length})`"
+                :title="`Files (${component.mounts.length})`"
               >
-                <c-list-item
-                  v-for="files in component.files"
-                  :key="files.root"
-                  :to="filesPagePath(files.root)"
-                >
-                  <c-icon class="shrink-0" :name="icons.directory" size="16" />
-                  <c-text class="grow" variant="body3">{{ files.label }}</c-text>
-                </c-list-item>
+                <c-file-mount v-for="mount in component.mounts" :key="mount.id" :mount />
               </c-detail-section>
             </c-list>
 
