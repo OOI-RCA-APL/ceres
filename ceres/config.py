@@ -27,6 +27,7 @@ from pydantic import (
     Tag,
     ValidationError,
     ValidationInfo,
+    ValidatorFunctionWrapHandler,
     field_validator,
     model_validator,
 )
@@ -340,10 +341,15 @@ class ExporterFormatConfig(DataObject):
     arguments: Mapping[str, Any] = Field(default_factory=dict)
     """Keyword arguments the format class is created with."""
 
-    @field_validator("cls")
-    def _validate_cls(cls, value: object) -> object:
+    @field_validator("cls", mode="wrap")
+    def _validate_cls(cls, value: object, handler: ValidatorFunctionWrapHandler) -> object:
         from ceres.exporter import BUILTIN_FORMATS, Format
 
+        # A built-in format's short name passes it arguments, which its bare name cannot.
+        if isinstance(value, str) and value in BUILTIN_FORMATS:
+            return BUILTIN_FORMATS[value]
+
+        value = handler(value)
         if not (isinstance(value, type) and issubclass(value, Format)):
             raise ValueError("class must be a subclass of `ceres.exporter.Format`")
 
@@ -371,7 +377,7 @@ class _ExporterConfig[TFilter: MessageFilter | ParticleFilter | AlertFilter | Lo
     filter: TFilter | None = None
     """Records to export, every record of the kind at the component when omitted."""
 
-    format: Literal["csv", "jsonl", "raw"] | ExporterFormatConfig
+    format: Literal["csv", "jsonl", "netcdf", "raw"] | ExporterFormatConfig
     """A built-in format by name, or a custom format class with its arguments."""
 
     directory: NonBlankStr = "output"
@@ -416,8 +422,14 @@ class _ExporterConfig[TFilter: MessageFilter | ParticleFilter | AlertFilter | Lo
     @property
     def format_name(self) -> str:
         """The built-in format's name, or the custom format class's qualified name."""
+        from ceres.exporter import BUILTIN_FORMATS
+
         if isinstance(self.format, str):
             return self.format
+
+        for name, builtin in BUILTIN_FORMATS.items():
+            if self.format.cls is builtin:
+                return name
 
         return f"{self.format.cls.__module__}.{self.format.cls.__qualname__}"
 
@@ -434,7 +446,7 @@ class _ExporterConfig[TFilter: MessageFilter | ParticleFilter | AlertFilter | Lo
         """Return the columns of the exporter's files."""
         from ceres.exporter import ExportSchema
 
-        return ExportSchema.create(self.exports, self.particle_class())
+        return ExportSchema.create(self.exports, self.particle_class(), self.name)
 
     def create_path(self) -> ExportPath:
         """Return the exporter's checked path template."""
@@ -490,7 +502,7 @@ class _ExporterConfig[TFilter: MessageFilter | ParticleFilter | AlertFilter | Lo
                     filters.extend(seq(getattr(filter, nested, None) or ()))
 
         self.create_path()
-        self.create_schema()
+        format.check(self.create_schema())
 
         if self.period == ExporterPeriod.ALL and self.is_live and not format.appendable:
             raise ValueError(
