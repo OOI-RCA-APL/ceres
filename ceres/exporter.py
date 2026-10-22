@@ -87,6 +87,7 @@ __all__ = [
     "ExportRecord",
     "ExportRunRecord",
     "ExportRunState",
+    "ExportRunSummary",
     "ExportSchema",
     "ExporterManager",
     "Format",
@@ -1046,6 +1047,55 @@ class ExportRunRecord(DataObject):
     """Files written so far, relative to the exporter's directory."""
 
     exception: str | None = None
+    """Why the run failed, `None` unless it failed."""
+
+    def summary(self) -> ExportRunSummary:
+        """Return the run without its file list, which grows with every period it writes."""
+        return ExportRunSummary(
+            id=self.id,
+            after=self.after,
+            before=self.before,
+            replace=self.replace,
+            state=self.state,
+            started=self.started,
+            ended=self.ended,
+            count=self.count,
+            file_count=len(self.files),
+            exception=self.exception,
+        )
+
+
+class ExportRunSummary(DataObject):
+    """An export run's state and counts, small enough to poll while it goes."""
+
+    id: UUID
+    """Run ID."""
+
+    after: DateTime
+    """Inclusive start of the requested range."""
+
+    before: DateTime
+    """Exclusive end of the requested range."""
+
+    replace: bool
+    """Whether the run rewrites each period's file from the database alone."""
+
+    state: ExportRunState
+    """Where the run stands."""
+
+    started: DateTime
+    """When the run started."""
+
+    ended: DateTime | None
+    """When the run completed or failed, `None` while it runs."""
+
+    count: int
+    """Records written so far."""
+
+    file_count: int
+    """Files written so far."""
+
+    exception: str | None
     """Why the run failed, `None` unless it failed."""
 
 

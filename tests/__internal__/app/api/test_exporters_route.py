@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import pytest
@@ -86,9 +86,26 @@ async def test_get_component_exporters_describes_each_exporter(tmp_path: Path) -
         engine=engine, actor=await _viewer(engine), address=Address("@archive")
     )
 
-    assert [(info.name, info.format, info.path, info.live) for info in result] == [
-        ("messages", "csv", "%Y/%m/%d/%H", True)
-    ]
+    assert [
+        (info.name, info.format, info.merges, info.path, info.live, info.last_run)
+        for info in result
+    ] == [("messages", "csv", True, "%Y/%m/%d/%H", True, None)]
+
+
+async def test_get_component_exporters_carries_the_newest_run(tmp_path: Path) -> None:
+    """The listing carries each exporter's newest run, so one request shows its progress."""
+    engine = await _build_engine(tmp_path)
+    component = engine.get_component("@archive")
+    assert component is not None
+    exporters = component.system.exporters
+    await exporters.run("messages", _AFTER, _AFTER + timedelta(hours=1))
+    newest = await exporters.run("messages", _AFTER, _AFTER + timedelta(hours=2))
+
+    (info,) = await get_component_exporters(
+        engine=engine, actor=_UNRESTRICTED, address=Address("@archive")
+    )
+
+    assert info.last_run == newest.summary()
 
 
 async def test_start_exporter_run_requires_operate(tmp_path: Path) -> None:

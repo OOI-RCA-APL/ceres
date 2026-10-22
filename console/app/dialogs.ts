@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 
 import CConfirmDialog, { type ConfirmDialogProps } from '@/components/base/c-confirm-dialog.vue'
 import CChangePasswordDialog from '@/components/c-change-password-dialog.vue'
+import CExportRunDialog, { type ExportRunDialogProps } from '@/components/c-export-run-dialog.vue'
 import CFileInfoDialog, { type FileInfoDialogProps } from '@/components/c-file-info-dialog.vue'
 import CFileNameDialog, { type FileNameDialogProps } from '@/components/c-file-name-dialog.vue'
 import CFilePlaceDialog, { type FilePlaceDialogProps } from '@/components/c-file-place-dialog.vue'
@@ -39,6 +40,7 @@ export const useDialogs = defineStore('dialogs', () => {
   const fileNameDialog = overlay.create(CFileNameDialog)
   const fileInfoDialog = overlay.create(CFileInfoDialog)
   const filePlaceDialog = overlay.create(CFilePlaceDialog)
+  const exportRunDialog = overlay.create(CExportRunDialog)
 
   function handleOf<TPayload>(result: Promise<TPayload>): DialogHandle<TPayload> {
     const handle: DialogHandle<TPayload> = {
@@ -76,6 +78,9 @@ export const useDialogs = defineStore('dialogs', () => {
         okColor: 'error',
         ...options,
       }),
+    /** Ask for a range and start a run of an exporter over it. Resolves with the run's ID. */
+    runExporter: (props: ExportRunDialogProps) =>
+      handleOf(exportRunDialog.open(props).result) as DialogHandle<string | false>,
     changePassword: (userId: string) => handleOf(changePasswordDialog.open({ userId }).result),
     /** Ask how two filter chips dropped onto each other should be joined. Resolves with the
     operator.
