@@ -6,6 +6,8 @@ removes rows.
 """
 
 import csv
+import dataclasses
+import functools
 import io
 import json
 import math
@@ -17,7 +19,7 @@ from abc import abstractmethod
 from asyncio import CancelledError, Lock, Task, create_task, wait_for
 from asyncio import Event as AsyncEvent
 from collections import deque
-from collections.abc import AsyncIterable, AsyncIterator, Callable, Iterable, Iterator
+from collections.abc import AsyncIterable, AsyncIterator, Callable, Iterable, Iterator, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -57,9 +59,11 @@ from ceres.event import (
 if TYPE_CHECKING:
     from apscheduler.job import Job as InternalJob
     from apscheduler.schedulers.base import BaseScheduler
+    from pydantic.fields import FieldInfo
 
     from ceres.__internal__.database.writer import FlushSummary
     from ceres.__internal__.manager import BaseDatabaseManager
+    from ceres.__internal__.netcdf import NetCDFTable, NetCDFVariable
     from ceres.__internal__.protocols import ComponentSource
     from ceres.address import Address, AddressSelector
     from ceres.alert import Alert
@@ -88,6 +92,7 @@ __all__ = [
     "Format",
     "JsonLinesFormat",
     "LineFormat",
+    "NetCDFFormat",
     "RawFormat",
     "atomic_write",
 ]
@@ -160,6 +165,23 @@ class ExportColumn:
 
 
 @dataclass(frozen=True, slots=True)
+class ExportField:
+    """One field of a particle's data class, with the fields of a nested data object."""
+
+    name: str
+    """Field name in its data class."""
+
+    annotation: Any
+    """Field type with `None` stripped from an optional."""
+
+    info: FieldInfo
+    """The field's pydantic definition, which holds its metadata and JSON schema extras."""
+
+    fields: tuple[ExportField, ...]
+    """Fields of the nested data object the field holds, empty for any other type."""
+
+
+@dataclass(frozen=True, slots=True)
 class ExportSchema:
     """The columns of one exporter's files, derived from its kind and particle class."""
 
@@ -169,11 +191,24 @@ class ExportSchema:
     columns: tuple[ExportColumn, ...]
     """Columns in file order, the key columns `timestamp` and `id` first."""
 
+    particle: type[Particle[Any]] | None = None
+    """Particle class whose data the schema flattens, `None` for any other kind or for none."""
+
+    fields: tuple[ExportField, ...] = ()
+    """Fields of the particle class's data, empty without a particle class."""
+
+    exporter: str | None = None
+    """Name of the exporter writing the files, which a format may record in them."""
+
+    address: Address | None = None
+    """Address of the component whose exporter writes the files."""
+
     @classmethod
     def create(
         cls,
         exports: EntityType,
         particle: type[Particle[Any]] | None = None,
+        exporter: str | None = None,
     ) -> ExportSchema:
         """Derive the columns for records of `exports`, flattening the particle data class.
 
@@ -181,16 +216,20 @@ class ExportSchema:
             exports: Record kind the exporter writes.
             particle: Particle class whose data fields become columns, `None` for one `data`
                 column holding each particle's whole data object.
+            exporter: Name of the exporter writing the files.
 
         Raises:
             ValueError: If a data field's column name collides with another column.
         """
         columns = [ExportColumn(name, (name,)) for name in _RECORD_COLUMNS[exports]]
+        fields: tuple[ExportField, ...] = ()
         if exports == EntityType.PARTICLE:
             if particle is None:
                 columns.append(ExportColumn("data", ("data",)))
             else:
-                columns.extend(_data_columns(particle.Data, (), ("data",)))
+                fields = _data_fields(particle.Data)
+                for field in fields:
+                    columns.extend(_data_columns(field, (), ("data",)))
 
         seen: set[str] = set()
         for column in columns:
@@ -199,7 +238,7 @@ class ExportSchema:
 
             seen.add(column.name)
 
-        return cls(exports, tuple(columns))
+        return cls(exports, tuple(columns), particle, fields, exporter)
 
     @property
     def names(self) -> list[str]:
@@ -221,14 +260,30 @@ def _strip_optional(annotation: Any) -> Any:
     return annotation
 
 
+def _data_fields(cls: type) -> tuple[ExportField, ...]:
+    infos: dict[str, FieldInfo] = getattr(cls, "__pydantic_fields__", {})
+    fields: list[ExportField] = []
+    for name, info in infos.items():
+        annotation = _strip_optional(info.annotation)
+        nested = isinstance(annotation, type) and hasattr(annotation, "__pydantic_fields__")
+        fields.append(
+            ExportField(name, annotation, info, _data_fields(annotation) if nested else ())
+        )
+
+    return tuple(fields)
+
+
 def _data_columns(
-    cls: type,
+    field: ExportField,
     names: tuple[str, ...],
     path: tuple[str | int, ...],
 ) -> Iterator[ExportColumn]:
-    fields: dict[str, Any] = getattr(cls, "__pydantic_fields__", {})
-    for name, field in fields.items():
-        yield from _field_columns(field.annotation, (*names, name), (*path, name))
+    names, path = (*names, field.name), (*path, field.name)
+    if field.fields:
+        for inner in field.fields:
+            yield from _data_columns(inner, names, path)
+    else:
+        yield from _field_columns(field.annotation, names, path)
 
 
 def _field_columns(
@@ -241,7 +296,8 @@ def _field_columns(
     annotation = _strip_optional(annotation)
     arguments = get_args(annotation)
     if isinstance(annotation, type) and hasattr(annotation, "__pydantic_fields__"):
-        yield from _data_columns(annotation, names, path)
+        for field in _data_fields(annotation):
+            yield from _data_columns(field, names, path)
     elif get_origin(annotation) is tuple and arguments and Ellipsis not in arguments:
         for index, argument in enumerate(arguments):
             yield from _field_columns(argument, (*names, str(index)), (*path, index))
@@ -337,6 +393,14 @@ class Format(DataObject, abstract=True):
 
     exports: ClassVar[frozenset[EntityType] | None] = None
     """Record kinds the format can write, `None` for every kind."""
+
+    def check(self, schema: ExportSchema) -> tuple[str, ...]:
+        """Return the dotted paths of the data fields that files for `schema` leave out.
+
+        Raises:
+            ValueError: If the format cannot write files for `schema`.
+        """
+        return ()
 
     @abstractmethod
     async def write(
@@ -611,12 +675,130 @@ class RawFormat(LineFormat):
         return cast("Message", record).data
 
 
+class NetCDFFormat(Format):
+    """NetCDF-4 file of one particle class, a variable per data field over a `time` dimension.
+
+    `time` holds seconds since the epoch and `id` each particle's ID as 36 characters.
+    `connection` indexes the names in `connection_name`, and is `-1` for no connection. The
+    global attributes name the exporter, its component's `address`, and the `particle_type`.
+    The whole file is rewritten on every write, so a period's rows sit in memory while it is.
+    """
+
+    extension: ClassVar[str] = ".nc"
+    schema_bound: ClassVar[bool] = True
+    keyed: ClassVar[bool] = True
+    exports: ClassVar[frozenset[EntityType] | None] = frozenset({EntityType.PARTICLE})
+
+    attributes: Mapping[str, Mapping[str, str]] = Field(default_factory=dict)
+    """Attributes of each data variable by name, beside the `units` a `Unit()` gives."""
+
+    global_attributes: Mapping[str, str] = Field(default_factory=dict)
+    """Attributes of the file, beside the ones it always carries."""
+
+    def variables(self, schema: ExportSchema) -> tuple[NetCDFVariable, ...]:
+        """Return the data variables of the files for `schema`."""
+        return _netcdf_layout(schema.particle)[0]
+
+    @override
+    def check(self, schema: ExportSchema) -> tuple[str, ...]:
+        """Return the fields the built-in layout leaves out, whatever `variables` returns."""
+        return _netcdf_layout(schema.particle)[1]
+
+    def file_attributes(self, schema: ExportSchema) -> dict[str, str]:
+        """Return the global attributes of the files for `schema`."""
+        from ceres.particle import _get_cls_particle_type
+
+        attributes: dict[str, str] = {}
+        if schema.exporter is not None:
+            attributes["exporter"] = schema.exporter
+        if schema.address is not None:
+            attributes["address"] = str(schema.address)
+        if schema.particle is not None and (kind := _get_cls_particle_type(schema.particle)):
+            attributes["particle_type"] = kind
+
+        return {**attributes, **self.global_attributes}
+
+    @override
+    async def write(
+        self,
+        path: Path,
+        schema: ExportSchema,
+        records: AsyncIterable[ExportRecord],
+    ) -> None:
+        from ceres.__internal__.netcdf import write_table
+
+        variables = self.variables(schema)
+        table = await self.__collect(variables, records)
+        await spawn(
+            write_table, path, table, variables, self.attributes, self.file_attributes(schema)
+        )
+
+    @override
+    async def merge(
+        self,
+        path: Path,
+        schema: ExportSchema,
+        records: AsyncIterable[ExportRecord],
+        into: Path,
+    ) -> None:
+        from ceres.__internal__.netcdf import NetCDFFileError, read_table, write_table
+
+        variables = self.variables(schema)
+        try:
+            kept = await spawn(read_table, path, variables)
+        except NetCDFFileError as exception:
+            raise ExportFileError(f"{exception}, so a run must replace it") from exception
+
+        if not kept.sorted():
+            raise ExportFileError(f"'{path}' is not sorted by key, so a run must replace it")
+
+        table = kept.merge(await self.__collect(variables, records))
+        await spawn(
+            write_table, into, table, variables, self.attributes, self.file_attributes(schema)
+        )
+
+    @override
+    async def keys(self, path: Path, schema: ExportSchema) -> AsyncIterator[ExportKey]:
+        from ceres.__internal__.netcdf import decode_key, read_keys
+
+        for key in await spawn(read_keys, path):
+            yield decode_key(key)
+
+    @staticmethod
+    async def __collect(
+        variables: tuple[NetCDFVariable, ...], records: AsyncIterable[ExportRecord]
+    ) -> NetCDFTable:
+        from ceres.__internal__.netcdf import NetCDFRows
+
+        rows = NetCDFRows(variables)
+        async for record in records:
+            rows.add(cast("Particle[Any]", record))
+
+        table = rows.finish()
+        if not table.sorted():
+            raise ExportFileError("records arrived out of key order")
+
+        return table
+
+
 BUILTIN_FORMATS: dict[str, type[Format]] = {
     "csv": CsvFormat,
     "jsonl": JsonLinesFormat,
+    "netcdf": NetCDFFormat,
     "raw": RawFormat,
 }
 """The formats an exporter names with a bare string, such as `format: csv`."""
+
+
+# Each live tick writes through the layout, so it is derived once per particle class, which
+# bounds the cache by the classes a process defines.
+@functools.cache
+def _netcdf_layout(
+    particle: type[Particle[Any]] | None,
+) -> tuple[tuple[NetCDFVariable, ...], tuple[str, ...]]:
+    from ceres.__internal__.netcdf import netcdf_variables
+
+    return netcdf_variables(_data_fields(particle.Data) if particle is not None else ())
 
 
 def _fsync(path: Path) -> None:
@@ -872,10 +1054,10 @@ class _Exporter:
 
     __slots__ = ("config", "format", "path", "schema")
 
-    def __init__(self, config: ExporterConfig) -> None:
+    def __init__(self, config: ExporterConfig, address: Address) -> None:
         self.config = config
         self.format = config.create_format()
-        self.schema = config.create_schema()
+        self.schema = dataclasses.replace(config.create_schema(), address=address)
         self.path = config.create_path()
 
 
@@ -1022,7 +1204,15 @@ class ExporterManager(BaseComponentManager):
     def add(self, exporter: ExporterConfig) -> None:
         """Register an exporter, replacing any registered under the same name."""
         self.remove(exporter.name)
-        self.__exporters[exporter.name] = _Exporter(exporter)
+        registered = _Exporter(exporter, self.__system__.address)
+        omitted = registered.format.check(registered.schema)
+        if omitted:
+            self.__system__.log.warning(
+                f"Exporter '{exporter.name}' leaves out the fields its format cannot store: "
+                + ", ".join(f"'{path}'" for path in omitted)
+            )
+
+        self.__exporters[exporter.name] = registered
         self.__locks.setdefault(exporter.name, Lock())
         self.__sync_schedules()
         self.__sync_live()
@@ -1418,9 +1608,15 @@ class ExporterManager(BaseComponentManager):
                 return
 
             records = _prepend(head, stream)
-            previous = (
-                live.last[start] if start in live.last else await self.__last_key(registered, final)
-            )
+            # Only an append needs the file's last key, and finding it can read the whole file.
+            previous = None
+            if format.appendable:
+                previous = (
+                    live.last[start]
+                    if start in live.last
+                    else await self.__last_key(registered, final)
+                )
+
             if format.appendable and (
                 not format.keyed or previous is None or _record_key(head) > previous
             ):
@@ -1442,7 +1638,7 @@ class ExporterManager(BaseComponentManager):
                         "rewrites whole files, and a longer `interval` merges less often"
                     )
 
-        if format.keyed and stream.last is not None:
+        if format.appendable and format.keyed and stream.last is not None:
             newest = _record_key(stream.last)
             live.last[start] = newest if previous is None else max(previous, newest)
 

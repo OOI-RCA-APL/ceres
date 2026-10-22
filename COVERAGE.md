@@ -1,6 +1,6 @@
 # Coverage
 
-<!-- coverage:fingerprint:dbcfdee8921e487a -->
+<!-- coverage:fingerprint:8c35ff1b0ab800c8 -->
 
 ## Python
 
@@ -30,6 +30,7 @@
 | `ceres/__internal__/models/users.py` | 100% |
 | `ceres/__internal__/models/variables.py` | 100% |
 | `ceres/__internal__/models/workspaces.py` | 100% |
+| `ceres/__internal__/netcdf.py` | 98% |
 | `ceres/__internal__/particles.py` | 94% |
 | `ceres/__internal__/project.py` | 96% |
 | `ceres/__internal__/protocols.py` | 100% |
@@ -59,7 +60,7 @@
 | `ceres/channel.py` | 92% |
 | `ceres/component.py` | 90% |
 | `ceres/concurrency.py` | 91% |
-| `ceres/config.py` | 85% |
+| `ceres/config.py` | 86% |
 | `ceres/connection/__init__.py` | 62% |
 | `ceres/connection/buffer.py` | 81% |
 | `ceres/connection/source.py` | 97% |
@@ -81,7 +82,7 @@
 | `ceres/entity.py` | 99% |
 | `ceres/error.py` | 97% |
 | `ceres/event.py` | 96% |
-| `ceres/exporter.py` | 90% |
+| `ceres/exporter.py` | 92% |
 | `ceres/group.py` | 98% |
 | `ceres/item.py` | 90% |
 | `ceres/job.py` | 59% |
@@ -89,7 +90,7 @@
 | `ceres/loaded.py` | 94% |
 | `ceres/logs.py` | 86% |
 | `ceres/message.py` | 96% |
-| `ceres/node.py` | 87% |
+| `ceres/node.py` | 88% |
 | `ceres/notifier.py` | 100% |
 | `ceres/particle.py` | 91% |
 | `ceres/paths.py` | 100% |
@@ -139,9 +140,9 @@
 | `rust/ceres-cli/src/output.rs` | 91% |
 | `rust/ceres-cli/src/project.rs` | 84% |
 | `rust/ceres-cli/src/reference.rs` | 100% |
-| `rust/ceres-cli/src/runtime.rs` | 10% |
+| `rust/ceres-cli/src/runtime.rs` | 8% |
 | `rust/ceres-cli/src/selector.rs` | 100% |
-| `rust/ceres-cli/src/service.rs` | 41% |
+| `rust/ceres-cli/src/service.rs` | 42% |
 | `rust/ceres-config/src/database.rs` | 89% |
 | `rust/ceres-config/src/error.rs` | 95% |
 | `rust/ceres-config/src/logging.rs` | 91% |
@@ -236,7 +237,7 @@
 | `rust/ceres-webrtc/src/parameter_sets.rs` | 98% |
 | `rust/ceres-webrtc/src/picture.rs` | 100% |
 | `rust/ceres-webrtc/src/server.rs` | 85% |
-| `rust/ceres-webrtc/src/session.rs` | 87% |
+| `rust/ceres-webrtc/src/session.rs` | 88% |
 | `rust/ceres-webrtc/src/socket.rs` | 96% |
 | **Total** | **75%** |
 <!-- coverage:rust:end -->

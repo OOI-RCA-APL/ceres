@@ -354,7 +354,7 @@ Exporter configuration that writes stored `Message` records to files.
 | `name` | string | required |  |
 | `exports` | string | `'message'` |  |
 | `filter` | [`MessageFilter`](#messagefilter) |  | Records to export, every record of the kind at the component when omitted. |
-| `format` | `csv` or `jsonl` or `raw` or [`ExporterFormatConfig`](#exporterformatconfig) | required |  |
+| `format` | `csv` or `jsonl` or `netcdf` or `raw` or [`ExporterFormatConfig`](#exporterformatconfig) | required |  |
 | `directory` | string | `'output'` |  |
 | `period` | `hour` or `day` or `month` or `all` | required |  |
 | `path` | string | required |  |
@@ -372,7 +372,7 @@ Exporter configuration that writes stored `Particle` records to files.
 | `name` | string | required |  |
 | `exports` | string | `'particle'` |  |
 | `filter` | [`ParticleFilter`](#particlefilter) |  | Records to export, every record of the kind at the component when omitted. |
-| `format` | `csv` or `jsonl` or `raw` or [`ExporterFormatConfig`](#exporterformatconfig) | required |  |
+| `format` | `csv` or `jsonl` or `netcdf` or `raw` or [`ExporterFormatConfig`](#exporterformatconfig) | required |  |
 | `directory` | string | `'output'` |  |
 | `period` | `hour` or `day` or `month` or `all` | required |  |
 | `path` | string | required |  |
@@ -391,7 +391,7 @@ Exporter configuration that writes stored `Alert` records to files.
 | `name` | string | required |  |
 | `exports` | string | `'alert'` |  |
 | `filter` | [`AlertFilter`](#alertfilter) |  | Records to export, every record of the kind at the component when omitted. |
-| `format` | `csv` or `jsonl` or `raw` or [`ExporterFormatConfig`](#exporterformatconfig) | required |  |
+| `format` | `csv` or `jsonl` or `netcdf` or `raw` or [`ExporterFormatConfig`](#exporterformatconfig) | required |  |
 | `directory` | string | `'output'` |  |
 | `period` | `hour` or `day` or `month` or `all` | required |  |
 | `path` | string | required |  |
@@ -409,7 +409,7 @@ Exporter configuration that writes stored `LogEntry` records to files.
 | `name` | string | required |  |
 | `exports` | string | `'log-entry'` |  |
 | `filter` | [`LogEntryFilter`](#logentryfilter) |  | Records to export, every record of the kind at the component when omitted. |
-| `format` | `csv` or `jsonl` or `raw` or [`ExporterFormatConfig`](#exporterformatconfig) | required |  |
+| `format` | `csv` or `jsonl` or `netcdf` or `raw` or [`ExporterFormatConfig`](#exporterformatconfig) | required |  |
 | `directory` | string | `'output'` |  |
 | `period` | `hour` or `day` or `month` or `all` | required |  |
 | `path` | string | required |  |

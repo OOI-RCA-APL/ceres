@@ -14,7 +14,7 @@ from ceres.__internal__.database.writer import FlushSummary, Writer
 from ceres.__internal__.entity import DeleteExecutor
 from ceres.address import Address
 from ceres.alert import Alert
-from ceres.config import ComponentConfig, MessagePrunerConfig
+from ceres.config import ComponentConfig, ExporterConfig, MessagePrunerConfig
 from ceres.data import replace, validate
 from ceres.directory import Directory
 from ceres.entity import EntityType
@@ -32,6 +32,7 @@ from ceres.exporter import (
     ExportRunRecord,
     ExportRunState,
     ExportSchema,
+    JsonLinesFormat,
     LineFormat,
     _Live,
 )
@@ -125,8 +126,13 @@ class Exported:
     ) -> ExportRunRecord:
         exporters = self.component.system.exporters
         return await exporters.run(
-            "messages", after, after + timedelta(hours=hours), replace=replace
+            self.exporter.name, after, after + timedelta(hours=hours), replace=replace
         )
+
+    @property
+    def exporter(self) -> ExporterConfig:
+        (exporter,) = self.component.system.exporters.get_all()
+        return exporter
 
     def start(self) -> ExportRunRecord:
         return self.component.system.exporters.start("messages", START, START + timedelta(hours=3))
@@ -478,6 +484,13 @@ def test_config_refuses_a_builtin_format_class() -> None:
     )
 
 
+def test_config_resolves_a_builtin_format_by_its_short_name() -> None:
+    exporter = config(format={"class": "jsonl"}).exporters[0]
+    assert isinstance(exporter.create_format(), JsonLinesFormat)
+    assert exporter.format_name == "jsonl"
+    assert "unexpected" in refusal(format={"class": "csv", "arguments": {"unexpected": 1}})
+
+
 def test_config_refuses_a_missing_directory_field() -> None:
     assert "which is not a `Directory` field of `Archive`" in refusal(directory="missing")
 
@@ -521,10 +534,10 @@ class Live(Exported):
             await wait_for_condition("the start check ends", self.checked, 30)
 
     def checked(self) -> bool:
-        held = self.component.system.exporters.get_written_through(EntityType.MESSAGE)
+        held = self.component.system.exporters.get_written_through(self.exporter.exports)
         return held is not None and held[1] > datetime.min.replace(tzinfo=UTC)
 
-    async def write(self, *records: Message) -> None:
+    async def write(self, *records: ExportRecord) -> None:
         for record in records:
             self.component.system.store(record)
 
