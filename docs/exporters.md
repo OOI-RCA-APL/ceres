@@ -194,6 +194,11 @@ to the current time. `GET /api/components/@sensor/exporters/messages/runs` lists
 20 runs, newest first, with each one's state, record count and files, to anyone who can view the
 component.
 
+The console's component page lists each exporter in its "Exporters" section with its last run.
+Its "Rebuild" button asks for the range and starts a run, and the section shows the run's record
+count while it goes. A format that cannot merge offers no "Replace file contents" choice, since
+every run of it replaces.
+
 Each run emits `ExportRunStartedEvent`, one `ExportRunProgressEvent` per file it writes, and then
 `ExportRunCompletedEvent` or `ExportRunFailedEvent`. A completed run also writes one log entry
 naming its range, its record count and its files. With `logging.events` on, every event becomes a

@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 
 import CConfirmDialog, { type ConfirmDialogProps } from '@/components/base/c-confirm-dialog.vue'
 import CChangePasswordDialog from '@/components/c-change-password-dialog.vue'
+import CExportRunDialog, { type ExportRunDialogProps } from '@/components/c-export-run-dialog.vue'
 import CFilterGroupDialog from '@/components/c-filter-group-dialog.vue'
 import CWorkspaceDialog from '@/components/c-workspace-dialog.vue'
 import CWorkspaceMoveDialog, {
@@ -28,6 +29,7 @@ export const useDialogs = defineStore('dialogs', () => {
   const workspaceMoveDialog = overlay.create(CWorkspaceMoveDialog)
   const changePasswordDialog = overlay.create(CChangePasswordDialog)
   const filterGroupDialog = overlay.create(CFilterGroupDialog)
+  const exportRunDialog = overlay.create(CExportRunDialog)
 
   function handleOf<TPayload>(result: Promise<TPayload>): DialogHandle<TPayload> {
     const handle: DialogHandle<TPayload> = {
@@ -65,6 +67,9 @@ export const useDialogs = defineStore('dialogs', () => {
         okColor: 'error',
         ...options,
       }),
+    /** Ask for a range and start a run of an exporter over it. Resolves with the run's ID. */
+    runExporter: (props: ExportRunDialogProps) =>
+      handleOf(exportRunDialog.open(props).result) as DialogHandle<string | false>,
     changePassword: (userId: string) => handleOf(changePasswordDialog.open({ userId }).result),
     /** Ask how two filter chips dropped onto each other should be joined. Resolves with the
     operator.

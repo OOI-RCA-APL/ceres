@@ -74,6 +74,7 @@ const persisted = usePersisted({
       workspaces: boolean().default(true),
       connections: boolean().default(false),
       jobs: boolean().default(false),
+      exporters: boolean().default(false),
       particles: boolean().default(false),
       particleTypes: record(string(), boolean()).default({}),
       queries: boolean().default(false),
@@ -411,6 +412,7 @@ const configHighlighted = $computed(() =>
                   </div>
                 </c-list-item>
               </c-detail-section>
+              <c-component-exporters-section v-model:expanded="persisted.exporters" :address />
             </c-list>
 
             <c-list class="mt-2">

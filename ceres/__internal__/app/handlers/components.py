@@ -36,6 +36,7 @@ from ceres.error import (
     ProcedureNotFoundError,
     ProcedureNotPermittedError,
 )
+from ceres.exporter import ExportRunSummary
 from ceres.message import Message, MessageData
 from ceres.particle import Particle, _get_cls_particle_type
 
@@ -87,6 +88,8 @@ class ExporterInfo(DataObject):
     """The exported particle type, `None` for every type or another kind."""
     format: str
     """A built-in format's name, or a custom format class's qualified name."""
+    merges: bool
+    """Whether a run can merge stored records into a file, so far only a keyed format."""
     directory: str
     """Name of the component's `Directory` field the files live under."""
     period: ExporterPeriod
@@ -100,6 +103,8 @@ class ExporterInfo(DataObject):
     """Periods before the current one a scheduled run covers, `None` without a schedule."""
     next_run: DateTime | None
     """When the schedule next runs, or `None` when there is none or it is not running."""
+    last_run: ExportRunSummary | None
+    """The exporter's most recent run, `None` before its first."""
 
 
 def _describe_exporters(component: Component) -> list[ExporterInfo]:
@@ -108,12 +113,14 @@ def _describe_exporters(component: Component) -> list[ExporterInfo]:
     for exporter in exporters.get_all():
         particle = exporter.particle_class()
         scheduled = exporter.schedule is not None and exporter.period != ExporterPeriod.ALL
+        runs = exporters.get_runs(exporter.name)
         infos.append(
             ExporterInfo(
                 name=exporter.name,
                 exports=exporter.exports,
                 type=_get_cls_particle_type(particle) if particle is not None else None,
                 format=exporter.format_name,
+                merges=exporter.format_class.keyed,
                 directory=exporter.directory,
                 period=exporter.period,
                 path=exporter.path,
@@ -124,6 +131,7 @@ def _describe_exporters(component: Component) -> list[ExporterInfo]:
                 ),
                 lookback=(exporter.lookback or 1) if scheduled else None,
                 next_run=exporters.get_next_fire_time(exporter.name),
+                last_run=runs[0].summary() if runs else None,
             )
         )
 
