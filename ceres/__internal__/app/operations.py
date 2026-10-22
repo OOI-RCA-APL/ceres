@@ -16,6 +16,7 @@ from uuid import UUID
 
 from ceres.__internal__.app.handlers import components as component_handlers
 from ceres.__internal__.app.handlers import engine as engine_handlers
+from ceres.__internal__.app.handlers import files as file_handlers
 from ceres.__internal__.app.handlers import permissions as permission_handlers
 from ceres.__internal__.app.handlers import settings as setting_handlers
 from ceres.__internal__.app.handlers import workspace_edits as edit_handlers
@@ -372,6 +373,20 @@ async def statuses_stream(host: Host, arguments: dict[str, Any]) -> AsyncIterato
     filter = _filter(ComponentFilter, arguments)
     async for statuses in host.engine.stream_statuses(filter):
         yield to_json(statuses)
+
+
+@operation("files.roots")
+async def files_roots(host: Host, arguments: dict[str, Any]) -> Any:
+    actor = await _actor(host, arguments)
+    return _entities(await file_handlers.get_file_roots(host.engine, actor))
+
+
+@operation("files.resolve")
+async def files_resolve(host: Host, arguments: dict[str, Any]) -> Any:
+    actor = await _actor(host, arguments)
+    _require_not_disabled(actor)
+    root = await file_handlers.resolve_file_root(host.engine, actor, _path(arguments, "root"))
+    return _serialize(root)
 
 
 @operation("components.list")

@@ -1,6 +1,7 @@
 import os
 import shutil
 from collections.abc import Iterable
+from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
 from tempfile import gettempdir
@@ -16,6 +17,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "Directory",
+    "Files",
 ]
 
 type StrPath = str | PathLike[str]
@@ -363,3 +365,21 @@ class Directory(PathLike[str]):
         destination = self._resolve(destination)
         self._setup_write_operation(destination, mkdirs, "w")
         shutil.move(source, destination)
+
+
+@final
+@dataclass(frozen=True, slots=True)
+class Files:
+    """Marks a component's `Directory` field as a root of the console's file browser.
+
+    Attach it as field metadata, `output: Annotated[Directory, Files("Recordings")]`. A field
+    typed `Directory | None` that holds `None` serves no root, and neither does a temporary
+    directory.
+    """
+
+    label: str | None = None
+    """Name the console shows for the root, the field name when omitted."""
+
+    writable: bool = True
+    """Whether callers with OPERATE access or above may change files in the root. `False` keeps
+    the root read-only for everyone."""

@@ -39,6 +39,17 @@ export function afterMenuCloses(action: () => void) {
   setTimeout(action, 150)
 }
 
+/** Open the context menu around the element handling `event`, below its corner, as a right click
+there would. A row's button calls it so that every row shares the list's one menu. */
+export function openContextMenu(event: MouseEvent) {
+  const element = event.currentTarget
+  if (element instanceof Element) {
+    const { left, bottom } = element.getBoundingClientRect()
+    const press = { bubbles: true, cancelable: true, clientX: left, clientY: bottom }
+    element.dispatchEvent(new MouseEvent('contextmenu', press))
+  }
+}
+
 export function debouncedComputed<T>(factory: () => T, delay: number): ComputedRef<T> {
   const result: Ref<T> = shallowRef(factory())
   watch(

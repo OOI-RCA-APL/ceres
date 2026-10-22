@@ -273,6 +273,7 @@ pub fn build_router(config: AppConfig) -> Router {
     router = record_routes(router);
     router = crate::api::dispatch::register(router);
     router = crate::api::whep::register(router);
+    router = crate::api::files::register(router);
     router = crate::api::streams::register(router);
     router = router.route(
         "/api/statuses",

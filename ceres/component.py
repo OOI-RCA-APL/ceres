@@ -17,7 +17,7 @@ from functools import cached_property
 from inspect import Parameter
 from pathlib import Path
 from string import ascii_lowercase
-from types import MappingProxyType, UnionType
+from types import MappingProxyType, NoneType, UnionType
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -28,6 +28,7 @@ from typing import (
     Self,
     TypeAlias,
     TypedDict,
+    Union,
     Unpack,
     cast,
     final,
@@ -98,6 +99,7 @@ from ceres.data import (
     WithDefaults,
     adapt,
 )
+from ceres.directory import Directory, Files
 from ceres.error import (
     ProcedureInternalError,
     ProcedureInvalidArgumentsError,
@@ -484,6 +486,63 @@ def get_connection_bindings(cls: type, /) -> Mapping[Name, ConnectionBinding]:
                 f"Field '{field}' in component '{cls}' is marked as bound but is not of a "
                 "known object type."
             )
+
+    return MappingProxyType(bindings)
+
+
+class FileRootBinding(DataObject.Frozen):
+    """A component's `Directory` field that the console's file browser serves as a root."""
+
+    field: Name
+    """Attribute name on the component class that holds the `Directory`."""
+
+    label: str
+    """Name the console shows for the root."""
+
+    writable: bool
+    """Whether callers with OPERATE access may change files in the root."""
+
+
+@cached(weak=True)
+def get_file_root_bindings(cls: type, /) -> Mapping[Name, FileRootBinding]:
+    """Discover every `Directory` field on `cls` marked with `Files` and return their bindings.
+
+    Args:
+        cls: A component class to inspect.
+
+    Returns:
+        A mapping of field name to `FileRootBinding`, in field order.
+
+    Raises:
+        TypeError: If a field marked with `Files` is not typed `Directory` or `Directory | None`.
+    """
+    __pydantic_fields__: dict[str, FieldInfo] = getattr(cls, "__pydantic_fields__", {})
+
+    bindings: dict[Name, FileRootBinding] = {}
+    for field, info in __pydantic_fields__.items():
+        annotation = extract_annotation(info)
+        marker = next(
+            (current for current in annotation.metadata if isinstance(current, Files)), None
+        )
+        if marker is None:
+            continue
+
+        members = (
+            set(annotation.generic_args)
+            if annotation.type in (Union, UnionType)
+            else {annotation.type}
+        )
+        if Directory not in members or not members <= {Directory, NoneType}:
+            raise TypeError(
+                f"Field '{field}' in component '{cls}' is marked with `Files` but is not typed "
+                "`Directory` or `Directory | None`."
+            )
+
+        bindings[field] = FileRootBinding(
+            field=field,
+            label=marker.label if marker.label is not None else field,
+            writable=marker.writable,
+        )
 
     return MappingProxyType(bindings)
 
@@ -1972,6 +2031,40 @@ class ComponentSystem(Node, ComponentSource):
     def get_connection_bindings(self) -> Mapping[Name, ConnectionBinding]:
         """Return a mapping of connection names to connection bindings on the underlying class."""
         return get_connection_bindings(type(self.component))
+
+    def get_file_root_bindings(self) -> Mapping[Name, FileRootBinding]:
+        """Return a mapping of field names to file root bindings on the underlying class."""
+        return get_file_root_bindings(type(self.component))
+
+    def get_file_root(self, field: Name, /) -> Directory | None:
+        """Return the directory the file root bound to `field` serves.
+
+        Returns:
+            The field's `Directory`, or `None` when no root is bound to `field`, the field holds
+            `None`, or the directory is temporary.
+        """
+        if field not in self.get_file_root_bindings():
+            return None
+
+        directory = getattr(self.component, field, None)
+        if not isinstance(directory, Directory) or directory.temporary:
+            return None
+
+        return directory
+
+    def warn_temporary_file_roots(self) -> None:
+        """Log a warning for each file root holding a temporary directory.
+
+        A temporary directory vanishes with its handle, so the file browser skips it, and the
+        warning says why a declared root is missing.
+        """
+        for binding in self.get_file_root_bindings().values():
+            directory = getattr(self.component, binding.field, None)
+            if isinstance(directory, Directory) and directory.temporary:
+                self.log.warning(
+                    f"File root '{binding.field}' holds a temporary directory, which the file "
+                    "browser does not serve."
+                )
 
     def __propagate_tree_change(self) -> None:
         # Notify every component that the structure changed so they can recompute cached child

@@ -33,6 +33,7 @@ __all__ = [
     "ServerCORSConfig",
     "ServerCompressionConfig",
     "ServerConfig",
+    "ServerFilesConfig",
     "ServerHTTPConfig",
     "ServerHTTPSConfig",
     "ServerWebRTCConfig",
@@ -1124,6 +1125,11 @@ class ServerConfig:
         WebRTC media port, bound beside the web listeners. Live video plays over HTTP
         when `webrtc` is not set.
         """
+    @property
+    def files(self) -> ServerFilesConfig:
+        r"""
+        What the console's file browser serves.
+        """
     def __new__(
         cls,
         *,
@@ -1134,6 +1140,58 @@ class ServerConfig:
         cors: ServerCORSConfig | dict[str, Any] | None = None,
         compression: ServerCompressionConfig | dict[str, Any] | None = None,
         webrtc: ServerWebRTCConfig | dict[str, Any] | None = None,
+        files: ServerFilesConfig | dict[str, Any] | None = None,
+    ) -> Self: ...
+    def __to_dict__(self) -> dict[str, Any]:
+        r"""
+        Return the configuration as a plain dictionary of JSON-compatible values.
+
+        Called through `ceres.data.to_dict` rather than directly.
+        """
+    def __replace__(self, **changes: Any) -> Self:
+        r"""
+        Return a copy of this configuration with the given fields replaced.
+
+        Called through `copy.replace` and `ceres.data.replace` rather than
+        directly. The replacement is built through the constructor, so a change
+        that does not validate is refused here rather than later.
+        """
+    @staticmethod
+    def __json_schema__() -> dict[str, Any]:
+        r"""
+        Return the JSON Schema describing this configuration section.
+
+        Called through `ceres.data.to_json_schema` rather than directly.
+        """
+    def __eq__(self, other: Any) -> bool: ...
+    def __repr__(self) -> str: ...
+
+class ServerFilesConfig:
+    r"""
+    What the console's file browser serves.
+    """
+    @property
+    def root(self) -> Path | None:
+        r"""
+        Directory the project root serves to administrators, the project directory when
+        omitted.
+        """
+    @property
+    def exclude(self) -> list[str]:
+        r"""
+        Glob patterns naming entries that are never listed or served, in any root.
+        """
+    @property
+    def max_upload(self) -> int | None:
+        r"""
+        Largest file one upload may write, in bytes, unlimited when `None`.
+        """
+    def __new__(
+        cls,
+        *,
+        root: str | PathLike[str] | Path | None = None,
+        exclude: Sequence[str] | None = None,
+        max_upload: int | str | None = None,
     ) -> Self: ...
     def __to_dict__(self) -> dict[str, Any]:
         r"""

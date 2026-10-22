@@ -188,6 +188,36 @@ ceres console open    # Open in browser.
 ceres console url     # Print the URL.
 ```
 
+### Files
+
+The console's "Files" page browses, previews, downloads, and changes the files a deployment keeps. A component offers one of its `Directory` fields there by marking it with `Files`, and anyone who may view the component may browse it. The component's page links each of its roots, and a "Files View" widget puts one root in a workspace, each browser keeping its own open directory.
+
+```python
+from typing import Annotated
+
+from ceres import Component, Directory, Files
+
+
+class Recorder(Component):
+    output: Annotated[Directory, Files("Recordings")]
+```
+
+A field set to `None` or holding a temporary directory offers nothing, and a component the project configures logs a warning for each temporary one at startup, while one a library attaches with `engine.attach()` does not. Administrators also see the project directory, or `server.files.root` when that names another. The page hides entries whose names start with a dot until "Show hidden" is on, which is a convenience and never access control. `server.files.exclude` is what keeps an entry out of reach, since the engine never lists or serves a match in any root. A pattern without a `/` matches a name at any depth, and one with a `/` matches a path from the root. A listing reads every entry of a directory and stats up to 10000 of them, which is quick on a local disk and one round trip per entry on a network share.
+
+```yaml
+server:
+  files:
+    exclude: [.venv, node_modules, /data/raw]
+```
+
+Anyone who may operate a component may also upload, create directories, rename, move, and delete in its roots, and `Files(writable=False)` keeps a root read-only for everyone. Only administrators change the project root. An upload writes a hidden part file beside its target and renames it into place once complete, so no reader sees half a file, and the first listing an hour after a dropped upload removes its part. The console keeps an existing file unless you confirm the replace, and deleting a directory asks you to type its name. A replace puts a new file at the path, so a component that holds the old one open keeps writing to the old file, and its writes never reach the new one. Writes act on a symbolic link itself and never follow one at the target. A link swapped in for a directory above the target during a request can still redirect that write, which takes someone already able to write inside the root. `server.files.max_upload` caps the size of one upload.
+
+```yaml
+server:
+  files:
+    max_upload: 2GiB
+```
+
 ### HTTPS
 
 With a `server.https` listener the console is served over TLS, and browsers negotiate HTTP/2, which multiplexes every console request over one connection. Over plain HTTP browsers cap a page at about six connections per host, and each live video widget holds one, so a dashboard with several videos stalls. HTTPS lifts that limit.
