@@ -63,6 +63,8 @@ pub enum RawEngineMount {
 }
 
 /// The mapping form of an engine mount.
+// Mirrors `MountSetting` in `ceres/mount.py`, which a component's mount field parses, so the
+// two keep the same fields.
 #[derive(Debug, Clone, PartialEq, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct RawEngineMountSetting {

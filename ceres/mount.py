@@ -1,5 +1,6 @@
 import errno
 import os
+import re
 import shutil
 import weakref
 from collections.abc import Callable, Iterator
@@ -63,10 +64,19 @@ MountAccessInput = MountAccess | Literal["none", "view", "edit"]
 
 
 class MountSetting(TypedDict):
-    """A mount written in configuration as a mapping, to set its `access` beside its path."""
+    """A mount written in configuration as a mapping, to set its `access` beside its path.
+
+    `server.files.mounts` takes the same mapping, parsed by `RawEngineMountSetting` in the
+    `ceres-config` crate, so the two keep the same fields.
+    """
 
     path: StrPath
     access: NotRequired[MountAccessInput]
+
+
+def mount_label(name: str) -> str:
+    """Return the console's label for a mount named `name`, its words capitalized."""
+    return " ".join(word.capitalize() for word in re.split(r"[-_]+", name) if word)
 
 
 class _MountFieldReference:

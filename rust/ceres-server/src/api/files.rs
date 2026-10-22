@@ -1629,6 +1629,7 @@ mod tests {
         );
         for uri in [
             "/api/files/other",
+            "/api/files/@",
             "/api/files/@a.b",
             "/api/files/@a.b/",
             "/api/files/@nope/c",

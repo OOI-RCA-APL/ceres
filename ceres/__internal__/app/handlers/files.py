@@ -6,7 +6,7 @@ from ceres.address import Address
 from ceres.component import Component, ComponentAccessLevel
 from ceres.data import DataObject, Name
 from ceres.error import NotFoundError
-from ceres.mount import MountAccess, MountPath
+from ceres.mount import MountAccess, MountPath, mount_label
 
 if TYPE_CHECKING:
     from ceres.__internal__.app.shared import Actor
@@ -124,7 +124,7 @@ async def get_mounts(engine: Engine, actor: Actor) -> list[MountInfo]:
         MountInfo(
             id=name,
             name=name,
-            label=name.replace("-", " ").replace("_", " ").title(),
+            label=mount_label(name),
             component=None,
             access=access,
             temporary=False,

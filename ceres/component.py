@@ -133,7 +133,7 @@ from ceres.event import (
     WillDetachEvent,
 )
 from ceres.message import Message, MessageData, MessageDirectionInput, MessageFilter
-from ceres.mount import Mount, MountAccess, MountAccessInput, MountPath, StrPath
+from ceres.mount import Mount, MountAccess, MountAccessInput, MountPath, StrPath, mount_label
 from ceres.node import Node
 from ceres.timing import delta
 from ceres.variable import InternalVariableName, Variable
@@ -557,7 +557,7 @@ def get_mount_bindings(cls: type, /) -> Mapping[Name, MountBinding]:
             bindings[name] = MountBinding(
                 name=name,
                 field=field,
-                label=info.title or name,
+                label=info.title or mount_label(name),
                 writable=marker.writable,
                 access=marker.access,
             )

@@ -9,7 +9,7 @@ from ceres.__internal__.app.shared import Actor
 from ceres.component import ComponentAccessLevel, ComponentConfig, get_mount_bindings
 from ceres.config import ServerConfig, ServerFilesConfig
 from ceres.error import NotFoundError
-from ceres.mount import MountAccess
+from ceres.mount import MountAccess, mount_label
 from ceres.permission import PermissionTargetType, UserPermission
 from ceres.user import User
 
@@ -69,9 +69,17 @@ def test_mount_fields_bind_in_field_order() -> None:
     assert [(binding.name, binding.label, binding.writable) for binding in bindings.values()] == [
         ("stash", "Stash", True),
         ("ledger", "Ledger", False),
-        ("vault", "vault", True),
-        ("spare", "spare", True),
-        ("scratch", "scratch", True),
+        ("vault", "Vault", True),
+        ("spare", "Spare", True),
+        ("scratch", "Scratch", True),
+    ]
+
+
+def test_mount_label_capitalizes_each_word_of_a_name() -> None:
+    assert [mount_label(name) for name in ["raw_frames", "mp4-files", "v2logs"]] == [
+        "Raw Frames",
+        "Mp4 Files",
+        "V2logs",
     ]
 
 
@@ -125,7 +133,7 @@ async def test_mounts_lists_present_mounts_the_caller_may_view(tmp_path: Path) -
         ("project", "Project", MountAccess.EDIT, False),
         ("@hoarder/stash", "Stash", MountAccess.EDIT, False),
         ("@hoarder/ledger", "Ledger", MountAccess.VIEW, False),
-        ("@hoarder/scratch", "scratch", MountAccess.EDIT, True),
+        ("@hoarder/scratch", "Scratch", MountAccess.EDIT, True),
     ]
 
     await engine.database.dispose()
