@@ -38,12 +38,12 @@ it.
 | `name` | Exporter name, unique within its component. |
 | `exports` | Record kind: `message`, `particle`, `alert` or `log-entry`. |
 | `filter` | Records to export, in the kind's filter syntax. Every record of the kind at the component when omitted. |
-| `type` | Particle class whose data fields become columns. Particle exporters only, and required for `csv`. |
-| `format` | `csv`, `jsonl`, `raw`, or a custom format as `{class, arguments}`. |
+| `type` | Particle class whose data fields become columns. Particle exporters only, and required for `csv` and `netcdf`. |
+| `format` | `csv`, `jsonl`, `netcdf`, `raw`, or a format class with its arguments as `{class, arguments}`. |
 | `directory` | Name of the component's `Directory` field the files live under, `output` when omitted. |
 | `period` | Time one file covers: `hour`, `day`, `month`, or `all` for a single file. |
 | `path` | Path template of each file, relative to the directory, without an extension. |
-| `live` | Whether the exporter writes records as the component stores them. On for every built-in format when omitted. |
+| `live` | Whether the exporter writes records as the component stores them. On when omitted, except for `netcdf`. |
 | `interval` | Least time between two live writes, 5 seconds when omitted and at least 1 second. |
 | `schedule` | Cron or interval expression for scheduled runs. No scheduled runs when omitted. |
 | `lookback` | Periods before the current one each scheduled run covers, 1 when omitted. |
@@ -57,7 +57,7 @@ timestamp order, and records with equal timestamps in ID order.
 
 The path is a `strftime` template of the period's UTC start. `{exporter}` renders the exporter
 name, and `{connection}` renders the connection name when the filter pins exactly one connection.
-The format adds its extension: `.csv`, `.jsonl`, or `.bin` for `raw`.
+The format adds its extension: `.csv`, `.jsonl`, `.nc` for `netcdf`, or `.bin` for `raw`.
 
 Ceres refuses a path that writes two periods to one file, such as `%Y/%m/%d` for an hourly exporter
 or `%y` where two centuries meet. A `period: all` path takes no time directives, apart from `%%` for
@@ -83,6 +83,49 @@ writes the whole data object as one `data` column, which `jsonl` allows and `csv
 `raw` writes the bytes of every message back to back with nothing between them, which reproduces
 the stream a connection received. It holds no IDs, so a run cannot merge into a `raw` file and must
 replace it, and `raw` takes no `schedule`.
+
+### NetCDF
+
+`netcdf` writes one NetCDF-4 file of one particle class, which the `netCDF4` and `xarray` readers
+open. Each row is a particle along the `time` dimension.
+
+| Variable | Contents |
+|---|---|
+| `time` | Seconds since 1970-01-01 UTC, exact to the microsecond through 2106. |
+| `id` | The particle's ID as 36 characters. |
+| `connection` | Index into `connection_name`, `-1` for a particle with no connection. |
+| `connection_name` | The connection names the file's particles arrived on. |
+
+Every data field with a fixed shape becomes a variable. A field nested in a section is named
+`section_field`, unless its name already starts with the section's. A fixed-length tuple or a
+`PackedSequence(length=N)` sequence gains a dimension for each level. A list, `Sequence`, or
+`tuple[X, ...]` without a `PackedSequence` length has no fixed shape, so the file leaves it out along
+with any section holding one, and the exporter logs a warning naming every field it leaves out. Two
+fields whose names become one variable name make the configuration invalid. A field annotated with
+`Unit()` carries a `units` attribute, and datetimes are seconds since the epoch. An absent field
+holds the netCDF fill value, except a `str` field, which holds an empty string. The file's
+attributes name the `exporter`, its component's `address`, and the `particle_type`.
+
+Pass more attributes as arguments:
+
+```yaml
+format:
+  class: netcdf
+  arguments:
+    attributes:
+      celsius: { long_name: Water temperature }
+    global_attributes:
+      institution: Example Lab
+```
+
+A NetCDF file cannot take an appended row, so every write rewrites the whole file and holds the
+period's rows in memory, about 8 bytes per row per variable, plus at most 4 MiB of rows allocated
+ahead. A live `netcdf` exporter reads, merges, and compresses the whole file on every write, so
+`live` is off unless set. At 10 records a second an hour's file holds 36,000 rows, each rewritten
+on every flush, so a high-rate stream wants a period no longer than `hour`, or a schedule in place
+of `live`. Two
+runs over the same rows write identical bytes, though a file records the library versions that wrote
+it, so an upgrade changes the bytes of a rewritten file.
 
 ## Live Export
 
