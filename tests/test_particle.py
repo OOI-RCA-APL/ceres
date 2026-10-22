@@ -667,15 +667,16 @@ async def test_where_cls_constrains_the_query_to_the_particle_type() -> None:
     assert len(rows) == 2
 
 
-async def test_a_stored_particle_keeps_the_connection_it_came_from() -> None:
-    """`to_dynamic` is the storage path, so a connection dropped there is a connection lost."""
+@pytest.mark.parametrize("cls", [None, _ClsFilterAParticle])
+async def test_a_stored_particle_keeps_the_connection_it_came_from(cls: type | None) -> None:
+    """`to_dynamic` stores a particle and `convert` reads it as `cls`, so either can lose it."""
     engine = await _cls_filter_engine()
 
     particle = _cls_filter_particle(_ClsFilterAParticle, 9)
     particle.connection = "pressure-1"
     await engine.database.particles.create(particle.to_dynamic())
 
-    rows = await engine.database.particles.where(connection="pressure-1").all()
+    rows = await engine.database.particles.where(connection="pressure-1", cls=cls).all()
     assert [row.connection for row in rows] == ["pressure-1"]
 
 
