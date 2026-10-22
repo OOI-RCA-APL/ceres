@@ -1127,8 +1127,15 @@
         ]
       }
     },
-    "/api/files/project": {
+    "/api/files/{mount}": {
       "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mount",
+            "required": true
+          }
+        ],
         "responses": {
           "200": {
             "description": "The request succeeded."
@@ -1142,162 +1149,18 @@
             "bearer": []
           }
         ],
-        "summary": "List the top directory of the project mount.",
+        "summary": "List the top directory of an engine mount.",
         "tags": [
           "files"
         ]
       }
     },
-    "/api/files/project/{*path}": {
+    "/api/files/{mount}/{*path}": {
       "delete": {
         "parameters": [
           {
             "in": "path",
-            "name": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "The request succeeded."
-          },
-          "default": {
-            "description": "The request failed, carrying an error."
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Delete a file, or a directory with `?recursive` when it is not empty.",
-        "tags": [
-          "files"
-        ]
-      },
-      "get": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "The request succeeded."
-          },
-          "default": {
-            "description": "The request failed, carrying an error."
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "List a directory, serve a file, or describe an entry under the project mount.",
-        "tags": [
-          "files"
-        ]
-      },
-      "patch": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "The request succeeded."
-          },
-          "default": {
-            "description": "The request failed, carrying an error."
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Rename or move an entry to another path under the project mount.",
-        "tags": [
-          "files"
-        ]
-      },
-      "put": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "The request succeeded."
-          },
-          "default": {
-            "description": "The request failed, carrying an error."
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Upload a file, or create a directory with `?directory`, under the project mount.",
-        "tags": [
-          "files"
-        ]
-      }
-    },
-    "/api/files/{address}/{name}": {
-      "get": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "address",
-            "required": true
-          },
-          {
-            "in": "path",
-            "name": "name",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "The request succeeded."
-          },
-          "default": {
-            "description": "The request failed, carrying an error."
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "List the top directory of a component's mount.",
-        "tags": [
-          "files"
-        ]
-      }
-    },
-    "/api/files/{address}/{name}/{*path}": {
-      "delete": {
-        "parameters": [
-          {
-            "in": "path",
-            "name": "address",
-            "required": true
-          },
-          {
-            "in": "path",
-            "name": "name",
+            "name": "mount",
             "required": true
           },
           {
@@ -1328,12 +1191,7 @@
         "parameters": [
           {
             "in": "path",
-            "name": "address",
-            "required": true
-          },
-          {
-            "in": "path",
-            "name": "name",
+            "name": "mount",
             "required": true
           },
           {
@@ -1355,7 +1213,7 @@
             "bearer": []
           }
         ],
-        "summary": "List a directory, serve a file, or describe an entry under a component's mount.",
+        "summary": "List a directory, serve a file, or describe an entry under a mount. A component mount's path starts with its name, after its address in `mount`.",
         "tags": [
           "files"
         ]
@@ -1364,12 +1222,7 @@
         "parameters": [
           {
             "in": "path",
-            "name": "address",
-            "required": true
-          },
-          {
-            "in": "path",
-            "name": "name",
+            "name": "mount",
             "required": true
           },
           {
@@ -1391,7 +1244,7 @@
             "bearer": []
           }
         ],
-        "summary": "Rename or move an entry to another path under the same component mount.",
+        "summary": "Rename or move an entry to another path under the same mount.",
         "tags": [
           "files"
         ]
@@ -1400,12 +1253,7 @@
         "parameters": [
           {
             "in": "path",
-            "name": "address",
-            "required": true
-          },
-          {
-            "in": "path",
-            "name": "name",
+            "name": "mount",
             "required": true
           },
           {
@@ -1427,7 +1275,7 @@
             "bearer": []
           }
         ],
-        "summary": "Upload a file, or create a directory with `?directory`, under a component's mount.",
+        "summary": "Upload a file, or create a directory with `?directory`, under a mount.",
         "tags": [
           "files"
         ]

@@ -155,10 +155,12 @@ python_config! {
 
     /// What the console's file browser serves.
     ServerFilesConfig(ceres_config::ServerFilesConfig, ceres_config::RawServerFilesConfig) {
-        /// Directory the project root serves to administrators, the project directory when
-        /// omitted.
-        root: Option<PathBuf>,
-        /// Glob patterns naming entries that are never listed or served, in any root.
+        /// Directories the file browser serves besides component mounts, keyed by name. Each
+        /// is set as a path or a mapping of `path` and `access`, and reads back as the mapping,
+        /// `access` `None` when the setting omits it.
+        #[python(any = "dict[str, typing.Any]")]
+        mounts: std::collections::BTreeMap<String, ceres_config::EngineMount>,
+        /// Glob patterns naming entries that are never listed or served, in any mount.
         exclude: Vec<String>,
         /// Largest file one upload may write, in bytes, unlimited when `None`.
         max_upload: Option<ByteSize>,

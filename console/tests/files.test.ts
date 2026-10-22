@@ -60,15 +60,14 @@ describe('filesPagePath', () => {
 })
 
 describe('parseFilesRoute', () => {
-  it('reads the mount from one segment for the project and two for a component', () => {
+  it('reads the mount from one segment for the engine and two for a component', () => {
     expect(parseFilesRoute([])).toEqual({ mount: null, path: [] })
-    expect(parseFilesRoute(['project', '@a', 'b'])).toEqual({ mount: 'project', path: ['@a', 'b'] })
+    expect(parseFilesRoute(['abc', '@a', 'b'])).toEqual({ mount: 'abc', path: ['@a', 'b'] })
     expect(parseFilesRoute(['@a.b', 'c', 'd'])).toEqual({ mount: '@a.b/c', path: ['d'] })
   })
 
   it('keeps a malformed mount whole', () => {
     expect(parseFilesRoute(['@a'])).toEqual({ mount: '@a', path: [] })
-    expect(parseFilesRoute(['a', 'b'])).toEqual({ mount: 'a', path: ['b'] })
   })
 
   it('round trips the page path', () => {

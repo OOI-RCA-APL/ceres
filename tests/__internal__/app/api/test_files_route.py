@@ -27,7 +27,12 @@ class Hoarder(Component):
 
 async def _engine(tmp_path: Path, access: MountAccess = MountAccess.EDIT) -> tuple[Engine, Hoarder]:
     engine = Engine()
-    engine.config.server = ServerConfig(files={"access": access})
+    mounts = {
+        "project": ".",
+        "logs": {"path": str(tmp_path), "access": "view"},
+        "vault": {"path": "abc", "access": "none"},
+    }
+    engine.config.server = ServerConfig(files={"access": access, "mounts": mounts})
     await engine.database.migrate()
     hoarder = Hoarder(
         __with_name__="hoarder",
@@ -116,6 +121,7 @@ async def test_mounts_lists_present_mounts_the_caller_may_view(tmp_path: Path) -
 
     mounts = await get_mounts(engine, _UNRESTRICTED)
     assert [(mount.id, mount.label, mount.access, mount.temporary) for mount in mounts] == [
+        ("logs", "Logs", MountAccess.VIEW, False),
         ("project", "Project", MountAccess.EDIT, False),
         ("@hoarder/stash", "Stash", MountAccess.EDIT, False),
         ("@hoarder/ledger", "Ledger", MountAccess.VIEW, False),
@@ -140,8 +146,15 @@ async def test_mount_access_is_the_least_of_the_mount_and_the_caller(
     actor = await _user(engine, level)
 
     mounts = await get_mounts(engine, actor)
-    # The writable temporary `scratch` mount follows the caller the way `stash` does.
-    assert [mount.access for mount in mounts] == [stash, ledger, stash]
+    # Engine mounts ignore the caller's level, and the writable temporary `scratch` mount
+    # follows it the way `stash` does.
+    assert [mount.access for mount in mounts] == [
+        MountAccess.VIEW,
+        MountAccess.EDIT,
+        stash,
+        ledger,
+        stash,
+    ]
     assert (await resolve_mount(engine, actor, "@hoarder/ledger")).access == ledger
 
     await engine.database.dispose()
@@ -150,7 +163,7 @@ async def test_mount_access_is_the_least_of_the_mount_and_the_caller(
 @pytest.mark.parametrize(
     ("cap", "ids"),
     [
-        (MountAccess.VIEW, ["project", "@hoarder/stash"]),
+        (MountAccess.VIEW, ["logs", "project", "@hoarder/stash"]),
         (MountAccess.NONE, []),
     ],
 )
@@ -158,29 +171,40 @@ async def test_mount_access_is_capped_by_the_server(
     tmp_path: Path, cap: MountAccess, ids: list[str]
 ) -> None:
     engine, _ = await _engine(tmp_path, cap)
-    admin = await _user(engine, ComponentAccessLevel.MANAGE, admin=True)
+    manager = await _user(engine, ComponentAccessLevel.MANAGE)
 
-    mounts = await get_mounts(engine, admin)
-    assert [mount.id for mount in mounts][:2] == ids
+    mounts = await get_mounts(engine, manager)
+    assert [mount.id for mount in mounts][:3] == ids
     assert all(mount.access == cap for mount in mounts)
 
     await engine.database.dispose()
 
 
-async def test_project_mount_is_listed_to_an_admin_only(tmp_path: Path) -> None:
+async def test_engine_mounts_serve_any_signed_in_caller(tmp_path: Path) -> None:
     engine, _ = await _engine(tmp_path)
+    actor = await _user(engine, None)
 
-    admin = await _user(engine, None, admin=True)
-    project = await resolve_mount(engine, admin, "project")
+    assert [mount.id for mount in await get_mounts(engine, actor)] == ["logs", "project"]
+    project = await resolve_mount(engine, actor, "project")
+    logs = await resolve_mount(engine, actor, "logs")
     assert (project.path, project.access, project.exclude) == (
         str(Path.cwd()),
         MountAccess.EDIT,
         [],
     )
-    manager = await _user(engine, ComponentAccessLevel.MANAGE, name="abcd")
-    assert "project" not in [mount.id for mount in await get_mounts(engine, manager)]
+    assert (logs.path, logs.access) == (str(tmp_path), MountAccess.VIEW)
 
     await engine.database.dispose()
+
+
+def test_files_mounts_read_a_path_or_a_mapping() -> None:
+    mounts = ServerFilesConfig(mounts={"a": "./a", "b": {"path": "/b", "access": "view"}}).mounts
+    assert mounts == {
+        "a": {"path": "./a", "access": None},
+        "b": {"path": "/b", "access": "view"},
+    }
+    with pytest.raises(ValueError, match="mounts"):
+        ServerFilesConfig(mounts={"@a": "./a"})
 
 
 def test_files_max_upload_reads_a_byte_size() -> None:
@@ -188,10 +212,13 @@ def test_files_max_upload_reads_a_byte_size() -> None:
     assert ServerFilesConfig().max_upload is None
 
 
-async def test_mounts_hides_every_mount_from_a_caller_without_access(tmp_path: Path) -> None:
+async def test_mounts_hides_every_component_mount_from_a_caller_without_access(
+    tmp_path: Path,
+) -> None:
     engine, _ = await _engine(tmp_path)
 
-    assert await get_mounts(engine, await _user(engine, None)) == []
+    mounts = await get_mounts(engine, await _user(engine, None))
+    assert all(mount.component is None for mount in mounts)
 
     await engine.database.dispose()
 
@@ -208,7 +235,8 @@ async def test_resolve_finds_a_mount_the_caller_may_view(tmp_path: Path) -> None
 @pytest.mark.parametrize(
     "id",
     [
-        "project",
+        "vault",
+        "nope",
         "@hoarder/stash",
         "@hoarder/vault",
         "@hoarder/spare",

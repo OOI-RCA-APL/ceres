@@ -48,92 +48,63 @@ const PART_LIFETIME: Duration = Duration::from_secs(60 * 60);
 /// Largest `PATCH` body read, far above any path the filesystem accepts.
 const RENAME_BODY_LIMIT: usize = 64 * 1024;
 
-/// ID of the mount serving the project directory.
-const PROJECT_MOUNT: &str = "project";
-
-/// Register the file browser's routes, beside the host-dispatched `/api/files`.
+/// Register the file browser's routes, beside the host-dispatched `/api/files`. An engine
+/// mount and a component's address share the first segment, so one pair of routes takes both
+/// and `MountId::parse` tells them apart.
 pub(crate) fn register(router: Router<Arc<AppState>>) -> Router<Arc<AppState>> {
     router
         .route(
-            "/api/files/project",
-            get(project_top)
-                .put(project_top)
-                .patch(project_top)
-                .delete(project_top),
+            "/api/files/{mount}",
+            get(mount_top)
+                .put(mount_top)
+                .patch(mount_top)
+                .delete(mount_top),
         )
         .route(
-            "/api/files/project/{*path}",
-            get(project_entry)
-                .put(project_entry)
-                .patch(project_entry)
-                .delete(project_entry),
-        )
-        .route(
-            "/api/files/{address}/{name}",
-            get(component_top)
-                .put(component_top)
-                .patch(component_top)
-                .delete(component_top),
-        )
-        .route(
-            "/api/files/{address}/{name}/{*path}",
-            get(component_entry)
-                .put(component_entry)
-                .patch(component_entry)
-                .delete(component_entry),
+            "/api/files/{mount}/{*path}",
+            get(mount_entry)
+                .put(mount_entry)
+                .patch(mount_entry)
+                .delete(mount_entry),
         )
 }
 
-async fn project_top(
+async fn mount_top(
     State(state): State<Arc<AppState>>,
+    Captured(first): Captured<String>,
     request: Request,
 ) -> Result<Response, ApiError> {
-    respond(&state, MountId::project(), String::new(), request).await
-}
-
-async fn project_entry(
-    State(state): State<Arc<AppState>>,
-    Captured(path): Captured<String>,
-    request: Request,
-) -> Result<Response, ApiError> {
-    respond(&state, MountId::project(), path, request).await
-}
-
-async fn component_top(
-    State(state): State<Arc<AppState>>,
-    Captured((address, name)): Captured<(String, String)>,
-    request: Request,
-) -> Result<Response, ApiError> {
-    let mount = MountId::component(&address, &name)?;
-    respond(&state, mount, String::new(), request).await
-}
-
-async fn component_entry(
-    State(state): State<Arc<AppState>>,
-    Captured((address, name, path)): Captured<(String, String, String)>,
-    request: Request,
-) -> Result<Response, ApiError> {
-    let mount = MountId::component(&address, &name)?;
+    let (mount, path) = MountId::parse(&first, "")?;
     respond(&state, mount, path, request).await
 }
 
-/// A mount's ID as the host knows it, `project` or `<address>/<name>`.
+async fn mount_entry(
+    State(state): State<Arc<AppState>>,
+    Captured((first, rest)): Captured<(String, String)>,
+    request: Request,
+) -> Result<Response, ApiError> {
+    let (mount, path) = MountId::parse(&first, &rest)?;
+    respond(&state, mount, path, request).await
+}
+
+/// A mount's ID as the host knows it, an engine mount's name or `<address>/<name>`.
 struct MountId(String);
 
 impl MountId {
-    fn project() -> Self {
-        Self(PROJECT_MOUNT.to_string())
-    }
-
-    /// The ID of the mount `name` of the component at `address`, not found unless both are
-    /// valid and `address` names a component rather than the engine.
-    fn component(address: &str, name: &str) -> Result<Self, ApiError> {
-        let address = Address::parse(address).map_err(|_| ApiError::not_found())?;
-        if !address.as_str().starts_with('@') || Name::parse(name).is_err() {
-            return Err(ApiError::not_found());
+    /// Split a files URL's first segment and the `rest` after it into the mount and the path
+    /// under it. A first segment starting with `@` is a component's address, which takes the
+    /// next segment as the mount's name, and any other is an engine mount's name. Not found
+    /// unless every part is valid.
+    fn parse(first: &str, rest: &str) -> Result<(Self, String), ApiError> {
+        if !first.starts_with('@') {
+            Name::parse(first).map_err(|_| ApiError::not_found())?;
+            return Ok((Self(first.to_string()), rest.to_string()));
         }
 
-        Ok(Self(format!("{address}/{name}")))
+        Address::parse(first).map_err(|_| ApiError::not_found())?;
+        let (name, path) = rest.split_once('/').unwrap_or((rest, ""));
+        Name::parse(name).map_err(|_| ApiError::not_found())?;
+        Ok((Self(format!("{first}/{name}")), path.to_string()))
     }
 }
 
@@ -1262,8 +1233,8 @@ mod tests {
     use crate::host::{Host, UserRecord};
     use crate::layers::apply_compression;
 
-    /// A host serving one temporary directory as both `project` and the component mount
-    /// `@a.b/c`.
+    /// A host serving one temporary directory as both the engine mount `project` and the
+    /// component mount `@a.b/c`.
     struct FileHost {
         directory: TempDir,
         exclude: Vec<&'static str>,
@@ -1649,7 +1620,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_mount_is_project_or_a_component_address_and_a_name() {
+    async fn a_mount_is_an_engine_mount_name_or_a_component_address_and_a_name() {
         let host = Arc::new(mount(&[("@d/e", "abc")], &[]));
         assert_eq!(host.names("/api/files/@a.b/c").await, ["@d"]);
         assert_eq!(
@@ -1659,6 +1630,7 @@ mod tests {
         for uri in [
             "/api/files/other",
             "/api/files/@a.b",
+            "/api/files/@a.b/",
             "/api/files/@nope/c",
             "/api/files/a.b/c",
             "/api/files/~/c",

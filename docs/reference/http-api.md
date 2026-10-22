@@ -90,16 +90,11 @@ caller themselves against the resource they name.
 | Method | Path | Token | Description |
 | --- | --- | --- | --- |
 | `GET` | `/api/files` | required | List the mounts the caller may view. |
-| `GET` | `/api/files/project` | required | List the top directory of the project mount. |
-| `GET` | `/api/files/project/{*path}` | required | List a directory, serve a file, or describe an entry under the project mount. |
-| `PUT` | `/api/files/project/{*path}` | required | Upload a file, or create a directory with `?directory`, under the project mount. |
-| `DELETE` | `/api/files/project/{*path}` | required | Delete a file, or a directory with `?recursive` when it is not empty. |
-| `PATCH` | `/api/files/project/{*path}` | required | Rename or move an entry to another path under the project mount. |
-| `GET` | `/api/files/{address}/{name}` | required | List the top directory of a component's mount. |
-| `GET` | `/api/files/{address}/{name}/{*path}` | required | List a directory, serve a file, or describe an entry under a component's mount. |
-| `PUT` | `/api/files/{address}/{name}/{*path}` | required | Upload a file, or create a directory with `?directory`, under a component's mount. |
-| `DELETE` | `/api/files/{address}/{name}/{*path}` | required | Delete a file, or a directory with `?recursive` when it is not empty. |
-| `PATCH` | `/api/files/{address}/{name}/{*path}` | required | Rename or move an entry to another path under the same component mount. |
+| `GET` | `/api/files/{mount}` | required | List the top directory of an engine mount. |
+| `GET` | `/api/files/{mount}/{*path}` | required | List a directory, serve a file, or describe an entry under a mount. A component mount's path starts with its name, after its address in `mount`. |
+| `PUT` | `/api/files/{mount}/{*path}` | required | Upload a file, or create a directory with `?directory`, under a mount. |
+| `DELETE` | `/api/files/{mount}/{*path}` | required | Delete a file, or a directory with `?recursive` when it is not empty. |
+| `PATCH` | `/api/files/{mount}/{*path}` | required | Rename or move an entry to another path under the same mount. |
 
 ## Groups
 

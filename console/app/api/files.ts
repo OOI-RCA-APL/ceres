@@ -10,11 +10,11 @@ export const MountAccessModel = z.enum(['none', 'view', 'edit'])
 
 export type FileMount = z.infer<typeof FileMountModel>
 export const FileMountModel = z.object({
-  /** `project`, or a component's address and the mount's name, `@rig/stills`. */
+  /** An engine mount's name, or a component's address and the mount's name, `@rig/stills`. */
   id: z.string(),
   name: z.string(),
   label: z.string(),
-  /** The address of the component whose field holds the mount, null for the project mount. */
+  /** The address of the component whose field holds the mount, null for an engine mount. */
   component: z.string().nullable(),
   access: MountAccessModel,
   /** Whether the mount is a temporary directory, removed once the component releases it. */
@@ -80,9 +80,6 @@ export function previewOf(entry: FileEntry): FilePreview {
   )
 }
 
-/** Name of the mount serving the project directory. */
-const PROJECT_MOUNT = 'project'
-
 /** `base`, then the mount's URL segments, then `path`, each segment escaped. A component
 mount's ID, `<address>/<name>`, spans two segments, and `@` stays bare where a URL allows it. */
 function filesUrl(base: string, mount: string, path: readonly string[]): string {
@@ -93,8 +90,9 @@ function filesUrl(base: string, mount: string, path: readonly string[]): string 
   ].join('/')
 }
 
-/** Split a files URL's `segments` into the mount, its own one segment for `project` and two for
-a component's, and the path under it. A malformed mount is kept whole, which no mount matches. */
+/** Split a files URL's `segments` into the mount and the path under it. An engine mount takes
+one segment, its name, and a component's two, its address, which starts with `@`, and its name. A
+malformed mount is kept whole, which no mount matches. */
 export function parseFilesRoute(segments: readonly string[]): {
   mount: string | null
   path: string[]
@@ -104,7 +102,7 @@ export function parseFilesRoute(segments: readonly string[]): {
     return { mount: null, path: [] }
   }
 
-  if (first !== PROJECT_MOUNT && first.startsWith('@') && second != null) {
+  if (first.startsWith('@') && second != null) {
     return { mount: `${first}/${second}`, path: rest }
   }
 

@@ -1171,15 +1171,16 @@ class ServerFilesConfig:
     What the console's file browser serves.
     """
     @property
-    def root(self) -> Path | None:
+    def mounts(self) -> dict[str, Any]:
         r"""
-        Directory the project root serves to administrators, the project directory when
-        omitted.
+        Directories the file browser serves besides component mounts, keyed by name. Each
+        is set as a path or a mapping of `path` and `access`, and reads back as the mapping,
+        `access` `None` when the setting omits it.
         """
     @property
     def exclude(self) -> list[str]:
         r"""
-        Glob patterns naming entries that are never listed or served, in any root.
+        Glob patterns naming entries that are never listed or served, in any mount.
         """
     @property
     def max_upload(self) -> int | None:
@@ -1194,7 +1195,7 @@ class ServerFilesConfig:
     def __new__(
         cls,
         *,
-        root: str | PathLike[str] | Path | None = None,
+        mounts: dict[str, Any] | None = None,
         exclude: Sequence[str] | None = None,
         max_upload: int | str | None = None,
         access: str | None = None,

@@ -12,19 +12,19 @@ if TYPE_CHECKING:
     from ceres.__internal__.app.shared import Actor
     from ceres.engine import Engine
 
-PROJECT_MOUNT = "project"
-"""ID of the mount serving the project directory, to administrators only. A component mount's
-ID is `<address>/<name>`, which an address's leading `@` keeps apart from this one."""
-
 
 class MountInfo(DataObject):
-    """A mount of the files API that the caller may view."""
+    """A mount of the files API that the caller may view.
+
+    An engine mount's ID is its name in `server.files.mounts`, and a component mount's is
+    `<address>/<name>`. A name never starts with `@`, which keeps the two apart.
+    """
 
     id: str
     name: Name
     label: str
     component: Address | None
-    """The component whose field holds the mount, `None` for the project mount."""
+    """The component whose field holds the mount, `None` for an engine mount."""
     access: MountAccess
     """What the caller may do with the mount."""
     temporary: bool
@@ -73,26 +73,20 @@ def _mount_access(engine: Engine, level: ComponentAccessLevel, mount: MountPath)
     return min(declared, _cap(engine), caller)
 
 
-def _project_directory(engine: Engine) -> Path:
+def _engine_mounts(engine: Engine) -> dict[str, tuple[Path, MountAccess]]:
+    """Return each engine mount by name, its absolute path and effective access, which every
+    signed-in caller shares. A mount whose access is `none` is left out."""
     project = engine.project
     base = project.directory.path if project is not None else Path.cwd()
-    root = engine.config.server.files.root
-    return base if root is None else base / root
+    cap = _cap(engine)
+    mounts: dict[str, tuple[Path, MountAccess]] = {}
+    for name, setting in engine.config.server.files.mounts.items():
+        declared = setting["access"]
+        access = min(MountAccess.EDIT if declared is None else MountAccess(declared), cap)
+        if access != MountAccess.NONE:
+            mounts[name] = ((base / setting["path"]).absolute(), access)
 
-
-def _project_mount(engine: Engine, actor: Actor) -> MountInfo | None:
-    access = _cap(engine)
-    if not actor.admin or access == MountAccess.NONE:
-        return None
-
-    return MountInfo(
-        id=PROJECT_MOUNT,
-        name=PROJECT_MOUNT,
-        label="Project",
-        component=None,
-        access=access,
-        temporary=False,
-    )
+    return mounts
 
 
 def component_mounts(
@@ -125,9 +119,18 @@ def component_mounts(
 
 
 async def get_mounts(engine: Engine, actor: Actor) -> list[MountInfo]:
-    """Return every mount the caller may view, the project mount first."""
-    project = _project_mount(engine, actor)
-    mounts = [] if project is None else [project]
+    """Return every mount the caller may view, the engine's before the components'."""
+    mounts = [
+        MountInfo(
+            id=name,
+            name=name,
+            label=name.replace("-", " ").replace("_", " ").title(),
+            component=None,
+            access=access,
+            temporary=False,
+        )
+        for name, (_, access) in _engine_mounts(engine).items()
+    ]
 
     components = [
         component for component in engine.get_components() if component.system.get_mount_bindings()
@@ -152,20 +155,15 @@ async def resolve_mount(engine: Engine, actor: Actor, id: str) -> ResolvedMount:
     """
     exclude = list(engine.config.server.files.exclude)
     max_upload = engine.config.server.files.max_upload
-    if id == PROJECT_MOUNT:
-        project = _project_mount(engine, actor)
-        if project is None:
+    if not id.startswith("@"):
+        path, access = _engine_mounts(engine).get(id, (None, MountAccess.NONE))
+        if path is None:
             raise NotFoundError()
 
-        return ResolvedMount(
-            path=str(_project_directory(engine).absolute()),
-            access=project.access,
-            exclude=exclude,
-            max_upload=max_upload,
-        )
+        return ResolvedMount(path=str(path), access=access, exclude=exclude, max_upload=max_upload)
 
     address, separator, name = id.partition("/")
-    if not id.startswith("@") or not separator:
+    if not separator:
         raise NotFoundError()
 
     try:
