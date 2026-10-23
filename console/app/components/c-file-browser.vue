@@ -143,11 +143,9 @@ const mountInfo = $computed(() => findFileMount(mountsQuery.data.value, mount))
 const writable = $computed(() => mountInfo?.access === 'edit')
 
 // A mount is always a directory, so only a path under one needs asking what it is.
-const statQuery = useQuery({
-  queryKey: computed(() => fileStatQueryKey(mount, path)),
-  queryFn: () => engine.files.stat(mount, path),
-  enabled: computed(() => path.length > 0),
-})
+const statQuery = useQuery(
+  computed(() => ({ ...statQueryOptions(path), enabled: path.length > 0 })),
+)
 const entry = $computed<FileEntry | null>(() =>
   path.length === 0
     ? { name: '', kind: 'directory', size: null, modified: null, created: null }
@@ -245,10 +243,17 @@ watch(
   { immediate: true },
 )
 
-// Selecting one file previews it, and anything else returns the URL to the directory.
+// Selecting one entry asks for its description, so a copy of its system path has the text in hand
+// inside the click, where Safari and plain HTTP require it. Selecting one file previews it, and
+// anything else returns the URL to the directory.
 watch(
   () => selectedEntries.map((current) => current.name).join('/'),
   () => {
+    const [only, ...rest] = selectedEntries
+    if (only != null && rest.length === 0 && mountInfo?.reveal_paths === true) {
+      void queryClient.prefetchQuery(statQueryOptions([...currentDirectory, only.name]))
+    }
+
     if (mode !== 'side' || !listed) {
       return
     }
@@ -439,29 +444,22 @@ function statQueryOptions(target: string[]) {
   }
 }
 
-// Opening a menu on one row asks for its description, so a copy of its system path has the text in
-// hand inside the click, where a copy over plain HTTP must happen.
-function prefetchStat(name: string) {
-  const [only, ...rest] = rows.selected()
-  if (only === name && rest.length === 0 && mountInfo?.reveal_paths === true) {
-    void queryClient.prefetchQuery(statQueryOptions([...currentDirectory, name]))
-  }
-}
-
 /** Copy where `target` lives on the server. */
 async function copySystemPath(target: string[]) {
-  try {
-    const stat =
-      queryClient.getQueryData<FileStat>(fileStatQueryKey(mount, target)) ??
-      (await queryClient.fetchQuery(statQueryOptions(target)))
-    if (stat?.path == null) {
-      throw new Error('The engine reveals no path for this entry.')
-    }
+  const failure = 'Could not copy the path, open Info and copy it there.'
+  const stat =
+    queryClient.getQueryData<FileStat>(fileStatQueryKey(mount, target)) ??
+    (await queryClient.fetchQuery(statQueryOptions(target)).catch(() => null))
+  if (stat?.path == null) {
+    notify.error(failure)
+    return
+  }
 
+  try {
     await copyText(stat.path)
     notify.success('Path copied to clipboard.')
   } catch {
-    notify.error('Could not copy the path, open Info and copy it there.')
+    notify.error(failure)
   }
 }
 
@@ -1017,7 +1015,7 @@ function onListContext(event: MouseEvent) {
                   selectable
                   :selected="rows.isSelected(current.name)"
                   @click="rows.onClick(current.name, $event)"
-                  @contextmenu="(rows.ensureSelected(current.name), prefetchStat(current.name))"
+                  @contextmenu="rows.ensureSelected(current.name)"
                   @dblclick="path = [...currentDirectory, current.name]"
                 >
                   <c-icon class="shrink-0" :name="entryIcon(current)" size="16" />
