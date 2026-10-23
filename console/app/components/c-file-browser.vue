@@ -547,7 +547,7 @@ async function renameEntry(directory: string[], target: FileEntry) {
 them, so the listing refreshes after it closes whatever landed. */
 async function placeEntries(directory: string[], targets: FileEntry[], mode: 'move' | 'copy') {
   const placed = await answer(
-    dialogs.moveFiles({
+    dialogs.placeFiles({
       mount,
       mountLabel,
       from: directory,

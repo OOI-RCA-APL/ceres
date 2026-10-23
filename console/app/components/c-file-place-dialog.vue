@@ -6,11 +6,11 @@ import { computed } from 'vue'
 
 import { useQuery } from '@/api/client'
 import { useEngine } from '@/api/engine'
-import { type FileEntry, FileWriteError, isHiddenEntry, moveDestinationBlocked } from '@/api/files'
+import { type FileEntry, FileWriteError, isHiddenEntry, placeDestinationBlocked } from '@/api/files'
 import { answer, useDialogs } from '@/dialogs'
 import icons from '@/icons'
 
-export type FileMoveDialogProps = {
+export type FilePlaceDialogProps = {
   mount: string
   /** What the breadcrumb calls the mount itself. */
   mountLabel: string
@@ -20,17 +20,10 @@ export type FileMoveDialogProps = {
   /** Whether dot folders show, as they do in the browser that asked. */
   hidden: boolean
   /** Whether the entries move or a copy of each lands in the folder picked. */
-  mode?: 'move' | 'copy'
+  mode: 'move' | 'copy'
 }
 
-const {
-  mount,
-  mountLabel,
-  from,
-  targets,
-  hidden,
-  mode = 'move',
-} = defineProps<FileMoveDialogProps>()
+const { mount, mountLabel, from, targets, hidden, mode } = defineProps<FilePlaceDialogProps>()
 
 /** Closes with where each entry that moved or copied went, by name, or `false` when none did. */
 const emit = defineEmits<{ close: [ReadonlyMap<string, string[]> | false] }>()
@@ -70,7 +63,7 @@ const breadcrumbs = $computed<BreadcrumbItem[]>(() => [
   })),
 ])
 
-const blocked = $computed(() => moveDestinationBlocked(folder, from, targets))
+const blocked = $computed(() => placeDestinationBlocked(folder, from, targets))
 
 // Everything under a folder being moved or copied is reached only through its row, so disabling
 // the row keeps the dialog out of all of it.

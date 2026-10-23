@@ -483,9 +483,9 @@ export function fileNameStemEnd(name: string, kind: FileKind): number {
   return kind === 'file' && dot > 0 ? dot : name.length
 }
 
-/** Whether `targets`, entries of `from`, cannot move into `folder`: they are already there, or a
-directory among them would move into itself. */
-export function moveDestinationBlocked(
+/** Whether `targets`, entries of `from`, cannot move or copy into `folder`: they are already
+there, or a directory among them would land inside itself. */
+export function placeDestinationBlocked(
   folder: readonly string[],
   from: readonly string[],
   targets: readonly FileEntry[],

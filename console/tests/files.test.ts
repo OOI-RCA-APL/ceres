@@ -11,7 +11,7 @@ import {
   fileActions,
   fileNameProblem,
   fileNameStemEnd,
-  moveDestinationBlocked,
+  placeDestinationBlocked,
   fileColumns,
   fileInfoPlace,
   fileInfoRows,
@@ -388,16 +388,16 @@ describe('fileNameStemEnd', () => {
   })
 })
 
-describe('moveDestinationBlocked', () => {
+describe('placeDestinationBlocked', () => {
   it('refuses the folder the entries are in and any folder inside one being moved', () => {
     const targets = [file('a'), folder('b')]
-    expect(moveDestinationBlocked(['x'], ['x'], targets)).toBe(true)
-    expect(moveDestinationBlocked(['x', 'b'], ['x'], targets)).toBe(true)
-    expect(moveDestinationBlocked(['x', 'b', 'c'], ['x'], targets)).toBe(true)
-    expect(moveDestinationBlocked(['x', 'a'], ['x'], targets)).toBe(false)
-    expect(moveDestinationBlocked([], ['x'], targets)).toBe(false)
-    expect(moveDestinationBlocked(['x', 'bc'], ['x'], targets)).toBe(false)
-    expect(moveDestinationBlocked(['x', 'sub'], ['x'], [file('a')])).toBe(false)
+    expect(placeDestinationBlocked(['x'], ['x'], targets)).toBe(true)
+    expect(placeDestinationBlocked(['x', 'b'], ['x'], targets)).toBe(true)
+    expect(placeDestinationBlocked(['x', 'b', 'c'], ['x'], targets)).toBe(true)
+    expect(placeDestinationBlocked(['x', 'a'], ['x'], targets)).toBe(false)
+    expect(placeDestinationBlocked([], ['x'], targets)).toBe(false)
+    expect(placeDestinationBlocked(['x', 'bc'], ['x'], targets)).toBe(false)
+    expect(placeDestinationBlocked(['x', 'sub'], ['x'], [file('a')])).toBe(false)
   })
 })
 
