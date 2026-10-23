@@ -16,7 +16,7 @@ export type FileInfoDialogProps = {
 <script lang="ts" setup>
 import { useQuery } from '@/api/client'
 import { useEngine } from '@/api/engine'
-import { fileInfoRows } from '@/api/files'
+import { fileInfoRows, fileStatQueryKey } from '@/api/files'
 import icons from '@/icons'
 import { useNotify } from '@/notify'
 import { copyText } from '@/utilities'
@@ -29,7 +29,7 @@ const engine = useEngine()
 const notify = useNotify()
 
 const statQuery = useQuery({
-  queryKey: ['files', 'stat', mount, ...path],
+  queryKey: fileStatQueryKey(mount, path),
   queryFn: () => engine.files.stat(mount, path),
 })
 

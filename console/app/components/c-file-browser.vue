@@ -13,6 +13,7 @@ import {
   FileColumnsModel,
   type FileEntry,
   type FilePreviewMode,
+  type FileStat,
   FilePreviewSettingsModel,
   FileWriteError,
   LISTING_MIN_WIDTH,
@@ -26,6 +27,7 @@ import {
   formatFileSize,
   formatFileTime,
   fileNameStemEnd,
+  fileStatQueryKey,
   isHiddenEntry,
   previewMode,
   previewTarget,
@@ -142,7 +144,7 @@ const writable = $computed(() => mountInfo?.access === 'edit')
 
 // A mount is always a directory, so only a path under one needs asking what it is.
 const statQuery = useQuery({
-  queryKey: computed(() => ['files', 'stat', mount, ...path]),
+  queryKey: computed(() => fileStatQueryKey(mount, path)),
   queryFn: () => engine.files.stat(mount, path),
   enabled: computed(() => path.length > 0),
 })
@@ -425,10 +427,42 @@ async function download(directory: string[], targets: FileEntry[]) {
   )
 }
 
-/** Copy the path of each of `targets` under the mount, one per line. */
-async function copyPaths(directory: string[], targets: FileEntry[]) {
-  await copyText(targets.map((target) => [...directory, target.name].join('/')).join('\n'))
-  notify.success(targets.length > 1 ? 'Paths copied to clipboard.' : 'Path copied to clipboard.')
+/** What the browser offers for `targets`. */
+function actionsFor(targets: readonly FileEntry[]) {
+  return fileActions(targets, writable, mountInfo?.reveal_paths ?? false)
+}
+
+function statQueryOptions(target: string[]) {
+  return {
+    queryKey: fileStatQueryKey(mount, target),
+    queryFn: () => engine.files.stat(mount, target),
+  }
+}
+
+// Opening a menu on one row asks for its description, so a copy of its system path has the text in
+// hand inside the click, where a copy over plain HTTP must happen.
+function prefetchStat(name: string) {
+  const [only, ...rest] = rows.selected()
+  if (only === name && rest.length === 0 && mountInfo?.reveal_paths === true) {
+    void queryClient.prefetchQuery(statQueryOptions([...currentDirectory, name]))
+  }
+}
+
+/** Copy where `target` lives on the server. */
+async function copySystemPath(target: string[]) {
+  try {
+    const stat =
+      queryClient.getQueryData<FileStat>(fileStatQueryKey(mount, target)) ??
+      (await queryClient.fetchQuery(statQueryOptions(target)))
+    if (stat?.path == null) {
+      throw new Error('The engine reveals no path for this entry.')
+    }
+
+    await copyText(stat.path)
+    notify.success('Path copied to clipboard.')
+  } catch {
+    notify.error('Could not copy the path, open Info and copy it there.')
+  }
 }
 
 /** Ask for a new name for `target`, an entry of `directory`, and give it that name. */
@@ -569,7 +603,6 @@ function describeAction(
   targets: FileEntry[],
   keyed: boolean,
 ): FileActionView {
-  const many = targets.length > 1
   const views: Record<FileAction, Omit<FileActionView, 'kind' | 'kbds'>> = {
     open: {
       label: 'Open',
@@ -606,9 +639,14 @@ function describeAction(
       run: () => void download(directory, targets),
     },
     copyPath: {
-      label: many ? 'Copy Paths' : 'Copy Path',
-      icon: icons.copy,
-      run: () => void copyPaths(directory, targets),
+      label: 'Copy System Path',
+      icon: icons.path,
+      run: () => {
+        const [first] = targets
+        if (first != null) {
+          void copySystemPath([...directory, first.name])
+        }
+      },
     },
     rename: {
       label: 'Rename',
@@ -653,7 +691,7 @@ function selectAll() {
 
 /** The menu every row's "…" button and a right click on any row open, acting on the selection. */
 const menuItems = $computed<ContextMenuItem[][]>(() => {
-  const offered = fileActions(selectedEntries, writable)
+  const offered = actionsFor(selectedEntries)
   return menuGroups
     .map((group) =>
       group
@@ -687,7 +725,7 @@ entry's beside anything else. Opening has no button, a file's download has its o
 directory's Info button describes the directory. */
 const toolbarActions = $computed<FileActionView[]>(() => {
   if (view === 'listing') {
-    return fileActions(selectedEntries, writable)
+    return actionsFor(selectedEntries)
       .filter((kind) => kind !== 'open' && kind !== 'viewRaw' && kind !== 'info')
       .map((kind) => describeAction(kind, currentDirectory, selectedEntries, true))
   }
@@ -697,14 +735,14 @@ const toolbarActions = $computed<FileActionView[]>(() => {
   }
 
   const targets = [openedEntry]
-  return fileActions(targets, writable)
+  return actionsFor(targets)
     .filter((kind) => kind !== 'open' && kind !== 'download')
     .map((kind) => describeAction(kind, path.slice(0, -1), targets, false))
 })
 
 /** Run `kind` on the selection when the selection offers it. */
 function runOnSelection(kind: FileAction) {
-  if (fileActions(selectedEntries, writable).includes(kind)) {
+  if (actionsFor(selectedEntries).includes(kind)) {
     describeAction(kind, currentDirectory, selectedEntries, true).run()
   }
 }
@@ -979,7 +1017,7 @@ function onListContext(event: MouseEvent) {
                   selectable
                   :selected="rows.isSelected(current.name)"
                   @click="rows.onClick(current.name, $event)"
-                  @contextmenu="rows.ensureSelected(current.name)"
+                  @contextmenu="(rows.ensureSelected(current.name), prefetchStat(current.name))"
                   @dblclick="path = [...currentDirectory, current.name]"
                 >
                   <c-icon class="shrink-0" :name="entryIcon(current)" size="16" />

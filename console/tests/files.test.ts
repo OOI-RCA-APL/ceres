@@ -22,8 +22,8 @@ import {
   formatExactFileSize,
   formatFileSize,
   highlightLanguageOf,
+  fileStatQueryKey,
   isHiddenEntry,
-  parseFilePath,
   parseFilesRoute,
   FilePreviewSettingsModel,
   previewMode,
@@ -199,15 +199,15 @@ describe('filterEntries', () => {
 
 describe('fileActions', () => {
   it('opens one entry, downloads only files, and changes nothing in a mount it may only view', () => {
-    expect(fileActions([file('a')], false)).toEqual([
+    expect(fileActions([file('a')], false, true)).toEqual([
       'open',
       'viewRaw',
       'info',
       'download',
       'copyPath',
     ])
-    expect(fileActions([folder('a')], false)).toEqual(['open', 'info', 'copyPath'])
-    expect(fileActions([folder('a')], true)).toEqual([
+    expect(fileActions([folder('a')], false, true)).toEqual(['open', 'info', 'copyPath'])
+    expect(fileActions([folder('a')], true, true)).toEqual([
       'open',
       'info',
       'copyPath',
@@ -215,14 +215,25 @@ describe('fileActions', () => {
       'move',
       'delete',
     ])
-    expect(fileActions([file('a'), folder('b')], true)).toEqual([
+    expect(fileActions([file('a'), folder('b')], true, true)).toEqual([
       'download',
-      'copyPath',
       'move',
       'delete',
     ])
-    expect(fileActions([folder('a'), folder('b')], false)).toEqual(['copyPath'])
-    expect(fileActions([], true)).toEqual([])
+    expect(fileActions([folder('a'), folder('b')], false, true)).toEqual([])
+    expect(fileActions([], true, true)).toEqual([])
+  })
+
+  it('copies a system path only for one entry on a mount that reveals paths', () => {
+    expect(fileActions([folder('a')], false, false)).toEqual(['open', 'info'])
+    expect(fileActions([folder('a')], false, true)).toContain('copyPath')
+  })
+})
+
+describe('fileStatQueryKey', () => {
+  it('names one description per mount and path', () => {
+    expect(fileStatQueryKey('abc', ['a', 'b'])).toEqual(['files', 'stat', 'abc', 'a', 'b'])
+    expect(fileStatQueryKey('abc', [])).toEqual(['files', 'stat', 'abc'])
   })
 })
 
@@ -256,14 +267,6 @@ describe('moveDestinationBlocked', () => {
     expect(moveDestinationBlocked([], ['x'], targets)).toBe(false)
     expect(moveDestinationBlocked(['x', 'bc'], ['x'], targets)).toBe(false)
     expect(moveDestinationBlocked(['x', 'sub'], ['x'], [file('a')])).toBe(false)
-  })
-})
-
-describe('parseFilePath', () => {
-  it('splits on slashes and drops the empty names around them', () => {
-    expect(parseFilePath('a/b c')).toEqual(['a', 'b c'])
-    expect(parseFilePath('/a//b/')).toEqual(['a', 'b'])
-    expect(parseFilePath('/')).toEqual([])
   })
 })
 

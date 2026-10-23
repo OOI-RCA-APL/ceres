@@ -96,6 +96,7 @@ const icons = {
   particles: 'i-mdi-atom-variant',
   password: 'i-mdi-form-textbox-password',
   paste: 'i-mdi-content-paste',
+  path: 'i-mdi-folder-marker-outline',
   pause: 'i-mdi-pause',
   preferences: 'i-mdi-theme-light-dark',
   previewFull: 'i-lucide-square',

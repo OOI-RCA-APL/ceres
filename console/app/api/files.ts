@@ -171,6 +171,12 @@ export function filesApiPath(mount: string, path: readonly string[] = []): strin
   return filesUrl('/api/files', mount, path)
 }
 
+/** The query key of the description of `path` under `mount`, one for every view asking, so a
+prefetch serves them all. */
+export function fileStatQueryKey(mount: string, path: readonly string[]) {
+  return ['files', 'stat', mount, ...path]
+}
+
 /** The console's page for `path` under `mount`, or the mount picker without a mount. */
 export function filesPagePath(mount: string | null, path: readonly string[] = []): string {
   return mount == null ? '/files' : filesUrl('/files', mount, path)
@@ -321,9 +327,13 @@ export type FileAction =
   'open' | 'viewRaw' | 'info' | 'download' | 'copyPath' | 'rename' | 'move' | 'delete'
 
 /** What applies to `targets`, in the order every menu lists it. Opening, info and renaming take a
-single entry, viewing raw a single file, a download the files among them, and a change a mount the
-caller may edit. */
-export function fileActions(targets: readonly FileEntry[], editable: boolean): FileAction[] {
+single entry, viewing raw a single file, a download the files among them, copying a system path a
+single entry on a mount that reveals paths, and a change a mount the caller may edit. */
+export function fileActions(
+  targets: readonly FileEntry[],
+  editable: boolean,
+  revealPaths: boolean,
+): FileAction[] {
   const [only] = targets
   if (only == null) {
     return []
@@ -335,7 +345,7 @@ export function fileActions(targets: readonly FileEntry[], editable: boolean): F
     ...(single && only.kind === 'file' ? (['viewRaw'] as const) : []),
     ...(single ? (['info'] as const) : []),
     ...(targets.some((entry) => entry.kind === 'file') ? (['download'] as const) : []),
-    'copyPath',
+    ...(single && revealPaths ? (['copyPath'] as const) : []),
     ...(editable && single ? (['rename'] as const) : []),
     ...(editable ? (['move', 'delete'] as const) : []),
   ]
@@ -379,12 +389,6 @@ export function moveDestinationBlocked(
       (target) => target.kind === 'directory' && startsWith(folder, [...from, target.name]),
     )
   )
-}
-
-/** The segments of `text`, a path under a mount typed with `/` between its names. A leading,
-trailing, or doubled `/` adds none, so `/` alone is the mount itself. */
-export function parseFilePath(text: string): string[] {
-  return text.split('/').filter((name) => name !== '')
 }
 
 /** `bytes` as UTF-8 text, or null when it holds a NUL or does not decode, which marks it binary.
