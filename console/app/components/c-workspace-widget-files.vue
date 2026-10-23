@@ -33,7 +33,12 @@ const path = $computed({
 
 <template>
   <div class="h-full p-2">
-    <c-file-browser v-if="widget.mount != null" v-model:path="path" :mount="widget.mount" />
+    <c-file-browser
+      v-if="widget.mount != null"
+      v-model:path="path"
+      :mount="widget.mount"
+      @preview="path = $event"
+    />
     <div v-else class="flex h-full items-center justify-center text-center">
       <c-tooltip text="Choose Files">
         <c-button

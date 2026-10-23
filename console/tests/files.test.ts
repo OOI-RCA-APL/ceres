@@ -12,16 +12,23 @@ import {
   fileInfoPlace,
   fileInfoRows,
   filesApiPath,
+  filesPageKey,
   filesPagePath,
   filterEntries,
   findFileMount,
   formatExactFileSize,
   formatFileSize,
+  highlightLanguageOf,
   isHiddenEntry,
   parseFilePath,
   parseFilesRoute,
+  FilePreviewSettingsModel,
+  previewMode,
   previewOf,
+  previewTarget,
+  selectionSummary,
 } from '@/api/files'
+import { highlight, loadHighlightLanguage } from '@/utilities'
 
 function file(name: string, size: number | null = 1): FileEntry {
   return { name, kind: 'file', size, modified: null, created: null }
@@ -30,6 +37,47 @@ function file(name: string, size: number | null = 1): FileEntry {
 function folder(name: string): FileEntry {
   return { name, kind: 'directory', size: null, modified: null, created: null }
 }
+
+describe('FilePreviewSettingsModel', () => {
+  it('previews beside a 480 px panel until chosen otherwise', () => {
+    expect(FilePreviewSettingsModel.parse({})).toEqual({ mode: 'side', width: 480 })
+    expect(FilePreviewSettingsModel.parse({ mode: 'full', width: 300 })).toEqual({
+      mode: 'full',
+      width: 300,
+    })
+  })
+})
+
+describe('previewMode', () => {
+  it('previews full below 720 px and keeps the choice before the first measure', () => {
+    expect(previewMode('side', 719)).toBe('full')
+    expect(previewMode('side', 720)).toBe('side')
+    expect(previewMode('side', 0)).toBe('side')
+    expect(previewMode('full', 1000)).toBe('full')
+  })
+})
+
+describe('previewTarget', () => {
+  it('previews one selected file and otherwise returns to the directory', () => {
+    expect(previewTarget(['a'], [file('b')])).toEqual(['a', 'b'])
+    expect(previewTarget(['a'], [{ ...file('b'), kind: 'other' }])).toEqual(['a', 'b'])
+    expect(previewTarget(['a'], [folder('b')])).toEqual(['a'])
+    expect(previewTarget(['a'], [file('b'), file('c')])).toEqual(['a'])
+    expect(previewTarget(['a'], [])).toEqual(['a'])
+  })
+})
+
+describe('selectionSummary', () => {
+  it('totals the files and says so when folders are among them', () => {
+    expect(selectionSummary([file('a', 1024), file('b', 1024)])).toBe(
+      `2 items selected · ${formatFileSize(2048)}`,
+    )
+    expect(selectionSummary([file('a', 1024), folder('b')])).toBe(
+      `2 items selected · ${formatFileSize(1024)} in files`,
+    )
+    expect(selectionSummary([folder('a'), folder('b')])).toBe('2 items selected')
+  })
+})
 
 describe('previewOf', () => {
   it('shows images, videos, and audio by their extension, at any size', () => {
@@ -48,6 +96,32 @@ describe('previewOf', () => {
   it('previews nothing that is not a file', () => {
     expect(previewOf({ ...file('a.png'), kind: 'directory' })).toBe('none')
     expect(previewOf({ ...file('a.txt'), kind: 'other' })).toBe('none')
+  })
+})
+
+describe('highlightLanguageOf', () => {
+  it('names a grammar by extension, ignoring case', () => {
+    expect(highlightLanguageOf('a.YML')).toBe('yaml')
+    expect(highlightLanguageOf('a.py')).toBe('python')
+    expect(highlightLanguageOf('a.mjs')).toBe('javascript')
+    expect(highlightLanguageOf('a.ts')).toBe('typescript')
+    expect(highlightLanguageOf('a.vue')).toBe('markup')
+  })
+
+  it('leaves plain text, unknown names and a bare dot entry plain', () => {
+    expect(highlightLanguageOf('a.txt')).toBeNull()
+    expect(highlightLanguageOf('a.csv')).toBeNull()
+    expect(highlightLanguageOf('a.unknown')).toBeNull()
+    expect(highlightLanguageOf('Dockerfile')).toBeNull()
+    expect(highlightLanguageOf('.json')).toBeNull()
+  })
+
+  it('names only grammars that load', async () => {
+    for (const name of ['a.ts', 'a.py', 'a.rs', 'a.toml', 'a.ini', 'a.sh', 'a.sql', 'a.md']) {
+      const language = highlightLanguageOf(name)!
+      await loadHighlightLanguage(language)
+      expect(highlight('abc', language)).toContain('abc')
+    }
   })
 })
 
@@ -82,6 +156,19 @@ describe('parseFilesRoute', () => {
   })
 })
 
+describe('filesPageKey', () => {
+  it('keys the page by mount alone', () => {
+    expect(filesPageKey(['@a.b', 'c', 'd'])).toBe(filesPageKey(['@a.b', 'c']))
+    expect(filesPageKey(['abc', 'd'])).toBe('files:abc')
+  })
+
+  it('gives the mount picker its own key', () => {
+    expect(filesPageKey('')).toBe('files:')
+    expect(filesPageKey(undefined)).toBe('files:')
+    expect(filesPageKey('abc')).toBe('files:abc')
+  })
+})
+
 describe('findFileMount', () => {
   it('finds a listed mount and nothing for an unlisted one', () => {
     const mount = {
@@ -109,7 +196,13 @@ describe('filterEntries', () => {
 
 describe('fileActions', () => {
   it('opens one entry, downloads only files, and changes nothing in a mount it may only view', () => {
-    expect(fileActions([file('a')], false)).toEqual(['open', 'info', 'download', 'copyPath'])
+    expect(fileActions([file('a')], false)).toEqual([
+      'open',
+      'viewRaw',
+      'info',
+      'download',
+      'copyPath',
+    ])
     expect(fileActions([folder('a')], false)).toEqual(['open', 'info', 'copyPath'])
     expect(fileActions([folder('a')], true)).toEqual(['open', 'info', 'copyPath', 'move', 'delete'])
     expect(fileActions([file('a'), folder('b')], true)).toEqual([

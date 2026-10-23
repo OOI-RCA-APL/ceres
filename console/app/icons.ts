@@ -98,6 +98,8 @@ const icons = {
   paste: 'i-mdi-content-paste',
   pause: 'i-mdi-pause',
   preferences: 'i-mdi-theme-light-dark',
+  previewFull: 'i-lucide-square',
+  previewSide: 'i-lucide-panel-right',
   privateWorkspace: 'i-mdi-account',
   refresh: 'i-mdi-refresh',
   reload: 'i-mdi-cog-sync',

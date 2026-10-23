@@ -1,24 +1,42 @@
 <script lang="ts" setup>
 import type { BreadcrumbItem } from '@nuxt/ui'
+import { watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useQuery } from '@/api/client'
 import { useEngine } from '@/api/engine'
-import { type FileMount, filesPagePath, parseFilesRoute } from '@/api/files'
+import {
+  type FileMount,
+  filesPageKey,
+  filesPagePath,
+  filesRouteSegments,
+  parseFilesRoute,
+} from '@/api/files'
 import icons from '@/icons'
 
-definePageMeta({ auth: true })
+// One instance per mount, so a step to another file in it keeps the listing in place.
+definePageMeta({ auth: true, key: (route) => filesPageKey(route.params.path) })
 
 const engine = useEngine()
+const route = useRoute()
 const router = useRouter()
 
-// Read once, since a page instance belongs to one path (see `usePageParameter`).
-const { mount, path } = (() => {
-  const value = useRoute().params.path
-  return parseFilesRoute(
-    Array.isArray(value) ? value : value != null && value !== '' ? [value] : [],
-  )
-})()
+// The mount is read once, since a page instance belongs to one (see `usePageParameter`).
+const initial = parseFilesRoute(filesRouteSegments(route.params.path))
+const mount = initial.mount
+let path = $ref(initial.path)
+
+// A route leaving for another mount reaches this instance before it unmounts, so only a route
+// within its own mount moves the path.
+watch(
+  () => route.params.path,
+  (value) => {
+    const next = parseFilesRoute(filesRouteSegments(value))
+    if (next.mount === mount) {
+      path = next.path
+    }
+  },
+)
 
 const mountsQuery = useQuery({
   queryKey: ['files', 'mounts'],
@@ -36,6 +54,13 @@ function linkTo(target: string[]) {
 async function open(target: string[]) {
   await router.push(linkTo(target))
 }
+
+// A step through files by selection replaces the URL, so going back leaves the directory.
+async function preview(target: string[]) {
+  if (route.path !== linkTo(target)) {
+    await router.replace(linkTo(target))
+  }
+}
 </script>
 
 <template>
@@ -50,6 +75,7 @@ async function open(target: string[]) {
         :link-to
         :mount
         :path
+        @preview="preview"
         @update:path="open"
       />
 

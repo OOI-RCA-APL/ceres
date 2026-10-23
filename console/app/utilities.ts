@@ -88,10 +88,49 @@ export function selectFile({
   })
 }
 
-export type HighlightLanguage = 'json' | 'log' | 'yaml'
+export type HighlightLanguage =
+  | 'bash'
+  | 'css'
+  | 'ini'
+  | 'javascript'
+  | 'json'
+  | 'log'
+  | 'markdown'
+  | 'markup'
+  | 'python'
+  | 'rust'
+  | 'sql'
+  | 'toml'
+  | 'typescript'
+  | 'yaml'
 
+// Prism's core holds markup, css and javascript, and the console's own views load json, log and
+// yaml up front, so only a file preview waits on the rest.
+const highlightLoaders: Partial<Record<HighlightLanguage, () => Promise<unknown>>> = {
+  bash: () => import('prismjs/components/prism-bash'),
+  ini: () => import('prismjs/components/prism-ini'),
+  markdown: () => import('prismjs/components/prism-markdown'),
+  python: () => import('prismjs/components/prism-python'),
+  rust: () => import('prismjs/components/prism-rust'),
+  sql: () => import('prismjs/components/prism-sql'),
+  toml: () => import('prismjs/components/prism-toml'),
+  typescript: () => import('prismjs/components/prism-typescript'),
+}
+
+/** Load the grammar `highlight` needs for `language`, at once for one already loaded. */
+export async function loadHighlightLanguage(language: HighlightLanguage): Promise<void> {
+  await highlightLoaders[language]?.()
+}
+
+/** `text` as highlighted HTML, which Prism escapes. Throws for a grammar not yet loaded, so a
+caller with a language outside the eager set awaits `loadHighlightLanguage` first. */
 export function highlight(text: string, language: HighlightLanguage): string {
-  return Prism.highlight(text, Prism.languages[language]!, language)
+  const grammar = Prism.languages[language]
+  if (grammar == null) {
+    throw new Error(`The ${language} grammar is not loaded.`)
+  }
+
+  return Prism.highlight(text, grammar, language)
 }
 
 /** An array schema that drops unparsable elements with an error log instead of failing whole. */

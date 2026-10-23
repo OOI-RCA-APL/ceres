@@ -1514,6 +1514,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_page_opened_raw_runs_sandboxed_without_scripts() {
+        let host = Arc::new(mount(&[("a.html", "<script>abcd</script>")], &[]));
+        let response = host.get("/api/files/project/a.html").await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[header::CONTENT_TYPE], "text/html");
+        assert_eq!(
+            response.headers()[header::CONTENT_SECURITY_POLICY],
+            "sandbox"
+        );
+        assert_eq!(
+            response.headers()[header::X_CONTENT_TYPE_OPTIONS],
+            "nosniff"
+        );
+        assert!(!response.headers().contains_key(header::CONTENT_DISPOSITION));
+    }
+
+    #[tokio::test]
     async fn a_file_unchanged_since_its_etag_answers_not_modified() {
         let host = Arc::new(mount(&[("a.txt", "abcd")], &[]));
         let response = host.get("/api/files/project/a.txt").await;

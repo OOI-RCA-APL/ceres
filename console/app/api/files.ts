@@ -3,7 +3,7 @@ import * as z from 'zod'
 
 import { useClient } from '@/api/client'
 import { utc } from '@/time'
-import { getHttpUrl } from '@/utilities'
+import { type HighlightLanguage, getHttpUrl } from '@/utilities'
 
 export type MountAccess = z.infer<typeof MountAccessModel>
 /** What the caller may do with a mount, `edit` adding upload, create, rename, and delete. */
@@ -76,6 +76,37 @@ const mediaExtensions = new Map<string, FilePreview>(
   ),
 )
 
+/** The largest text file the preview highlights, since Prism takes a while over a long one. */
+export const HIGHLIGHT_LIMIT = 256 * 1024
+
+const highlightExtensions = new Map<string, HighlightLanguage>([
+  ['json', 'json'],
+  ['yaml', 'yaml'],
+  ['yml', 'yaml'],
+  ['toml', 'toml'],
+  ['ini', 'ini'],
+  ['log', 'log'],
+  ['py', 'python'],
+  ['rs', 'rust'],
+  ['ts', 'typescript'],
+  ['js', 'javascript'],
+  ['mjs', 'javascript'],
+  ['sh', 'bash'],
+  ['bash', 'bash'],
+  ['sql', 'sql'],
+  ['md', 'markdown'],
+  ['html', 'markup'],
+  ['vue', 'markup'],
+  ['xml', 'markup'],
+  ['css', 'css'],
+])
+
+/** The lowercase extension of `name`, empty for none or a dot entry's leading dot alone. */
+function extensionOf(name: string): string {
+  const dot = name.lastIndexOf('.')
+  return dot > 0 ? name.slice(dot + 1).toLowerCase() : ''
+}
+
 /** How the page shows `entry`. A small file of any other type is tried as text, and shows as
 binary when its start does not decode. */
 export function previewOf(entry: FileEntry): FilePreview {
@@ -83,12 +114,15 @@ export function previewOf(entry: FileEntry): FilePreview {
     return 'none'
   }
 
-  const dot = entry.name.lastIndexOf('.')
-  const extension = dot > 0 ? entry.name.slice(dot + 1).toLowerCase() : ''
   return (
-    mediaExtensions.get(extension) ??
+    mediaExtensions.get(extensionOf(entry.name)) ??
     (entry.size != null && entry.size <= TEXT_PREVIEW_LIMIT ? 'text' : 'none')
   )
+}
+
+/** The grammar a text preview of the file `name` highlights with, null for plain text. */
+export function highlightLanguageOf(name: string): HighlightLanguage | null {
+  return highlightExtensions.get(extensionOf(name)) ?? null
 }
 
 /** `base`, then the mount's URL segments, then `path`, each segment escaped. A component
@@ -118,6 +152,18 @@ export function parseFilesRoute(segments: readonly string[]): {
   }
 
   return { mount: first, path: segments.slice(1) }
+}
+
+/** The files page's catch-all route parameter as segments. The router gives a string for one
+segment and an empty string or nothing for none. */
+export function filesRouteSegments(value: string | readonly string[] | undefined): string[] {
+  return Array.isArray(value) ? [...value] : value != null && value !== '' ? [value as string] : []
+}
+
+/** The key the files page mounts under, one instance per mount, so moving within a mount keeps
+the browser's selection and focus. */
+export function filesPageKey(value: string | readonly string[] | undefined): string {
+  return `files:${parseFilesRoute(filesRouteSegments(value)).mount ?? ''}`
 }
 
 /** The engine's path for `path` under `mount`. */
@@ -168,7 +214,54 @@ export const fileColumns: readonly { column: FileColumn; label: string }[] = [
   { column: 'created', label: 'Created' },
 ]
 
-const fileKindLabels: Record<FileKind, string> = {
+export type FilePreviewMode = 'side' | 'full'
+
+/** Whether a file previews beside the listing or in its place, and the side panel's width in px, a
+choice every browser shares. */
+export const FilePreviewSettingsModel = z.object({
+  mode: z.enum(['side', 'full']).default('side'),
+  width: z.number().default(480),
+})
+export type FilePreviewSettings = z.infer<typeof FilePreviewSettingsModel>
+
+/** The narrowest side panel. */
+export const PREVIEW_MIN_WIDTH = 240
+
+/** The narrowest listing beside a side panel. */
+export const LISTING_MIN_WIDTH = 320
+
+/** The narrowest browser that previews beside its listing, since below it neither would fit. */
+export const SIDE_PREVIEW_MIN_WIDTH = 720
+
+/** The mode a browser `width` px wide previews in, given the chosen `mode`. A width of 0 is one
+not yet measured, which keeps the choice so the first frame shows the layout the next one keeps. */
+export function previewMode(mode: FilePreviewMode, width: number): FilePreviewMode {
+  return width > 0 && width < SIDE_PREVIEW_MIN_WIDTH ? 'full' : mode
+}
+
+/** The path a side preview shows when `selected`, entries of `directory`, are selected: one file
+or special entry at its own path, anything else the directory. */
+export function previewTarget(directory: readonly string[], selected: readonly FileEntry[]) {
+  const [only] = selected
+  return selected.length === 1 && only != null && only.kind !== 'directory'
+    ? [...directory, only.name]
+    : [...directory]
+}
+
+/** What a side preview says of several selected entries. A directory's size says nothing of what
+it holds, so a total that skips one says it counts files only. */
+export function selectionSummary(selected: readonly FileEntry[]): string {
+  const files = selected.filter((entry) => entry.kind === 'file')
+  const count = `${selected.length.toLocaleString('en-US')} items selected`
+  if (files.length === 0) {
+    return count
+  }
+
+  const total = formatFileSize(files.reduce((sum, entry) => sum + (entry.size ?? 0), 0))
+  return files.length === selected.length ? `${count} · ${total}` : `${count} · ${total} in files`
+}
+
+export const fileKindLabels: Record<FileKind, string> = {
   directory: 'Directory',
   file: 'File',
   other: 'Special file or link',
@@ -224,17 +317,22 @@ export function isHiddenEntry(entry: FileEntry): boolean {
 }
 
 /** Something the file browser does to the entries picked out of one directory. */
-export type FileAction = 'open' | 'info' | 'download' | 'copyPath' | 'move' | 'delete'
+export type FileAction = 'open' | 'viewRaw' | 'info' | 'download' | 'copyPath' | 'move' | 'delete'
 
 /** What applies to `targets`, in the order every menu lists it. Opening and info take a single
-entry, a download takes the files among them, and a change takes a mount the caller may edit. */
+entry, viewing raw a single file, a download the files among them, and a change a mount the caller
+may edit. */
 export function fileActions(targets: readonly FileEntry[], editable: boolean): FileAction[] {
-  if (targets.length === 0) {
+  const [only] = targets
+  if (only == null) {
     return []
   }
 
+  const single = targets.length === 1
   return [
-    ...(targets.length === 1 ? (['open', 'info'] as const) : []),
+    ...(single ? (['open'] as const) : []),
+    ...(single && only.kind === 'file' ? (['viewRaw'] as const) : []),
+    ...(single ? (['info'] as const) : []),
     ...(targets.some((entry) => entry.kind === 'file') ? (['download'] as const) : []),
     'copyPath',
     ...(editable ? (['move', 'delete'] as const) : []),
