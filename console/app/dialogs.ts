@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 import CConfirmDialog, { type ConfirmDialogProps } from '@/components/base/c-confirm-dialog.vue'
 import CChangePasswordDialog from '@/components/c-change-password-dialog.vue'
 import CFileInfoDialog, { type FileInfoDialogProps } from '@/components/c-file-info-dialog.vue'
+import CFileMoveDialog, { type FileMoveDialogProps } from '@/components/c-file-move-dialog.vue'
 import CFileNameDialog, { type FileNameDialogProps } from '@/components/c-file-name-dialog.vue'
 import CFilterGroupDialog from '@/components/c-filter-group-dialog.vue'
 import CWorkspaceDialog from '@/components/c-workspace-dialog.vue'
@@ -22,6 +23,11 @@ export type DialogHandle<TPayload = boolean> = {
   onCancel(handler: () => unknown): DialogHandle<TPayload>
 }
 
+/** The payload `handle` closes with, `false` for a cancel. */
+export function answer<TPayload>(handle: DialogHandle<TPayload>): Promise<TPayload | false> {
+  return new Promise((resolve) => handle.onOk(resolve).onCancel(() => resolve(false)))
+}
+
 export const useDialogs = defineStore('dialogs', () => {
   const overlay = useOverlay()
   const confirmDialog = overlay.create(CConfirmDialog)
@@ -32,6 +38,7 @@ export const useDialogs = defineStore('dialogs', () => {
   const filterGroupDialog = overlay.create(CFilterGroupDialog)
   const fileNameDialog = overlay.create(CFileNameDialog)
   const fileInfoDialog = overlay.create(CFileInfoDialog)
+  const fileMoveDialog = overlay.create(CFileMoveDialog)
 
   function handleOf<TPayload>(result: Promise<TPayload>): DialogHandle<TPayload> {
     const handle: DialogHandle<TPayload> = {
@@ -74,9 +81,13 @@ export const useDialogs = defineStore('dialogs', () => {
     operator.
     */
     groupFilters: (labels: [string, string]) => handleOf(filterGroupDialog.open({ labels }).result),
-    /** Ask for the name or path of a file browser entry. Resolves with the trimmed text. */
+    /** Ask for the name of a file browser entry. Resolves with the trimmed text. */
     fileName: (props: FileNameDialogProps) =>
       handleOf(fileNameDialog.open(props).result) as DialogHandle<string | false>,
+    /** Ask for a folder and move file browser entries into it. Resolves with the folder once
+    every entry moved. */
+    moveFiles: (props: FileMoveDialogProps) =>
+      handleOf(fileMoveDialog.open(props).result) as DialogHandle<string[] | false>,
     /** Describe a file browser entry. */
     fileInfo: (props: FileInfoDialogProps) => handleOf(fileInfoDialog.open(props).result),
     /** Create a workspace on `scope`. `isPrivate` presets the choice for a caller that already

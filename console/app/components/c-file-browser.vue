@@ -25,13 +25,13 @@ import {
   filterEntries,
   formatFileSize,
   formatFileTime,
+  fileNameStemEnd,
   isHiddenEntry,
-  parseFilePath,
   previewMode,
   previewTarget,
   selectionSummary,
 } from '@/api/files'
-import { type DialogHandle, useDialogs } from '@/dialogs'
+import { answer, useDialogs } from '@/dialogs'
 import { Failure } from '@/errors'
 import icons from '@/icons'
 import { useNotify } from '@/notify'
@@ -167,10 +167,7 @@ const currentDirectory = $computed(() =>
 
 const listingQuery = useQuery({
   queryKey: computed(() => ['files', 'list', mount, ...currentDirectory]),
-  queryFn: async () => {
-    const directory = currentDirectory
-    return { directory, ...(await engine.files.list(mount, directory)) }
-  },
+  queryFn: () => engine.files.list(mount, currentDirectory),
   enabled: $$(listed),
   placeholderData: (previous) => previous,
 })
@@ -339,10 +336,6 @@ async function refresh() {
   await queryClient.invalidateQueries({ queryKey: ['files'] })
 }
 
-function answer<TPayload>(handle: DialogHandle<TPayload>): Promise<TPayload | false> {
-  return new Promise((resolve) => handle.onOk(resolve).onCancel(() => resolve(false)))
-}
-
 /** Run `change`, reporting a refusal, and return whether it went through. */
 async function write(change: () => Promise<void>): Promise<boolean> {
   try {
@@ -438,68 +431,50 @@ async function copyPaths(directory: string[], targets: FileEntry[]) {
   notify.success(targets.length > 1 ? 'Paths copied to clipboard.' : 'Path copied to clipboard.')
 }
 
-/** Ask where `targets`, entries of `directory`, go and move them there: one to a new path, several
-into one folder. */
-async function moveEntries(directory: string[], targets: FileEntry[]) {
-  const [first] = targets
-  if (first == null) {
-    return
-  }
-
-  if (targets.length > 1) {
-    await moveInto(directory, targets)
-    return
-  }
-
-  const source = [...directory, first.name]
-  const to = await answer(
+/** Ask for a new name for `target`, an entry of `directory`, and give it that name. */
+async function renameEntry(directory: string[], target: FileEntry) {
+  const name = await answer(
     dialogs.fileName({
-      title: 'Rename or Move',
-      label: 'Path',
-      value: source.join('/'),
-      okLabel: 'Move',
+      title: 'Rename',
+      label: 'Name',
+      value: target.name,
+      selectionEnd: fileNameStemEnd(target.name, target.kind),
+      okLabel: 'Rename',
     }),
   )
-  const destination = to === false ? [] : parseFilePath(to)
-  const moved =
-    destination.length > 0 && (await write(() => engine.files.move(mount, source, destination)))
-  if (!moved) {
+  if (name === false) {
     return
   }
 
-  if (isSamePath(source, path)) {
-    path = destination
-  } else if (isSamePath(destination.slice(0, -1), currentDirectory)) {
-    // A rename keeps the entry in view, so it stays the one selected.
-    rows.replace([destination.at(-1) ?? ''])
-  } else {
-    rows.clear()
+  const source = [...directory, target.name]
+  const destination = [...directory, name]
+  if (!(await write(() => engine.files.move(mount, source, destination)))) {
+    return
   }
 
+  // A renamed preview stays in place beside the listing, so its new URL replaces the old one.
+  if (isSamePath(source, path)) {
+    if (side) {
+      emit('preview', destination)
+    } else {
+      path = destination
+    }
+  }
+
+  rows.replace([name])
   await refresh()
 }
 
-/** Ask for a folder and move each of `targets`, entries of `directory`, into it, stopping at the
-first refusal. */
-async function moveInto(directory: string[], targets: FileEntry[]) {
-  const to = await answer(
-    dialogs.fileName({
-      title: `Move ${targets.length} Items`,
-      label: 'Folder',
-      value: directory.length === 0 ? '/' : directory.join('/'),
-      okLabel: 'Move',
-    }),
+/** Ask for a folder and move `targets`, entries of `directory`, into it. The dialog moves them, so
+the listing refreshes after it closes whatever moved. */
+async function moveEntries(directory: string[], targets: FileEntry[]) {
+  const folder = await answer(
+    dialogs.moveFiles({ mount, mountLabel, from: directory, targets, hidden: persisted.hidden }),
   )
-  if (to === false) {
-    return
-  }
 
-  const folder = parseFilePath(to)
-  for (const target of targets) {
-    const name = target.name
-    if (!(await write(() => engine.files.move(mount, [...directory, name], [...folder, name])))) {
-      break
-    }
+  const [only] = targets
+  if (folder !== false && only != null && isSamePath([...directory, only.name], path)) {
+    path = [...folder, only.name]
   }
 
   rows.clear()
@@ -580,7 +555,7 @@ type FileActionView = {
 the key each platform's keyboard labels delete, Backspace on a Mac. */
 const actionKeys: Partial<Record<FileAction, string[]>> = {
   open: ['enter'],
-  move: ['f2'],
+  rename: ['f2'],
   delete: [useKbd().macOS.value ? 'backspace' : 'delete'],
 }
 
@@ -633,9 +608,19 @@ function describeAction(
       icon: icons.copy,
       run: () => void copyPaths(directory, targets),
     },
+    rename: {
+      label: 'Rename',
+      icon: icons.rename,
+      run: () => {
+        const [first] = targets
+        if (first != null) {
+          void renameEntry(directory, first)
+        }
+      },
+    },
     move: {
-      label: many ? 'Move' : 'Rename or Move',
-      icon: many ? icons.move : icons.rename,
+      label: 'Move',
+      icon: icons.move,
       run: () => void moveEntries(directory, targets),
     },
     delete: {
@@ -652,13 +637,13 @@ function describeAction(
 in a menu too. */
 const menuGroups: (FileAction | 'selectAll')[][] = [
   ['open', 'viewRaw', 'info'],
-  ['download', 'copyPath', 'move'],
+  ['download', 'copyPath', 'rename', 'move'],
   ['selectAll'],
   ['delete'],
 ]
 
 /** Actions that open a dialog, which waits for the menu that asked for it to finish closing. */
-const asking: ReadonlySet<FileAction> = new Set(['info', 'move', 'delete'])
+const asking: ReadonlySet<FileAction> = new Set(['info', 'rename', 'move', 'delete'])
 
 function selectAll() {
   rows.replace(entries.map((current) => current.name))
@@ -745,7 +730,7 @@ function onListKeydown(event: KeyboardEvent) {
     // Only the list itself, since a focused name or "…" button takes Enter as its own press.
     runOnSelection('open')
   } else if (plain && event.key === 'F2') {
-    runOnSelection('move')
+    runOnSelection('rename')
   } else if (plain && (event.key === 'Delete' || event.key === 'Backspace')) {
     runOnSelection('delete')
   } else {

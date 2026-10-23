@@ -317,11 +317,12 @@ export function isHiddenEntry(entry: FileEntry): boolean {
 }
 
 /** Something the file browser does to the entries picked out of one directory. */
-export type FileAction = 'open' | 'viewRaw' | 'info' | 'download' | 'copyPath' | 'move' | 'delete'
+export type FileAction =
+  'open' | 'viewRaw' | 'info' | 'download' | 'copyPath' | 'rename' | 'move' | 'delete'
 
-/** What applies to `targets`, in the order every menu lists it. Opening and info take a single
-entry, viewing raw a single file, a download the files among them, and a change a mount the caller
-may edit. */
+/** What applies to `targets`, in the order every menu lists it. Opening, info and renaming take a
+single entry, viewing raw a single file, a download the files among them, and a change a mount the
+caller may edit. */
 export function fileActions(targets: readonly FileEntry[], editable: boolean): FileAction[] {
   const [only] = targets
   if (only == null) {
@@ -335,8 +336,49 @@ export function fileActions(targets: readonly FileEntry[], editable: boolean): F
     ...(single ? (['info'] as const) : []),
     ...(targets.some((entry) => entry.kind === 'file') ? (['download'] as const) : []),
     'copyPath',
+    ...(editable && single ? (['rename'] as const) : []),
     ...(editable ? (['move', 'delete'] as const) : []),
   ]
+}
+
+/** Why `name` cannot name an entry, or null when it can. The engine's refusal stays the authority,
+this only answers before the request. */
+export function fileNameProblem(name: string): string | null {
+  const trimmed = name.trim()
+  if (trimmed === '') {
+    return 'Enter a name.'
+  }
+
+  if (trimmed.includes('/') || trimmed.includes('\\')) {
+    return 'A name cannot contain a slash.'
+  }
+
+  return trimmed === '.' || trimmed === '..' ? `A name cannot be "${trimmed}".` : null
+}
+
+/** Where a rename's selection of `name` ends, before a file's extension and otherwise at its end. A
+leading dot starts a hidden name rather than an extension. */
+export function fileNameStemEnd(name: string, kind: FileKind): number {
+  const dot = name.lastIndexOf('.')
+  return kind === 'file' && dot > 0 ? dot : name.length
+}
+
+/** Whether `targets`, entries of `from`, cannot move into `folder`: they are already there, or a
+directory among them would move into itself. */
+export function moveDestinationBlocked(
+  folder: readonly string[],
+  from: readonly string[],
+  targets: readonly FileEntry[],
+): boolean {
+  const startsWith = (path: readonly string[], prefix: readonly string[]) =>
+    prefix.length <= path.length && prefix.every((name, index) => path[index] === name)
+
+  return (
+    (folder.length === from.length && startsWith(folder, from)) ||
+    targets.some(
+      (target) => target.kind === 'directory' && startsWith(folder, [...from, target.name]),
+    )
+  )
 }
 
 /** The segments of `text`, a path under a mount typed with `/` between its names. A leading,
@@ -423,9 +465,14 @@ export const useFiles = defineStore('files', () => {
     return await client.get('/api/files', { parse: z.array(FileMountModel) })
   }
 
-  /** List the directory at `path` under `mount`, dot entries included. */
-  async function list(mount: string, path: readonly string[]): Promise<FileListing> {
-    return await client.get(filesApiPath(mount, path), { parse: FileListingModel })
+  /** List the directory at `path` under `mount`, dot entries included. The answer names its
+  directory, so a view still showing a previous answer can tell which directory that is. */
+  async function list(
+    mount: string,
+    path: readonly string[],
+  ): Promise<FileListing & { directory: string[] }> {
+    const listing = await client.get(filesApiPath(mount, path), { parse: FileListingModel })
+    return { ...listing, directory: [...path] }
   }
 
   /** Describe the entry at `path` under `mount`, the mount itself when `path` is empty. */

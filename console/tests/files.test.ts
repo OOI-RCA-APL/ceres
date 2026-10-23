@@ -8,6 +8,9 @@ import {
   describeFileWriteStatus,
   droppedFiles,
   fileActions,
+  fileNameProblem,
+  fileNameStemEnd,
+  moveDestinationBlocked,
   fileColumns,
   fileInfoPlace,
   fileInfoRows,
@@ -204,7 +207,14 @@ describe('fileActions', () => {
       'copyPath',
     ])
     expect(fileActions([folder('a')], false)).toEqual(['open', 'info', 'copyPath'])
-    expect(fileActions([folder('a')], true)).toEqual(['open', 'info', 'copyPath', 'move', 'delete'])
+    expect(fileActions([folder('a')], true)).toEqual([
+      'open',
+      'info',
+      'copyPath',
+      'rename',
+      'move',
+      'delete',
+    ])
     expect(fileActions([file('a'), folder('b')], true)).toEqual([
       'download',
       'copyPath',
@@ -213,6 +223,38 @@ describe('fileActions', () => {
     ])
     expect(fileActions([folder('a'), folder('b')], false)).toEqual(['copyPath'])
     expect(fileActions([], true)).toEqual([])
+  })
+})
+
+describe('fileNameProblem', () => {
+  it('refuses an empty name, a slash, and the two dot names', () => {
+    expect(fileNameProblem(' abc ')).toBeNull()
+    expect(fileNameProblem('.abc')).toBeNull()
+    expect(fileNameProblem('  ')).toBe('Enter a name.')
+    expect(fileNameProblem('a/b')).toBe('A name cannot contain a slash.')
+    expect(fileNameProblem('a\\b')).toBe('A name cannot contain a slash.')
+    expect(fileNameProblem('..')).toBe('A name cannot be "..".')
+  })
+})
+
+describe('fileNameStemEnd', () => {
+  it('stops before a file extension and selects a hidden or folder name whole', () => {
+    expect(fileNameStemEnd('abc.tar.gz', 'file')).toBe(7)
+    expect(fileNameStemEnd('.abc', 'file')).toBe(4)
+    expect(fileNameStemEnd('abc', 'file')).toBe(3)
+    expect(fileNameStemEnd('abc.d', 'directory')).toBe(5)
+  })
+})
+
+describe('moveDestinationBlocked', () => {
+  it('refuses the folder the entries are in and any folder inside one being moved', () => {
+    const targets = [file('a'), folder('b')]
+    expect(moveDestinationBlocked(['x'], ['x'], targets)).toBe(true)
+    expect(moveDestinationBlocked(['x', 'b'], ['x'], targets)).toBe(true)
+    expect(moveDestinationBlocked(['x', 'b', 'c'], ['x'], targets)).toBe(true)
+    expect(moveDestinationBlocked(['x', 'a'], ['x'], targets)).toBe(false)
+    expect(moveDestinationBlocked([], ['x'], targets)).toBe(false)
+    expect(moveDestinationBlocked(['x', 'bc'], ['x'], targets)).toBe(false)
   })
 })
 
