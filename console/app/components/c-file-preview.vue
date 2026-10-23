@@ -7,6 +7,7 @@ import {
   type FileEntry,
   HIGHLIGHT_LIMIT,
   fileKindLabels,
+  filesDownloadPath,
   formatFileSize,
   formatFileTime,
   highlightLanguageOf,
@@ -41,7 +42,7 @@ const engine = useEngine()
 
 const preview = $computed(() => previewOf(entry))
 const sourceUrl = $computed(() => engine.files.sourceUrl(mount, path))
-const downloadUrl = $computed(() => engine.files.downloadUrl(mount, path))
+const downloadUrl = $computed(() => filesDownloadPath(mount, path))
 
 const textQuery = useQuery({
   queryKey: computed(() => ['files', 'text', mount, ...path]),

@@ -1,5 +1,14 @@
-<script lang="ts">
-import type { FileEntry } from '@/api/files'
+<script lang="ts" setup>
+import type { BreadcrumbItem } from '@nuxt/ui'
+import { useQueryClient } from '@tanstack/vue-query'
+import { isEqual } from 'lodash-es'
+import { computed } from 'vue'
+
+import { useQuery } from '@/api/client'
+import { useEngine } from '@/api/engine'
+import { type FileEntry, FileWriteError, isHiddenEntry, moveDestinationBlocked } from '@/api/files'
+import { answer, useDialogs } from '@/dialogs'
+import icons from '@/icons'
 
 export type FileMoveDialogProps = {
   mount: string
@@ -11,19 +20,6 @@ export type FileMoveDialogProps = {
   /** Whether dot folders show, as they do in the browser that asked. */
   hidden: boolean
 }
-</script>
-
-<script lang="ts" setup>
-import type { BreadcrumbItem } from '@nuxt/ui'
-import { useQueryClient } from '@tanstack/vue-query'
-import { isEqual } from 'lodash-es'
-import { computed } from 'vue'
-
-import { useQuery } from '@/api/client'
-import { useEngine } from '@/api/engine'
-import { FileWriteError, isHiddenEntry, moveDestinationBlocked } from '@/api/files'
-import { answer, useDialogs } from '@/dialogs'
-import icons from '@/icons'
 
 const { mount, mountLabel, from, targets, hidden } = defineProps<FileMoveDialogProps>()
 

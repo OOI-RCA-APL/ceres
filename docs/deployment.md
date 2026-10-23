@@ -212,6 +212,8 @@ server:
     exclude: [.venv, node_modules, /data/raw]
 ```
 
+A folder, or several entries picked together, downloads as one zip that the engine writes as it sends, stored without compression. The zip keeps dot names only while "Show Hidden" is on, and it leaves out excluded entries, special files, and symbolic links to folders or out of the mount. A file that cannot be read partway through ends the download in an error, so a cut archive never passes for a whole one.
+
 Anyone who may operate a component may also upload, create directories, rename, move, and delete in its mounts, while one who may only view it browses and downloads. A mount's own `access`, from its field or from `ceres.yaml`, lowers that for everyone, and `server.files.access` caps every mount, those in `server.files.mounts` included: `edit` (the default), `view`, or `none`, which hides every mount. An upload writes a hidden part file beside its target and renames it into place once complete, so no reader sees half a file, and the first listing an hour after a dropped upload removes its part. The console keeps an existing file unless you confirm the replace, and deleting a directory asks you to type its name. A replace puts a new file at the path, so a component that holds the old one open keeps writing to the old file, and its writes never reach the new one. Writes act on a symbolic link itself and never follow one at the target. A link swapped in for a directory above the target during a request can still redirect that write, which takes someone already able to write inside the mount. `server.files.max_upload` caps the size of one upload. An entry's "Info" shows its full path on the server unless `server.files.reveal_paths` is `false`.
 
 ```yaml

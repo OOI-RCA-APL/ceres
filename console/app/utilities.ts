@@ -276,12 +276,18 @@ export function keepFocusWhile(editing: () => boolean) {
   }
 }
 
-/** Save `content` as a file download named `name`. */
-export function downloadFile(name: string, content: string, type = 'application/json') {
-  const url = URL.createObjectURL(new Blob([content], { type }))
+/** Save what the same-origin `url` answers as a download named `name`, or by the name the
+response gives when `name` is empty. */
+export function downloadFrom(url: string, name = '') {
   const anchor = document.createElement('a')
   anchor.href = url
   anchor.download = name
   anchor.click()
+}
+
+/** Save `content` as a file download named `name`. */
+export function downloadFile(name: string, content: string, type = 'application/json') {
+  const url = URL.createObjectURL(new Blob([content], { type }))
+  downloadFrom(url, name)
   URL.revokeObjectURL(url)
 }

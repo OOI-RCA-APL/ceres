@@ -6,9 +6,11 @@
 
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
+use std::convert::Infallible;
 use std::fs::{self, File, Metadata};
 use std::future::{Ready, ready};
-use std::io::{self, ErrorKind};
+use std::io::{self, ErrorKind, Write};
+use std::ops::ControlFlow;
 use std::path::{Component, Path, PathBuf};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
@@ -16,7 +18,7 @@ use std::task::{Context, Poll};
 use std::time::{Duration, SystemTime};
 
 use axum::Router;
-use axum::body::Body;
+use axum::body::{Body, Bytes};
 use axum::extract::{Path as Captured, Request, State};
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
@@ -31,6 +33,8 @@ use tower::ServiceExt;
 use tower_http::services::ServeDir;
 use tower_http::services::fs::{Backend, File as BackendFile};
 use uuid::Uuid;
+use zip::write::{SimpleFileOptions, StreamWriter};
+use zip::{CompressionMethod, ZipWriter};
 
 use crate::api::dispatch::Dispatch;
 use crate::app::AppState;
@@ -47,6 +51,12 @@ const PART_LIFETIME: Duration = Duration::from_secs(60 * 60);
 
 /// Largest `PATCH` body read, far above any path the filesystem accepts.
 const RENAME_BODY_LIMIT: usize = 64 * 1024;
+
+/// Largest chunk of a zip download sent to the client at once.
+const ARCHIVE_CHUNK: usize = 64 * 1024;
+
+/// Chunks of a zip download written ahead of the client, which bounds each download's memory.
+const ARCHIVE_CHUNKS: usize = 8;
 
 /// Register the file browser's routes, beside the host-dispatched `/api/files`. An engine
 /// mount and a component's address share the first segment, so one pair of routes takes both
@@ -128,6 +138,10 @@ struct FileQuery {
     directory: bool,
     recursive: bool,
     overwrite: bool,
+    /// Whether a directory's download keeps dot names, which the console hides by default.
+    hidden: bool,
+    /// The names in the directory a download takes, all of it when empty.
+    entries: Vec<String>,
 }
 
 impl FileQuery {
@@ -141,6 +155,8 @@ impl FileQuery {
                 "directory" => parsed.directory = set,
                 "recursive" => parsed.recursive = set,
                 "overwrite" => parsed.overwrite = set,
+                "hidden" => parsed.hidden = set,
+                "entry" => parsed.entries.push(value),
                 "after" => parsed.after = Some(value),
                 _ => {}
             }
@@ -217,7 +233,36 @@ enum Found {
     Listing(FileListing),
     Stat(FileStat),
     File(VerifiedFile, String),
+    Archive(Archive),
 }
+
+/// A directory's download, or a download of some of its entries, as one zip.
+struct Archive {
+    /// Canonical path of the directory the members' names start below.
+    directory: PathBuf,
+    /// The directory's `/`-joined path under the root.
+    relative: String,
+    /// The names in the directory the archive takes, all of them when empty.
+    entries: Vec<String>,
+    /// Whether the archive keeps dot names.
+    hidden: bool,
+    /// The file name the download saves as.
+    name: String,
+}
+
+/// One entry a walk reaches.
+enum Walked<'a> {
+    /// A file, or a symlink to one inside the mount, as the path to read and its metadata.
+    File(&'a Path, &'a Metadata),
+    /// A directory, reached before anything in it.
+    Directory(&'a Metadata),
+    /// An entry the mount excludes, never descended.
+    Excluded,
+}
+
+/// What a walk calls with each entry's path below where it started, which stops the walk by
+/// breaking with `B`.
+type Visit<'a, B> = dyn FnMut(&str, Walked<'_>) -> io::Result<ControlFlow<B>> + 'a;
 
 /// A mount opened for one request, its root's canonical path and exclusions.
 struct OpenMount {
@@ -277,9 +322,14 @@ impl OpenMount {
             }));
         }
 
+        // Only a directory's download takes entries.
+        if !query.entries.is_empty() && (!query.download || !metadata.is_dir()) {
+            return Err(ApiError::http(StatusCode::BAD_REQUEST));
+        }
+
         if metadata.is_dir() {
             if query.download {
-                return Err(ApiError::http(StatusCode::BAD_REQUEST));
+                return self.archive(canonical, query).map(Found::Archive);
             }
 
             return self.list(&canonical, query).map(Found::Listing);
@@ -428,17 +478,154 @@ impl OpenMount {
     /// Costs a walk of the whole subtree, which `refuse_excluded_below` skips when nothing is
     /// excluded.
     fn holds_excluded(&self, directory: &Path, relative: &str) -> io::Result<bool> {
+        let found = self.walk(directory, relative, true, &mut |_, walked| {
+            Ok(match walked {
+                Walked::Excluded => ControlFlow::Break(()),
+                Walked::File(..) | Walked::Directory(_) => ControlFlow::Continue(()),
+            })
+        })?;
+        Ok(found.is_break())
+    }
+
+    /// Visit every entry below `directory`, at `relative` under the root, a directory before
+    /// what it holds, until `visit` breaks.
+    ///
+    /// Skips dot names unless `hidden`, upload parts, special files, symlinks to directories,
+    /// which could cycle, and symlinks leaving the root or reaching an excluded entry.
+    fn walk<B>(
+        &self,
+        directory: &Path,
+        relative: &str,
+        hidden: bool,
+        visit: &mut Visit<'_, B>,
+    ) -> io::Result<ControlFlow<B>> {
+        self.walk_below(directory, relative, "", hidden, visit)
+    }
+
+    fn walk_below<B>(
+        &self,
+        directory: &Path,
+        relative: &str,
+        below: &str,
+        hidden: bool,
+        visit: &mut Visit<'_, B>,
+    ) -> io::Result<ControlFlow<B>> {
+        let join = |above: &str, name: &str| {
+            if above.is_empty() {
+                name.to_string()
+            } else {
+                format!("{above}/{name}")
+            }
+        };
+
         for entry in fs::read_dir(directory)? {
             let entry = entry?;
-            let path = format!("{relative}/{}", entry.file_name().to_string_lossy());
-            if self.exclusion.excludes(&path)
-                || (entry.file_type()?.is_dir() && self.holds_excluded(&entry.path(), &path)?)
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if (!hidden && name.starts_with('.')) || is_part(&name) {
+                continue;
+            }
+
+            let (relative, below) = (join(relative, &name), join(below, &name));
+            let path = entry.path();
+            let file_type = entry.file_type()?;
+            let flow = if self.exclusion.excludes(&relative) {
+                visit(&below, Walked::Excluded)?
+            } else if file_type.is_dir() {
+                match visit(&below, Walked::Directory(&entry.metadata()?))? {
+                    ControlFlow::Continue(()) => {
+                        self.walk_below(&path, &relative, &below, hidden, visit)?
+                    }
+                    broken => broken,
+                }
+            } else if file_type.is_file() {
+                visit(&below, Walked::File(&path, &entry.metadata()?))?
+            } else if file_type.is_symlink()
+                && let Some(target) = self.admit(&path)
+                && let Ok(metadata) = fs::metadata(&target)
+                && metadata.is_file()
             {
-                return Ok(true);
+                visit(&below, Walked::File(&target, &metadata))?
+            } else {
+                ControlFlow::Continue(())
+            };
+            if flow.is_break() {
+                return Ok(flow);
             }
         }
 
-        Ok(false)
+        Ok(ControlFlow::Continue(()))
+    }
+
+    /// The download of the directory at `canonical`, or of the entries `query` names in it,
+    /// each checked before the response starts.
+    fn archive(&self, canonical: PathBuf, query: &FileQuery) -> Result<Archive, ApiError> {
+        let relative = self.relative(&canonical).unwrap_or_default();
+        let mut entries = query.entries.clone();
+        entries.sort_unstable();
+        entries.dedup();
+        for entry in &entries {
+            let [name] = split_path(entry)?
+                .try_into()
+                .map_err(|_| ApiError::http(StatusCode::BAD_REQUEST))?;
+            let named = if relative.is_empty() {
+                name
+            } else {
+                format!("{relative}/{name}")
+            };
+            if self.exclusion.excludes(&named) || self.admit(&canonical.join(entry)).is_none() {
+                return Err(ApiError::not_found());
+            }
+        }
+
+        let stem = canonical.file_name().map_or_else(
+            || "files".into(),
+            |name| name.to_string_lossy().into_owned(),
+        );
+        Ok(Archive {
+            directory: canonical,
+            relative,
+            entries,
+            hidden: query.hidden,
+            name: format!("{stem}.zip"),
+        })
+    }
+
+    /// Write `archive` as a zip to `sink`, stored uncompressed, since the media a mount holds
+    /// gains nothing from deflate and the download is bound by the network.
+    fn write_archive(&self, archive: &Archive, sink: impl Write) -> io::Result<()> {
+        let mut zip = ZipWriter::new_stream(sink);
+        let mut add = |name: &str, walked: Walked<'_>| -> io::Result<ControlFlow<Infallible>> {
+            add_member(&mut zip, name, walked)?;
+            Ok(ControlFlow::Continue(()))
+        };
+
+        if archive.entries.is_empty() {
+            let ControlFlow::Continue(()) = self.walk(
+                &archive.directory,
+                &archive.relative,
+                archive.hidden,
+                &mut add,
+            )?;
+        }
+
+        for entry in &archive.entries {
+            let path = self
+                .admit(&archive.directory.join(entry))
+                .ok_or(ErrorKind::NotFound)?;
+            let metadata = fs::metadata(&path)?;
+            if metadata.is_file() {
+                let ControlFlow::Continue(()) = add(entry, Walked::File(&path, &metadata))?;
+            } else if metadata.is_dir() {
+                let ControlFlow::Continue(()) = add(entry, Walked::Directory(&metadata))?;
+                let relative = self.relative(&path).unwrap_or_default();
+                let ControlFlow::Continue(()) =
+                    self.walk(&path, &relative, archive.hidden, &mut |name, walked| {
+                        add(&format!("{entry}/{name}"), walked)
+                    })?;
+            }
+        }
+
+        zip.finish()?.into_inner().flush()
     }
 
     /// Refuse to delete or move the directory `target` names when it holds an excluded
@@ -518,6 +705,125 @@ fn split_path(path: &str) -> Result<Vec<String>, ApiError> {
             }
         })
         .collect()
+}
+
+/// Add what a walk reached at `name` to `zip`, its contents read from the file the walk found.
+fn add_member<W: Write>(
+    zip: &mut ZipWriter<StreamWriter<W>>,
+    name: &str,
+    walked: Walked<'_>,
+) -> io::Result<()> {
+    let options = |metadata: &Metadata| {
+        let options = SimpleFileOptions::default()
+            .compression_method(CompressionMethod::Stored)
+            .large_file(metadata.len() >= u64::from(u32::MAX));
+        // A zip dates its members in local time.
+        let modified = metadata.modified().ok().and_then(|time| {
+            zip::DateTime::try_from(chrono::DateTime::<chrono::Local>::from(time).naive_local())
+                .ok()
+        });
+        let options = match modified {
+            Some(modified) => options.last_modified_time(modified),
+            None => options,
+        };
+
+        #[cfg(unix)]
+        let options = {
+            use std::os::unix::fs::PermissionsExt;
+            options.unix_permissions(metadata.permissions().mode())
+        };
+        options
+    };
+
+    match walked {
+        Walked::File(path, metadata) => {
+            let mut file = open_without_following(path)?;
+            zip.start_file(name, options(metadata))?;
+            io::copy(&mut file, zip)?;
+        }
+        Walked::Directory(metadata) => zip.add_directory(name, options(metadata))?,
+        Walked::Excluded => {}
+    }
+
+    Ok(())
+}
+
+/// A `Write` that hands its bytes to a response body in chunks of up to [`ARCHIVE_CHUNK`]
+/// bytes, failing once the response is dropped.
+struct BodyWriter {
+    sender: tokio::sync::mpsc::Sender<io::Result<Bytes>>,
+    buffer: Vec<u8>,
+}
+
+impl BodyWriter {
+    fn new(sender: tokio::sync::mpsc::Sender<io::Result<Bytes>>) -> Self {
+        Self {
+            sender,
+            buffer: Vec::with_capacity(ARCHIVE_CHUNK),
+        }
+    }
+
+    fn send(&mut self) -> io::Result<()> {
+        let chunk = std::mem::replace(&mut self.buffer, Vec::with_capacity(ARCHIVE_CHUNK));
+        self.sender
+            .blocking_send(Ok(chunk.into()))
+            .map_err(|_| ErrorKind::BrokenPipe.into())
+    }
+}
+
+impl Write for BodyWriter {
+    fn write(&mut self, data: &[u8]) -> io::Result<usize> {
+        let taken = data.len().min(ARCHIVE_CHUNK - self.buffer.len());
+        self.buffer.extend_from_slice(&data[..taken]);
+        if self.buffer.len() == ARCHIVE_CHUNK {
+            self.send()?;
+        }
+
+        Ok(taken)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        if self.buffer.is_empty() {
+            return Ok(());
+        }
+
+        self.send()
+    }
+}
+
+/// Answer `archive` as a zip that the blocking pool writes as the client reads it, or only
+/// its headers for `HEAD`.
+fn stream_archive(mount: OpenMount, archive: Archive, head: bool) -> Response {
+    let headers = [
+        (
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/zip"),
+        ),
+        (header::CONTENT_DISPOSITION, attachment(&archive.name)),
+        (
+            header::X_CONTENT_TYPE_OPTIONS,
+            HeaderValue::from_static("nosniff"),
+        ),
+    ];
+    if head {
+        return (headers, Body::empty()).into_response();
+    }
+
+    let (sender, mut receiver) = tokio::sync::mpsc::channel(ARCHIVE_CHUNKS);
+    tokio::task::spawn_blocking(move || {
+        let written = mount.write_archive(&archive, BodyWriter::new(sender.clone()));
+        // An error item fails the body, so the client never takes a cut archive for a whole one.
+        // A closed channel means the client went away, which needs no word.
+        if let Err(error) = written
+            && !sender.is_closed()
+        {
+            log::warn!("Download of `{}` stopped: {error}", archive.relative);
+            let _ = sender.blocking_send(Err(error));
+        }
+    });
+
+    let chunks = futures_util::stream::poll_fn(move |context| receiver.poll_recv(context));
+    (headers, Body::from_stream(chunks)).into_response()
 }
 
 /// The `Content-Disposition` value that saves a download under `name`.
@@ -1017,11 +1323,21 @@ async fn read(
     request: Request,
 ) -> Result<Response, ApiError> {
     let download = query.download;
-    let found = blocking(move || OpenMount::open(resolved)?.find(&names, &query)).await?;
+    let (mount, found) = blocking(move || {
+        let mount = OpenMount::open(resolved)?;
+        let found = mount.find(&names, &query)?;
+        Ok((mount, found))
+    })
+    .await?;
 
     match found {
         Found::Listing(listing) => Ok(json(&listing)),
         Found::Stat(stat) => Ok(json(&stat)),
+        Found::Archive(archive) => Ok(stream_archive(
+            mount,
+            archive,
+            request.method() == Method::HEAD,
+        )),
         Found::File(file, name) => {
             // The handle closes a swap of the file itself for a symlink. A parent directory
             // swapped between the walk and the open still escapes, as writes do.
@@ -1507,10 +1823,168 @@ mod tests {
             download.headers()[header::CONTENT_DISPOSITION],
             "attachment; filename=\"b c.txt\"; filename*=UTF-8''b%20c%2Etxt"
         );
+    }
+
+    /// The names and contents of the zip a download at `uri` answers, sorted by name.
+    async fn archive(host: &Arc<FileHost>, uri: &str) -> Vec<(String, String)> {
+        let response = host.get(uri).await;
+        assert_eq!(response.status(), StatusCode::OK, "{uri}");
+        assert_eq!(response.headers()[header::CONTENT_TYPE], "application/zip");
+        assert!(!response.headers().contains_key(header::CONTENT_LENGTH));
+        let mut zip = zip::ZipArchive::new(io::Cursor::new(body(response).await)).unwrap();
+        let mut members: Vec<_> = (0..zip.len())
+            .map(|index| {
+                let mut member = zip.by_index(index).unwrap();
+                let mut contents = String::new();
+                io::Read::read_to_string(&mut member, &mut contents).unwrap();
+                (member.name().unwrap().into_owned(), contents)
+            })
+            .collect();
+        members.sort();
+        members
+    }
+
+    /// `(name, contents)` pairs as [`archive`] answers them.
+    fn members(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
+        pairs
+            .iter()
+            .map(|(name, contents)| (name.to_string(), contents.to_string()))
+            .collect()
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_directory_downloads_as_a_zip() {
+        let host = Arc::new(mount(
+            &[
+                ("a/b", "abc"),
+                ("a/c/d", "abcd"),
+                ("a/.e", "e"),
+                ("a/f", ""),
+                ("z", "z"),
+            ],
+            &["f"],
+        ));
+        fs::create_dir(host.path("a/empty")).unwrap();
+        host.link(&host.path("a"), "a/loop");
+        host.link(&host.path("z"), "a/link");
+
+        let visible = members(&[
+            ("b", "abc"),
+            ("c/", ""),
+            ("c/d", "abcd"),
+            ("empty/", ""),
+            ("link", "z"),
+        ]);
         assert_eq!(
-            host.get("/api/files/project/a?download").await.status(),
-            StatusCode::BAD_REQUEST
+            archive(&host, "/api/files/project/a?download").await,
+            visible
         );
+        let with_hidden = archive(&host, "/api/files/project/a?download&hidden").await;
+        assert_eq!(with_hidden[..1], members(&[(".e", "e")]));
+        assert_eq!(with_hidden[1..], visible);
+
+        let response = host.get("/api/files/project/a?download").await;
+        assert_eq!(
+            response.headers()[header::CONTENT_DISPOSITION],
+            "attachment; filename=\"a.zip\"; filename*=UTF-8''a%2Ezip"
+        );
+        let root = host.get("/api/files/project?download").await;
+        let saved = root.headers()[header::CONTENT_DISPOSITION]
+            .to_str()
+            .unwrap();
+        let stem = host.directory.path().canonicalize().unwrap();
+        let stem = stem.file_name().unwrap().to_str().unwrap();
+        assert!(saved.starts_with(&format!("attachment; filename=\"{stem}.zip\"")));
+    }
+
+    #[tokio::test]
+    async fn a_selection_downloads_as_one_zip() {
+        let host = Arc::new(mount(
+            &[("a/b", "abc"), ("a/c/d", "abcd"), ("a/e", "e")],
+            &[],
+        ));
+        assert_eq!(
+            archive(
+                &host,
+                "/api/files/project/a?download&entry=c&entry=b&entry=b"
+            )
+            .await,
+            members(&[("b", "abc"), ("c/", ""), ("c/d", "abcd")])
+        );
+    }
+
+    #[tokio::test]
+    async fn a_missing_entry_refuses_before_streaming() {
+        let host = Arc::new(mount(&[("a/b", "abc"), ("a/secret", "")], &["secret"]));
+        let status = async |uri: &str| host.get(uri).await.status();
+        for entry in ["missing", "secret"] {
+            let uri = format!("/api/files/project/a?download&entry=b&entry={entry}");
+            assert_eq!(status(&uri).await, StatusCode::NOT_FOUND, "{entry}");
+        }
+        for uri in [
+            "/api/files/project/a?download&entry=..",
+            "/api/files/project/a?download&entry=b%2Fc",
+            "/api/files/project/a?entry=b",
+            "/api/files/project/a/b?download&entry=b",
+        ] {
+            assert_eq!(status(uri).await, StatusCode::BAD_REQUEST, "{uri}");
+        }
+
+        let head = host
+            .request(HttpRequest::head("/api/files/project/a?download"))
+            .await;
+        assert_eq!(head.status(), StatusCode::OK);
+        assert_eq!(head.headers()[header::CONTENT_TYPE], "application/zip");
+        assert!(body(head).await.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_unreadable_file_fails_the_download_after_it_starts() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let host = Arc::new(mount(&[("a/b", "abc")], &[]));
+        fs::set_permissions(host.path("a/b"), fs::Permissions::from_mode(0o000)).unwrap();
+        if File::open(host.path("a/b")).is_ok() {
+            // Root reads the file anyway, so nothing can fail.
+            return;
+        }
+
+        let response = host.get("/api/files/project/a?download").await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(response.into_body().collect().await.is_err());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_file_past_four_gibibytes_downloads_as_zip64() {
+        let host = Arc::new(mount(&[("b", "abc")], &[]));
+        let large = u64::from(u32::MAX) + 1;
+        File::create(host.path("a"))
+            .unwrap()
+            .set_len(large)
+            .unwrap();
+
+        let response = host
+            .get("/api/files/project?download&entry=a&entry=b")
+            .await;
+        let saved = TempDir::new().unwrap();
+        let mut file = tokio::fs::File::create(saved.path().join("a.zip"))
+            .await
+            .unwrap();
+        let mut chunks = response.into_body().into_data_stream();
+        while let Some(chunk) = chunks.next().await {
+            file.write_all(&chunk.unwrap()).await.unwrap();
+        }
+        file.flush().await.unwrap();
+
+        // The small file sits past the 4 GiB offset the large one pushes it to.
+        let mut zip =
+            zip::ZipArchive::new(File::open(saved.path().join("a.zip")).unwrap()).unwrap();
+        assert_eq!(zip.by_name("a").unwrap().size(), large);
+        let mut contents = String::new();
+        io::Read::read_to_string(&mut zip.by_name("b").unwrap(), &mut contents).unwrap();
+        assert_eq!(contents, "abc");
     }
 
     #[tokio::test]

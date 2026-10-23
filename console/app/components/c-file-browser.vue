@@ -2,7 +2,6 @@
 import type { BreadcrumbItem, ContextMenuItem } from '@nuxt/ui'
 import { useQueryClient } from '@tanstack/vue-query'
 import { useDropZone, useElementSize } from '@vueuse/core'
-import multiDownload from 'multi-download'
 import { computed, watch } from 'vue'
 
 import { useQuery } from '@/api/client'
@@ -22,6 +21,7 @@ import {
   fileActions,
   fileColumns,
   fileInfoPlace,
+  filesDownloadPath,
   findFileMount,
   filterEntries,
   formatFileSize,
@@ -39,7 +39,7 @@ import icons from '@/icons'
 import { useNotify } from '@/notify'
 import { usePersisted } from '@/persistence'
 import { clearOnOutsidePress, createRowSelection } from '@/row-selection'
-import { afterMenuCloses, copyText, openContextMenu } from '@/utilities'
+import { afterMenuCloses, copyText, downloadFrom, openContextMenu } from '@/utilities'
 
 const {
   mount,
@@ -424,11 +424,20 @@ async function createDirectory() {
   }
 }
 
-/** Download each file among `targets`, entries of `directory`. A folder has no download. */
-async function download(directory: string[], targets: FileEntry[]) {
-  const files = targets.filter((target) => target.kind === 'file')
-  await multiDownload(
-    files.map((target) => engine.files.downloadUrl(mount, [...directory, target.name])),
+/** Download `targets`, entries of `directory`, one file or folder as itself and several as one zip
+of `directory` holding them. A folder's zip keeps dot names while the listing shows them. */
+function download(directory: string[], targets: FileEntry[]) {
+  const names = targets.filter((target) => target.kind !== 'other').map((target) => target.name)
+  const [only, ...rest] = names
+  if (only == null) {
+    return
+  }
+
+  const hidden = persisted.hidden
+  downloadFrom(
+    rest.length === 0
+      ? filesDownloadPath(mount, [...directory, only], { hidden })
+      : filesDownloadPath(mount, directory, { entries: names, hidden }),
   )
 }
 
@@ -837,7 +846,7 @@ function onListContext(event: MouseEvent) {
         <c-button
           color="neutral"
           external
-          :href="engine.files.downloadUrl(mount, path)"
+          :href="filesDownloadPath(mount, path)"
           :icon="icons.download"
           label="Download"
           size="sm"

@@ -15,6 +15,7 @@ import {
   fileInfoPlace,
   fileInfoRows,
   filesApiPath,
+  filesDownloadPath,
   filesPageKey,
   filesPagePath,
   filterEntries,
@@ -198,7 +199,7 @@ describe('filterEntries', () => {
 })
 
 describe('fileActions', () => {
-  it('opens one entry, downloads only files, and changes nothing in a mount it may only view', () => {
+  it('opens one entry and changes nothing in a mount it may only view', () => {
     expect(fileActions([file('a')], false, true)).toEqual([
       'open',
       'viewRaw',
@@ -206,10 +207,10 @@ describe('fileActions', () => {
       'download',
       'copyPath',
     ])
-    expect(fileActions([folder('a')], false, true)).toEqual(['open', 'info', 'copyPath'])
     expect(fileActions([folder('a')], true, true)).toEqual([
       'open',
       'info',
+      'download',
       'copyPath',
       'rename',
       'move',
@@ -220,13 +221,28 @@ describe('fileActions', () => {
       'move',
       'delete',
     ])
-    expect(fileActions([folder('a'), folder('b')], false, true)).toEqual([])
     expect(fileActions([], true, true)).toEqual([])
   })
 
+  it('downloads files and folders, never only special files', () => {
+    const special: FileEntry = { ...file('c'), kind: 'other' }
+    expect(fileActions([folder('a'), folder('b')], false, true)).toEqual(['download'])
+    expect(fileActions([special, folder('b')], false, true)).toEqual(['download'])
+    expect(fileActions([special, special], false, true)).toEqual([])
+  })
+
   it('copies a system path only for one entry on a mount that reveals paths', () => {
-    expect(fileActions([folder('a')], false, false)).toEqual(['open', 'info'])
+    expect(fileActions([folder('a')], false, false)).toEqual(['open', 'info', 'download'])
     expect(fileActions([folder('a')], false, true)).toContain('copyPath')
+  })
+})
+
+describe('filesDownloadPath', () => {
+  it('names a whole entry or some entries of a directory, keeping dot names when asked', () => {
+    expect(filesDownloadPath('project', ['a', 'b c'])).toBe('/api/files/project/a/b%20c?download')
+    expect(filesDownloadPath('project', ['a'], { entries: ['b', 'c&d'], hidden: true })).toBe(
+      '/api/files/project/a?download&entry=b&entry=c%26d&hidden=',
+    )
   })
 })
 

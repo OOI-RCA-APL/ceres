@@ -171,6 +171,23 @@ export function filesApiPath(mount: string, path: readonly string[] = []): strin
   return filesUrl('/api/files', mount, path)
 }
 
+/** The engine's path that downloads the file at `path` under `mount` instead of showing it, or a
+directory there as one zip. `entries` narrows a directory's zip to those names in it, and `hidden`
+keeps the dot names below them. */
+export function filesDownloadPath(
+  mount: string,
+  path: readonly string[],
+  { entries = [], hidden = false }: { entries?: readonly string[]; hidden?: boolean } = {},
+): string {
+  const query = new URLSearchParams(entries.map((name) => ['entry', name]))
+  if (hidden) {
+    query.set('hidden', '')
+  }
+
+  const rest = query.toString()
+  return `${filesApiPath(mount, path)}?download${rest === '' ? '' : `&${rest}`}`
+}
+
 /** The query key of the description of `path` under `mount`, one for every view asking, so a
 prefetch serves them all. */
 export function fileStatQueryKey(mount: string, path: readonly string[]) {
@@ -327,8 +344,8 @@ export type FileAction =
   'open' | 'viewRaw' | 'info' | 'download' | 'copyPath' | 'rename' | 'move' | 'delete'
 
 /** What applies to `targets`, in the order every menu lists it. Opening, info and renaming take a
-single entry, viewing raw a single file, a download the files among them, copying a system path a
-single entry on a mount that reveals paths, and a change a mount the caller may edit. */
+single entry, viewing raw a single file, a download any file or folder among them, copying a system
+path a single entry on a mount that reveals paths, and a change a mount the caller may edit. */
 export function fileActions(
   targets: readonly FileEntry[],
   editable: boolean,
@@ -344,7 +361,7 @@ export function fileActions(
     ...(single ? (['open'] as const) : []),
     ...(single && only.kind === 'file' ? (['viewRaw'] as const) : []),
     ...(single ? (['info'] as const) : []),
-    ...(targets.some((entry) => entry.kind === 'file') ? (['download'] as const) : []),
+    ...(targets.some((entry) => entry.kind !== 'other') ? (['download'] as const) : []),
     ...(single && revealPaths ? (['copyPath'] as const) : []),
     ...(editable && single ? (['rename'] as const) : []),
     ...(editable ? (['move', 'delete'] as const) : []),
@@ -554,18 +571,12 @@ export const useFiles = defineStore('files', () => {
     return getHttpUrl(filesApiPath(mount, path))
   }
 
-  /** The address that downloads the file at `path` under `mount` instead of showing it. */
-  function downloadUrl(mount: string, path: readonly string[]): string {
-    return `${filesApiPath(mount, path)}?download`
-  }
-
   return {
     getMounts,
     list,
     stat,
     readText,
     sourceUrl,
-    downloadUrl,
     upload,
     createDirectory,
     move,
