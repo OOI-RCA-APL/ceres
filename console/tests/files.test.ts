@@ -1,28 +1,33 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  FileColumnsModel,
   type FileEntry,
   TEXT_PREVIEW_LIMIT,
   decodeText,
   describeFileWriteStatus,
   droppedFiles,
   fileActions,
+  fileColumns,
+  fileInfoRows,
   filesApiPath,
   filesPagePath,
   filterEntries,
   findFileMount,
+  formatExactFileSize,
   formatFileSize,
+  isHiddenEntry,
   parseFilePath,
   parseFilesRoute,
   previewOf,
 } from '@/api/files'
 
 function file(name: string, size: number | null = 1): FileEntry {
-  return { name, kind: 'file', size, modified: null }
+  return { name, kind: 'file', size, modified: null, created: null }
 }
 
 function folder(name: string): FileEntry {
-  return { name, kind: 'directory', size: null, modified: null }
+  return { name, kind: 'directory', size: null, modified: null, created: null }
 }
 
 describe('previewOf', () => {
@@ -85,6 +90,7 @@ describe('findFileMount', () => {
       component: null,
       access: 'view' as const,
       temporary: false,
+      reveal_paths: true,
     }
     expect(findFileMount([mount], 'project')).toBe(mount)
     expect(findFileMount([mount], 'abc')).toBeNull()
@@ -102,9 +108,9 @@ describe('filterEntries', () => {
 
 describe('fileActions', () => {
   it('opens one entry, downloads only files, and changes nothing in a mount it may only view', () => {
-    expect(fileActions([file('a')], false)).toEqual(['open', 'download', 'copyPath'])
-    expect(fileActions([folder('a')], false)).toEqual(['open', 'copyPath'])
-    expect(fileActions([folder('a')], true)).toEqual(['open', 'copyPath', 'move', 'delete'])
+    expect(fileActions([file('a')], false)).toEqual(['open', 'info', 'download', 'copyPath'])
+    expect(fileActions([folder('a')], false)).toEqual(['open', 'info', 'copyPath'])
+    expect(fileActions([folder('a')], true)).toEqual(['open', 'info', 'copyPath', 'move', 'delete'])
     expect(fileActions([file('a'), folder('b')], true)).toEqual([
       'download',
       'copyPath',
@@ -169,5 +175,59 @@ describe('formatFileSize', () => {
     expect(formatFileSize(1023)).toBe('1023 B')
     expect(formatFileSize(1536)).toBe('1.5 KiB')
     expect(formatFileSize(TEXT_PREVIEW_LIMIT)).toBe('1.0 MiB')
+  })
+})
+
+describe('formatExactFileSize', () => {
+  it('follows the unit with the exact byte count', () => {
+    expect(formatExactFileSize(1)).toBe('1 byte')
+    expect(formatExactFileSize(1023)).toBe('1,023 bytes')
+    expect(formatExactFileSize(1258291)).toBe('1.2 MiB (1,258,291 bytes)')
+  })
+})
+
+describe('isHiddenEntry', () => {
+  it('hides dot entries', () => {
+    expect(isHiddenEntry(file('.abc'))).toBe(true)
+    expect(isHiddenEntry(file('abc'))).toBe(false)
+  })
+})
+
+describe('FileColumnsModel', () => {
+  it('shows size and modified until told otherwise', () => {
+    expect(FileColumnsModel.parse({})).toEqual({ size: true, modified: true, created: false })
+    expect(FileColumnsModel.parse({ created: true, size: false })).toEqual({
+      size: false,
+      modified: true,
+      created: true,
+    })
+    expect(fileColumns.map(({ column }) => column)).toEqual(['size', 'modified', 'created'])
+  })
+})
+
+describe('fileInfoRows', () => {
+  const stat = {
+    ...file('abc', 1258291),
+    modified: '2026-10-22T01:02:03.000Z',
+    path: '/srv/abc',
+  }
+  const where = { name: 'abc', location: ['Stash', 'a'], writable: false }
+
+  it('lists every fact the engine knows', () => {
+    expect(fileInfoRows(stat, where)).toEqual([
+      { label: 'Name', value: 'abc' },
+      { label: 'Kind', value: 'File' },
+      { label: 'Location', value: 'Stash / a' },
+      { label: 'Full Path', value: '/srv/abc', copyable: true },
+      { label: 'Size', value: '1.2 MiB (1,258,291 bytes)' },
+      { label: 'Modified', value: '2026-10-22 01:02:03' },
+      { label: 'Writable', value: 'No' },
+    ])
+  })
+
+  it('leaves out a path the engine keeps to itself', () => {
+    const labels = fileInfoRows({ ...stat, path: null }, where).map((row) => row.label)
+    expect(labels).not.toContain('Full Path')
+    expect(labels).not.toContain('Created')
   })
 })

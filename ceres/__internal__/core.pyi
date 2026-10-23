@@ -1192,6 +1192,11 @@ class ServerFilesConfig:
         r"""
         Most any caller may do with any mount, `"none"`, `"view"`, or `"edit"`.
         """
+    @property
+    def reveal_paths(self) -> bool:
+        r"""
+        Whether the console may show where an entry lives on the server.
+        """
     def __new__(
         cls,
         *,
@@ -1199,6 +1204,7 @@ class ServerFilesConfig:
         exclude: Sequence[str] | None = None,
         max_upload: int | str | None = None,
         access: str | None = None,
+        reveal_paths: bool | None = None,
     ) -> Self: ...
     def __to_dict__(self) -> dict[str, Any]:
         r"""

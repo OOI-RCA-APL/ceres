@@ -30,6 +30,8 @@ class MountInfo(DataObject):
     temporary: bool
     """Whether the mount is a temporary directory removed with the component's last
     reference to it."""
+    reveal_paths: bool
+    """Whether `?stat` answers where an entry lives on the server, the same for every mount."""
 
 
 MountInfo.__name__ = "FileMount"
@@ -47,6 +49,8 @@ class ResolvedMount(DataObject):
     """The `server.files.exclude` patterns."""
     max_upload: int | None
     """Largest file one upload may write, in bytes, unlimited when `None`."""
+    reveal_paths: bool
+    """Whether `?stat` answers where an entry lives on the server."""
 
 
 def component_mount_id(address: Address, name: str) -> str:
@@ -112,6 +116,7 @@ def component_mounts(
                 component=system.address,
                 access=access,
                 temporary=mount.temporary,
+                reveal_paths=engine.config.server.files.reveal_paths,
             )
         )
 
@@ -128,6 +133,7 @@ async def get_mounts(engine: Engine, actor: Actor) -> list[MountInfo]:
             component=None,
             access=access,
             temporary=False,
+            reveal_paths=engine.config.server.files.reveal_paths,
         )
         for name, (_, access) in _engine_mounts(engine).items()
     ]
@@ -153,14 +159,19 @@ async def resolve_mount(engine: Engine, actor: Actor, id: str) -> ResolvedMount:
     Raises:
         NotFoundError: If no mount has the ID or the caller may not view it.
     """
-    exclude = list(engine.config.server.files.exclude)
-    max_upload = engine.config.server.files.max_upload
+    files = engine.config.server.files
     if not id.startswith("@"):
         path, access = _engine_mounts(engine).get(id, (None, MountAccess.NONE))
         if path is None:
             raise NotFoundError()
 
-        return ResolvedMount(path=str(path), access=access, exclude=exclude, max_upload=max_upload)
+        return ResolvedMount(
+            path=str(path),
+            access=access,
+            exclude=list(files.exclude),
+            max_upload=files.max_upload,
+            reveal_paths=files.reveal_paths,
+        )
 
     address, separator, name = id.partition("/")
     if not separator:
@@ -187,6 +198,7 @@ async def resolve_mount(engine: Engine, actor: Actor, id: str) -> ResolvedMount:
     return ResolvedMount(
         path=str(mount.path),
         access=access,
-        exclude=exclude,
-        max_upload=max_upload,
+        exclude=list(files.exclude),
+        max_upload=files.max_upload,
+        reveal_paths=files.reveal_paths,
     )

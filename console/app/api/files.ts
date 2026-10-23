@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import * as z from 'zod'
 
 import { useClient } from '@/api/client'
+import { utc } from '@/time'
 import { getHttpUrl } from '@/utilities'
 
 export type MountAccess = z.infer<typeof MountAccessModel>
@@ -19,6 +20,8 @@ export const FileMountModel = z.object({
   access: MountAccessModel,
   /** Whether the mount is a temporary directory, removed once the component releases it. */
   temporary: z.boolean(),
+  /** Whether a stat answers where an entry lives on the server, the same for every mount. */
+  reveal_paths: z.boolean(),
 })
 
 /** The mount in `mounts` with `id`, null when the caller cannot reach it. */
@@ -36,6 +39,14 @@ export const FileEntryModel = z.object({
   /** Bytes, null for anything but a file. */
   size: z.number().nullable(),
   modified: z.string().nullable(),
+  /** Null where the filesystem keeps no birth time. */
+  created: z.string().nullable(),
+})
+
+export type FileStat = z.infer<typeof FileStatModel>
+export const FileStatModel = FileEntryModel.extend({
+  /** Where the entry lives on the server, null when the engine does not reveal paths. */
+  path: z.string().nullable(),
 })
 
 export type FileListing = z.infer<typeof FileListingModel>
@@ -130,6 +141,60 @@ export function formatFileSize(size: number | null): string {
   return `${(size / 1024 ** power).toFixed(power === 0 ? 0 : 1)} ${units[power]}`
 }
 
+/** `size` in its largest unit with the exact byte count after it, `1.2 MiB (1,258,291 bytes)`. */
+export function formatExactFileSize(size: number): string {
+  const bytes = `${size.toLocaleString('en-US')} ${size === 1 ? 'byte' : 'bytes'}`
+  return size < 1024 ? bytes : `${formatFileSize(size)} (${bytes})`
+}
+
+/** `time`, an RFC 3339 timestamp from the engine, as the browser shows it, blank when null. */
+export function formatFileTime(time: string | null): string {
+  return time == null ? '' : utc(time).format('YYYY-MM-DD HH:mm:ss')
+}
+
+/** Which optional listing columns show, a choice every browser shares. */
+export const FileColumnsModel = z.object({
+  size: z.boolean().default(true),
+  modified: z.boolean().default(true),
+  created: z.boolean().default(false),
+})
+export type FileColumns = z.infer<typeof FileColumnsModel>
+export type FileColumn = keyof FileColumns
+
+/** The optional columns in the order the listing shows them, after the name. */
+export const fileColumns: readonly { column: FileColumn; label: string }[] = [
+  { column: 'size', label: 'Size' },
+  { column: 'modified', label: 'Modified' },
+  { column: 'created', label: 'Created' },
+]
+
+const fileKindLabels: Record<FileKind, string> = {
+  directory: 'Directory',
+  file: 'File',
+  other: 'Special file or link',
+}
+
+/** One row of the Info dialog. `copyable` puts a copy button beside the value. */
+export type FileInfoRow = { label: string; value: string; copyable?: boolean }
+
+/** The Info dialog's rows for `stat`, an entry named `name` in `location`, the mount's label then
+each directory under it. A fact the engine does not know has no row. */
+export function fileInfoRows(
+  stat: FileStat,
+  { name, location, writable }: { name: string; location: readonly string[]; writable: boolean },
+): FileInfoRow[] {
+  return [
+    { label: 'Name', value: name },
+    { label: 'Kind', value: fileKindLabels[stat.kind] },
+    { label: 'Location', value: location.join(' / ') },
+    ...(stat.path == null ? [] : [{ label: 'Full Path', value: stat.path, copyable: true }]),
+    ...(stat.size == null ? [] : [{ label: 'Size', value: formatExactFileSize(stat.size) }]),
+    ...(stat.modified == null ? [] : [{ label: 'Modified', value: formatFileTime(stat.modified) }]),
+    ...(stat.created == null ? [] : [{ label: 'Created', value: formatFileTime(stat.created) }]),
+    { label: 'Writable', value: writable ? 'Yes' : 'No' },
+  ]
+}
+
 /** The entries whose names hold `filter`, ignoring case. */
 export function filterEntries(entries: readonly FileEntry[], filter: string): FileEntry[] {
   const text = filter.trim().toLowerCase()
@@ -138,18 +203,23 @@ export function filterEntries(entries: readonly FileEntry[], filter: string): Fi
     : entries.filter((entry) => entry.name.toLowerCase().includes(text))
 }
 
-/** Something the file browser does to the entries picked out of one directory. */
-export type FileAction = 'open' | 'download' | 'copyPath' | 'move' | 'delete'
+/** Whether `entry` is a dot entry, which the browser hides until asked to show hidden files. */
+export function isHiddenEntry(entry: FileEntry): boolean {
+  return entry.name.startsWith('.')
+}
 
-/** What applies to `targets`, in the order every menu lists it. Opening takes a single entry, a
-download takes the files among them, and a change takes a mount the caller may edit. */
+/** Something the file browser does to the entries picked out of one directory. */
+export type FileAction = 'open' | 'info' | 'download' | 'copyPath' | 'move' | 'delete'
+
+/** What applies to `targets`, in the order every menu lists it. Opening and info take a single
+entry, a download takes the files among them, and a change takes a mount the caller may edit. */
 export function fileActions(targets: readonly FileEntry[], editable: boolean): FileAction[] {
   if (targets.length === 0) {
     return []
   }
 
   return [
-    ...(targets.length === 1 ? (['open'] as const) : []),
+    ...(targets.length === 1 ? (['open', 'info'] as const) : []),
     ...(targets.some((entry) => entry.kind === 'file') ? (['download'] as const) : []),
     'copyPath',
     ...(editable ? (['move', 'delete'] as const) : []),
@@ -240,23 +310,16 @@ export const useFiles = defineStore('files', () => {
     return await client.get('/api/files', { parse: z.array(FileMountModel) })
   }
 
-  /** List the directory at `path` under `mount`, dot entries included when `hidden`. */
-  async function list(
-    mount: string,
-    path: readonly string[],
-    { hidden = false }: { hidden?: boolean } = {},
-  ): Promise<FileListing> {
-    return await client.get(filesApiPath(mount, path), {
-      query: hidden ? { hidden: true } : null,
-      parse: FileListingModel,
-    })
+  /** List the directory at `path` under `mount`, dot entries included. */
+  async function list(mount: string, path: readonly string[]): Promise<FileListing> {
+    return await client.get(filesApiPath(mount, path), { parse: FileListingModel })
   }
 
   /** Describe the entry at `path` under `mount`, the mount itself when `path` is empty. */
-  async function stat(mount: string, path: readonly string[]): Promise<FileEntry> {
+  async function stat(mount: string, path: readonly string[]): Promise<FileStat> {
     return await client.get(filesApiPath(mount, path), {
       query: { stat: true },
-      parse: FileEntryModel,
+      parse: FileStatModel,
     })
   }
 

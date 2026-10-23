@@ -115,12 +115,13 @@ struct ResolvedMount {
     access: MountAccess,
     exclude: Vec<String>,
     max_upload: Option<u64>,
+    /// Whether `?stat` answers an entry's path on the server.
+    reveal_paths: bool,
 }
 
 /// What a request asks of the entry its path names.
 #[derive(Default)]
 struct FileQuery {
-    hidden: bool,
     after: Option<String>,
     stat: bool,
     download: bool,
@@ -135,7 +136,6 @@ impl FileQuery {
         for (name, value) in crate::api::query_pairs(query.map(str::to_string)) {
             let set = value != "false";
             match name.as_str() {
-                "hidden" => parsed.hidden = set,
                 "stat" => parsed.stat = set,
                 "download" => parsed.download = set,
                 "directory" => parsed.directory = set,
@@ -161,7 +161,7 @@ enum EntryKind {
     Other,
 }
 
-/// One entry of a listing, or the answer to `?stat`.
+/// One entry of a listing.
 #[derive(Serialize)]
 struct FileEntry {
     name: String,
@@ -170,6 +170,9 @@ struct FileEntry {
     size: Option<u64>,
     /// Last modification as RFC 3339 with millisecond precision.
     modified: Option<String>,
+    /// Creation as RFC 3339 with millisecond precision, `None` where the filesystem keeps no
+    /// birth time.
+    created: Option<String>,
 }
 
 impl FileEntry {
@@ -178,20 +181,28 @@ impl FileEntry {
             EntryKind::File => metadata.map(Metadata::len),
             EntryKind::Directory | EntryKind::Other => None,
         };
-        let modified =
-            metadata
-                .and_then(|metadata| metadata.modified().ok())
-                .map(|modified: SystemTime| {
-                    DateTime::<Utc>::from(modified).to_rfc3339_opts(SecondsFormat::Millis, true)
-                });
+        let timestamp = |time: io::Result<SystemTime>| {
+            let time = time.ok()?;
+            Some(DateTime::<Utc>::from(time).to_rfc3339_opts(SecondsFormat::Millis, true))
+        };
 
         Self {
             name,
             kind,
             size,
-            modified,
+            modified: metadata.and_then(|metadata| timestamp(metadata.modified())),
+            created: metadata.and_then(|metadata| timestamp(metadata.created())),
         }
     }
+}
+
+/// The answer to `?stat`, an entry and where it lives on the server.
+#[derive(Serialize)]
+struct FileStat {
+    #[serde(flatten)]
+    entry: FileEntry,
+    /// The canonical path on the server, `None` when `server.files.reveal_paths` is off.
+    path: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -204,7 +215,7 @@ struct FileListing {
 /// What the blocking half found at the requested path.
 enum Found {
     Listing(FileListing),
-    Stat(FileEntry),
+    Stat(FileStat),
     File(VerifiedFile, String),
 }
 
@@ -212,6 +223,7 @@ enum Found {
 struct OpenMount {
     canonical: PathBuf,
     exclusion: FileExclusion,
+    reveal_paths: bool,
 }
 
 impl OpenMount {
@@ -222,6 +234,7 @@ impl OpenMount {
         Ok(Self {
             canonical,
             exclusion,
+            reveal_paths: resolved.reveal_paths,
         })
     }
 
@@ -256,11 +269,12 @@ impl OpenMount {
         let name = names.last().cloned().unwrap_or_default();
 
         if query.stat {
-            return Ok(Found::Stat(FileEntry::new(
-                name,
-                kind_of(&metadata),
-                Some(&metadata),
-            )));
+            return Ok(Found::Stat(FileStat {
+                entry: FileEntry::new(name, kind_of(&metadata), Some(&metadata)),
+                path: self
+                    .reveal_paths
+                    .then(|| canonical.to_string_lossy().into_owned()),
+            }));
         }
 
         if metadata.is_dir() {
@@ -300,7 +314,6 @@ impl OpenMount {
                 None => (os_name.to_string_lossy().into_owned(), false),
             };
             if (unicode && is_part(&name) && sweep_if_stale(&entry))
-                || (!query.hidden && name.starts_with('.'))
                 || query.after.as_ref().is_some_and(|after| name <= *after)
                 || self.exclusion.excludes(&format!("{prefix}{name}"))
             {
@@ -1008,7 +1021,7 @@ async fn read(
 
     match found {
         Found::Listing(listing) => Ok(json(&listing)),
-        Found::Stat(entry) => Ok(json(&entry)),
+        Found::Stat(stat) => Ok(json(&stat)),
         Found::File(file, name) => {
             // The handle closes a swap of the file itself for a symlink. A parent directory
             // swapped between the walk and the open still escapes, as writes do.
@@ -1240,6 +1253,7 @@ mod tests {
         exclude: Vec<&'static str>,
         access: MountAccess,
         max_upload: Option<u64>,
+        reveal_paths: bool,
     }
 
     #[async_trait::async_trait]
@@ -1279,6 +1293,7 @@ mod tests {
                 "access": self.access,
                 "exclude": self.exclude,
                 "max_upload": self.max_upload,
+                "reveal_paths": self.reveal_paths,
             });
             Ok(Answer::Payload(mount.to_string()))
         }
@@ -1298,6 +1313,7 @@ mod tests {
             exclude: exclude.to_vec(),
             access: MountAccess::Edit,
             max_upload: None,
+            reveal_paths: true,
         }
     }
 
@@ -1394,26 +1410,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_listing_is_sorted_and_omits_dot_entries_unless_asked() {
+    async fn a_listing_is_sorted_and_includes_dot_entries() {
         let host = Arc::new(mount(&[("b.txt", "abc"), ("a/c.txt", ""), (".d", "")], &[]));
         let listing = host.json("/api/files/project").await;
         assert_eq!(listing["truncated"], false);
-        assert_eq!(listing["entries"][0]["name"], "a");
-        assert_eq!(listing["entries"][0]["kind"], "directory");
-        assert_eq!(listing["entries"][0]["size"], Value::Null);
-        assert_eq!(listing["entries"][1]["kind"], "file");
-        assert_eq!(listing["entries"][1]["size"], 3);
+        assert_eq!(host.names("/api/files/project").await, [".d", "a", "b.txt"]);
+        assert_eq!(listing["entries"][1]["kind"], "directory");
+        assert_eq!(listing["entries"][1]["size"], Value::Null);
+        assert_eq!(listing["entries"][2]["kind"], "file");
+        assert_eq!(listing["entries"][2]["size"], 3);
         assert!(
-            listing["entries"][1]["modified"]
+            listing["entries"][2]["modified"]
                 .as_str()
                 .unwrap()
                 .ends_with('Z')
         );
+        // Null where the filesystem keeps no birth time.
+        let created = &listing["entries"][2]["created"];
+        assert!(created.is_null() || created.as_str().unwrap().ends_with('Z'));
+        assert!(listing["entries"][2].get("path").is_none());
 
-        assert_eq!(
-            host.names("/api/files/project?hidden=true").await,
-            [".d", "a", "b.txt"]
-        );
         assert_eq!(host.names("/api/files/project/a").await, ["c.txt"]);
         assert_eq!(host.names("/api/files/project?after=a").await, ["b.txt"]);
     }
@@ -1449,7 +1465,7 @@ mod tests {
         }
 
         assert_eq!(
-            host.names("/api/files/project?hidden=true").await,
+            host.names("/api/files/project").await,
             [fresh, ".c.d.part".to_string()]
         );
         assert!(!host.path(&stale).exists());
@@ -1540,10 +1556,16 @@ mod tests {
     #[tokio::test]
     async fn stat_describes_an_entry_and_the_root() {
         let host = Arc::new(mount(&[("a/b", "abc")], &[]));
+        let canonical = fs::canonicalize(host.path("a/b")).unwrap();
         let stat = host.json("/api/files/project/a/b?stat").await;
         assert_eq!(
-            (&stat["name"], &stat["kind"], &stat["size"]),
-            (&json!("b"), &json!("file"), &json!(3))
+            (&stat["name"], &stat["kind"], &stat["size"], &stat["path"]),
+            (
+                &json!("b"),
+                &json!("file"),
+                &json!(3),
+                &json!(canonical.to_string_lossy())
+            )
         );
 
         let stat = host.json("/api/files/project?stat").await;
@@ -1551,6 +1573,14 @@ mod tests {
             (&stat["name"], &stat["kind"]),
             (&json!(""), &json!("directory"))
         );
+    }
+
+    #[tokio::test]
+    async fn stat_answers_no_path_when_paths_are_not_revealed() {
+        let mut host = mount(&[("a", "")], &[]);
+        host.reveal_paths = false;
+        let stat = Arc::new(host).json("/api/files/project/a?stat").await;
+        assert_eq!((&stat["name"], &stat["path"]), (&json!("a"), &Value::Null));
     }
 
     #[cfg(unix)]
@@ -1562,12 +1592,9 @@ mod tests {
         ));
         host.link(&host.path("data/raw/y"), "link");
 
+        assert_eq!(host.names("/api/files/project").await, ["a", "data", "z"]);
         assert_eq!(
-            host.names("/api/files/project?hidden=true").await,
-            ["a", "data", "z"]
-        );
-        assert_eq!(
-            host.names("/api/files/project/a?hidden=true").await,
+            host.names("/api/files/project/a").await,
             Vec::<String>::new()
         );
         assert_eq!(
@@ -1653,10 +1680,7 @@ mod tests {
         assert_eq!(host.contents("a/c.txt").as_deref(), Some("abcd"));
         assert_eq!(host.put("a/c.txt", "abc").await, StatusCode::NO_CONTENT);
         assert_eq!(host.contents("a/c.txt").as_deref(), Some("abc"));
-        assert_eq!(
-            host.names("/api/files/project/a?hidden=true").await,
-            ["b", "c.txt"]
-        );
+        assert_eq!(host.names("/api/files/project/a").await, ["b", "c.txt"]);
         assert_eq!(host.put("missing/c.txt", "").await, StatusCode::NOT_FOUND);
     }
 
@@ -1695,10 +1719,7 @@ mod tests {
             host.send(missing, "x").await.status(),
             StatusCode::PRECONDITION_FAILED
         );
-        assert_eq!(
-            host.names("/api/files/project?hidden=true").await,
-            ["a", "b"]
-        );
+        assert_eq!(host.names("/api/files/project").await, ["a", "b"]);
     }
 
     #[tokio::test]
@@ -1714,7 +1735,7 @@ mod tests {
         );
         assert_eq!(host.put("a", "abcd").await, StatusCode::PAYLOAD_TOO_LARGE);
         assert_eq!(host.put("b", "abc").await, StatusCode::CREATED);
-        assert_eq!(host.names("/api/files/project?hidden=true").await, ["b"]);
+        assert_eq!(host.names("/api/files/project").await, ["b"]);
     }
 
     #[cfg(unix)]

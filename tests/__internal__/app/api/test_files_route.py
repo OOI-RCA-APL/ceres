@@ -25,14 +25,18 @@ class Hoarder(Component):
     plain: Mount | None = None
 
 
-async def _engine(tmp_path: Path, access: MountAccess = MountAccess.EDIT) -> tuple[Engine, Hoarder]:
+async def _engine(
+    tmp_path: Path, access: MountAccess = MountAccess.EDIT, *, reveal_paths: bool = True
+) -> tuple[Engine, Hoarder]:
     engine = Engine()
     mounts = {
         "project": ".",
         "logs": {"path": str(tmp_path), "access": "view"},
         "vault": {"path": "abc", "access": "none"},
     }
-    engine.config.server = ServerConfig(files={"access": access, "mounts": mounts})
+    engine.config.server = ServerConfig(
+        files={"access": access, "mounts": mounts, "reveal_paths": reveal_paths}
+    )
     await engine.database.migrate()
     hoarder = Hoarder(
         __with_name__="hoarder",
@@ -218,6 +222,24 @@ def test_files_mounts_read_a_path_or_a_mapping() -> None:
 def test_files_max_upload_reads_a_byte_size() -> None:
     assert ServerFilesConfig(max_upload="2KiB").max_upload == 2048
     assert ServerFilesConfig().max_upload is None
+
+
+@pytest.mark.parametrize("reveal_paths", [True, False])
+async def test_reveal_paths_reaches_every_mount_and_the_server(
+    tmp_path: Path, reveal_paths: bool
+) -> None:
+    engine, _ = await _engine(tmp_path, reveal_paths=reveal_paths)
+
+    mounts = await get_mounts(engine, _UNRESTRICTED)
+    assert {mount.reveal_paths for mount in mounts} == {reveal_paths}
+    for id in ["logs", "@hoarder/stash"]:
+        assert (await resolve_mount(engine, _UNRESTRICTED, id)).reveal_paths == reveal_paths
+
+    await engine.database.dispose()
+
+
+def test_paths_are_revealed_by_default() -> None:
+    assert ServerFilesConfig().reveal_paths
 
 
 async def test_mounts_hides_every_component_mount_from_a_caller_without_access(

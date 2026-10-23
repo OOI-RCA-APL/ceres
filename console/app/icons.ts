@@ -22,6 +22,7 @@ const icons = {
   closeAll: 'i-mdi-close-box-multiple-outline',
   closeOthers: 'i-mdi-close-box-outline',
   components: 'i-mdi-hexagon-multiple',
+  columns: 'i-lucide-columns-3',
   configuration: 'i-mdi-cogs',
   confirm: 'i-mdi-check',
   confirmDialog: 'i-mdi-comment-question-outline',

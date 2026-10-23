@@ -9,13 +9,18 @@ import { useQuery } from '@/api/client'
 import { useEngine } from '@/api/engine'
 import {
   type FileAction,
+  type FileColumn,
+  FileColumnsModel,
   type FileEntry,
   FileWriteError,
   droppedFiles,
   fileActions,
+  fileColumns,
   findFileMount,
   filterEntries,
   formatFileSize,
+  formatFileTime,
+  isHiddenEntry,
   parseFilePath,
   previewOf,
 } from '@/api/files'
@@ -25,7 +30,6 @@ import icons from '@/icons'
 import { useNotify } from '@/notify'
 import { usePersisted } from '@/persistence'
 import { clearOnOutsidePress, createRowSelection } from '@/row-selection'
-import { utc } from '@/time'
 import { afterMenuCloses, copyText, openContextMenu } from '@/utilities'
 
 const {
@@ -56,6 +60,34 @@ const persisted = usePersisted({
   methods: computed(() => [{ type: 'local-storage' as const, key: ['files', mount] }]),
 })
 
+const columns = usePersisted({
+  schema: FileColumnsModel,
+  methods: [{ type: 'local-storage', key: ['files', 'columns'] }],
+})
+
+// The name column wins as the browser narrows, Created going first, then Modified, then Size.
+const columnClasses: Record<FileColumn, string> = {
+  size: 'w-24 @min-[360px]/files:block',
+  modified: 'w-44 @min-[560px]/files:block',
+  created: 'w-44 @min-[760px]/files:block',
+}
+
+const shownColumns = $computed(() => fileColumns.filter(({ column }) => columns[column]))
+
+function cellText(current: FileEntry, column: FileColumn) {
+  return column === 'size' ? formatFileSize(current.size) : formatFileTime(current[column])
+}
+
+/** The header's menu, one checkbox per optional column. */
+const columnItems = $computed<ContextMenuItem[]>(() =>
+  fileColumns.map(({ column, label }) => ({
+    label,
+    type: 'checkbox',
+    checked: columns[column],
+    onUpdateChecked: (checked: boolean) => (columns[column] = checked),
+  })),
+)
+
 let filter = $ref('')
 
 const mountsQuery = useQuery({
@@ -73,7 +105,7 @@ const statQuery = useQuery({
 })
 const entry = $computed<FileEntry | null>(() =>
   path.length === 0
-    ? { name: '', kind: 'directory', size: null, modified: null }
+    ? { name: '', kind: 'directory', size: null, modified: null, created: null }
     : (statQuery.data.value ?? null),
 )
 
@@ -83,13 +115,30 @@ const openedEntry = $computed<FileEntry | null>(() =>
 )
 
 const listingQuery = useQuery({
-  queryKey: computed(() => ['files', 'list', mount, persisted.hidden, ...path]),
-  queryFn: () => engine.files.list(mount, path, { hidden: persisted.hidden }),
+  queryKey: computed(() => ['files', 'list', mount, ...path]),
+  queryFn: () => engine.files.list(mount, path),
   enabled: computed(() => entry?.kind === 'directory'),
   placeholderData: (previous) => previous,
 })
 const listing = $computed(() => listingQuery.data.value ?? null)
-const entries = $computed(() => filterEntries(listing?.entries ?? [], filter))
+const visibleEntries = $computed(() =>
+  (listing?.entries ?? []).filter((current) => persisted.hidden || !isHiddenEntry(current)),
+)
+const hiddenCount = $computed(() => (listing?.entries.length ?? 0) - visibleEntries.length)
+const entries = $computed(() => filterEntries(visibleEntries, filter))
+
+/** What stands in for a loaded listing that shows nothing, a filter's answer winning. */
+const emptyTitle = $computed(() => {
+  if (listing == null || entries.length > 0) {
+    return null
+  }
+
+  if (filter !== '') {
+    return 'No Matches'
+  }
+
+  return hiddenCount > 0 ? 'No Visible Files' : 'Empty Directory'
+})
 
 // A name is unique within its directory, so it identifies the row.
 const rows = createRowSelection({ ids: () => entries.map((current) => current.name) })
@@ -154,10 +203,6 @@ const breadcrumbs = $computed<BreadcrumbItem[]>(() => [
 
 function entryIcon(current: FileEntry) {
   return { directory: icons.folder, file: icons.file, other: icons.fileOther }[current.kind]
-}
-
-function formatModified(modified: string | null) {
-  return modified == null ? '' : utc(modified).format('YYYY-MM-DD HH:mm:ss')
 }
 
 // Invalidating refetches only the queries a browser has enabled, where `refetch` would also run
@@ -378,6 +423,11 @@ async function deleteEntries(directory: string[], targets: FileEntry[]) {
   await refresh()
 }
 
+/** Describe the entry at `target`, the mount itself when empty. */
+function showInfo(target: string[]) {
+  dialogs.fileInfo({ mount, path: target, mountLabel, writable })
+}
+
 type FileActionView = {
   kind: FileAction
   label: string
@@ -414,6 +464,11 @@ function describeAction(
         }
       },
     },
+    info: {
+      label: 'Info',
+      icon: icons.details,
+      run: () => showInfo([...directory, ...targets.slice(0, 1).map((first) => first.name)]),
+    },
     download: {
       label: 'Download',
       icon: icons.download,
@@ -442,14 +497,14 @@ function describeAction(
 /** The menu's entries in order, a separator between groups. Select All rides along so its key shows
 in a menu too. */
 const menuGroups: (FileAction | 'selectAll')[][] = [
-  ['open'],
+  ['open', 'info'],
   ['download', 'copyPath', 'move'],
   ['selectAll'],
   ['delete'],
 ]
 
 /** Actions that open a dialog, which waits for the menu that asked for it to finish closing. */
-const asking: ReadonlySet<FileAction> = new Set(['move', 'delete'])
+const asking: ReadonlySet<FileAction> = new Set(['info', 'move', 'delete'])
 
 function selectAll() {
   rows.replace(entries.map((current) => current.name))
@@ -487,11 +542,12 @@ const menuItems = $computed<ContextMenuItem[][]>(() => {
 })
 
 /** The actions ahead of the toolbar's own buttons: the selection's beside a directory's list, the
-open entry's beside anything else. Opening has no button, and a file's download has its own. */
+open entry's beside anything else. Opening has no button, a file's download has its own, and a
+directory's Info button describes the directory. */
 const toolbarActions = $computed<FileActionView[]>(() => {
   if (view === 'directory') {
     return fileActions(selectedEntries, writable)
-      .filter((kind) => kind !== 'open')
+      .filter((kind) => kind !== 'open' && kind !== 'info')
       .map((kind) => describeAction(kind, path, selectedEntries, true))
   }
 
@@ -599,7 +655,7 @@ function onListContext(event: MouseEvent) {
       </c-input>
       <template v-else-if="view === 'file' && entry != null">
         <c-text class="text-muted" variant="body2">
-          {{ formatFileSize(entry.size) }} &middot; {{ formatModified(entry.modified) }}
+          {{ formatFileSize(entry.size) }} &middot; {{ formatFileTime(entry.modified) }}
         </c-text>
         <c-button
           color="neutral"
@@ -635,6 +691,16 @@ function onListContext(event: MouseEvent) {
           />
         </c-tooltip>
         <template v-if="view === 'directory'">
+          <c-tooltip text="Info">
+            <c-button
+              aria-label="Info"
+              color="neutral"
+              :icon="icons.details"
+              size="xs"
+              variant="ghost"
+              @click="showInfo(path)"
+            />
+          </c-tooltip>
           <!-- The icon shows whether hidden entries show, the tooltip what a press does. -->
           <c-tooltip :text="persisted.hidden ? 'Hide Hidden' : 'Show Hidden'">
             <c-button
@@ -692,7 +758,55 @@ function onListContext(event: MouseEvent) {
           Showing the first {{ listing.entries.length.toLocaleString() }} entries. The directory
           holds more than the engine lists at once.
         </c-text>
-        <c-context-menu :items="menuItems">
+        <div
+          v-if="emptyTitle != null"
+          class="flex flex-1 flex-col items-center justify-center gap-2 py-8 text-center"
+        >
+          <c-icon class="text-dimmed" :name="icons.folderOpen" size="64" />
+          <c-text variant="title2">{{ emptyTitle }}</c-text>
+          <template v-if="emptyTitle === 'No Visible Files'">
+            <c-text class="text-muted" variant="body2">
+              {{ hiddenCount.toLocaleString() }} hidden {{ hiddenCount === 1 ? 'item' : 'items' }}
+            </c-text>
+            <c-button
+              color="neutral"
+              :icon="icons.view"
+              label="Show Hidden Files"
+              size="sm"
+              variant="outline"
+              @click="persisted.hidden = true"
+            />
+          </template>
+        </div>
+        <c-context-menu v-else :items="columnItems">
+          <!-- Labels only, since the engine pages the listing by name and a page sorts alone. -->
+          <div
+            class="text-muted border-default flex shrink-0 items-center gap-2 border-b px-3 py-1 text-xs"
+          >
+            <span class="w-4 shrink-0" />
+            <span class="min-w-0 flex-1">Name</span>
+            <span
+              v-for="{ column, label } in shownColumns"
+              :key="column"
+              class="hidden shrink-0 text-right"
+              :class="columnClasses[column]"
+            >
+              {{ label }}
+            </span>
+            <button
+              aria-haspopup="menu"
+              aria-label="Columns"
+              class="flex shrink-0 items-center rounded-full p-0.5 opacity-60 hover:opacity-100"
+              type="button"
+              @click.stop="openContextMenu"
+              @mousedown.stop
+              @pointerdown.stop
+            >
+              <c-icon :name="icons.columns" size="15" />
+            </button>
+          </div>
+        </c-context-menu>
+        <c-context-menu v-if="emptyTitle == null" :items="menuItems">
           <div
             ref="list"
             class="outline-primary/25 rounded-md focus-visible:outline-3"
@@ -723,18 +837,14 @@ function onListContext(event: MouseEvent) {
                     {{ current.name }}
                   </c-link>
                 </c-text>
-                <!-- The name column wins as the browser narrows, the modified time going first. -->
                 <c-text
-                  class="text-muted hidden w-24 shrink-0 text-right @min-[360px]/files:block"
+                  v-for="{ column } in shownColumns"
+                  :key="column"
+                  class="text-muted hidden shrink-0 text-right"
+                  :class="columnClasses[column]"
                   variant="body2"
                 >
-                  {{ formatFileSize(current.size) }}
-                </c-text>
-                <c-text
-                  class="text-muted hidden w-44 shrink-0 text-right @min-[560px]/files:block"
-                  variant="body2"
-                >
-                  {{ formatModified(current.modified) }}
+                  {{ cellText(current, column) }}
                 </c-text>
                 <!-- The rows share the list's one menu, since a menu per row costs thousands of
                 mounts in a long listing. -->

@@ -34,6 +34,9 @@ pub struct RawServerFilesConfig {
     /// Most any caller may do with any mount, `edit` when omitted. `view` makes every mount
     /// read-only and `none` turns the file browser off.
     pub access: Option<MountAccess>,
+
+    /// Whether the console may show where an entry lives on the server, `true` when omitted.
+    pub reveal_paths: Option<bool>,
 }
 
 /// What the files API may do with a mount, each level implying every level below it.
@@ -93,12 +96,25 @@ impl From<RawEngineMount> for EngineMount {
 }
 
 /// Validated configuration of the console's file browser.
-#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ServerFilesConfig {
     pub mounts: BTreeMap<String, EngineMount>,
     pub exclude: Vec<String>,
     pub max_upload: Option<ByteSize>,
     pub access: MountAccess,
+    pub reveal_paths: bool,
+}
+
+impl Default for ServerFilesConfig {
+    fn default() -> Self {
+        Self {
+            mounts: BTreeMap::new(),
+            exclude: Vec::new(),
+            max_upload: None,
+            access: MountAccess::default(),
+            reveal_paths: true,
+        }
+    }
 }
 
 impl TryFrom<RawServerFilesConfig> for ServerFilesConfig {
@@ -131,6 +147,7 @@ impl TryFrom<RawServerFilesConfig> for ServerFilesConfig {
             exclude,
             max_upload: raw.max_upload,
             access: raw.access.unwrap_or_default(),
+            reveal_paths: raw.reveal_paths.unwrap_or(true),
         })
     }
 }
@@ -296,5 +313,16 @@ mod tests {
         assert_eq!(access("access: view"), MountAccess::View);
         assert_eq!(access("access: none"), MountAccess::None);
         assert!(MountAccess::None < MountAccess::View && MountAccess::View < MountAccess::Edit);
+    }
+
+    #[test]
+    fn paths_are_revealed_unless_turned_off() {
+        let reveal_paths = |yaml: &str| {
+            let raw: RawServerFilesConfig = yaml_serde::from_str(yaml).unwrap();
+            ServerFilesConfig::try_from(raw).unwrap().reveal_paths
+        };
+        assert!(reveal_paths("{}"));
+        assert!(!reveal_paths("reveal-paths: false"));
+        assert!(ServerFilesConfig::default().reveal_paths);
     }
 }

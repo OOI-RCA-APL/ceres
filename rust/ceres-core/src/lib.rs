@@ -167,6 +167,8 @@ python_config! {
         /// Most any caller may do with any mount, `"none"`, `"view"`, or `"edit"`.
         #[python(any = "str")]
         access: ceres_config::MountAccess,
+        /// Whether the console may show where an entry lives on the server.
+        reveal_paths: bool,
     }
 
     /// Configuration for the engine's HTTP server.

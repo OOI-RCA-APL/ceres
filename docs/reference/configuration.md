@@ -124,6 +124,7 @@ What the console's file browser serves.
 | `exclude` | list of string |  | Glob patterns naming entries that are never listed or served, in any mount, such as `.venv` and `node_modules`. A pattern without a `/` matches an entry's name at any depth, and a pattern with one, or starting with one, matches the path from the root. |
 | `max-upload` | integer or string |  | Largest file one upload may write, such as `2GiB`, unlimited when omitted. |
 | `access` | string or string or string |  | Most any caller may do with any mount, `edit` when omitted. `view` makes every mount read-only and `none` turns the file browser off. |
+| `reveal-paths` | boolean |  | Whether the console may show where an entry lives on the server, `true` when omitted. |
 
 ### `ServerCertificateConfig`
 
