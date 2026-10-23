@@ -147,7 +147,7 @@ export function formatExactFileSize(size: number): string {
   return size < 1024 ? bytes : `${formatFileSize(size)} (${bytes})`
 }
 
-/** `time`, an RFC 3339 timestamp from the engine, as the browser shows it, blank when null. */
+/** `time`, an RFC 3339 timestamp from the engine, in UTC like every console time, or blank. */
 export function formatFileTime(time: string | null): string {
   return time == null ? '' : utc(time).format('YYYY-MM-DD HH:mm:ss')
 }
@@ -174,23 +174,38 @@ const fileKindLabels: Record<FileKind, string> = {
   other: 'Special file or link',
 }
 
+/** The name and location the Info dialog gives the entry at `target` under `mount`, labeled
+`mountLabel`. Mounts of different components often share a name, so the location leads with the
+component. */
+export function fileInfoPlace(
+  mount: FileMount | null,
+  mountLabel: string,
+  target: readonly string[],
+): { name: string; location: string[] } {
+  const component = mount?.component == null ? [] : [mount.component]
+  const parents = target.length === 0 ? [] : [mountLabel, ...target.slice(0, -1)]
+  return { name: target.at(-1) ?? mountLabel, location: [...component, ...parents] }
+}
+
 /** One row of the Info dialog. `copyable` puts a copy button beside the value. */
 export type FileInfoRow = { label: string; value: string; copyable?: boolean }
 
-/** The Info dialog's rows for `stat`, an entry named `name` in `location`, the mount's label then
-each directory under it. A fact the engine does not know has no row. */
+/** The Info dialog's rows for `stat`, an entry named `name` held by `location`, outermost first. A
+fact the engine does not know has no row, and neither does an empty location. */
 export function fileInfoRows(
   stat: FileStat,
   { name, location, writable }: { name: string; location: readonly string[]; writable: boolean },
 ): FileInfoRow[] {
+  const time = (label: string, value: string | null) =>
+    value == null ? [] : [{ label, value: `${formatFileTime(value)} UTC` }]
   return [
     { label: 'Name', value: name },
     { label: 'Kind', value: fileKindLabels[stat.kind] },
-    { label: 'Location', value: location.join(' / ') },
+    ...(location.length === 0 ? [] : [{ label: 'Location', value: location.join(' / ') }]),
     ...(stat.path == null ? [] : [{ label: 'Full Path', value: stat.path, copyable: true }]),
     ...(stat.size == null ? [] : [{ label: 'Size', value: formatExactFileSize(stat.size) }]),
-    ...(stat.modified == null ? [] : [{ label: 'Modified', value: formatFileTime(stat.modified) }]),
-    ...(stat.created == null ? [] : [{ label: 'Created', value: formatFileTime(stat.created) }]),
+    ...time('Modified', stat.modified),
+    ...time('Created', stat.created),
     { label: 'Writable', value: writable ? 'Yes' : 'No' },
   ]
 }

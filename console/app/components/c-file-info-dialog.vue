@@ -4,8 +4,10 @@ export type FileInfoDialogProps = {
   mount: string
   /** The entry's path under the mount, empty for the mount itself. */
   path: string[]
-  /** The mount's label, which opens the Location row. */
-  mountLabel: string
+  /** The name the entry shows under. */
+  name: string
+  /** What holds the entry, outermost first: its component, its mount, and each directory. */
+  location: string[]
   /** Whether the caller may change entries under the mount. */
   writable: boolean
 }
@@ -19,7 +21,7 @@ import icons from '@/icons'
 import { useNotify } from '@/notify'
 import { copyText } from '@/utilities'
 
-const { mount, path, mountLabel, writable } = defineProps<FileInfoDialogProps>()
+const { mount, path, name, location, writable } = defineProps<FileInfoDialogProps>()
 
 const emit = defineEmits<{ close: [false] }>()
 
@@ -33,13 +35,7 @@ const statQuery = useQuery({
 
 const rows = $computed(() => {
   const stat = statQuery.data.value
-  return stat == null
-    ? []
-    : fileInfoRows(stat, {
-        name: path.at(-1) ?? mountLabel,
-        location: [mountLabel, ...path.slice(0, -1)],
-        writable,
-      })
+  return stat == null ? [] : fileInfoRows(stat, { name, location, writable })
 })
 
 async function copy(value: string) {
@@ -54,6 +50,7 @@ async function copy(value: string) {
       <p v-if="statQuery.isError.value" class="text-muted">
         The engine could not describe this entry.
       </p>
+      <p v-else-if="statQuery.isPending.value" class="text-muted">Loading&hellip;</p>
       <dl v-else class="grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-2 text-sm">
         <template v-for="row in rows" :key="row.label">
           <dt class="text-muted">{{ row.label }}</dt>

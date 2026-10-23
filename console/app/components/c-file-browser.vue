@@ -16,6 +16,7 @@ import {
   droppedFiles,
   fileActions,
   fileColumns,
+  fileInfoPlace,
   findFileMount,
   filterEntries,
   formatFileSize,
@@ -133,7 +134,7 @@ const emptyTitle = $computed(() => {
     return null
   }
 
-  if (filter !== '') {
+  if (filter.trim() !== '') {
     return 'No Matches'
   }
 
@@ -425,7 +426,12 @@ async function deleteEntries(directory: string[], targets: FileEntry[]) {
 
 /** Describe the entry at `target`, the mount itself when empty. */
 function showInfo(target: string[]) {
-  dialogs.fileInfo({ mount, path: target, mountLabel, writable })
+  dialogs.fileInfo({
+    mount,
+    path: target,
+    ...fileInfoPlace(mountInfo, mountLabel, target),
+    writable,
+  })
 }
 
 type FileActionView = {
@@ -691,9 +697,9 @@ function onListContext(event: MouseEvent) {
           />
         </c-tooltip>
         <template v-if="view === 'directory'">
-          <c-tooltip text="Info">
+          <c-tooltip text="Folder Info">
             <c-button
-              aria-label="Info"
+              aria-label="Folder Info"
               color="neutral"
               :icon="icons.details"
               size="xs"
@@ -766,7 +772,8 @@ function onListContext(event: MouseEvent) {
           <c-text variant="title2">{{ emptyTitle }}</c-text>
           <template v-if="emptyTitle === 'No Visible Files'">
             <c-text class="text-muted" variant="body2">
-              {{ hiddenCount.toLocaleString() }} hidden {{ hiddenCount === 1 ? 'item' : 'items' }}
+              {{ hiddenCount.toLocaleString('en-US') }} hidden
+              {{ hiddenCount === 1 ? 'item' : 'items' }}
             </c-text>
             <c-button
               color="neutral"

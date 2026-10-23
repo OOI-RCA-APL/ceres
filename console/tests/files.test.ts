@@ -9,6 +9,7 @@ import {
   droppedFiles,
   fileActions,
   fileColumns,
+  fileInfoPlace,
   fileInfoRows,
   filesApiPath,
   filesPagePath,
@@ -220,14 +221,38 @@ describe('fileInfoRows', () => {
       { label: 'Location', value: 'Stash / a' },
       { label: 'Full Path', value: '/srv/abc', copyable: true },
       { label: 'Size', value: '1.2 MiB (1,258,291 bytes)' },
-      { label: 'Modified', value: '2026-10-22 01:02:03' },
+      { label: 'Modified', value: '2026-10-22 01:02:03 UTC' },
       { label: 'Writable', value: 'No' },
     ])
   })
 
-  it('leaves out a path the engine keeps to itself', () => {
-    const labels = fileInfoRows({ ...stat, path: null }, where).map((row) => row.label)
-    expect(labels).not.toContain('Full Path')
-    expect(labels).not.toContain('Created')
+  it('leaves out a path the engine keeps to itself and an empty location', () => {
+    const labels = fileInfoRows({ ...stat, path: null }, { ...where, location: [] }).map(
+      (row) => row.label,
+    )
+    expect(labels).toEqual(['Name', 'Kind', 'Size', 'Modified', 'Writable'])
+  })
+})
+
+describe('fileInfoPlace', () => {
+  const mount = {
+    id: 'abc',
+    name: 'abc',
+    label: 'Abc',
+    component: null,
+    access: 'view' as const,
+    temporary: false,
+    reveal_paths: true,
+  }
+
+  it('names an engine mount alone, with nothing holding it', () => {
+    expect(fileInfoPlace(mount, 'Abc', [])).toEqual({ name: 'Abc', location: [] })
+    expect(fileInfoPlace(mount, 'Abc', ['a', 'b'])).toEqual({ name: 'b', location: ['Abc', 'a'] })
+  })
+
+  it('leads a component mount with its component', () => {
+    const owned = { ...mount, id: '@a.b/abc', component: '@a.b' }
+    expect(fileInfoPlace(owned, 'Abc', [])).toEqual({ name: 'Abc', location: ['@a.b'] })
+    expect(fileInfoPlace(owned, 'Abc', ['a'])).toEqual({ name: 'a', location: ['@a.b', 'Abc'] })
   })
 })
