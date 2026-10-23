@@ -506,16 +506,24 @@ async function renameEntry(directory: string[], target: FileEntry) {
   await refresh()
 }
 
-/** Ask for a folder and move `targets`, entries of `directory`, into it. The dialog moves them, so
-the listing refreshes after it closes whatever moved. */
-async function moveEntries(directory: string[], targets: FileEntry[]) {
-  const moved = await answer(
-    dialogs.moveFiles({ mount, mountLabel, from: directory, targets, hidden: persisted.hidden }),
+/** Ask for a folder and move or copy `targets`, entries of `directory`, into it. The dialog writes
+them, so the listing refreshes after it closes whatever landed. */
+async function placeEntries(directory: string[], targets: FileEntry[], mode: 'move' | 'copy') {
+  const placed = await answer(
+    dialogs.moveFiles({
+      mount,
+      mountLabel,
+      from: directory,
+      targets,
+      hidden: persisted.hidden,
+      mode,
+    }),
   )
 
-  // The open entry follows wherever it went, even when a refusal kept others behind.
+  // The open entry follows wherever it moved, even when a refusal kept others behind.
   const opened = isSamePath(directory, path.slice(0, -1)) ? path.at(-1) : undefined
-  const folder = moved === false || opened == null ? undefined : moved.get(opened)
+  const folder =
+    mode === 'copy' || placed === false || opened == null ? undefined : placed.get(opened)
   if (opened != null && folder != null) {
     path = [...folder, opened]
   }
@@ -668,7 +676,12 @@ function describeAction(
     move: {
       label: 'Move',
       icon: icons.move,
-      run: () => void moveEntries(directory, targets),
+      run: () => void placeEntries(directory, targets, 'move'),
+    },
+    copyTo: {
+      label: 'Copy To',
+      icon: icons.duplicate,
+      run: () => void placeEntries(directory, targets, 'copy'),
     },
     delete: {
       label: 'Delete',
@@ -684,13 +697,13 @@ function describeAction(
 in a menu too. */
 const menuGroups: (FileAction | 'selectAll')[][] = [
   ['open', 'viewRaw', 'info'],
-  ['download', 'copyPath', 'rename', 'move'],
+  ['download', 'copyPath', 'rename', 'move', 'copyTo'],
   ['selectAll'],
   ['delete'],
 ]
 
 /** Actions that open a dialog, which waits for the menu that asked for it to finish closing. */
-const asking: ReadonlySet<FileAction> = new Set(['info', 'rename', 'move', 'delete'])
+const asking: ReadonlySet<FileAction> = new Set(['info', 'rename', 'move', 'copyTo', 'delete'])
 
 function selectAll() {
   rows.replace(entries.map((current) => current.name))

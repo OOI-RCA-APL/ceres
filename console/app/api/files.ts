@@ -341,7 +341,7 @@ export function isHiddenEntry(entry: FileEntry): boolean {
 
 /** Something the file browser does to the entries picked out of one directory. */
 export type FileAction =
-  'open' | 'viewRaw' | 'info' | 'download' | 'copyPath' | 'rename' | 'move' | 'delete'
+  'open' | 'viewRaw' | 'info' | 'download' | 'copyPath' | 'rename' | 'move' | 'copyTo' | 'delete'
 
 /** What applies to `targets`, in the order every menu lists it. Opening, info and renaming take a
 single entry, viewing raw a single file, a download any file or folder among them, copying a system
@@ -364,7 +364,7 @@ export function fileActions(
     ...(targets.some((entry) => entry.kind !== 'other') ? (['download'] as const) : []),
     ...(single && revealPaths ? (['copyPath'] as const) : []),
     ...(editable && single ? (['rename'] as const) : []),
-    ...(editable ? (['move', 'delete'] as const) : []),
+    ...(editable ? (['move', 'copyTo', 'delete'] as const) : []),
   ]
 }
 
@@ -464,8 +464,16 @@ export function describeFileWriteStatus(status: number, message?: string): strin
   )
 }
 
+/** The body a move or a copy sends, naming its destination `to`. */
+function destinationBody(to: readonly string[]) {
+  return {
+    body: JSON.stringify({ to: to.join('/') }),
+    headers: { 'Content-Type': 'application/json' },
+  }
+}
+
 async function writeFile(
-  method: 'PUT' | 'PATCH' | 'DELETE',
+  method: 'PUT' | 'POST' | 'PATCH' | 'DELETE',
   mount: string,
   path: readonly string[],
   { query = '', body, headers }: { query?: string; body?: BodyInit; headers?: HeadersInit } = {},
@@ -555,10 +563,13 @@ export const useFiles = defineStore('files', () => {
 
   /** Rename or move the entry at `path` under `mount` to `to`, a path under the same mount. */
   async function move(mount: string, path: readonly string[], to: readonly string[]) {
-    await writeFile('PATCH', mount, path, {
-      body: JSON.stringify({ to: to.join('/') }),
-      headers: { 'Content-Type': 'application/json' },
-    })
+    await writeFile('PATCH', mount, path, destinationBody(to))
+  }
+
+  /** Copy the entry at `path` under `mount` to `to`, a path under the same mount that holds
+  nothing yet. A directory copies with everything in it but its symlinks. */
+  async function copy(mount: string, path: readonly string[], to: readonly string[]) {
+    await writeFile('POST', mount, path, destinationBody(to))
   }
 
   /** Delete the entry at `path` under `mount`, a directory with everything in it. */
@@ -580,6 +591,7 @@ export const useFiles = defineStore('files', () => {
     upload,
     createDirectory,
     move,
+    copy,
     remove,
   }
 })

@@ -49,8 +49,8 @@ pub(crate) const LISTING_CAP: usize = 10_000;
 /// progress writes continuously, so its part never ages this far.
 const PART_LIFETIME: Duration = Duration::from_secs(60 * 60);
 
-/// Largest `PATCH` body read, far above any path the filesystem accepts.
-const RENAME_BODY_LIMIT: usize = 64 * 1024;
+/// Largest body a move or a copy reads, far above any path the filesystem accepts.
+const DESTINATION_BODY_LIMIT: usize = 64 * 1024;
 
 /// Largest chunk of a zip download sent to the client at once.
 const ARCHIVE_CHUNK: usize = 64 * 1024;
@@ -67,6 +67,7 @@ pub(crate) fn register(router: Router<Arc<AppState>>) -> Router<Arc<AppState>> {
             "/api/files/{mount}",
             get(mount_top)
                 .put(mount_top)
+                .post(mount_top)
                 .patch(mount_top)
                 .delete(mount_top),
         )
@@ -74,6 +75,7 @@ pub(crate) fn register(router: Router<Arc<AppState>>) -> Router<Arc<AppState>> {
             "/api/files/{mount}/{*path}",
             get(mount_entry)
                 .put(mount_entry)
+                .post(mount_entry)
                 .patch(mount_entry)
                 .delete(mount_entry),
         )
@@ -252,8 +254,10 @@ struct Archive {
 
 /// One entry a walk reaches.
 enum Walked<'a> {
-    /// A file, or a symlink to one inside the mount, as the path to read and its metadata.
+    /// A file, as its path and metadata.
     File(&'a Path, &'a Metadata),
+    /// A symlink to a file inside the mount, as the target's canonical path and metadata.
+    Linked(&'a Path, &'a Metadata),
     /// A directory, reached before anything in it.
     Directory(&'a Metadata),
     /// An entry the mount excludes, never descended.
@@ -481,7 +485,9 @@ impl OpenMount {
         let found = self.walk(directory, relative, true, &mut |_, walked| {
             Ok(match walked {
                 Walked::Excluded => ControlFlow::Break(()),
-                Walked::File(..) | Walked::Directory(_) => ControlFlow::Continue(()),
+                Walked::File(..) | Walked::Linked(..) | Walked::Directory(_) => {
+                    ControlFlow::Continue(())
+                }
             })
         })?;
         Ok(found.is_break())
@@ -544,7 +550,7 @@ impl OpenMount {
                 && let Ok(metadata) = fs::metadata(&target)
                 && metadata.is_file()
             {
-                visit(&below, Walked::File(&target, &metadata))?
+                visit(&below, Walked::Linked(&target, &metadata))?
             } else {
                 ControlFlow::Continue(())
             };
@@ -588,6 +594,31 @@ impl OpenMount {
             hidden: query.hidden,
             name: format!("{stem}.zip"),
         })
+    }
+
+    /// Copy the entry `source` names, which `metadata` describes, to `to`, a directory with all
+    /// it holds but the symlinks and special files in it.
+    fn copy_entry(&self, source: &WriteTarget, metadata: &Metadata, to: &Path) -> io::Result<()> {
+        if metadata.is_file() {
+            return fs::copy(source.path(), to).map(drop);
+        }
+
+        fs::create_dir(to)?;
+        let ControlFlow::Continue(()) = self.walk::<Infallible>(
+            &source.path(),
+            &source.relative,
+            true,
+            &mut |below, walked| {
+                match walked {
+                    Walked::Directory(_) => fs::create_dir(to.join(below))?,
+                    Walked::File(path, _) => drop(fs::copy(path, to.join(below))?),
+                    // A copy writes files, so a link stays behind rather than turning into one.
+                    Walked::Linked(..) | Walked::Excluded => {}
+                }
+                Ok(ControlFlow::Continue(()))
+            },
+        )?;
+        Ok(())
     }
 
     /// Write `archive` as a zip to `sink`, stored uncompressed, since the media a mount holds
@@ -737,7 +768,7 @@ fn add_member<W: Write>(
     };
 
     match walked {
-        Walked::File(path, metadata) => {
+        Walked::File(path, metadata) | Walked::Linked(path, metadata) => {
             let mut file = open_without_following(path)?;
             zip.start_file(name, options(metadata))?;
             io::copy(&mut file, zip)?;
@@ -1097,15 +1128,45 @@ fn sweep_if_stale(entry: &fs::DirEntry) -> bool {
     stale && fs::remove_file(entry.path()).is_ok()
 }
 
-/// The file an upload writes before it takes the target's name.
+/// The file an upload writes, or the file or directory a copy writes, before it takes the
+/// target's name.
 ///
-/// [`PartFile::discard`] removes it once the upload ends, and dropping it removes it too, for
-/// an upload whose client went away mid-body.
+/// [`PartFile::discard`] removes it once the write ends, and dropping it removes it too, for
+/// an upload whose client went away mid-body or a copy that failed partway.
 struct PartFile {
     path: Option<PathBuf>,
 }
 
 impl PartFile {
+    /// A part beside `target`, `.<name>.<uuid>.part`, which a listing hides as a dot name, and
+    /// the path to write it at.
+    fn beside(target: &WriteTarget) -> (Self, PathBuf) {
+        let path = target
+            .parent
+            .join(format!(".{}.{}.part", target.name, Uuid::new_v4()));
+        (
+            Self {
+                path: Some(path.clone()),
+            },
+            path,
+        )
+    }
+
+    /// Move the part to `target`, replacing what stands there only when `replace`.
+    fn place(&mut self, target: &WriteTarget, replace: bool) -> io::Result<()> {
+        let Some(part) = &self.path else {
+            return Err(ErrorKind::NotFound.into());
+        };
+
+        if replace {
+            fs::rename(part, target.path())?;
+        } else {
+            rename_without_replacing(part, &target.path())?;
+        }
+        self.path = None;
+        Ok(())
+    }
+
     /// Move the part over `target`, `true` when nothing stood there before.
     fn commit(
         &mut self,
@@ -1142,11 +1203,18 @@ impl PartFile {
         Ok(existing.is_none())
     }
 
-    /// Remove the part unless [`PartFile::commit`] moved it into place.
+    /// Remove the part unless [`PartFile::commit`] or [`PartFile::place`] moved it into place.
     fn discard(mut self) {
         if let Some(path) = self.path.take() {
-            let _ = fs::remove_file(path);
+            Self::remove(&path);
         }
+    }
+
+    fn remove(path: &Path) {
+        let _ = match fs::symlink_metadata(path) {
+            Ok(metadata) if metadata.is_dir() => fs::remove_dir_all(path),
+            _ => fs::remove_file(path),
+        };
     }
 }
 
@@ -1156,9 +1224,7 @@ impl Drop for PartFile {
             return;
         };
 
-        let remove = move || {
-            let _ = fs::remove_file(path);
-        };
+        let remove = move || Self::remove(&path);
         match tokio::runtime::Handle::try_current() {
             Ok(runtime) => drop(runtime.spawn_blocking(remove)),
             Err(_) => remove(),
@@ -1312,6 +1378,7 @@ async fn respond(
         Method::PUT if query.directory => create_directory(resolved, names).await,
         Method::PUT => upload(resolved, names, request).await,
         Method::PATCH => rename(resolved, names, query, request).await,
+        Method::POST => copy(resolved, names, query, request).await,
         Method::DELETE => delete(resolved, names, query).await,
         _ => Err(ApiError::http(StatusCode::METHOD_NOT_ALLOWED)),
     }
@@ -1394,15 +1461,13 @@ async fn upload(
         }
 
         conditions.check(target.existing()?.as_ref())?;
-        let path = target
-            .parent
-            .join(format!(".{}.{}.part", target.name, Uuid::new_v4()));
+        let (part, path) = PartFile::beside(&target);
         let file = fs::OpenOptions::new()
             .write(true)
             .create_new(true)
-            .open(&path)
+            .open(path)
             .map_err(write_error)?;
-        Ok((target, PartFile { path: Some(path) }, file, conditions))
+        Ok((target, part, file, conditions))
     })
     .await?;
 
@@ -1457,10 +1522,22 @@ async fn create_directory(
     .await
 }
 
-/// The body of a rename, the destination's path under the same root.
+/// The body of a move or a copy, the destination's path under the same mount.
 #[derive(Deserialize)]
-struct RenameBody {
+struct DestinationBody {
     to: String,
+}
+
+impl DestinationBody {
+    /// The names of the destination `request`'s body carries.
+    async fn read(request: Request) -> Result<Vec<String>, ApiError> {
+        let bad_request = || ApiError::http(StatusCode::BAD_REQUEST);
+        let bytes = axum::body::to_bytes(request.into_body(), DESTINATION_BODY_LIMIT)
+            .await
+            .map_err(|_| bad_request())?;
+        let body: Self = serde_json::from_slice(&bytes).map_err(|_| bad_request())?;
+        split_path(&body.to)
+    }
 }
 
 async fn rename(
@@ -1470,11 +1547,7 @@ async fn rename(
     request: Request,
 ) -> Result<Response, ApiError> {
     let bad_request = || ApiError::http(StatusCode::BAD_REQUEST);
-    let bytes = axum::body::to_bytes(request.into_body(), RENAME_BODY_LIMIT)
-        .await
-        .map_err(|_| bad_request())?;
-    let body: RenameBody = serde_json::from_slice(&bytes).map_err(|_| bad_request())?;
-    let destination = split_path(&body.to)?;
+    let destination = DestinationBody::read(request).await?;
 
     blocking(move || {
         let root = OpenMount::open(resolved)?;
@@ -1515,6 +1588,58 @@ async fn rename(
         }
         .map_err(write_error)?;
         Ok(StatusCode::NO_CONTENT.into_response())
+    })
+    .await
+}
+
+/// Copy the entry `names` name to the destination the body names, writing a part that takes the
+/// destination's name once the copy is whole.
+async fn copy(
+    resolved: ResolvedMount,
+    names: Vec<String>,
+    query: FileQuery,
+    request: Request,
+) -> Result<Response, ApiError> {
+    let bad_request = || ApiError::http(StatusCode::BAD_REQUEST);
+    let destination = DestinationBody::read(request).await?;
+
+    blocking(move || {
+        let root = OpenMount::open(resolved)?;
+        let source = root.target(&names)?;
+        let destination = root.target(&destination)?;
+        if is_part(&destination.name) {
+            return Err(bad_request());
+        }
+
+        // A copy reads through a symlink, and one leaving the mount would copy outside bytes in.
+        let copied = source.existing()?.ok_or_else(ApiError::not_found)?;
+        if !(copied.is_file() || copied.is_dir())
+            || (copied.is_dir() && destination.parent.starts_with(source.path()))
+        {
+            return Err(bad_request());
+        }
+
+        let replace = match destination.existing()? {
+            Some(existing)
+                if query.overwrite
+                    && copied.is_file()
+                    && existing.is_file()
+                    && same_file(&copied, &existing) != Some(true) =>
+            {
+                true
+            }
+            Some(_) => return Err(ApiError::http(StatusCode::CONFLICT)),
+            None => false,
+        };
+
+        root.refuse_excluded_below(&source, &copied)?;
+        let (mut part, path) = PartFile::beside(&destination);
+        let written = root
+            .copy_entry(&source, &copied, &path)
+            .and_then(|()| part.place(&destination, replace));
+        part.discard();
+        written.map_err(write_error)?;
+        Ok(StatusCode::CREATED.into_response())
     })
     .await
 }
@@ -1682,10 +1807,32 @@ mod tests {
             self.send(HttpRequest::put(uri), contents).await.status()
         }
 
+        /// Moves `path` to `to`.
         async fn patch(self: &Arc<Self>, path: &str, to: &str) -> StatusCode {
-            let uri = format!("/api/files/project/{path}");
+            self.send_to(Method::PATCH, path, to).await
+        }
+
+        /// Copies `path` to `to`.
+        async fn post(self: &Arc<Self>, path: &str, to: &str) -> StatusCode {
+            self.send_to(Method::POST, path, to).await
+        }
+
+        async fn send_to(self: &Arc<Self>, method: Method, path: &str, to: &str) -> StatusCode {
+            let request = HttpRequest::builder()
+                .method(method)
+                .uri(format!("/api/files/project/{path}"));
             let body = json!({ "to": to }).to_string();
-            self.send(HttpRequest::patch(uri), body).await.status()
+            self.send(request, body).await.status()
+        }
+
+        /// The names in the directory at `path`, parts included, sorted.
+        fn names_on_disk(&self, path: &str) -> Vec<String> {
+            let mut names: Vec<_> = fs::read_dir(self.path(path))
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+                .collect();
+            names.sort();
+            names
         }
 
         async fn delete(self: &Arc<Self>, path: &str) -> StatusCode {
@@ -2279,6 +2426,70 @@ mod tests {
 
         assert_eq!(host.patch("b/c", "b/C").await, StatusCode::NO_CONTENT);
         assert_eq!(host.contents("b/C").as_deref(), Some("abc"));
+    }
+
+    #[tokio::test]
+    async fn a_copy_writes_a_file_or_a_whole_directory_and_leaves_no_part() {
+        let host = Arc::new(mount(
+            &[("a", "abc"), ("d/e", "e"), ("d/.f", "f"), ("d/g/h", "h")],
+            &[],
+        ));
+        assert_eq!(host.post("a", "b").await, StatusCode::CREATED);
+        assert_eq!(host.contents("b").as_deref(), Some("abc"));
+        assert_eq!(host.contents("a").as_deref(), Some("abc"));
+
+        assert_eq!(host.post("d", "g").await, StatusCode::CREATED);
+        assert_eq!(host.names_on_disk("g"), [".f", "e", "g"]);
+        assert_eq!(host.contents("g/g/h").as_deref(), Some("h"));
+        assert_eq!(host.names_on_disk(""), ["a", "b", "d", "g"]);
+    }
+
+    #[tokio::test]
+    async fn a_copy_refuses_itself_an_existing_name_and_an_excluded_entry() {
+        let host = Arc::new(mount(
+            &[("a", "abc"), ("b", ""), ("d/e", ""), ("x/secret", "")],
+            &["secret"],
+        ));
+        assert_eq!(host.post("d", "d/f").await, StatusCode::BAD_REQUEST);
+        assert_eq!(host.post("d", &part("f")).await, StatusCode::BAD_REQUEST);
+        assert_eq!(host.post("missing", "f").await, StatusCode::NOT_FOUND);
+        assert_eq!(host.post("a", "b").await, StatusCode::CONFLICT);
+        assert_eq!(host.post("a?overwrite", "a").await, StatusCode::CONFLICT);
+        assert_eq!(host.post("a?overwrite", "d").await, StatusCode::CONFLICT);
+        assert_eq!(host.post("d?overwrite", "b").await, StatusCode::CONFLICT);
+        assert_eq!(host.post("x", "y").await, StatusCode::CONFLICT);
+
+        assert_eq!(host.post("a?overwrite", "b").await, StatusCode::CREATED);
+        assert_eq!(host.contents("b").as_deref(), Some("abc"));
+        assert_eq!(host.names_on_disk(""), ["a", "b", "d", "x"]);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_copy_skips_symlinks_inside_and_refuses_one_as_its_source() {
+        let host = Arc::new(mount(&[("a", "abc"), ("d/e", "")], &[]));
+        host.link(&host.path("a"), "d/l");
+        host.link(&host.path("a"), "l");
+
+        assert_eq!(host.post("l", "m").await, StatusCode::BAD_REQUEST);
+        assert_eq!(host.post("d", "f").await, StatusCode::CREATED);
+        assert_eq!(host.names_on_disk("f"), ["e"]);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_failed_copy_leaves_no_part() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let host = Arc::new(mount(&[("d/a", ""), ("d/b", "")], &[]));
+        fs::set_permissions(host.path("d/b"), fs::Permissions::from_mode(0o000)).unwrap();
+        if File::open(host.path("d/b")).is_ok() {
+            // Root reads the file anyway, so nothing can fail.
+            return;
+        }
+
+        assert_eq!(host.post("d", "f").await, StatusCode::FORBIDDEN);
+        assert_eq!(host.names_on_disk(""), ["d"]);
     }
 
     #[tokio::test]

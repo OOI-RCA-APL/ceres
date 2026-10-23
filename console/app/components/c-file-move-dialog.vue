@@ -19,27 +19,37 @@ export type FileMoveDialogProps = {
   targets: FileEntry[]
   /** Whether dot folders show, as they do in the browser that asked. */
   hidden: boolean
+  /** Whether the entries move or a copy of each lands in the folder picked. */
+  mode?: 'move' | 'copy'
 }
 
-const { mount, mountLabel, from, targets, hidden } = defineProps<FileMoveDialogProps>()
+const {
+  mount,
+  mountLabel,
+  from,
+  targets,
+  hidden,
+  mode = 'move',
+} = defineProps<FileMoveDialogProps>()
 
-/** Closes with where each entry that moved went, by name, or `false` when none did. */
+/** Closes with where each entry that moved or copied went, by name, or `false` when none did. */
 const emit = defineEmits<{ close: [ReadonlyMap<string, string[]> | false] }>()
 
 const engine = useEngine()
 const dialogs = useDialogs()
 const queryClient = useQueryClient()
 
+const verb = $computed(() => (mode === 'move' ? 'Move' : 'Copy'))
 const title = $computed(() => {
   const [only] = targets
   return targets.length === 1 && only != null
-    ? `Move "${only.name}"`
-    : `Move ${targets.length} Items`
+    ? `${verb} "${only.name}"`
+    : `${verb} ${targets.length} Items`
 })
 
 let folder = $ref<string[]>([...from])
 let refusal = $ref<string | null>(null)
-let moving = $ref(false)
+let submitting = $ref(false)
 
 // Shares the browser's listing query, so a folder it already showed opens without a request.
 const listingQuery = useQuery({
@@ -62,20 +72,20 @@ const breadcrumbs = $computed<BreadcrumbItem[]>(() => [
 
 const blocked = $computed(() => moveDestinationBlocked(folder, from, targets))
 
-// Everything under a folder being moved is reached only through its row, so disabling the row
-// keeps the dialog out of all of it.
-function isMoving(name: string) {
+// Everything under a folder being moved or copied is reached only through its row, so disabling
+// the row keeps the dialog out of all of it.
+function isTargetFolder(name: string) {
   return (
     isEqual(folder, from) &&
     targets.some((target) => target.kind === 'directory' && target.name === name)
   )
 }
 
-/** Where each entry already moved went, so a retry after a refusal moves only the rest. */
-const moved = new Map<string, string[]>()
+/** Where each entry already written went, so a retry after a refusal writes only the rest. */
+const placed = new Map<string, string[]>()
 
 function close() {
-  emit('close', moved.size > 0 ? moved : false)
+  emit('close', placed.size > 0 ? placed : false)
 }
 
 async function createFolder() {
@@ -97,18 +107,18 @@ async function createFolder() {
 
 // One request per entry, stopping at the first refusal so its sentence stays in view.
 async function submit() {
-  moving = true
+  submitting = true
   refusal = null
   try {
-    for (const target of targets.filter((current) => !moved.has(current.name))) {
-      await engine.files.move(mount, [...from, target.name], [...folder, target.name])
-      moved.set(target.name, folder)
+    for (const target of targets.filter((current) => !placed.has(current.name))) {
+      await engine.files[mode](mount, [...from, target.name], [...folder, target.name])
+      placed.set(target.name, folder)
     }
     close()
   } catch (error) {
     refusal = error instanceof FileWriteError ? error.message : 'The engine could not do that.'
   } finally {
-    moving = false
+    submitting = false
   }
 }
 </script>
@@ -133,7 +143,7 @@ async function submit() {
           <c-list-item
             v-for="current in folders"
             :key="current.name"
-            :disabled="isMoving(current.name)"
+            :disabled="isTargetFolder(current.name)"
             @click="folder = [...folder, current.name]"
           >
             <c-icon class="shrink-0" :name="icons.folder" size="16" />
@@ -157,7 +167,12 @@ async function submit() {
         />
         <div class="flex-1" />
         <c-button color="neutral" label="Cancel" variant="ghost" @click="close()" />
-        <c-button :disabled="blocked" label="Move Here" :loading="moving" @click="submit()" />
+        <c-button
+          :disabled="blocked"
+          :label="`${verb} Here`"
+          :loading="submitting"
+          @click="submit()"
+        />
       </div>
     </template>
   </c-modal>

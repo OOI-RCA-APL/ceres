@@ -214,11 +214,13 @@ describe('fileActions', () => {
       'copyPath',
       'rename',
       'move',
+      'copyTo',
       'delete',
     ])
     expect(fileActions([file('a'), folder('b')], true, true)).toEqual([
       'download',
       'move',
+      'copyTo',
       'delete',
     ])
     expect(fileActions([], true, true)).toEqual([])
