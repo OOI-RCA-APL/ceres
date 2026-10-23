@@ -432,10 +432,11 @@ export type FileAction =
   | 'copyTo'
   | 'delete'
 
-/** What applies to `targets`, in the order every menu lists it. Opening, info and renaming take a
-single entry, viewing raw a single file, a download any file or folder among them, copying contents
-a single file the clipboard takes, copying a system path a single entry on a mount that reveals
-paths, copying links any entries, and a change a mount the caller may edit. */
+/** What applies to `targets`, in the order the toolbar lists them, the context menu regrouping
+Info with Open. Opening, info and renaming take a single entry, viewing raw a single file, a
+download any file or folder among them, copying contents a single file the clipboard takes, copying
+a system path a single entry on a mount that reveals paths, copying links any entries, and a change
+a mount the caller may edit. */
 export function fileActions(
   targets: readonly FileEntry[],
   editable: boolean,
