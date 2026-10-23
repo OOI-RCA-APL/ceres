@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   FileColumnsModel,
@@ -32,7 +32,7 @@ import {
   previewTarget,
   selectionSummary,
 } from '@/api/files'
-import { highlight, loadHighlightLanguage } from '@/utilities'
+import { copyText, highlight, loadHighlightLanguage } from '@/utilities'
 
 function file(name: string, size: number | null = 1): FileEntry {
   return { name, kind: 'file', size, modified: null, created: null }
@@ -206,12 +206,14 @@ describe('fileActions', () => {
       'info',
       'download',
       'copyPath',
+      'copyLink',
     ])
     expect(fileActions([folder('a')], true, true)).toEqual([
       'open',
       'info',
       'download',
       'copyPath',
+      'copyLink',
       'rename',
       'move',
       'copyTo',
@@ -219,6 +221,7 @@ describe('fileActions', () => {
     ])
     expect(fileActions([file('a'), folder('b')], true, true)).toEqual([
       'download',
+      'copyLink',
       'move',
       'copyTo',
       'delete',
@@ -228,14 +231,46 @@ describe('fileActions', () => {
 
   it('downloads files and folders, never only special files', () => {
     const special: FileEntry = { ...file('c'), kind: 'other' }
-    expect(fileActions([folder('a'), folder('b')], false, true)).toEqual(['download'])
-    expect(fileActions([special, folder('b')], false, true)).toEqual(['download'])
-    expect(fileActions([special, special], false, true)).toEqual([])
+    expect(fileActions([folder('a'), folder('b')], false, true)).toContain('download')
+    expect(fileActions([special, folder('b')], false, true)).toContain('download')
+    expect(fileActions([special, special], false, true)).not.toContain('download')
   })
 
   it('copies a system path only for one entry on a mount that reveals paths', () => {
-    expect(fileActions([folder('a')], false, false)).toEqual(['open', 'info', 'download'])
+    expect(fileActions([folder('a')], false, false)).not.toContain('copyPath')
     expect(fileActions([folder('a')], false, true)).toContain('copyPath')
+  })
+
+  it('copies a link to any entries', () => {
+    expect(fileActions([{ ...file('c'), kind: 'other' }], false, false)).toEqual([
+      'open',
+      'info',
+      'copyLink',
+    ])
+  })
+})
+
+describe('copyText', () => {
+  const { execCommand } = document
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    document.execCommand = execCommand
+  })
+
+  it('copies through a selection on a page with no clipboard, and says when that fails', async () => {
+    vi.stubGlobal('navigator', {})
+    let copied: string | undefined
+    document.execCommand = vi.fn(() => {
+      copied = document.querySelector('textarea')?.value
+      return true
+    })
+    await copyText('abc')
+    expect(copied).toBe('abc')
+    expect(document.querySelector('textarea')).toBeNull()
+
+    document.execCommand = vi.fn(() => false)
+    await expect(copyText('abc')).rejects.toThrow()
+    expect(document.querySelector('textarea')).toBeNull()
   })
 })
 

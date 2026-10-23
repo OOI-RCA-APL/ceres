@@ -22,6 +22,7 @@ import {
   fileColumns,
   fileInfoPlace,
   filesDownloadPath,
+  filesPagePath,
   findFileMount,
   filterEntries,
   formatFileSize,
@@ -36,6 +37,7 @@ import {
 import { answer, useDialogs } from '@/dialogs'
 import { Failure } from '@/errors'
 import icons from '@/icons'
+import { useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
 import { usePersisted } from '@/persistence'
 import { clearOnOutsidePress, createRowSelection } from '@/row-selection'
@@ -69,6 +71,7 @@ const engine = useEngine()
 const queryClient = useQueryClient()
 const dialogs = useDialogs()
 const notify = useNotify()
+const navigation = useNavigation()
 
 // One setting per mount, since a mount full of dot entries worth seeing says nothing about another.
 const persisted = usePersisted({
@@ -472,6 +475,19 @@ async function copySystemPath(target: string[]) {
   }
 }
 
+/** Copy a link to the files page at each of `targets`, one per line. The eye and the selection
+stay out of it. */
+async function copyLinks(targets: string[][]) {
+  try {
+    await copyText(
+      targets.map((target) => navigation.link({ path: filesPagePath(mount, target) })).join('\n'),
+    )
+    notify.success(targets.length > 1 ? 'Links copied to clipboard.' : 'Link copied to clipboard.')
+  } catch {
+    notify.error('Could not copy the link.')
+  }
+}
+
 /** Ask for a new name for `target`, an entry of `directory`, and give it that name. */
 async function renameEntry(directory: string[], target: FileEntry) {
   const name = await answer(
@@ -663,6 +679,11 @@ function describeAction(
         }
       },
     },
+    copyLink: {
+      label: 'Copy Link',
+      icon: icons.share,
+      run: () => void copyLinks(targets.map((target) => [...directory, target.name])),
+    },
     rename: {
       label: 'Rename',
       icon: icons.rename,
@@ -697,7 +718,7 @@ function describeAction(
 in a menu too. */
 const menuGroups: (FileAction | 'selectAll')[][] = [
   ['open', 'viewRaw', 'info'],
-  ['download', 'copyPath', 'rename', 'move', 'copyTo'],
+  ['download', 'copyPath', 'copyLink', 'rename', 'move', 'copyTo'],
   ['selectAll'],
   ['delete'],
 ]
@@ -865,6 +886,14 @@ function onListContext(event: MouseEvent) {
           size="sm"
           variant="outline"
         />
+        <c-button
+          color="neutral"
+          :icon="icons.share"
+          label="Copy Link"
+          size="sm"
+          variant="outline"
+          @click="copyLinks([path])"
+        />
       </template>
       <c-text v-else-if="view === 'failure'" class="text-muted" variant="body2">
         {{ failureMessage }}
@@ -907,6 +936,16 @@ function onListContext(event: MouseEvent) {
               size="xs"
               variant="ghost"
               @click="persisted.hidden = !persisted.hidden"
+            />
+          </c-tooltip>
+          <c-tooltip text="Copy Link">
+            <c-button
+              aria-label="Copy Link"
+              color="neutral"
+              :icon="icons.share"
+              size="xs"
+              variant="ghost"
+              @click="copyLinks([currentDirectory])"
             />
           </c-tooltip>
           <template v-if="writable">
@@ -1112,6 +1151,7 @@ function onListContext(event: MouseEvent) {
             :hidden="persisted.hidden"
             :mount
             :path="panelTarget.path"
+            @copy-link="copyLinks([panelTarget.path])"
             @info="showInfo(panelTarget.path)"
             @open="path = panelTarget.path"
           />

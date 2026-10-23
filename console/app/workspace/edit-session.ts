@@ -1172,9 +1172,7 @@ export const useWorkspaces = defineStore('workspaces', () => {
   */
   async function copyLink(placement: string, ids: string[]) {
     const path = placement === engineRoot ? '/' : `/components/${placement}`
-    const { href } = navigation.resolve({ path, query: { [workspaceQueryKey]: ids } })
-
-    await copyText(window.location.origin + href)
+    await copyText(navigation.link({ path, query: { [workspaceQueryKey]: ids } }))
     notify.success(ids.length > 1 ? 'Links copied to clipboard.' : 'Link copied to clipboard.')
   }
 

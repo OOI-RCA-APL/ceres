@@ -128,6 +128,11 @@ export const useNavigation = defineStore('navigation', () => {
       return router.resolve(to, currentLocation)
     },
 
+    /** The whole address of `to`, for a link that leaves this page. */
+    link(to: RouteLocationRaw): string {
+      return window.location.origin + router.resolve(to).href
+    },
+
     /** Whether the previous history entry is a page of this app, so going back stays in it.
 
     The router records the previous entry in `history.state.back`, which is null on the first

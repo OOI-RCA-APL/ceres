@@ -341,11 +341,21 @@ export function isHiddenEntry(entry: FileEntry): boolean {
 
 /** Something the file browser does to the entries picked out of one directory. */
 export type FileAction =
-  'open' | 'viewRaw' | 'info' | 'download' | 'copyPath' | 'rename' | 'move' | 'copyTo' | 'delete'
+  | 'open'
+  | 'viewRaw'
+  | 'info'
+  | 'download'
+  | 'copyPath'
+  | 'copyLink'
+  | 'rename'
+  | 'move'
+  | 'copyTo'
+  | 'delete'
 
 /** What applies to `targets`, in the order every menu lists it. Opening, info and renaming take a
 single entry, viewing raw a single file, a download any file or folder among them, copying a system
-path a single entry on a mount that reveals paths, and a change a mount the caller may edit. */
+path a single entry on a mount that reveals paths, copying links any entries, and a change a mount
+the caller may edit. */
 export function fileActions(
   targets: readonly FileEntry[],
   editable: boolean,
@@ -363,6 +373,7 @@ export function fileActions(
     ...(single ? (['info'] as const) : []),
     ...(targets.some((entry) => entry.kind !== 'other') ? (['download'] as const) : []),
     ...(single && revealPaths ? (['copyPath'] as const) : []),
+    'copyLink',
     ...(editable && single ? (['rename'] as const) : []),
     ...(editable ? (['move', 'copyTo', 'delete'] as const) : []),
   ]

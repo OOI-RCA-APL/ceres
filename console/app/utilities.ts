@@ -257,8 +257,39 @@ export function toTitle(text: string): string {
   return titleCase(text.replace(/[-_ \t\n\r]+/g, ' '))
 }
 
+/** Put `text` on the clipboard. Call it inside the click that asked, before any `await`, since a
+page served over plain HTTP has no clipboard API and the fallback copies only within that click. */
 export async function copyText(text: string) {
-  await navigator.clipboard.writeText(text)
+  const clipboard: Clipboard | undefined = navigator.clipboard
+  if (clipboard == null) {
+    copyTextBySelection(text)
+    return
+  }
+
+  await clipboard.writeText(text)
+}
+
+/** Copy `text` through a hidden field's selection, the one copy a page outside a secure context
+may make. */
+function copyTextBySelection(text: string) {
+  const focused = document.activeElement
+  const field = document.createElement('textarea')
+  field.value = text
+  field.readOnly = true
+  field.style.position = 'fixed'
+  field.style.opacity = '0'
+  document.body.append(field)
+  field.select()
+  try {
+    if (!document.execCommand('copy')) {
+      throw new Error('The browser refused to copy.')
+    }
+  } finally {
+    field.remove()
+    if (focused instanceof HTMLElement) {
+      focused.focus()
+    }
+  }
 }
 
 /** Menu `content` props that keep a closing menu's focus restore from interrupting an edit.

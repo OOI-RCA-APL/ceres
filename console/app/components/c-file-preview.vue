@@ -39,6 +39,7 @@ const emit = defineEmits<{
   /** Open the entry, a directory's only action here. */
   open: []
   info: []
+  copyLink: []
 }>()
 
 const engine = useEngine()
@@ -124,6 +125,16 @@ const highlighted = $computed(() => {
           />
         </c-tooltip>
       </template>
+      <c-tooltip text="Copy Link">
+        <c-button
+          aria-label="Copy Link"
+          color="neutral"
+          :icon="icons.share"
+          size="xs"
+          variant="ghost"
+          @click="emit('copyLink')"
+        />
+      </c-tooltip>
       <c-tooltip text="Info">
         <c-button
           aria-label="Info"
