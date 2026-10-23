@@ -4,6 +4,7 @@ import {
   FileColumnsModel,
   type FileEntry,
   TEXT_PREVIEW_LIMIT,
+  copyFile,
   decodeText,
   describeFileWriteStatus,
   droppedFiles,
@@ -203,17 +204,18 @@ describe('fileActions', () => {
     expect(fileActions([file('a')], false, true)).toEqual([
       'open',
       'viewRaw',
-      'info',
       'download',
+      'copy',
       'copyPath',
       'copyLink',
+      'info',
     ])
     expect(fileActions([folder('a')], true, true)).toEqual([
       'open',
-      'info',
       'download',
       'copyPath',
       'copyLink',
+      'info',
       'rename',
       'move',
       'copyTo',
@@ -244,9 +246,85 @@ describe('fileActions', () => {
   it('copies a link to any entries', () => {
     expect(fileActions([{ ...file('c'), kind: 'other' }], false, false)).toEqual([
       'open',
-      'info',
       'copyLink',
+      'info',
     ])
+  })
+
+  it('copies the contents of one text file or picture', () => {
+    for (const name of ['a.txt', 'a.svg', 'a.jpg']) {
+      expect(fileActions([file(name)], false, false)).toContain('copy')
+    }
+
+    for (const target of [
+      [file('a.mp4')],
+      [file('a.wav')],
+      [file('a', TEXT_PREVIEW_LIMIT + 1)],
+      [file('a.svg', TEXT_PREVIEW_LIMIT + 1)],
+      [folder('a')],
+      [file('a.txt'), file('b.txt')],
+    ]) {
+      expect(fileActions(target, false, false)).not.toContain('copy')
+    }
+  })
+})
+
+describe('copyFile', () => {
+  /** What `copyFile` wrote of `entry` as `read` answers, by clipboard type. */
+  async function copied(entry: FileEntry, content: Blob): Promise<Record<string, Blob>> {
+    const written: Record<string, Blob> = {}
+    vi.stubGlobal(
+      'ClipboardItem',
+      class {
+        constructor(readonly items: Record<string, Promise<Blob>>) {}
+      },
+    )
+    vi.stubGlobal('navigator', {
+      clipboard: {
+        write: async (items: { items: Record<string, Promise<Blob>> }[]) => {
+          for (const [type, blob] of Object.entries(items[0]?.items ?? {})) {
+            written[type] = await blob
+          }
+        },
+      },
+    })
+    await copyFile(entry, () => Promise.resolve(content))
+    return written
+  }
+
+  const bitmap = (width: number) => ({ width, height: width, close: vi.fn() })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('copies text and an SVG as text and any other picture as a PNG', async () => {
+    for (const name of ['a.txt', 'a.svg']) {
+      expect(Object.keys(await copied(file(name), new Blob(['abc'])))).toEqual(['text/plain'])
+    }
+
+    const png = new Blob(['abc'], { type: 'image/png' })
+    expect(await copied(file('a.png'), png)).toEqual({ 'image/png': png })
+
+    vi.stubGlobal('createImageBitmap', () => Promise.resolve(bitmap(2)))
+    vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation((done) => done(png))
+    expect(await copied(file('a.jpg'), new Blob(['abc'], { type: 'image/jpeg' }))).toEqual({
+      'image/png': png,
+    })
+  })
+
+  it('refuses a binary file and a picture past the pixel cap', async () => {
+    await expect(copied(file('a.txt'), new Blob([new Uint8Array([0, 0, 0])]))).rejects.toThrow(
+      'This file is binary.',
+    )
+
+    const large = bitmap(10_000)
+    vi.stubGlobal('createImageBitmap', () => Promise.resolve(large))
+    await expect(copied(file('a.jpg'), new Blob(['abc']))).rejects.toThrow(
+      'Image too large to copy.',
+    )
+    expect(large.close).toHaveBeenCalled()
   })
 })
 

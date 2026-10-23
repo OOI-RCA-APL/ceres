@@ -120,6 +120,80 @@ export function previewOf(entry: FileEntry): FilePreview {
   )
 }
 
+/** What the contents of `entry` copy to the clipboard as, or null when they cannot. An SVG copies
+its source as text, since Safari draws no SVG to a canvas. */
+export function clipboardContentOf(entry: FileEntry): 'text' | 'image' | null {
+  const preview = previewOf(entry)
+  if (preview === 'image' && extensionOf(entry.name) === 'svg') {
+    return entry.size != null && entry.size <= TEXT_PREVIEW_LIMIT ? 'text' : null
+  }
+
+  return preview === 'text' || preview === 'image' ? preview : null
+}
+
+/** The most pixels a copied image may have, a 256 MiB canvas at four bytes each. */
+export const COPY_IMAGE_PIXEL_LIMIT = 64e6
+
+/** A file copy the page refused, its message for the person who asked. */
+export class FileCopyError extends Error {}
+
+/** Put the contents of the file `entry` on the clipboard, as `read` fetches them. Call it inside
+the click or key that asked and before any `await`, since a browser takes a clipboard item only
+within that gesture and lets its contents arrive afterward. */
+export async function copyFile(entry: FileEntry, read: () => Promise<Blob>): Promise<void> {
+  const content = clipboardContentOf(entry)
+  if (content == null) {
+    throw new FileCopyError('This file cannot be copied.')
+  }
+
+  const type = content === 'text' ? 'text/plain' : 'image/png'
+  const blob = read().then(content === 'text' ? textBlob : pngBlob)
+  try {
+    await navigator.clipboard.write([new ClipboardItem({ [type]: blob })])
+  } catch (error) {
+    // The browser reports a failed item as its own error, so the conversion's reason goes first.
+    await blob
+    throw error
+  }
+}
+
+async function textBlob(blob: Blob): Promise<Blob> {
+  const text = decodeText(await blob.arrayBuffer())
+  if (text == null) {
+    throw new FileCopyError('This file is binary.')
+  }
+
+  return new Blob([text], { type: 'text/plain' })
+}
+
+/** `blob` as a PNG, the one image type every browser's clipboard takes. */
+async function pngBlob(blob: Blob): Promise<Blob> {
+  if (blob.type === 'image/png') {
+    return blob
+  }
+
+  const bitmap = await createImageBitmap(blob)
+  try {
+    if (bitmap.width * bitmap.height > COPY_IMAGE_PIXEL_LIMIT) {
+      throw new FileCopyError('Image too large to copy.')
+    }
+
+    const canvas = document.createElement('canvas')
+    canvas.width = bitmap.width
+    canvas.height = bitmap.height
+    canvas.getContext('2d')?.drawImage(bitmap, 0, 0)
+    return await new Promise((resolve, reject) => {
+      canvas.toBlob(
+        (png) =>
+          png == null ? reject(new FileCopyError('Could not copy the image.')) : resolve(png),
+        'image/png',
+      )
+    })
+  } finally {
+    bitmap.close()
+  }
+}
+
 /** The grammar a text preview of the file `name` highlights with, null for plain text. */
 export function highlightLanguageOf(name: string): HighlightLanguage | null {
   return highlightExtensions.get(extensionOf(name)) ?? null
@@ -192,6 +266,11 @@ export function filesDownloadPath(
 prefetch serves them all. */
 export function fileStatQueryKey(mount: string, path: readonly string[]) {
   return ['files', 'stat', mount, ...path]
+}
+
+/** The query key of the text preview of `path` under `mount`, which a copy reads when cached. */
+export function fileTextQueryKey(mount: string, path: readonly string[]) {
+  return ['files', 'text', mount, ...path]
 }
 
 /** The console's page for `path` under `mount`, or the mount picker without a mount. */
@@ -343,19 +422,20 @@ export function isHiddenEntry(entry: FileEntry): boolean {
 export type FileAction =
   | 'open'
   | 'viewRaw'
-  | 'info'
   | 'download'
+  | 'copy'
   | 'copyPath'
   | 'copyLink'
+  | 'info'
   | 'rename'
   | 'move'
   | 'copyTo'
   | 'delete'
 
 /** What applies to `targets`, in the order every menu lists it. Opening, info and renaming take a
-single entry, viewing raw a single file, a download any file or folder among them, copying a system
-path a single entry on a mount that reveals paths, copying links any entries, and a change a mount
-the caller may edit. */
+single entry, viewing raw a single file, a download any file or folder among them, copying contents
+a single file the clipboard takes, copying a system path a single entry on a mount that reveals
+paths, copying links any entries, and a change a mount the caller may edit. */
 export function fileActions(
   targets: readonly FileEntry[],
   editable: boolean,
@@ -370,10 +450,11 @@ export function fileActions(
   return [
     ...(single ? (['open'] as const) : []),
     ...(single && only.kind === 'file' ? (['viewRaw'] as const) : []),
-    ...(single ? (['info'] as const) : []),
     ...(targets.some((entry) => entry.kind !== 'other') ? (['download'] as const) : []),
+    ...(single && clipboardContentOf(only) != null ? (['copy'] as const) : []),
     ...(single && revealPaths ? (['copyPath'] as const) : []),
     'copyLink',
+    ...(single ? (['info'] as const) : []),
     ...(editable && single ? (['rename'] as const) : []),
     ...(editable ? (['move', 'copyTo', 'delete'] as const) : []),
   ]
@@ -523,7 +604,7 @@ export const useFiles = defineStore('files', () => {
     })
   }
 
-  async function readBytes(mount: string, path: readonly string[], end?: number) {
+  async function fetchFile(mount: string, path: readonly string[], end?: number) {
     const response = await fetch(new URL(filesApiPath(mount, path), window.location.href), {
       credentials: 'include',
       headers: end == null ? undefined : { Range: `bytes=0-${end - 1}` },
@@ -532,7 +613,16 @@ export const useFiles = defineStore('files', () => {
       throw new Error(`The engine answered ${response.status} for "${path.join('/')}".`)
     }
 
-    return await response.arrayBuffer()
+    return response
+  }
+
+  async function readBytes(mount: string, path: readonly string[], end?: number) {
+    return await (await fetchFile(mount, path, end)).arrayBuffer()
+  }
+
+  /** The file at `path` under `mount`, typed as the engine answers it. */
+  async function readBlob(mount: string, path: readonly string[]): Promise<Blob> {
+    return await (await fetchFile(mount, path)).blob()
   }
 
   /** The file at `path` under `mount`, `size` bytes long, as text, or null when it is binary. Only
@@ -598,6 +688,7 @@ export const useFiles = defineStore('files', () => {
     list,
     stat,
     readText,
+    readBlob,
     sourceUrl,
     upload,
     createDirectory,

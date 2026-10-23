@@ -10,6 +10,7 @@ import {
   type FileAction,
   type FileColumn,
   FileColumnsModel,
+  FileCopyError,
   type FileEntry,
   type FilePreviewMode,
   type FileStat,
@@ -17,6 +18,7 @@ import {
   FileWriteError,
   LISTING_MIN_WIDTH,
   PREVIEW_MIN_WIDTH,
+  copyFile,
   droppedFiles,
   fileActions,
   fileColumns,
@@ -29,6 +31,7 @@ import {
   formatFileTime,
   fileNameStemEnd,
   fileStatQueryKey,
+  fileTextQueryKey,
   isHiddenEntry,
   previewMode,
   previewTarget,
@@ -475,6 +478,24 @@ async function copySystemPath(target: string[]) {
   }
 }
 
+/** The text preview of the file at `target` when a preview already read it. */
+function cachedText(target: string[]): string | null {
+  return queryClient.getQueryData<string | null>(fileTextQueryKey(mount, target)) ?? null
+}
+
+/** Copy the contents of the file `entry` at `target`, from a cached text preview when there is
+one. Call it inside the gesture that asked, before any `await`. */
+function copyContents(target: string[], entry: FileEntry) {
+  const text = cachedText(target)
+  const copied =
+    text == null ? copyFile(entry, () => engine.files.readBlob(mount, target)) : copyText(text)
+  copied.then(
+    () => notify.success('Copied to clipboard.'),
+    (error: unknown) =>
+      notify.error(error instanceof FileCopyError ? error.message : 'Could not copy the file.'),
+  )
+}
+
 /** Copy a link to the files page at each of `targets`, one per line. The eye and the selection
 stay out of it. */
 async function copyLinks(targets: string[][]) {
@@ -615,6 +636,9 @@ type FileActionView = {
   label: string
   icon: string
   kbds?: string[]
+  /** Offered but unable to run here, for the reason `description` gives. */
+  disabled?: boolean
+  description?: string
   run: () => void
 }
 
@@ -622,6 +646,7 @@ type FileActionView = {
 the key each platform's keyboard labels delete, Backspace on a Mac. */
 const actionKeys: Partial<Record<FileAction, string[]>> = {
   open: ['enter'],
+  copy: ['meta', 'c'],
   rename: ['f2'],
   delete: [useKbd().macOS.value ? 'backspace' : 'delete'],
 }
@@ -668,6 +693,21 @@ function describeAction(
       label: 'Download',
       icon: icons.download,
       run: () => void download(directory, targets),
+    },
+    copy: {
+      label: 'Copy',
+      icon: icons.copy,
+      // Outside a secure context only text already in hand reaches the clipboard.
+      ...(!window.isSecureContext &&
+      targets.every((target) => cachedText([...directory, target.name]) == null)
+        ? { disabled: true, description: 'Needs HTTPS' }
+        : {}),
+      run: () => {
+        const [first] = targets
+        if (first != null) {
+          copyContents([...directory, first.name], first)
+        }
+      },
     },
     copyPath: {
       label: 'Copy System Path',
@@ -718,7 +758,7 @@ function describeAction(
 in a menu too. */
 const menuGroups: (FileAction | 'selectAll')[][] = [
   ['open', 'viewRaw', 'info'],
-  ['download', 'copyPath', 'copyLink', 'rename', 'move', 'copyTo'],
+  ['download', 'copy', 'copyPath', 'copyLink', 'rename', 'move', 'copyTo'],
   ['selectAll'],
   ['delete'],
 ]
@@ -754,6 +794,8 @@ const menuItems = $computed<ContextMenuItem[][]>(() => {
             label: action.label,
             icon: action.icon,
             kbds: action.kbds,
+            disabled: action.disabled,
+            description: action.description,
             onSelect: () => (asking.has(kind) ? afterMenuCloses(action.run) : action.run()),
           }
         }),
@@ -820,6 +862,32 @@ function onListKeydown(event: KeyboardEvent) {
 
   event.preventDefault()
   event.stopPropagation()
+}
+
+// The copy key copies one selected file's contents. Highlighted text copies itself, as it does
+// past the workspace's own handler, which this one keeps from copying the widget too.
+function onListCopy(event: ClipboardEvent) {
+  const [only] = selectedEntries
+  if (
+    only == null ||
+    !actionsFor(selectedEntries).includes('copy') ||
+    window.getSelection()?.isCollapsed === false
+  ) {
+    return
+  }
+
+  event.preventDefault()
+  event.stopPropagation()
+  const target = [...currentDirectory, only.name]
+  const text = cachedText(target)
+  if (text != null && event.clipboardData != null) {
+    event.clipboardData.setData('text/plain', text)
+    notify.success('Copied to clipboard.')
+  } else if (!window.isSecureContext) {
+    notify.error('Copying a file needs HTTPS.')
+  } else {
+    copyContents(target, only)
+  }
 }
 
 // A right click away from every row has nothing to act on, so it opens no menu.
@@ -904,11 +972,14 @@ function onListContext(event: MouseEvent) {
           v-for="action in toolbarActions"
           :key="action.kind"
           :kbds="action.kbds"
-          :text="action.label"
+          :text="
+            action.description == null ? action.label : `${action.label}, ${action.description}`
+          "
         >
           <c-button
             :aria-label="action.label"
             :color="action.kind === 'delete' ? 'error' : 'neutral'"
+            :disabled="action.disabled"
             :icon="action.icon"
             size="xs"
             variant="ghost"
@@ -1066,6 +1137,7 @@ function onListContext(event: MouseEvent) {
               class="outline-primary/25 rounded-md focus-visible:outline-3"
               tabindex="0"
               @contextmenu="onListContext"
+              @copy="onListCopy"
               @keydown="onListKeydown"
             >
               <c-list>
