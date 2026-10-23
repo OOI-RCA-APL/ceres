@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import type { BreadcrumbItem } from '@nuxt/ui'
+import { isEqual } from 'lodash-es'
 import { watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -55,9 +56,10 @@ async function open(target: string[]) {
   await router.push(linkTo(target))
 }
 
-// A step through files by selection replaces the URL, so going back leaves the directory.
+// A step through files by selection replaces the URL, so going back leaves the directory. Compared
+// by segment, since the router and `filesPagePath` encode some characters differently.
 async function preview(target: string[]) {
-  if (route.path !== linkTo(target)) {
+  if (!isEqual(target, path)) {
     await router.replace(linkTo(target))
   }
 }

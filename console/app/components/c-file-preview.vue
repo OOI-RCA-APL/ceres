@@ -61,8 +61,11 @@ watch(
   () => language as HighlightLanguage | null,
   (next) => {
     if (next != null) {
+      // A slower import finishing after a step to another file must not claim that file.
       void loadHighlightLanguage(next).finally(() => {
-        loadedLanguage = next
+        if ((language as HighlightLanguage | null) === next) {
+          loadedLanguage = next
+        }
       })
     }
   },
@@ -97,6 +100,7 @@ const highlighted = $computed(() => {
           <c-button
             aria-label="View Raw"
             color="neutral"
+            external
             :href="sourceUrl"
             :icon="icons.open"
             size="xs"

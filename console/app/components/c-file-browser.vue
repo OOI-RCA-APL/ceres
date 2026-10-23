@@ -104,7 +104,7 @@ const panelWidth = $computed(() =>
 
 // The handle grows what lies before it, so it sizes the listing and the panel takes the rest.
 const listingWidth = $computed({
-  get: () => rootWidth.value - panelWidth,
+  get: () => Math.max(0, rootWidth.value - panelWidth),
   set: (value: number) => (previewSettings.width = rootWidth.value - value),
 })
 
@@ -543,8 +543,14 @@ async function deleteEntries(directory: string[], targets: FileEntry[]) {
       break
     }
 
+    // Beside a listing the deleted file only stood in the URL as a preview, which Back must not
+    // return to.
     if (isSamePath(targetPath, path)) {
-      path = directory
+      if (side) {
+        emit('preview', directory)
+      } else {
+        path = directory
+      }
     }
   }
 
@@ -987,6 +993,7 @@ function onListContext(event: MouseEvent) {
                   :selected="rows.isSelected(current.name)"
                   @click="rows.onClick(current.name, $event)"
                   @contextmenu="rows.ensureSelected(current.name)"
+                  @dblclick="path = [...currentDirectory, current.name]"
                 >
                   <c-icon class="shrink-0" :name="entryIcon(current)" size="16" />
                   <!-- Only the name opens the entry, the rest of the row selects it. -->
@@ -995,7 +1002,7 @@ function onListContext(event: MouseEvent) {
                       class="max-w-full cursor-pointer truncate text-left align-top hover:underline"
                       raw
                       tabindex="-1"
-                      v-bind="opener([...path, current.name])"
+                      v-bind="opener([...currentDirectory, current.name])"
                       @click.stop
                     >
                       {{ current.name }}
