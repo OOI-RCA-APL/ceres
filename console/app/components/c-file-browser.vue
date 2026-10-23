@@ -846,7 +846,7 @@ function onListContext(event: MouseEvent) {
         <c-button
           color="neutral"
           external
-          :href="filesDownloadPath(mount, path)"
+          :href="filesDownloadPath(mount, path, { hidden: persisted.hidden })"
           :icon="icons.download"
           label="Download"
           size="sm"
@@ -1073,6 +1073,7 @@ function onListContext(event: MouseEvent) {
           v-else-if="(view === 'file' || view === 'other') && openedEntry != null"
           bare
           :entry="openedEntry"
+          :hidden="persisted.hidden"
           :mount
           :path
           @info="showInfo(path)"
@@ -1095,6 +1096,7 @@ function onListContext(event: MouseEvent) {
           <c-file-preview
             v-if="panelTarget != null"
             :entry="panelTarget.entry"
+            :hidden="persisted.hidden"
             :mount
             :path="panelTarget.path"
             @info="showInfo(panelTarget.path)"

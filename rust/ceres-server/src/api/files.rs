@@ -716,7 +716,8 @@ fn add_member<W: Write>(
     let options = |metadata: &Metadata| {
         let options = SimpleFileOptions::default()
             .compression_method(CompressionMethod::Stored)
-            .large_file(metadata.len() >= u64::from(u32::MAX));
+            // A file still recording may pass the zip limit between its stat and its read.
+            .large_file(metadata.len() > u64::from(u32::MAX / 2));
         // A zip dates its members in local time.
         let modified = metadata.modified().ok().and_then(|time| {
             zip::DateTime::try_from(chrono::DateTime::<chrono::Local>::from(time).naive_local())
@@ -1969,14 +1970,20 @@ mod tests {
             .get("/api/files/project?download&entry=a&entry=b")
             .await;
         let saved = TempDir::new().unwrap();
-        let mut file = tokio::fs::File::create(saved.path().join("a.zip"))
-            .await
-            .unwrap();
+        let mut file = File::create(saved.path().join("a.zip")).unwrap();
+        let zeros = vec![0; ARCHIVE_CHUNK];
         let mut chunks = response.into_body().into_data_stream();
         while let Some(chunk) = chunks.next().await {
-            file.write_all(&chunk.unwrap()).await.unwrap();
+            // A chunk of zeros becomes a hole, so the test never writes 4 GiB to disk.
+            let chunk = chunk.unwrap();
+            if *chunk == zeros[..chunk.len()] {
+                io::Seek::seek(&mut file, io::SeekFrom::Current(chunk.len() as i64)).unwrap();
+            } else {
+                file.write_all(&chunk).unwrap();
+            }
         }
-        file.flush().await.unwrap();
+        let end = io::Seek::stream_position(&mut file).unwrap();
+        file.set_len(end).unwrap();
 
         // The small file sits past the 4 GiB offset the large one pushes it to.
         let mut zip =

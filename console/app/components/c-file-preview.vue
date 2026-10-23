@@ -20,6 +20,7 @@ const {
   mount,
   path,
   entry,
+  hidden = false,
   bare = false,
 } = defineProps<{
   /** The ID of the mount `path` is under. */
@@ -27,6 +28,8 @@ const {
   /** Where `entry` is under the mount. */
   path: string[]
   entry: FileEntry
+  /** Whether a folder's download keeps dot names, as the listing beside it shows them. */
+  hidden?: boolean
   /** Leave out the header, for a preview whose page already names the entry and offers its
   actions. */
   bare?: boolean
@@ -42,7 +45,7 @@ const engine = useEngine()
 
 const preview = $computed(() => previewOf(entry))
 const sourceUrl = $computed(() => engine.files.sourceUrl(mount, path))
-const downloadUrl = $computed(() => filesDownloadPath(mount, path))
+const downloadUrl = $computed(() => filesDownloadPath(mount, path, { hidden }))
 
 const textQuery = useQuery({
   queryKey: computed(() => ['files', 'text', mount, ...path]),
