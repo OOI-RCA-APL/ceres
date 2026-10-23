@@ -84,10 +84,12 @@ export const useDialogs = defineStore('dialogs', () => {
     /** Ask for the name of a file browser entry. Resolves with the trimmed text. */
     fileName: (props: FileNameDialogProps) =>
       handleOf(fileNameDialog.open(props).result) as DialogHandle<string | false>,
-    /** Ask for a folder and move file browser entries into it. Resolves with the folder once
-    every entry moved. */
+    /** Ask for a folder and move file browser entries into it. Resolves with where each entry
+    that moved went, by name. */
     moveFiles: (props: FileMoveDialogProps) =>
-      handleOf(fileMoveDialog.open(props).result) as DialogHandle<string[] | false>,
+      handleOf(fileMoveDialog.open(props).result) as DialogHandle<
+        ReadonlyMap<string, string[]> | false
+      >,
     /** Describe a file browser entry. */
     fileInfo: (props: FileInfoDialogProps) => handleOf(fileInfoDialog.open(props).result),
     /** Create a workspace on `scope`. `isPrivate` presets the choice for a caller that already

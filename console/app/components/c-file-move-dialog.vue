@@ -15,6 +15,8 @@ export type FileMoveDialogProps = {
 
 <script lang="ts" setup>
 import type { BreadcrumbItem } from '@nuxt/ui'
+import { useQueryClient } from '@tanstack/vue-query'
+import { isEqual } from 'lodash-es'
 import { computed } from 'vue'
 
 import { useQuery } from '@/api/client'
@@ -25,11 +27,12 @@ import icons from '@/icons'
 
 const { mount, mountLabel, from, targets, hidden } = defineProps<FileMoveDialogProps>()
 
-/** Closes with the folder everything moved into, or `false` when anything stayed behind. */
-const emit = defineEmits<{ close: [string[] | false] }>()
+/** Closes with where each entry that moved went, by name, or `false` when none did. */
+const emit = defineEmits<{ close: [ReadonlyMap<string, string[]> | false] }>()
 
 const engine = useEngine()
 const dialogs = useDialogs()
+const queryClient = useQueryClient()
 
 const title = $computed(() => {
   const [only] = targets
@@ -63,9 +66,20 @@ const breadcrumbs = $computed<BreadcrumbItem[]>(() => [
 
 const blocked = $computed(() => moveDestinationBlocked(folder, from, targets))
 
-/** Whether the folder named `name` here is one being moved, which nothing can move into. */
+// Everything under a folder being moved is reached only through its row, so disabling the row
+// keeps the dialog out of all of it.
 function isMoving(name: string) {
-  return blocked || moveDestinationBlocked([...folder, name], from, targets)
+  return (
+    isEqual(folder, from) &&
+    targets.some((target) => target.kind === 'directory' && target.name === name)
+  )
+}
+
+/** Where each entry already moved went, so a retry after a refusal moves only the rest. */
+const moved = new Map<string, string[]>()
+
+function close() {
+  emit('close', moved.size > 0 ? moved : false)
 }
 
 async function createFolder() {
@@ -78,6 +92,7 @@ async function createFolder() {
 
   try {
     await engine.files.createDirectory(mount, [...folder, name])
+    await queryClient.invalidateQueries({ queryKey: ['files', 'list', mount, ...folder] })
     folder = [...folder, name]
   } catch (error) {
     refusal = error instanceof FileWriteError ? error.message : 'The engine could not do that.'
@@ -89,10 +104,11 @@ async function submit() {
   moving = true
   refusal = null
   try {
-    for (const target of targets) {
+    for (const target of targets.filter((current) => !moved.has(current.name))) {
       await engine.files.move(mount, [...from, target.name], [...folder, target.name])
+      moved.set(target.name, folder)
     }
-    emit('close', folder)
+    close()
   } catch (error) {
     refusal = error instanceof FileWriteError ? error.message : 'The engine could not do that.'
   } finally {
@@ -105,7 +121,7 @@ async function submit() {
   <c-modal
     :title
     :ui="{ content: 'w-[520px] max-w-[95vw]' }"
-    @update:open="(open: boolean) => open || emit('close', false)"
+    @update:open="(open: boolean) => open || close()"
   >
     <template #body>
       <c-breadcrumb class="mb-2" :items="breadcrumbs" />
@@ -144,7 +160,7 @@ async function submit() {
           @click="createFolder"
         />
         <div class="flex-1" />
-        <c-button color="neutral" label="Cancel" variant="ghost" @click="emit('close', false)" />
+        <c-button color="neutral" label="Cancel" variant="ghost" @click="close()" />
         <c-button :disabled="blocked" label="Move Here" :loading="moving" @click="submit()" />
       </div>
     </template>

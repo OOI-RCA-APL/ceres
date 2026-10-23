@@ -19,6 +19,7 @@ const { title, label, value = '', selectionEnd, okLabel } = defineProps<FileName
 const emit = defineEmits<{ close: [string | false] }>()
 
 let text = $ref(value)
+// A problem shows once the field loses focus or submits, so a name half typed never reads as wrong.
 let touched = $ref(false)
 const trimmed = $computed(() => text.trim())
 const problem = $computed(() => fileNameProblem(text))
@@ -54,9 +55,9 @@ function submit() {
           autofocus
           class="w-full"
           :spellcheck="false"
+          @blur="touched = true"
           @focus="selectOnce"
           @keydown.enter="submit()"
-          @update:model-value="touched = true"
         />
       </c-form-field>
     </template>

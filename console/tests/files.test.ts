@@ -255,6 +255,7 @@ describe('moveDestinationBlocked', () => {
     expect(moveDestinationBlocked(['x', 'a'], ['x'], targets)).toBe(false)
     expect(moveDestinationBlocked([], ['x'], targets)).toBe(false)
     expect(moveDestinationBlocked(['x', 'bc'], ['x'], targets)).toBe(false)
+    expect(moveDestinationBlocked(['x', 'sub'], ['x'], [file('a')])).toBe(false)
   })
 })
 

@@ -468,13 +468,15 @@ async function renameEntry(directory: string[], target: FileEntry) {
 /** Ask for a folder and move `targets`, entries of `directory`, into it. The dialog moves them, so
 the listing refreshes after it closes whatever moved. */
 async function moveEntries(directory: string[], targets: FileEntry[]) {
-  const folder = await answer(
+  const moved = await answer(
     dialogs.moveFiles({ mount, mountLabel, from: directory, targets, hidden: persisted.hidden }),
   )
 
-  const [only] = targets
-  if (folder !== false && only != null && isSamePath([...directory, only.name], path)) {
-    path = [...folder, only.name]
+  // The open entry follows wherever it went, even when a refusal kept others behind.
+  const opened = isSamePath(directory, path.slice(0, -1)) ? path.at(-1) : undefined
+  const folder = moved === false || opened == null ? undefined : moved.get(opened)
+  if (opened != null && folder != null) {
+    path = [...folder, opened]
   }
 
   rows.clear()
