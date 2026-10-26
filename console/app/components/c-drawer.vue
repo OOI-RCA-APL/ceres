@@ -180,14 +180,15 @@ const footerRowClass =
   scrolls on its own. -->
   <aside class="bg-default border-default flex flex-col border-r">
     <!-- Drawn by the edge it sits on rather than by the handle, whose own line would stack
-    against that border in a color the theme does not decide. -->
+    against that border in a color the theme does not decide. It sits on the border, the drawer's
+    last px, so its grip centers there. -->
     <c-resize-handle
       v-model="drawer.width"
       class="absolute top-0 z-10"
       direction="horizontal"
       :max="600"
       :min="250"
-      :style="{ left: `${drawer.width}px` }"
+      :style="{ left: `${drawer.width - 1}px` }"
       visibility="hidden"
     />
     <div class="grow overflow-y-auto">

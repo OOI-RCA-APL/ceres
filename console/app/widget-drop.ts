@@ -13,6 +13,30 @@ import {
   type WorkspaceContext,
 } from '@/workspace'
 
+/** The band inside a widget's edge that counts as its frame, about a widget's usual padding. */
+const WIDGET_FRAME_BAND = 8
+
+/** Whether `event` lands on the frame of the widget `card`, its padding or the band inside its
+edge, rather than on what the widget shows or on a widget nested in it. */
+export function isOnWidgetFrame(event: MouseEvent, card: Element): boolean {
+  const target = event.target
+  if (!(target instanceof Element) || target.closest('[data-widget-id]') !== card) {
+    return false
+  }
+
+  if (target.hasAttribute('data-widget-frame')) {
+    return true
+  }
+
+  const bounds = card.getBoundingClientRect()
+  return (
+    event.clientX - bounds.left < WIDGET_FRAME_BAND ||
+    bounds.right - event.clientX < WIDGET_FRAME_BAND ||
+    event.clientY - bounds.top < WIDGET_FRAME_BAND ||
+    bounds.bottom - event.clientY < WIDGET_FRAME_BAND
+  )
+}
+
 /** Region-based drop targeting for the widgets of a workspace.
 
 The gap between two rows opens a row of its own there. Inside a row, the outer third of a widget's
@@ -577,19 +601,21 @@ function createWidgetDrop(workspace: WorkspaceContext) {
   useEventListener(window, 'pointerdown', (event: PointerEvent) => {
     origin = { x: event.clientX, y: event.clientY }
 
-    // Pressing anywhere but a widget's header lets go of what is picked out, the way clicking off
-    // a selection does elsewhere. A press inside a widget is reaching for what the widget shows
-    // rather than for the widget itself so it counts as pressing away from the selection.
+    // Pressing anywhere but a widget's header, outline, or padding lets go of what is picked out,
+    // the way clicking off a selection does elsewhere. A press inside a widget is reaching for what
+    // the widget shows rather than for the widget itself so it counts as pressing away from it.
     //
     // A held modifier is exempt since that press is being aimed at the selection rather than away
     // from it, as are overlays, where a menu or dialog is usually acting on what is picked out.
     const target = event.target as HTMLElement | null
+    const card = target?.closest('[data-widget-id]')
     if (
       workspace.selection.length > 0 &&
       event.button === 0 &&
       !event.shiftKey &&
       !event.metaKey &&
       !event.ctrlKey &&
+      (card == null || !isOnWidgetFrame(event, card)) &&
       target?.closest('[data-widget-header], [data-dismissable-layer], [role="dialog"]') == null
     ) {
       workspace.clearSelection()

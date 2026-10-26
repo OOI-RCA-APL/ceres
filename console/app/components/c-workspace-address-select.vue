@@ -2,12 +2,16 @@
 import { createReusableTemplate } from '@vueuse/core'
 import { watch } from 'vue'
 
+import { engineRoot } from '@/api/address'
 import { useEngine } from '@/api/engine'
 import icons from '@/icons'
 import { useWorkspace } from '@/workspace'
 
-const { modelValue } = defineProps<{
+const { modelValue, rootLabel = null } = defineProps<{
   modelValue: string | null
+  /** Offers the engine root in a bound workspace's absolute list under this label, for a widget
+  that reads it as every component. */
+  rootLabel?: string | null
 }>()
 
 const emit = defineEmits<{ 'update:modelValue': [value: string | null] }>()
@@ -23,7 +27,10 @@ The scope's own address is stored absolute while being the relative list's defau
 to either list and never says which one is showing.
 */
 function countsAsAbsolute(value: string) {
-  return value.startsWith('@') && (!workspace.isBound || value !== scope?.toString())
+  return (
+    value === engineRoot ||
+    (value.startsWith('@') && (!workspace.isBound || value !== scope?.toString()))
+  )
 }
 
 // A value is absolute when it names a full address. The toggle only controls which options
@@ -55,12 +62,17 @@ const options = $computed<Option[]>(() => {
   if (!workspace.isBound || showAbsolute || scopeBase == null) {
     // The scope root is the default whichever list it is met in, so it says so here as well.
     const base = workspace.isBound ? scopeBase : null
-    return engine.components.all.map((component) => {
-      const address = component.address.toString()
-      return address === base
-        ? { label: address, value: address, isDefault: true }
-        : { label: address, value: address }
-    })
+    const root =
+      workspace.isBound && rootLabel != null ? [{ label: rootLabel, value: engineRoot }] : []
+    return [
+      ...root,
+      ...engine.components.all.map((component) => {
+        const address = component.address.toString()
+        return address === base
+          ? { label: address, value: address, isDefault: true }
+          : { label: address, value: address }
+      }),
+    ]
   }
 
   const base = scopeBase

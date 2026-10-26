@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
+import { Address, engineRoot } from '@/api/address'
 import {
   convertedPagesWidget,
   createWidget,
   defaultWidgetName,
+  filesWidgetRoot,
   pagesOf,
   type Widget,
   widgetInfos,
@@ -47,11 +49,18 @@ describe('the widget registry', () => {
     expect(pagesOf(createWidget('meter'))).toHaveLength(0)
   })
 
-  it('stores a files widget mount and leaves the open directory to each browser', () => {
-    expect(createWidget('files')).toMatchObject({ type: 'files', name: 'Files' })
-    const stored = WidgetModel.parse({ type: 'files', mount: 'abc', path: ['abcd'] })
-    expect(stored).toMatchObject({ type: 'files', mount: 'abc' })
-    expect(stored).not.toHaveProperty('path')
+  it('stores where a files widget lists and opens', () => {
+    expect(createWidget('files')).toMatchObject({ type: 'files', name: 'Files', path: [] })
+    const stored = WidgetModel.parse({ type: 'files', component: 'a', mount: 'abc', path: ['b'] })
+    expect(stored).toMatchObject({ type: 'files', component: 'a', mount: 'abc', path: ['b'] })
+  })
+
+  it('lists a files widget under its component, or every mount from the engine root', () => {
+    const scope = Address.parse('@a')
+    expect(filesWidgetRoot(null, scope)).toBe('@a')
+    expect(filesWidgetRoot('b', scope)).toBe('@a.b')
+    expect(filesWidgetRoot(engineRoot, scope)).toBeNull()
+    expect(filesWidgetRoot(null, Address.parse(engineRoot))).toBeNull()
   })
 })
 

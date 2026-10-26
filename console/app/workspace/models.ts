@@ -185,9 +185,14 @@ export type FilesWidget = z.infer<typeof FilesWidgetModel>
 export const FilesWidgetModel = BaseWidgetModel.extend({
   type: z.literal('files'),
   name: z.string().catch('Files'),
-  /** The mount the widget browses, its ID as the engine lists it. The directory open in it is
-  each browser's own. */
+  /** The component whose mounts, its descendants' included, the widget lists, in the form
+  `resolveWidgetAddress` reads. The engine root lists every mount. */
+  component: z.string().nullish(),
+  /** The mount the widget opens on, its ID as the engine lists it, or the list of mounts when
+  unset. Where each browser goes from there is its own. */
   mount: z.string().nullish(),
+  /** The directory under `mount` the widget opens on. */
+  path: z.array(z.string()).catch([]),
 })
 
 /** A stored control color, in the vocabulary the old console wrote and the engine still holds. */
@@ -733,6 +738,15 @@ export function resolveWidgetAddress(
   }
 
   return AddressSelector.parse(value).asAbsolute(scope)
+}
+
+/** The address whose mounts a files widget lists, or null for every mount. */
+export function filesWidgetRoot(
+  value: string | null | undefined,
+  scope: Address | null,
+): string | null {
+  const resolved = resolveWidgetAddress(value, scope)?.toString() ?? null
+  return resolved === engineRoot ? null : resolved
 }
 
 /** The one component a widget is pointed at, or null when it is pointed at none.

@@ -84,7 +84,6 @@ const icons = {
   more: 'i-mdi-dots-horizontal',
   moreVertical: 'i-mdi-dots-vertical',
   mount: 'i-lucide-folder-root',
-  mountReadOnly: 'i-lucide-folder-lock',
   mountTemporary: 'i-lucide-folder-clock',
   move: 'i-lucide-folder-input',
   open: 'i-mdi-open-in-new',

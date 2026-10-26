@@ -83,6 +83,8 @@ carries, so the cursor is held everywhere rather than on the item alone. */
      read as the same line. */
   --console-border-strength: 12%;
   --ui-border: --alpha(var(--ui-text) / var(--console-border-strength));
+  /* A hairline that stands out from the ones around it, half again their strength. */
+  --console-border-strong: --alpha(var(--ui-text) / calc(var(--console-border-strength) * 1.5));
 
   /* The colors a chart's series cycle through, led by the brand so a lone series is the app's
      own and then ordered to put the widest hue gap between neighbours, which is the pair a

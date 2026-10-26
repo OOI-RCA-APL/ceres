@@ -7,11 +7,14 @@ import { computed, watch } from 'vue'
 import { useQuery } from '@/api/client'
 import { useEngine } from '@/api/engine'
 import {
+  FILE_ENTRY_BUTTONS,
   type FileAction,
+  type FileActionView,
   type FileColumn,
   FileColumnsModel,
   FileCopyError,
   type FileEntry,
+  type FilePlace,
   type FilePreviewMode,
   type FileStat,
   FilePreviewSettingsModel,
@@ -37,8 +40,10 @@ import {
   previewTarget,
   selectionSummary,
 } from '@/api/files'
+import { FILE_BREADCRUMB_UI } from '@/components/c-file-history.vue'
 import { answer, useDialogs } from '@/dialogs'
 import { Failure } from '@/errors'
+import type { ValueHistory } from '@/history'
 import icons from '@/icons'
 import { useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
@@ -48,11 +53,18 @@ import { afterMenuCloses, copyText, downloadFrom, openContextMenu } from '@/util
 
 const {
   mount,
+  history,
+  viewKey,
   home = [],
   linkTo,
 } = defineProps<{
   /** The ID of the mount to browse. */
   mount: string
+  /** Names the view showing the browser, `page` or `widget/<id>`, whose preview layout it keeps. */
+  viewKey: string
+  /** The caller's Back and Forward, which records each place it opens. The browser replaces the
+  current place for a step that stands in place, a preview or a rename. */
+  history: ValueHistory<FilePlace>
   /** Breadcrumbs shown ahead of the mount's own. */
   home?: BreadcrumbItem[]
   /** Where an entry at a path leads, which makes every entry a link. Without it, opening an entry
@@ -68,7 +80,21 @@ const emit = defineEmits<{
   /** The selection asks a side preview to show `path`, which a caller keeping `path` in its URL
   replaces there rather than pushing, since a step through files is not a place to go back to. */
   preview: [path: string[]]
+  /** Back or Forward picked `place`, which the caller opens. */
+  go: [place: FilePlace]
 }>()
+
+/** Show `target` beside the listing without making it a place to go back to. */
+function previewInPlace(target: string[]) {
+  history.replace({ mount, path: target })
+  emit('preview', target)
+}
+
+/** Open `target` in place of the current entry, which Back then skips. */
+function openInPlace(target: string[]) {
+  history.replace({ mount, path: target })
+  path = target
+}
 
 const engine = useEngine()
 const queryClient = useQueryClient()
@@ -87,9 +113,12 @@ const columns = usePersisted({
   methods: [{ type: 'local-storage', key: ['files', 'columns'] }],
 })
 
+// One per file view, since a narrow widget and a wide page want their panels sized apart.
 const previewSettings = usePersisted({
   schema: FilePreviewSettingsModel,
-  methods: [{ type: 'local-storage', key: ['files', 'preview'] }],
+  methods: computed(() => [
+    { type: 'local-storage' as const, key: ['files', 'preview', ...viewKey.split('/')] },
+  ]),
 })
 
 let root = $ref<HTMLElement | null>(null)
@@ -266,7 +295,7 @@ watch(
 
     const target = previewTarget(currentDirectory, selectedEntries)
     if (!isSamePath(target, path)) {
-      emit('preview', target)
+      previewInPlace(target)
     }
   },
 )
@@ -286,7 +315,7 @@ const panelTarget = $computed(() => {
 let list = $ref<HTMLElement | null>(null)
 let toolbar = $ref<HTMLElement | null>(null)
 
-// The toolbar's buttons act on the selection, so a press on one keeps it.
+// A press in the toolbar keeps the selection, as in Finder.
 clearOnOutsidePress(
   () => list,
   () => rows.clear(),
@@ -330,14 +359,45 @@ function opener(target: string[]) {
 
 // A mount missing from the listing is one this viewer cannot reach, whose ID means nothing to them.
 const mountLabel = $computed(
-  () => mountInfo?.label ?? (mountsQuery.isPending.value ? '' : 'Unavailable Folder'),
+  () => mountInfo?.label ?? (mountsQuery.isPending.value ? '' : 'Unavailable Mount'),
 )
+
+/** A crumb for a place in the mount, whose menu describes it and copies its link. The current
+place's crumb opens that menu on a click, since going to it would change nothing. */
+function placeCrumb(target: string[], crumb: BreadcrumbItem): BreadcrumbItem {
+  const current = target.length === path.length
+  return { ...crumb, place: target, ...(current ? {} : opener(target)) }
+}
 
 const breadcrumbs = $computed<BreadcrumbItem[]>(() => [
   ...home,
-  { label: mountLabel, icon: icons.mount, ...opener([]) },
-  ...path.map((name, index) => ({ label: name, ...opener(path.slice(0, index + 1)) })),
+  placeCrumb([], { label: mountLabel, icon: icons.mount }),
+  ...path.map((name, index) => placeCrumb(path.slice(0, index + 1), { label: name })),
 ])
+
+/** The menu of the crumb for `target`. A folder in a writable mount takes a new folder too. */
+function crumbMenu(target: string[]): ContextMenuItem[][] {
+  const folder = target.length < path.length || view === 'listing'
+  return [
+    [
+      {
+        label: 'Info',
+        icon: icons.details,
+        onSelect: () => afterMenuCloses(() => showInfo(target)),
+      },
+      { label: 'Copy Link', icon: icons.share, onSelect: () => void copyLinks([target]) },
+    ],
+    writable && folder
+      ? [
+          {
+            label: 'New Folder',
+            icon: icons.folderNew,
+            onSelect: () => afterMenuCloses(() => void createDirectory(target)),
+          },
+        ]
+      : [],
+  ].filter((group) => group.length > 0)
+}
 
 function entryIcon(current: FileEntry) {
   return { directory: icons.folder, file: icons.file, other: icons.fileOther }[current.kind]
@@ -420,11 +480,12 @@ function pickFiles(event: Event) {
   void uploadFiles(files)
 }
 
-async function createDirectory() {
+/** Ask for a name and create a folder by it in `directory`. */
+async function createDirectory(directory: string[]) {
   const name = await answer(
     dialogs.fileName({ title: 'New Folder', label: 'Name', okLabel: 'Create' }),
   )
-  const target = name === false ? null : [...currentDirectory, name]
+  const target = name === false ? null : [...directory, name]
   if (target != null && (await write(() => engine.files.createDirectory(mount, target)))) {
     await refresh()
   }
@@ -533,9 +594,9 @@ async function renameEntry(directory: string[], target: FileEntry) {
   // A renamed preview stays in place beside the listing, so its new URL replaces the old one.
   if (isSamePath(source, path)) {
     if (side) {
-      emit('preview', destination)
+      previewInPlace(destination)
     } else {
-      path = destination
+      openInPlace(destination)
     }
   }
 
@@ -610,9 +671,9 @@ async function deleteEntries(directory: string[], targets: FileEntry[]) {
     // return to.
     if (isSamePath(targetPath, path)) {
       if (side) {
-        emit('preview', directory)
+        previewInPlace(directory)
       } else {
-        path = directory
+        openInPlace(directory)
       }
     }
   }
@@ -629,17 +690,6 @@ function showInfo(target: string[]) {
     ...fileInfoPlace(mountInfo, mountLabel, target),
     writable,
   })
-}
-
-type FileActionView = {
-  kind: FileAction
-  label: string
-  icon: string
-  kbds?: string[]
-  /** Offered but unable to run here, for the reason `description` gives. */
-  disabled?: boolean
-  description?: string
-  run: () => void
 }
 
 /** The keys the list answers, shown wherever the action they run is offered beside it. Delete shows
@@ -789,39 +839,54 @@ const menuItems = $computed<ContextMenuItem[][]>(() => {
             }
           }
 
-          const action = describeAction(kind, currentDirectory, selectedEntries, true)
-          return {
-            label: action.label,
-            icon: action.icon,
-            kbds: action.kbds,
-            disabled: action.disabled,
-            description: action.description,
-            onSelect: () => (asking.has(kind) ? afterMenuCloses(action.run) : action.run()),
-          }
+          return menuItem(describeAction(kind, currentDirectory, selectedEntries, true))
         }),
     )
     .filter((group) => group.length > 0)
 })
 
-/** The actions ahead of the toolbar's own buttons: the selection's beside a listing, the open
-entry's beside anything else. Opening has no button, a file's download has its own, and a
-directory's Info button describes the directory. */
-const toolbarActions = $computed<FileActionView[]>(() => {
-  if (view === 'listing') {
-    return actionsFor(selectedEntries)
-      .filter((kind) => kind !== 'open' && kind !== 'viewRaw' && kind !== 'info')
-      .map((kind) => describeAction(kind, currentDirectory, selectedEntries, true))
+function menuItem(action: FileActionView): ContextMenuItem {
+  return {
+    label: action.label,
+    icon: action.icon,
+    kbds: action.kbds,
+    disabled: action.disabled,
+    description: action.description,
+    onSelect: () => (asking.has(action.kind) ? afterMenuCloses(action.run) : action.run()),
   }
+}
 
-  if (openedEntry == null || (view !== 'file' && view !== 'other')) {
-    return []
+/** What the entry at `target` offers shown alone, open or previewed beside the listing: the same
+buttons either way, then a menu with the rest. Opening has no place, since it is open or has its
+own button. */
+function entryActions(target: string[], shown: FileEntry) {
+  const directory = target.slice(0, -1)
+  const offered: FileAction[] = actionsFor([shown]).filter((kind) => kind !== 'open')
+  const describe = (kind: FileAction) => describeAction(kind, directory, [shown], false)
+  return {
+    buttons: FILE_ENTRY_BUTTONS.filter((kind) => offered.includes(kind)).map(describe),
+    more: menuGroups
+      .map((group) =>
+        group
+          .filter(
+            (kind): kind is FileAction =>
+              kind !== 'selectAll' && offered.includes(kind) && !FILE_ENTRY_BUTTONS.includes(kind),
+          )
+          .map((kind) => menuItem(describe(kind))),
+      )
+      .filter((group) => group.length > 0),
   }
+}
 
-  const targets = [openedEntry]
-  return actionsFor(targets)
-    .filter((kind) => kind !== 'open' && kind !== 'download')
-    .map((kind) => describeAction(kind, path.slice(0, -1), targets, false))
-})
+const openedActions = $computed(() =>
+  openedEntry != null && (view === 'file' || view === 'other')
+    ? entryActions(path, openedEntry)
+    : null,
+)
+
+const panelActions = $computed(() =>
+  panelTarget == null ? null : entryActions(panelTarget.path, panelTarget.entry),
+)
 
 /** Run `kind` on the selection when the selection offers it. */
 function runOnSelection(kind: FileAction) {
@@ -905,36 +970,61 @@ function onListContext(event: MouseEvent) {
     class="@container/files flex h-full min-h-0 flex-col gap-3"
     :class="writable && isOverDropZone && 'bg-elevated'"
   >
-    <c-breadcrumb class="shrink-0" :items="breadcrumbs">
-      <!-- Nuxt UI renders an item without `to` as a bare span, so a button inside it takes
-      the focus, keyboard, and hover a link item has. Its click reaches the span's handler. -->
-      <template #item="{ item, active, ui }">
-        <component
-          :is="item.to == null ? 'button' : 'span'"
-          class="flex min-w-0 items-center gap-1.5"
-          :class="
-            item.to == null && [
-              'outline-primary/25 rounded-md focus-visible:outline-3',
-              !active && 'hover:text-default cursor-pointer transition-colors',
-            ]
-          "
-          :disabled="item.to == null ? active : undefined"
-          :type="item.to == null ? 'button' : undefined"
-        >
-          <c-icon v-if="item.icon" :class="ui.linkLeadingIcon({ active })" :name="item.icon" />
-          <span :class="ui.linkLabel()">{{ item.label }}</span>
-        </component>
-      </template>
-    </c-breadcrumb>
+    <div class="flex shrink-0 items-center gap-2">
+      <c-file-history :history @go="emit('go', $event)" />
+      <c-breadcrumb class="min-w-0" :items="breadcrumbs" :ui="FILE_BREADCRUMB_UI">
+        <!-- Nuxt UI renders an item without `to` as a bare span, so a button inside it takes
+        the focus, keyboard, and hover a link item has. Its click reaches the span's handler. -->
+        <template #item="{ item, active, ui }">
+          <!-- The trigger binds to one element, and the dropdown menu renders several. -->
+          <c-context-menu :disabled="item.place == null" :items="crumbMenu(item.place ?? [])">
+            <span class="flex min-w-0">
+              <c-dropdown-menu
+                :disabled="item.place == null || item.to != null || item.onClick != null"
+                :items="crumbMenu(item.place ?? [])"
+              >
+                <component
+                  :is="item.to == null ? 'button' : 'span'"
+                  class="flex min-w-0 items-center gap-1.5"
+                  :class="
+                    item.to == null && [
+                      'outline-primary/25 rounded-md focus-visible:outline-3',
+                      (!active || item.place != null) &&
+                        'hover:text-default cursor-pointer transition-colors',
+                    ]
+                  "
+                  :disabled="item.to == null ? active && item.place == null : undefined"
+                  :type="item.to == null ? 'button' : undefined"
+                >
+                  <c-icon
+                    v-if="item.icon"
+                    :class="ui.linkLeadingIcon({ active })"
+                    :name="item.icon"
+                  />
+                  <span :class="ui.linkLabel()">{{ item.label }}</span>
+                </component>
+              </c-dropdown-menu>
+            </span>
+          </c-context-menu>
+        </template>
+      </c-breadcrumb>
+    </div>
 
-    <div ref="toolbar" class="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1">
+    <!-- Over the listing alone while a side preview shows, since its buttons act on the
+    listing. -->
+    <div
+      ref="toolbar"
+      class="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1"
+      :style="side ? { width: `${listingWidth}px` } : undefined"
+    >
       <c-input
         v-if="view === 'listing'"
         v-model="filter"
-        class="max-w-[440px] min-w-32 flex-1"
+        aria-label="Filter"
+        class="min-w-32 flex-1"
         :icon="icons.search"
         :loading="listingQuery.isFetching.value"
-        placeholder="Filter"
+        size="sm"
         :spellcheck="false"
       >
         <template #trailing>
@@ -942,122 +1032,31 @@ function onListContext(event: MouseEvent) {
         </template>
       </c-input>
       <template v-else-if="view === 'file' && entry != null">
-        <c-text class="text-muted" variant="body2">
+        <c-text class="text-muted" variant="body3">
           {{ formatFileSize(entry.size) }} &middot; {{ formatFileTime(entry.modified) }}
         </c-text>
-        <c-button
-          color="neutral"
-          external
-          :href="filesDownloadPath(mount, path, { hidden: persisted.hidden })"
-          :icon="icons.download"
-          label="Download"
-          size="sm"
-          variant="outline"
-        />
-        <c-button
-          color="neutral"
-          :icon="icons.share"
-          label="Copy Link"
-          size="sm"
-          variant="outline"
-          @click="copyLinks([path])"
-        />
       </template>
-      <c-text v-else-if="view === 'failure'" class="text-muted" variant="body2">
+      <c-text v-else-if="view === 'failure'" class="text-muted" variant="body3">
         {{ failureMessage }}
       </c-text>
 
-      <div class="ml-auto flex shrink-0 items-center gap-1">
+      <div class="ml-auto flex shrink-0 items-center">
+        <c-file-entry-actions v-if="openedActions != null" v-bind="openedActions" />
+        <!-- The icon shows whether hidden entries show, the tooltip what a press does. -->
         <c-tooltip
-          v-for="action in toolbarActions"
-          :key="action.kind"
-          :kbds="action.kbds"
-          :text="
-            action.description == null ? action.label : `${action.label}, ${action.description}`
-          "
+          v-if="view === 'listing'"
+          :text="persisted.hidden ? 'Hide Hidden' : 'Show Hidden'"
         >
           <c-button
-            :aria-label="action.label"
-            :color="action.kind === 'delete' ? 'error' : 'neutral'"
-            :disabled="action.disabled"
-            :icon="action.icon"
+            aria-label="Show Hidden"
+            :aria-pressed="persisted.hidden"
+            color="neutral"
+            :icon="persisted.hidden ? icons.view : icons.hide"
             size="xs"
             variant="ghost"
-            @click="action.run"
+            @click="persisted.hidden = !persisted.hidden"
           />
         </c-tooltip>
-        <template v-if="view === 'listing'">
-          <c-tooltip text="Folder Info">
-            <c-button
-              aria-label="Folder Info"
-              color="neutral"
-              :icon="icons.details"
-              size="xs"
-              variant="ghost"
-              @click="showInfo(currentDirectory)"
-            />
-          </c-tooltip>
-          <!-- The icon shows whether hidden entries show, the tooltip what a press does. -->
-          <c-tooltip :text="persisted.hidden ? 'Hide Hidden' : 'Show Hidden'">
-            <c-button
-              aria-label="Show Hidden"
-              :aria-pressed="persisted.hidden"
-              color="neutral"
-              :icon="persisted.hidden ? icons.view : icons.hide"
-              size="xs"
-              variant="ghost"
-              @click="persisted.hidden = !persisted.hidden"
-            />
-          </c-tooltip>
-          <c-tooltip text="Copy Link">
-            <c-button
-              aria-label="Copy Link"
-              color="neutral"
-              :icon="icons.share"
-              size="xs"
-              variant="ghost"
-              @click="copyLinks([currentDirectory])"
-            />
-          </c-tooltip>
-          <template v-if="writable">
-            <input ref="fileInput" class="hidden" multiple type="file" @change="pickFiles" />
-            <c-tooltip text="Upload">
-              <c-button
-                aria-label="Upload"
-                color="neutral"
-                :icon="icons.upload"
-                :loading="isUploading"
-                size="xs"
-                variant="ghost"
-                @click="fileInput?.click()"
-              />
-            </c-tooltip>
-            <c-tooltip text="New Folder">
-              <c-button
-                aria-label="New Folder"
-                color="neutral"
-                :icon="icons.folderNew"
-                size="xs"
-                variant="ghost"
-                @click="createDirectory"
-              />
-            </c-tooltip>
-          </template>
-        </template>
-        <!-- A browser too narrow for a side panel always previews full, so it offers no choice. -->
-        <div v-if="wide" class="flex items-center">
-          <c-tooltip v-for="choice in previewChoices" :key="choice.mode" :text="choice.label">
-            <c-button
-              :aria-label="choice.label"
-              :aria-pressed="previewSettings.mode === choice.mode"
-              color="neutral"
-              :icon="choice.icon"
-              size="xs"
-              :variant="previewSettings.mode === choice.mode ? 'soft' : 'ghost'"
-              @click="previewSettings.mode = choice.mode"
-            />
-          </c-tooltip>
-        </div>
         <c-tooltip text="Refresh">
           <c-button
             aria-label="Refresh"
@@ -1068,6 +1067,45 @@ function onListContext(event: MouseEvent) {
             @click="refresh"
           />
         </c-tooltip>
+        <template v-if="view === 'listing' && writable">
+          <input ref="fileInput" class="hidden" multiple type="file" @change="pickFiles" />
+          <c-tooltip text="Upload">
+            <c-button
+              aria-label="Upload"
+              color="neutral"
+              :icon="icons.upload"
+              :loading="isUploading"
+              size="xs"
+              variant="ghost"
+              @click="fileInput?.click()"
+            />
+          </c-tooltip>
+          <c-tooltip text="New Folder">
+            <c-button
+              aria-label="New Folder"
+              color="neutral"
+              :icon="icons.folderNew"
+              size="xs"
+              variant="ghost"
+              @click="createDirectory(currentDirectory)"
+            />
+          </c-tooltip>
+        </template>
+        <!-- A browser too narrow for a side panel always previews full, so it offers no choice. -->
+        <c-field-group v-if="wide" class="ml-1 shrink-0">
+          <c-tooltip v-for="choice in previewChoices" :key="choice.mode" :text="choice.label">
+            <c-button
+              :aria-label="choice.label"
+              :aria-pressed="previewSettings.mode === choice.mode"
+              :class="previewSettings.mode === choice.mode && 'bg-accented'"
+              color="neutral"
+              :icon="choice.icon"
+              size="xs"
+              variant="outline"
+              @click="previewSettings.mode = choice.mode"
+            />
+          </c-tooltip>
+        </c-field-group>
       </div>
     </div>
 
@@ -1078,7 +1116,7 @@ function onListContext(event: MouseEvent) {
         :style="side ? { flex: `0 0 ${listingWidth}px` } : undefined"
       >
         <template v-if="view === 'listing'">
-          <c-text v-if="listing?.truncated" class="text-warning" variant="body2">
+          <c-text v-if="listing?.truncated" class="text-warning" variant="body3">
             Showing the first {{ listing.entries.length.toLocaleString() }} entries. The directory
             holds more than the engine lists at once.
           </c-text>
@@ -1089,7 +1127,7 @@ function onListContext(event: MouseEvent) {
             <c-icon class="text-dimmed" :name="icons.folderOpen" size="64" />
             <c-text variant="title2">{{ emptyTitle }}</c-text>
             <template v-if="emptyTitle === 'No Visible Files'">
-              <c-text class="text-muted" variant="body2">
+              <c-text class="text-muted" variant="body3">
                 {{ hiddenCount.toLocaleString('en-US') }} hidden
                 {{ hiddenCount === 1 ? 'item' : 'items' }}
               </c-text>
@@ -1103,94 +1141,98 @@ function onListContext(event: MouseEvent) {
               />
             </template>
           </div>
-          <c-context-menu v-else :items="columnItems">
-            <!-- Labels only, since the engine pages the listing by name and a page sorts alone. -->
-            <div
-              class="text-muted border-default flex shrink-0 items-center gap-2 border-b px-3 py-1 text-xs"
-            >
-              <span class="w-4 shrink-0" />
-              <span class="min-w-0 flex-1">Name</span>
-              <span
-                v-for="{ column, label } in shownColumns"
-                :key="column"
-                class="hidden shrink-0 text-right"
-                :class="columnClasses[column]"
+          <!-- The column header and the rows share one frame, so they read as one table. -->
+          <div v-else class="border-default rounded-md border">
+            <c-context-menu :items="columnItems">
+              <!-- Labels only, since the engine pages the listing by name and a page sorts
+              alone. -->
+              <div
+                class="text-muted border-default flex shrink-0 items-center gap-2 border-b px-3 py-1 text-xs"
               >
-                {{ label }}
-              </span>
-              <button
-                aria-haspopup="menu"
-                aria-label="Columns"
-                class="flex shrink-0 items-center rounded-full p-0.5 opacity-60 hover:opacity-100"
-                type="button"
-                @click.stop="openContextMenu"
-                @mousedown.stop
-                @pointerdown.stop
-              >
-                <c-icon :name="icons.columns" size="15" />
-              </button>
-            </div>
-          </c-context-menu>
-          <c-context-menu v-if="emptyTitle == null" :items="menuItems">
-            <div
-              ref="list"
-              class="outline-primary/25 rounded-md focus-visible:outline-3"
-              tabindex="0"
-              @contextmenu="onListContext"
-              @copy="onListCopy"
-              @keydown="onListKeydown"
-            >
-              <c-list>
-                <c-list-item
-                  v-for="current in entries"
-                  :key="current.name"
-                  :data-file-entry="current.name"
-                  selectable
-                  :selected="rows.isSelected(current.name)"
-                  @click="rows.onClick(current.name, $event)"
-                  @contextmenu="rows.ensureSelected(current.name)"
-                  @dblclick="path = [...currentDirectory, current.name]"
+                <span class="w-4 shrink-0" />
+                <span class="min-w-0 flex-1">Name</span>
+                <span
+                  v-for="{ column, label } in shownColumns"
+                  :key="column"
+                  class="hidden shrink-0 text-right"
+                  :class="columnClasses[column]"
                 >
-                  <c-icon class="shrink-0" :name="entryIcon(current)" size="16" />
-                  <!-- Only the name opens the entry, the rest of the row selects it. -->
-                  <c-text class="min-w-0 flex-1 truncate" variant="body2">
-                    <c-link
-                      class="max-w-full cursor-pointer truncate text-left align-top hover:underline"
-                      raw
-                      tabindex="-1"
-                      v-bind="opener([...currentDirectory, current.name])"
-                      @click.stop
+                  {{ label }}
+                </span>
+                <button
+                  aria-haspopup="menu"
+                  aria-label="Columns"
+                  class="flex shrink-0 items-center rounded-full p-0.5 opacity-60 hover:opacity-100"
+                  type="button"
+                  @click.stop="openContextMenu"
+                  @mousedown.stop
+                  @pointerdown.stop
+                >
+                  <c-icon :name="icons.columns" size="15" />
+                </button>
+              </div>
+            </c-context-menu>
+            <c-context-menu :items="menuItems">
+              <div
+                ref="list"
+                class="outline-primary/25 rounded-b-md focus-visible:outline-3"
+                tabindex="0"
+                @contextmenu="onListContext"
+                @copy="onListCopy"
+                @keydown="onListKeydown"
+              >
+                <div class="divide-default divide-y [&>:last-child]:rounded-b-md">
+                  <c-list-item
+                    v-for="current in entries"
+                    :key="current.name"
+                    :data-file-entry="current.name"
+                    selectable
+                    :selected="rows.isSelected(current.name)"
+                    @click="rows.onClick(current.name, $event)"
+                    @contextmenu="rows.ensureSelected(current.name)"
+                    @dblclick="path = [...currentDirectory, current.name]"
+                  >
+                    <c-icon class="shrink-0" :name="entryIcon(current)" size="16" />
+                    <!-- Only the name opens the entry, the rest of the row selects it. -->
+                    <c-text class="min-w-0 flex-1 truncate" variant="body3">
+                      <c-link
+                        class="max-w-full cursor-pointer truncate text-left align-top hover:underline"
+                        raw
+                        tabindex="-1"
+                        v-bind="opener([...currentDirectory, current.name])"
+                        @click.stop
+                      >
+                        {{ current.name }}
+                      </c-link>
+                    </c-text>
+                    <c-text
+                      v-for="{ column } in shownColumns"
+                      :key="column"
+                      class="text-muted hidden shrink-0 text-right"
+                      :class="columnClasses[column]"
+                      variant="body3"
                     >
-                      {{ current.name }}
-                    </c-link>
-                  </c-text>
-                  <c-text
-                    v-for="{ column } in shownColumns"
-                    :key="column"
-                    class="text-muted hidden shrink-0 text-right"
-                    :class="columnClasses[column]"
-                    variant="body2"
-                  >
-                    {{ cellText(current, column) }}
-                  </c-text>
-                  <!-- The rows share the list's one menu, since a menu per row costs thousands of
+                      {{ cellText(current, column) }}
+                    </c-text>
+                    <!-- The rows share the list's one menu, since a menu per row costs thousands of
                 mounts in a long listing. -->
-                  <button
-                    aria-haspopup="menu"
-                    :aria-label="`More Actions for ${current.name}`"
-                    class="flex shrink-0 items-center rounded-full p-0.5 opacity-60 hover:opacity-100"
-                    tabindex="-1"
-                    type="button"
-                    @click.stop="openContextMenu"
-                    @mousedown.stop
-                    @pointerdown.stop
-                  >
-                    <c-icon :name="icons.more" size="15" />
-                  </button>
-                </c-list-item>
-              </c-list>
-            </div>
-          </c-context-menu>
+                    <button
+                      aria-haspopup="menu"
+                      :aria-label="`More Actions for ${current.name}`"
+                      class="flex shrink-0 items-center rounded-full p-0.5 opacity-60 hover:opacity-100"
+                      tabindex="-1"
+                      type="button"
+                      @click.stop="openContextMenu"
+                      @mousedown.stop
+                      @pointerdown.stop
+                    >
+                      <c-icon :name="icons.more" size="15" />
+                    </button>
+                  </c-list-item>
+                </div>
+              </div>
+            </c-context-menu>
+          </div>
         </template>
 
         <c-file-preview
@@ -1200,22 +1242,24 @@ function onListContext(event: MouseEvent) {
           :hidden="persisted.hidden"
           :mount
           :path
-          @info="showInfo(path)"
         />
       </div>
 
       <template v-if="side">
+        <!-- Mounted once measured, since the handle clamps its value on mount and a width of 0
+        would clamp the saved panel width down to its minimum. -->
         <c-resize-handle
+          v-if="rootWidth > 0"
           v-model="listingWidth"
           class="absolute top-0 z-10"
           direction="horizontal"
           :max="rootWidth - PREVIEW_MIN_WIDTH"
           :min="LISTING_MIN_WIDTH"
-          :style="{ left: `${listingWidth}px` }"
+          :style="{ left: `${listingWidth + 6}px` }"
           visibility="hover"
         />
         <div
-          class="border-default flex min-h-0 min-w-0 flex-1 flex-col overflow-auto border-l pl-3"
+          class="border-default ml-3 flex min-h-0 min-w-0 flex-1 flex-col overflow-auto rounded-md border p-3"
         >
           <c-file-preview
             v-if="panelTarget != null"
@@ -1223,15 +1267,17 @@ function onListContext(event: MouseEvent) {
             :hidden="persisted.hidden"
             :mount
             :path="panelTarget.path"
-            @copy-link="copyLinks([panelTarget.path])"
-            @info="showInfo(panelTarget.path)"
             @open="path = panelTarget.path"
-          />
+          >
+            <template #actions>
+              <c-file-entry-actions v-if="panelActions != null" v-bind="panelActions" />
+            </template>
+          </c-file-preview>
           <div
             v-else
             class="text-muted flex flex-1 flex-col items-center justify-center gap-2 py-8 text-center"
           >
-            <c-text variant="body2">
+            <c-text variant="body3">
               {{
                 selectedEntries.length > 1
                   ? selectionSummary(selectedEntries)

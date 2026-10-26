@@ -4,21 +4,20 @@ import { isEqual } from 'lodash-es'
 import { watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import { useQuery } from '@/api/client'
-import { useEngine } from '@/api/engine'
 import {
-  type FileMount,
+  type FilePlace,
   filesPageKey,
   filesPagePath,
   filesRouteSegments,
   parseFilesRoute,
+  useFileHistory,
 } from '@/api/files'
+import { FILE_BREADCRUMB_UI } from '@/components/c-file-history.vue'
 import icons from '@/icons'
 
 // One instance per mount, so a step to another file in it keeps the listing in place.
 definePageMeta({ auth: true, key: (route) => filesPageKey(route.params.path) })
 
-const engine = useEngine()
 const route = useRoute()
 const router = useRouter()
 
@@ -39,11 +38,19 @@ watch(
   },
 )
 
-const mountsQuery = useQuery({
-  queryKey: ['files', 'mounts'],
-  queryFn: () => engine.files.getMounts(),
-})
-const mounts = $computed<FileMount[]>(() => mountsQuery.data.value ?? [])
+// The page's Back and Forward run across the list of mounts and every mount, so they live outside
+// this instance, which belongs to one mount.
+const viewKey = 'page'
+const history = useFileHistory(viewKey)
+watch(
+  () => ({ mount, path }),
+  (place) => history.record(place),
+  { immediate: true },
+)
+
+async function go(place: FilePlace) {
+  await router.push(filesPagePath(place.mount, place.path))
+}
 
 const home: BreadcrumbItem[] = [{ label: 'Files', icon: icons.files, to: filesPagePath(null) }]
 
@@ -73,32 +80,24 @@ async function preview(target: string[]) {
       <c-file-browser
         v-if="mount != null"
         class="min-h-0 flex-1"
+        :history
         :home
         :link-to
         :mount
         :path
+        :view-key
+        @go="go"
         @preview="preview"
         @update:path="open"
       />
 
       <!-- The mount picker. -->
       <template v-else>
-        <c-breadcrumb :items="home" />
-        <c-text
-          v-if="mountsQuery.isSuccess.value && mounts.length === 0"
-          class="text-muted"
-          variant="body2"
-        >
-          No folders are available to you.
-        </c-text>
-        <c-list>
-          <c-file-mount
-            v-for="current in mounts"
-            :key="current.id"
-            :mount="current"
-            show-component
-          />
-        </c-list>
+        <div class="flex items-center gap-2">
+          <c-file-history :history @go="go" />
+          <c-breadcrumb class="min-w-0" :items="home" :ui="FILE_BREADCRUMB_UI" />
+        </div>
+        <c-file-mounts />
       </template>
     </div>
   </c-full-page>

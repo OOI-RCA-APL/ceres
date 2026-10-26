@@ -39,8 +39,11 @@ const {
 const emit = defineEmits<{
   /** Open the entry, a directory's only action here. */
   open: []
-  info: []
-  copyLink: []
+}>()
+
+defineSlots<{
+  /** The entry's buttons, at the end of the header. */
+  actions?: () => unknown
 }>()
 
 const engine = useEngine()
@@ -100,52 +103,8 @@ const highlighted = $computed(() => {
         :name="entry.kind === 'directory' ? icons.folder : icons.file"
         size="16"
       />
-      <c-text class="min-w-0 flex-1 truncate" variant="body2">{{ entry.name }}</c-text>
-      <template v-if="entry.kind === 'file'">
-        <c-tooltip text="View Raw">
-          <c-button
-            aria-label="View Raw"
-            color="neutral"
-            external
-            :href="sourceUrl"
-            :icon="icons.open"
-            size="xs"
-            target="_blank"
-            variant="ghost"
-          />
-        </c-tooltip>
-        <c-tooltip text="Download">
-          <c-button
-            aria-label="Download"
-            color="neutral"
-            external
-            :href="downloadUrl"
-            :icon="icons.download"
-            size="xs"
-            variant="ghost"
-          />
-        </c-tooltip>
-      </template>
-      <c-tooltip text="Copy Link">
-        <c-button
-          aria-label="Copy Link"
-          color="neutral"
-          :icon="icons.share"
-          size="xs"
-          variant="ghost"
-          @click="emit('copyLink')"
-        />
-      </c-tooltip>
-      <c-tooltip text="Info">
-        <c-button
-          aria-label="Info"
-          color="neutral"
-          :icon="icons.details"
-          size="xs"
-          variant="ghost"
-          @click="emit('info')"
-        />
-      </c-tooltip>
+      <c-text class="min-w-0 flex-1 truncate" variant="body3">{{ entry.name }}</c-text>
+      <slot name="actions" />
     </div>
 
     <div class="flex min-h-0 flex-1 flex-col gap-3 overflow-auto">
@@ -159,7 +118,7 @@ const highlighted = $computed(() => {
           size="64"
         />
         <c-text variant="title2">{{ entry.name }}</c-text>
-        <c-text class="text-muted" variant="body2">
+        <c-text class="text-muted" variant="body3">
           {{ fileKindLabels[entry.kind] }}
           <template v-if="entry.kind === 'other' && entry.size != null">
             &middot; {{ formatFileSize(entry.size) }}
@@ -187,7 +146,7 @@ const highlighted = $computed(() => {
       </div>
 
       <template v-else>
-        <c-text v-if="!bare" class="text-muted shrink-0" variant="body2">
+        <c-text v-if="!bare" class="text-muted shrink-0" variant="body3">
           {{ formatFileSize(entry.size) }} &middot; {{ formatFileTime(entry.modified) }}
         </c-text>
         <img
@@ -210,7 +169,7 @@ const highlighted = $computed(() => {
         />
         <template v-else-if="preview === 'text'">
           <div v-if="text === null" class="flex flex-col items-start gap-2">
-            <c-text class="text-muted" variant="body2">This file is binary.</c-text>
+            <c-text class="text-muted" variant="body3">This file is binary.</c-text>
             <c-button
               color="neutral"
               external
@@ -234,7 +193,7 @@ const highlighted = $computed(() => {
             >{{ text }}</pre>
         </template>
         <div v-else class="flex flex-col items-start gap-2">
-          <c-text class="text-muted" variant="body2">Too large to preview.</c-text>
+          <c-text class="text-muted" variant="body3">Too large to preview.</c-text>
           <c-button
             color="neutral"
             external

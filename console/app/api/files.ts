@@ -1,7 +1,10 @@
 import { defineStore } from 'pinia'
+import { reactive, watch } from 'vue'
 import * as z from 'zod'
 
 import { useClient } from '@/api/client'
+import { type ValueHistory, createHistory } from '@/history'
+import { readStored, writeStored } from '@/persistence'
 import { utc } from '@/time'
 import { type HighlightLanguage, getHttpUrl } from '@/utilities'
 
@@ -27,6 +30,15 @@ export const FileMountModel = z.object({
 /** The mount in `mounts` with `id`, null when the caller cannot reach it. */
 export function findFileMount(mounts: readonly FileMount[] | undefined, id: string) {
   return mounts?.find((mount) => mount.id === id) ?? null
+}
+
+/** Whether `mount` belongs to the component at `root` or one below it, any mount when null. */
+export function isFileMountUnder(mount: FileMount, root: string | null) {
+  return (
+    root == null ||
+    (mount.component != null &&
+      (mount.component === root || mount.component.startsWith(`${root}.`)))
+  )
 }
 
 export type FileKind = z.infer<typeof FileKindModel>
@@ -278,6 +290,59 @@ export function filesPagePath(mount: string | null, path: readonly string[] = []
   return mount == null ? '/files' : filesUrl('/files', mount, path)
 }
 
+/** A place a file view shows, a path under a mount or the list of mounts without one. */
+export type FilePlace = z.infer<typeof FilePlaceModel>
+export const FilePlaceModel = z.object({
+  mount: z.string().nullable(),
+  path: z.array(z.string()),
+})
+
+const FileHistoryStateModel = z.object({
+  entries: z.array(FilePlaceModel).catch([]),
+  index: z.number().int().catch(-1),
+})
+
+/** The most places one file view's Back and Forward keep. */
+const FILE_HISTORY_LIMIT = 30
+
+/** The most file views held in memory at once, the least recently opened dropped first. */
+const FILE_HISTORY_VIEWS = 32
+
+const fileHistories = new Map<string, { history: ValueHistory<FilePlace>; stop: () => void }>()
+
+/** The Back and Forward history of the file view `key`, stored in local storage so it outlives a
+reload and the browser remounting for another mount. Views showing the same `key` share one. */
+export function useFileHistory(key: string): ValueHistory<FilePlace> {
+  const storageKey = ['files', 'history', key]
+  let held = fileHistories.get(key)
+  if (held != null) {
+    fileHistories.delete(key)
+  } else {
+    const parsed = FileHistoryStateModel.safeParse(readStored(storageKey))
+    const state = reactive(parsed.success ? parsed.data : { entries: [], index: -1 })
+    const history = createHistory<FilePlace>({
+      limit: FILE_HISTORY_LIMIT,
+      clone: (place) => ({ mount: place.mount, path: [...place.path] }),
+      state,
+    })
+    // Held outside any component scope, so the eviction below stops it.
+    const stop = watch(state, () => writeStored(storageKey, state), { deep: true })
+    held = { history, stop }
+  }
+
+  fileHistories.set(key, held)
+  for (const [stale, { stop }] of fileHistories) {
+    if (fileHistories.size <= FILE_HISTORY_VIEWS) {
+      break
+    }
+
+    stop()
+    fileHistories.delete(stale)
+  }
+
+  return held.history
+}
+
 /** `size` bytes in the largest binary unit that keeps the number at one or more. */
 export function formatFileSize(size: number | null): string {
   if (size == null) {
@@ -431,6 +496,21 @@ export type FileAction =
   | 'move'
   | 'copyTo'
   | 'delete'
+
+/** How a `FileAction` reads where it is offered, and what running it there does. */
+export type FileActionView = {
+  kind: FileAction
+  label: string
+  icon: string
+  kbds?: string[]
+  /** Offered but unable to run here, for the reason `description` gives. */
+  disabled?: boolean
+  description?: string
+  run: () => void
+}
+
+/** The actions an entry shown alone offers as buttons, in order, ahead of a menu with the rest. */
+export const FILE_ENTRY_BUTTONS: readonly FileAction[] = ['download', 'viewRaw', 'copyLink', 'info']
 
 /** What applies to `targets`, in the order the toolbar lists them, the context menu regrouping
 Info with Open. Opening, info and renaming take a single entry, viewing raw a single file, a

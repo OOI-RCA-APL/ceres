@@ -21,6 +21,7 @@ import {
   filesPagePath,
   filterEntries,
   findFileMount,
+  isFileMountUnder,
   formatExactFileSize,
   formatFileSize,
   highlightLanguageOf,
@@ -188,6 +189,26 @@ describe('findFileMount', () => {
     expect(findFileMount([mount], 'project')).toBe(mount)
     expect(findFileMount([mount], 'abc')).toBeNull()
     expect(findFileMount(undefined, 'project')).toBeNull()
+  })
+})
+
+describe('isFileMountUnder', () => {
+  const mountOf = (component: string | null) => ({
+    id: 'abc',
+    name: 'abc',
+    label: 'Abc',
+    component,
+    access: 'view' as const,
+    temporary: false,
+    reveal_paths: true,
+  })
+
+  it('takes the root component and those below it, and every mount without a root', () => {
+    expect(isFileMountUnder(mountOf('@a'), '@a')).toBe(true)
+    expect(isFileMountUnder(mountOf('@a.b'), '@a')).toBe(true)
+    expect(isFileMountUnder(mountOf('@ab'), '@a')).toBe(false)
+    expect(isFileMountUnder(mountOf(null), '@a')).toBe(false)
+    expect(isFileMountUnder(mountOf(null), null)).toBe(true)
   })
 })
 
