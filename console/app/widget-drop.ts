@@ -616,7 +616,7 @@ function createWidgetDrop(workspace: WorkspaceContext) {
       !event.metaKey &&
       !event.ctrlKey &&
       (card == null || !isOnWidgetFrame(event, card)) &&
-      target?.closest('[data-widget-header], [data-dismissable-layer], [role="dialog"]') == null
+      target?.closest('[data-dismissable-layer], [role="dialog"]') == null
     ) {
       workspace.clearSelection()
     }
