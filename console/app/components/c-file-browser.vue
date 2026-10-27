@@ -1,8 +1,8 @@
 <script lang="ts" setup>
 import type { BreadcrumbItem, ContextMenuItem } from '@nuxt/ui'
 import { useQueryClient } from '@tanstack/vue-query'
-import { useDropZone, useElementSize, useResizeObserver } from '@vueuse/core'
-import { computed, onMounted, watch } from 'vue'
+import { useDropZone, useElementSize } from '@vueuse/core'
+import { type Ref, computed, shallowRef, watch } from 'vue'
 
 import { useQuery } from '@/api/client'
 import { useEngine } from '@/api/engine'
@@ -14,6 +14,7 @@ import {
   FileColumnsModel,
   FileCopyError,
   type FileEntry,
+  type FileListing,
   type FilePlace,
   type FilePreviewMode,
   type FileStat,
@@ -178,6 +179,11 @@ const mountsQuery = useQuery({
 const mountInfo = $computed(() => findFileMount(mountsQuery.data.value, mount))
 const writable = $computed(() => mountInfo?.access === 'edit')
 
+// The listing query's key reads `entry`, which reads the listing, so the listing reaches `entry`
+// through this, filled in once the query exists below.
+const listingData = shallowRef<Ref<(FileListing & { directory: string[] }) | undefined>>()
+const listing = $computed(() => listingData.value?.value ?? null)
+
 // A mount is always a directory, so only a path under one needs asking what it is.
 const statQuery = useQuery(
   computed(() => ({ ...statQueryOptions(path), enabled: path.length > 0 })),
@@ -207,7 +213,7 @@ const listingQuery = useQuery({
   enabled: $$(listed),
   placeholderData: (previous) => previous,
 })
-const listing = $computed(() => listingQuery.data.value ?? null)
+listingData.value = listingQuery.data
 
 /** What the listing on screen says of `target`, so a step within it shows before the engine
 answers. The listing may still be the previous directory's. */
@@ -364,50 +370,23 @@ const mountLabel = $computed(
 )
 
 /** A crumb for a place in the mount, whose menu describes it and copies its link. The current
-place's crumb opens that menu on a click, since going to it would change nothing. */
+place's crumb opens that menu on a click, since going to it would change nothing. Every place in
+a read-only mount carries its lock. */
 function placeCrumb(target: string[], crumb: BreadcrumbItem): BreadcrumbItem {
   const current = target.length === path.length
-  return { ...crumb, place: target, ...(current ? {} : opener(target)) }
-}
-
-const crumbBar = useTemplateRef<HTMLElement>('crumbBar')
-
-/** Where the line runs from a read-only mount's lock to the last crumb, at the lock's height. */
-let readOnlyLine = $ref<{ left: number; top: number; width: number } | null>(null)
-
-function measureReadOnlyLine() {
-  const bar = crumbBar.value
-  const anchor = bar?.querySelector('[data-read-only-crumb]')
-  const lock = anchor?.querySelector('[data-read-only-lock]')
-  const last = [...(bar?.querySelectorAll('[data-crumb]') ?? [])].at(-1)
-  if (bar == null || anchor == null || lock == null || last == null || last === anchor) {
-    readOnlyLine = null
-    return
-  }
-
-  const origin = bar.getBoundingClientRect()
-  const icon = lock.getBoundingClientRect()
-  const start = icon.right + 3
-  readOnlyLine = {
-    left: start - origin.left,
-    top: Math.round(icon.top - origin.top),
-    width: last.getBoundingClientRect().right - start,
+  return {
+    ...crumb,
+    place: target,
+    viewOnly: mountInfo != null && !writable,
+    ...(current ? {} : opener(target)),
   }
 }
 
 const breadcrumbs = $computed<BreadcrumbItem[]>(() => [
   ...home,
-  placeCrumb([], {
-    label: mountLabel,
-    icon: icons.mount,
-    viewOnly: mountInfo != null && !writable,
-  }),
+  placeCrumb([], { label: mountLabel, icon: icons.mount }),
   ...path.map((name, index) => placeCrumb(path.slice(0, index + 1), { label: name })),
 ])
-
-useResizeObserver(crumbBar, measureReadOnlyLine)
-// Started once mounted, since the crumbs read state declared further down this script.
-onMounted(() => watch(() => breadcrumbs, measureReadOnlyLine, { flush: 'post', immediate: true }))
 
 /** The menu of the crumb for `target`. A folder in a writable mount takes a new folder too. */
 function crumbMenu(target: string[]): ContextMenuItem[][] {
@@ -1006,60 +985,45 @@ function onListContext(event: MouseEvent) {
   >
     <div class="flex shrink-0 items-center gap-2">
       <c-file-history :history @go="emit('go', $event)" />
-      <div ref="crumbBar" class="relative min-w-0">
-        <!-- Carries the mount's lock across every crumb below it, which shares its access, and
-        turns down at the last one like a bracket. -->
-        <div
-          v-if="readOnlyLine"
-          class="text-dimmed pointer-events-none absolute h-1 rounded-tr-sm border-t border-r border-current opacity-60"
-          :style="{
-            left: `${readOnlyLine.left}px`,
-            top: `${readOnlyLine.top}px`,
-            width: `${readOnlyLine.width}px`,
-          }"
-        />
-        <c-breadcrumb class="min-w-0" :items="breadcrumbs" :ui="FILE_BREADCRUMB_UI">
-          <!-- Nuxt UI renders an item without `to` as a bare span, so a button inside it takes
+      <c-breadcrumb class="min-w-0" :items="breadcrumbs" :ui="FILE_BREADCRUMB_UI">
+        <!-- Nuxt UI renders an item without `to` as a bare span, so a button inside it takes
         the focus, keyboard, and hover a link item has. Its click reaches the span's handler. -->
-          <template #item="{ item, active, ui }">
-            <!-- The trigger binds to one element, and the dropdown menu renders several. -->
-            <c-context-menu :disabled="item.place == null" :items="crumbMenu(item.place ?? [])">
-              <span class="flex min-w-0">
-                <c-dropdown-menu
-                  :disabled="item.place == null || item.to != null || item.onClick != null"
-                  :items="crumbMenu(item.place ?? [])"
+        <template #item="{ item, active, ui }">
+          <!-- The trigger binds to one element, and the dropdown menu renders several. -->
+          <c-context-menu :disabled="item.place == null" :items="crumbMenu(item.place ?? [])">
+            <span class="flex min-w-0">
+              <c-dropdown-menu
+                :disabled="item.place == null || item.to != null || item.onClick != null"
+                :items="crumbMenu(item.place ?? [])"
+              >
+                <component
+                  :is="item.to == null ? 'button' : 'span'"
+                  class="flex min-w-0 items-center gap-1.5"
+                  :class="
+                    item.to == null && [
+                      'outline-primary/25 rounded-md focus-visible:outline-3',
+                      (!active || item.place != null) &&
+                        'hover:text-default cursor-pointer transition-colors',
+                    ]
+                  "
+                  :disabled="item.to == null ? active && item.place == null : undefined"
+                  :type="item.to == null ? 'button' : undefined"
                 >
-                  <component
-                    :is="item.to == null ? 'button' : 'span'"
-                    class="flex min-w-0 items-center gap-1.5"
+                  <c-icon
+                    v-if="item.icon"
                     :class="
-                      item.to == null && [
-                        'outline-primary/25 rounded-md focus-visible:outline-3',
-                        (!active || item.place != null) &&
-                          'hover:text-default cursor-pointer transition-colors',
-                      ]
+                      ui.linkLeadingIcon({ active, class: FILE_BREADCRUMB_UI.linkLeadingIcon })
                     "
-                    data-crumb
-                    :data-read-only-crumb="item.viewOnly || undefined"
-                    :disabled="item.to == null ? active && item.place == null : undefined"
-                    :type="item.to == null ? 'button' : undefined"
-                  >
-                    <c-icon
-                      v-if="item.icon"
-                      :class="
-                        ui.linkLeadingIcon({ active, class: FILE_BREADCRUMB_UI.linkLeadingIcon })
-                      "
-                      :name="item.icon"
-                    />
-                    <span :class="ui.linkLabel()">{{ item.label }}</span>
-                    <c-file-read-only-lock v-if="item.viewOnly" :active raised />
-                  </component>
-                </c-dropdown-menu>
-              </span>
-            </c-context-menu>
-          </template>
-        </c-breadcrumb>
-      </div>
+                    :name="item.icon"
+                  />
+                  <span :class="ui.linkLabel()">{{ item.label }}</span>
+                  <c-file-read-only-lock v-if="item.viewOnly" :active />
+                </component>
+              </c-dropdown-menu>
+            </span>
+          </c-context-menu>
+        </template>
+      </c-breadcrumb>
     </div>
 
     <!-- Over the listing alone while a side preview shows, since its buttons act on the
