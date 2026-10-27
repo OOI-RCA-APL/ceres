@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import type { BreadcrumbItem, ContextMenuItem } from '@nuxt/ui'
 import { useQueryClient } from '@tanstack/vue-query'
-import { useDropZone, useElementSize } from '@vueuse/core'
+import { useDropZone, useElementSize, useResizeObserver } from '@vueuse/core'
 import { computed, watch } from 'vue'
 
 import { useQuery } from '@/api/client'
@@ -369,6 +369,33 @@ function placeCrumb(target: string[], crumb: BreadcrumbItem): BreadcrumbItem {
   const current = target.length === path.length
   return { ...crumb, place: target, ...(current ? {} : opener(target)) }
 }
+
+const crumbBar = useTemplateRef<HTMLElement>('crumbBar')
+
+/** Where the line runs from a read-only mount's lock to the last crumb, at the lock's height. */
+let readOnlyLine = $ref<{ left: number; top: number; width: number } | null>(null)
+
+function measureReadOnlyLine() {
+  const bar = crumbBar.value
+  const anchor = bar?.querySelector('[data-read-only-crumb]')
+  const last = [...(bar?.querySelectorAll('[data-crumb]') ?? [])].at(-1)
+  if (bar == null || anchor == null || last == null || last === anchor) {
+    readOnlyLine = null
+    return
+  }
+
+  const origin = bar.getBoundingClientRect()
+  const start = anchor.getBoundingClientRect().right + 2
+  readOnlyLine = {
+    left: start - origin.left,
+    // The lock sits raised at the top of its crumb, 10px tall.
+    top: anchor.getBoundingClientRect().top - origin.top + 5,
+    width: last.getBoundingClientRect().right - start,
+  }
+}
+
+useResizeObserver(crumbBar, measureReadOnlyLine)
+watch(() => [breadcrumbs, mountInfo], measureReadOnlyLine, { flush: 'post' })
 
 const breadcrumbs = $computed<BreadcrumbItem[]>(() => [
   ...home,
@@ -977,45 +1004,59 @@ function onListContext(event: MouseEvent) {
   >
     <div class="flex shrink-0 items-center gap-2">
       <c-file-history :history @go="emit('go', $event)" />
-      <c-breadcrumb class="min-w-0" :items="breadcrumbs" :ui="FILE_BREADCRUMB_UI">
-        <!-- Nuxt UI renders an item without `to` as a bare span, so a button inside it takes
+      <div ref="crumbBar" class="relative min-w-0">
+        <!-- Carries the mount's lock across every crumb below it, which shares its access. -->
+        <div
+          v-if="readOnlyLine"
+          class="text-muted pointer-events-none absolute h-px bg-current opacity-40"
+          :style="{
+            left: `${readOnlyLine.left}px`,
+            top: `${readOnlyLine.top}px`,
+            width: `${readOnlyLine.width}px`,
+          }"
+        />
+        <c-breadcrumb class="min-w-0" :items="breadcrumbs" :ui="FILE_BREADCRUMB_UI">
+          <!-- Nuxt UI renders an item without `to` as a bare span, so a button inside it takes
         the focus, keyboard, and hover a link item has. Its click reaches the span's handler. -->
-        <template #item="{ item, active, ui }">
-          <!-- The trigger binds to one element, and the dropdown menu renders several. -->
-          <c-context-menu :disabled="item.place == null" :items="crumbMenu(item.place ?? [])">
-            <span class="flex min-w-0">
-              <c-dropdown-menu
-                :disabled="item.place == null || item.to != null || item.onClick != null"
-                :items="crumbMenu(item.place ?? [])"
-              >
-                <component
-                  :is="item.to == null ? 'button' : 'span'"
-                  class="flex min-w-0 items-center gap-1.5"
-                  :class="
-                    item.to == null && [
-                      'outline-primary/25 rounded-md focus-visible:outline-3',
-                      (!active || item.place != null) &&
-                        'hover:text-default cursor-pointer transition-colors',
-                    ]
-                  "
-                  :disabled="item.to == null ? active && item.place == null : undefined"
-                  :type="item.to == null ? 'button' : undefined"
+          <template #item="{ item, active, ui }">
+            <!-- The trigger binds to one element, and the dropdown menu renders several. -->
+            <c-context-menu :disabled="item.place == null" :items="crumbMenu(item.place ?? [])">
+              <span class="flex min-w-0">
+                <c-dropdown-menu
+                  :disabled="item.place == null || item.to != null || item.onClick != null"
+                  :items="crumbMenu(item.place ?? [])"
                 >
-                  <c-icon
-                    v-if="item.icon"
+                  <component
+                    :is="item.to == null ? 'button' : 'span'"
+                    class="flex min-w-0 items-center gap-1.5"
                     :class="
-                      ui.linkLeadingIcon({ active, class: FILE_BREADCRUMB_UI.linkLeadingIcon })
+                      item.to == null && [
+                        'outline-primary/25 rounded-md focus-visible:outline-3',
+                        (!active || item.place != null) &&
+                          'hover:text-default cursor-pointer transition-colors',
+                      ]
                     "
-                    :name="item.icon"
-                  />
-                  <span :class="ui.linkLabel()">{{ item.label }}</span>
-                  <c-file-read-only-lock v-if="item.viewOnly" />
-                </component>
-              </c-dropdown-menu>
-            </span>
-          </c-context-menu>
-        </template>
-      </c-breadcrumb>
+                    data-crumb
+                    :data-read-only-crumb="item.viewOnly || undefined"
+                    :disabled="item.to == null ? active && item.place == null : undefined"
+                    :type="item.to == null ? 'button' : undefined"
+                  >
+                    <c-icon
+                      v-if="item.icon"
+                      :class="
+                        ui.linkLeadingIcon({ active, class: FILE_BREADCRUMB_UI.linkLeadingIcon })
+                      "
+                      :name="item.icon"
+                    />
+                    <span :class="ui.linkLabel()">{{ item.label }}</span>
+                    <c-file-read-only-lock v-if="item.viewOnly" />
+                  </component>
+                </c-dropdown-menu>
+              </span>
+            </c-context-menu>
+          </template>
+        </c-breadcrumb>
+      </div>
     </div>
 
     <!-- Over the listing alone while a side preview shows, since its buttons act on the
