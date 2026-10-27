@@ -394,9 +394,6 @@ function measureReadOnlyLine() {
   }
 }
 
-useResizeObserver(crumbBar, measureReadOnlyLine)
-watch(() => [breadcrumbs, mountInfo], measureReadOnlyLine, { flush: 'post' })
-
 const breadcrumbs = $computed<BreadcrumbItem[]>(() => [
   ...home,
   placeCrumb([], {
@@ -406,6 +403,9 @@ const breadcrumbs = $computed<BreadcrumbItem[]>(() => [
   }),
   ...path.map((name, index) => placeCrumb(path.slice(0, index + 1), { label: name })),
 ])
+
+useResizeObserver(crumbBar, measureReadOnlyLine)
+watch(() => breadcrumbs, measureReadOnlyLine, { flush: 'post' })
 
 /** The menu of the crumb for `target`. A folder in a writable mount takes a new folder too. */
 function crumbMenu(target: string[]): ContextMenuItem[][] {
