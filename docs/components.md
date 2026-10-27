@@ -121,7 +121,7 @@ class Photographer(Component):
 
 ```yaml
 components:
-  - name: camera
+  - name: photographer
     class: photographer.Photographer
     arguments:
       stills: {path: ./stills, layout: "{year}/{month}", zone: utc}
