@@ -97,6 +97,58 @@ components:
 - `writable=False` makes the component's own writes raise `PermissionError`, and the console offers the mount for viewing only. Configuration cannot make such a field writable.
 - `access` lowers what the console may do with the mount, `"view"` to browse and download only, `"none"` to hide it. Configuration may lower it further with a mapping, `output: {path: ./data, access: view}`. The console grants the least of this, `server.files.access`, and the caller's permission on the component.
 
+### Layouts
+
+A mount with a `layout` keeps its files in dated folders below its root. `dated(when)` returns the mount for the folder holding `when`, creating the folders, and `periods(after, before)` walks the folders that exist for a span, oldest first. Without a layout, `dated` returns the mount itself and `periods` yields it.
+
+```python
+from datetime import UTC, datetime
+
+from ceres import Bound, Component, Mount, PathTemplate
+
+
+class Photographer(Component):
+    stills: Bound[Mount] = Mount.Field(..., layout="{year}/{month}/{day}", zone="local")
+    file_name: PathTemplate = PathTemplate.Field(
+        "still_{datetime}_{sequence}.jpg", atoms=["sequence"]
+    )
+
+    def keep(self, image: bytes, sequence: int) -> None:
+        now = datetime.now(UTC)
+        name = self.stills.render(self.file_name, now, {"sequence": sequence})
+        (self.stills.dated(now) / name).write_bytes(image)
+```
+
+```yaml
+components:
+  - name: camera
+    class: photographer.Photographer
+    arguments:
+      stills: {path: ./stills, layout: "{year}/{month}", zone: utc}
+```
+
+- A layout names time from the year down: `{year}` or `{yy}`, then `{month}`, `{m}`, `{mon}`, `{month_name}`, or `{doy}`, then `{day}` or `{d}`, `{hour}` or `{h}`, `{minute}`, and `{second}`. `{date}`, `{time}`, and `{datetime}` count as their parts. It may also use `{component}`, `{mount}`, `{project}`, and `{host}`. The engine refuses any other atom, since `periods` could not read the time back from the folder name.
+- `zone` decides which day a time falls on, `utc` when omitted, `local` for the server's time zone, or an IANA name such as `America/Los_Angeles`.
+- Configuration replaces each key it gives, and `layout: null` turns the layout off. A key left out keeps the field's.
+- The console's "Files" page shows a "Today" button on a mount with a layout, which opens the folder holding the current time.
+
+### File Name Templates
+
+`PathTemplate` is the grammar a layout uses, for any file name a component writes. `PathTemplate.Field` declares one as a field, so configuration can change it, and refuses a bad template when the class is created or the configuration loads. `atoms` names the atoms the component supplies itself. `mount.render(template, when, values)` renders it in the mount's zone with the mount's names, and the dictionary supplies the rest.
+
+| Atoms | Render 2026-10-27 13:45:09 UTC as |
+| --- | --- |
+| `{year}` `{month}` `{day}` `{hour}` `{minute}` `{second}` | `2026` `10` `27` `13` `45` `09` |
+| `{date}` `{time}` `{datetime}` | `20261027` `134509` `20261027T134509` |
+| `{week}` `{doy}` `{epoch}` `{zone}` | `44` `300` `1793108709` `UTC` |
+| `{yy}` `{m}` `{d}` `{h}` | `26` `10` `27` `13` |
+| `{mon}` `{month_name}` `{wd}` `{weekday}` | `Oct` `October` `Tue` `Tuesday` |
+| `{component}` `{mount}` `{connection}` `{project}` `{host}` | Names the component supplies, `{host}` this machine's name by default |
+
+- Long time atoms are zero padded to a fixed width, so names sort by time. Short ones read as people write them.
+- `{time:%j}` renders a `strftime` pattern limited to `%Y %y %m %d %H %I %p %M %S %j %b %B %a %A %G %V %u %w %z %Z %%`, in English on every platform. `{{` and `}}` write a brace.
+- A template renders a relative path. The engine refuses an unknown atom, an absolute path, an empty, `.`, or `..` segment, a character Windows cannot hold in a file name, and a name Windows reserves, such as `CON`. A name atom rendering a separator fails when it renders.
+
 ## Component Trees
 
 Components can be organized into hierarchies called _component trees_. Each component is a node with an arbitrary number of children and at most one parent. Component names must be unique within their parent.

@@ -194,7 +194,7 @@ The console's "Files" page browses, previews, downloads, and changes the files a
 
 A field set to `None` offers nothing. A temporary mount is listed with a "Temporary" badge, since its files go when the component releases it.
 
-`server.files.mounts` serves directories that belong to no component, each under a name, as a path or a mapping of `path` and `access`. A relative path resolves against the project directory. Every signed-in user may browse these mounts, up to their `access`, so none is served until configured. Serving the project directory read-only is a common choice:
+`server.files.mounts` serves directories that belong to no component, each under a name, as a path or a mapping of `path`, `access`, `layout`, and `zone`. A relative path resolves against the project directory, and a `layout` gives the mount dated folders and a "Today" button, as on a component mount (see [Layouts](components.md#layouts)). Every signed-in user may browse these mounts, up to their `access`, so none is served until configured. Serving the project directory read-only is a common choice:
 
 ```yaml
 server:
