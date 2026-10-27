@@ -39,7 +39,7 @@ class MountInfo(DataObject):
     zone: str
     """IANA name of the time zone the layout reads in."""
     names: dict[str, str]
-    """Values of the name atoms the layout may use, `{host}` included."""
+    """Values of the name atoms the layout may use, `{host}` only where `reveal_paths` is on."""
 
 
 MountInfo.__name__ = "FileMount"

@@ -614,7 +614,7 @@ class PathLayout(PathTemplate):
                     continue
 
                 key = tuple(fields.get(field, 0) for field in (*_CALENDAR, "doy"))
-                found.append((key, entry.name, folder / entry.name, fields))
+                found.append((key, entry.name, Path(entry.path), fields))
 
             for _, _, path, fields in sorted(found, key=lambda item: item[:2]):
                 yield from visit(path, depth + 1, fields)
