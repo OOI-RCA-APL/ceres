@@ -445,9 +445,34 @@ class TestLayout:
         assert Mount(dated).layout == PathLayout("{year}")
         assert Mount(dated, layout="").layout is None
 
+    def test_names_a_file_by_kind_or_template(self, tmp_path: Path) -> None:
+        mount = Mount(tmp_path, layout="{year}", files={"abc": "abc/{date}.txt"})
+        when = at("2026-10-27T13:45:09Z")
+        assert mount.file("abc", when) == mount / "2026/abc/20261027.txt"
+        assert (tmp_path / "2026/abc").is_dir()
+        assert mount.file(PathTemplate("{time}.txt"), when) == mount / "2026/134509.txt"
+        with pytest.raises(ValueError, match="no file 'abcd'"):
+            mount.file("abcd", when)
+
+    def test_refuses_a_file_on_a_read_only_mount(self, tmp_path: Path) -> None:
+        mount = Mount(tmp_path, writable=False, files={"abc": "abc/{date}.txt"})
+        with pytest.raises(PermissionError):
+            mount.file("abc", at("2026-10-27T13:45:09Z"))
+
+    def test_dumps_its_files(self, tmp_path: Path) -> None:
+        mount = Mount(tmp_path, files={"abc": "{date}.txt"})
+        assert dump(mount) == {"path": str(tmp_path), "files": {"abc": "{date}.txt"}}
+        assert validate(Mount, dump(mount)).files == {"abc": PathTemplate("{date}.txt")}
+
 
 class Photographer(Component):
-    stills: Bound[Mount] = Mount.Field("./stills", layout="{mount}/{year}", zone="local")
+    stills: Bound[Mount] = Mount.Field(
+        "./stills",
+        layout="{mount}/{year}",
+        zone="local",
+        files={"still": "{datetime}_{sequence}.jpg", "thumb": "thumbs/{datetime}.jpg"},
+        atoms=["sequence"],
+    )
 
 
 def photographer(stills: object = None) -> Photographer:
@@ -522,3 +547,28 @@ class TestLayoutField:
     def test_lists_the_declared_layout(self) -> None:
         binding = get_mount_bindings(Photographer)["stills"]
         assert (binding.layout, binding.zone) == (PathLayout("{mount}/{year}"), "local")
+        assert set(binding.files) == {"still", "thumb"}
+
+    def test_writes_each_file_kind_into_the_dated_folder(self, tmp_path: Path) -> None:
+        stills = photographer({"path": str(tmp_path), "zone": "utc"}).stills
+        when = at("2026-07-01T12:00:00Z")
+        assert stills.file("still", when, {"sequence": 7}) == stills / (
+            "stills/2026/20260701T120000_7.jpg"
+        )
+        assert stills.file("thumb", when).parent.is_dir()
+
+    def test_takes_a_configured_file_and_keeps_the_others(self, tmp_path: Path) -> None:
+        setting = {"path": str(tmp_path), "files": {"still": "{date}_{sequence}.jpg"}}
+        files = photographer(setting).stills.files
+        assert {kind: file.source for kind, file in files.items()} == {
+            "still": "{date}_{sequence}.jpg",
+            "thumb": "thumbs/{datetime}.jpg",
+        }
+
+    def test_refuses_a_configured_file_kind_it_does_not_declare(self, tmp_path: Path) -> None:
+        with pytest.raises(ValidationError, match="declares no file 'abc'"):
+            validate(Photographer, {"stills": {"path": str(tmp_path), "files": {"abc": "a"}}})
+
+    def test_refuses_a_bad_file_when_declared(self) -> None:
+        with pytest.raises(ValueError, match="not an atom"):
+            Mount.Field(files={"abc": "{sequence}"})

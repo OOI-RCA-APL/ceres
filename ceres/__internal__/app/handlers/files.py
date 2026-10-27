@@ -40,6 +40,8 @@ class MountInfo(DataObject):
     """IANA name of the time zone the layout reads in."""
     names: dict[str, str]
     """Values of the name atoms the layout may use, `{host}` only where `reveal_paths` is on."""
+    files: dict[str, str]
+    """File name templates by kind that the component writes into the layout's folders."""
 
 
 MountInfo.__name__ = "FileMount"
@@ -151,6 +153,7 @@ def component_mounts(
                 layout=None if mount.layout is None else mount.layout.source,
                 zone=zone_name(mount.zone),
                 names=_names(engine, mount.names),
+                files={kind: file.source for kind, file in mount.files.items()},
             )
         )
 
@@ -171,6 +174,7 @@ async def get_mounts(engine: Engine, actor: Actor) -> list[MountInfo]:
             layout=mount.layout,
             zone=zone_name(mount.zone),
             names=_names(engine, {"mount": name}),
+            files={},
         )
         for name, mount in _engine_mounts(engine).items()
     ]

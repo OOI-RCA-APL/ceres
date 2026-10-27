@@ -158,6 +158,7 @@ function mountOf(component: string | null, fields: Partial<FileMount> = {}): Fil
     layout: null,
     zone: 'UTC',
     names: {},
+    files: {},
     ...fields,
   }
 }

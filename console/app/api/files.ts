@@ -32,6 +32,7 @@ export const FileMountModel = z.object({
   zone: z.string(),
   /** Values of the name atoms the layout may use. */
   names: z.record(z.string(), z.string()),
+  files: z.record(z.string(), z.string()),
 })
 
 /** The folder of `mount` holding `when`, null when the mount has no layout or the console cannot

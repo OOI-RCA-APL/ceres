@@ -137,7 +137,7 @@ from ceres.event import (
 from ceres.message import Message, MessageData, MessageDirectionInput, MessageFilter
 from ceres.mount import Mount, MountAccess, MountAccessInput, MountPath, StrPath
 from ceres.node import Node
-from ceres.paths import PathLayout, resolve_zone
+from ceres.paths import PathLayout, PathTemplate, resolve_zone
 from ceres.timing import delta
 from ceres.variable import InternalVariableName, Variable
 
@@ -510,6 +510,9 @@ class MountBinding(DataObject.Frozen):
     zone: str
     """Time zone the field declares for its layout and file names."""
 
+    files: Mapping[str, PathTemplate]
+    """File name templates by kind the field declares, which configuration may replace."""
+
 
 @cached(weak=True)
 def get_mount_bindings(cls: type, /) -> Mapping[Name, MountBinding]:
@@ -569,6 +572,7 @@ def get_mount_bindings(cls: type, /) -> Mapping[Name, MountBinding]:
                 access=marker.access,
                 layout=marker.layout,
                 zone=marker.zone,
+                files=marker.files,
             )
         except ValidationError as error:
             raise TypeError(
@@ -3002,6 +3006,13 @@ class MountFieldArgs(BoundFieldArgs, total=False):
     """Time zone the layout and file names render in, `utc` when omitted. Configuration may
     replace it."""
 
+    files: Mapping[str, str]
+    """File name templates by kind, see `MountPath.files`. Configuration may replace any kind
+    the field declares, and declares no other."""
+
+    atoms: Sequence[str]
+    """Atoms beyond the built-in ones that the component passes to every file template."""
+
 
 class MountField[M: MountPath](BoundField[M]):
     """Pydantic field that declares a component directory the files API serves.
@@ -3024,10 +3035,17 @@ class MountField[M: MountPath](BoundField[M]):
         access: MountAccess | None = None
         layout: PathLayout | None = None
         zone: str = "utc"
+        files: Mapping[str, PathTemplate] = field(default_factory=dict)
+        atoms: Sequence[str] = ()
 
         def settle(self, value: object) -> object:
-            """Fill the field's `layout` and `zone` into a configured path or mapping that
-            leaves them out, so a configured key replaces the field's."""
+            """Fill the field's `layout`, `zone`, and `files` into a configured path or mapping
+            that leaves them out, so a configured key replaces the field's.
+
+            Raises:
+                ValueError: If the configuration names a file kind the field does not declare,
+                    which no code would write.
+            """
             if isinstance(value, str | PathLike) and not isinstance(value, MountPath):
                 value = {"path": value}
 
@@ -3035,10 +3053,20 @@ class MountField[M: MountPath](BoundField[M]):
                 return value
 
             setting = cast("dict[str, object]", value)
+            configured = cast("Mapping[str, str]", setting.get("files") or {})
+            for kind in configured:
+                if kind not in self.files:
+                    raise ValueError(f"mount declares no file '{kind}'")
+
+            files = {
+                **self.files,
+                **{kind: PathTemplate(file, atoms=self.atoms) for kind, file in configured.items()},
+            }
             return {
                 "layout": None if self.layout is None else self.layout.source,
                 "zone": self.zone,
                 **setting,
+                "files": files,
             }
 
         def apply[P: MountPath](self, value: P | None) -> P | None:
@@ -3065,12 +3093,16 @@ class MountField[M: MountPath](BoundField[M]):
         access = kwargs.pop("access", None)
         layout = kwargs.pop("layout", None)
         zone = kwargs.pop("zone", "utc")
+        atoms = tuple(kwargs.pop("atoms", ()))
 
-        # Parsed here, so a bad layout or zone fails when the class is created.
+        # Parsed here, so a bad layout, file, or zone fails when the class is created.
         parsed = None if not layout else PathLayout(layout)
+        files = {
+            kind: PathTemplate(file, atoms=atoms) for kind, file in kwargs.pop("files", {}).items()
+        }
         resolve_zone(zone)
         if path is None and default is PydanticUndefined and "default_factory" not in kwargs:
-            kwargs["default_factory"] = lambda: Mount(layout=parsed, zone=zone)
+            kwargs["default_factory"] = lambda: Mount(layout=parsed, zone=zone, files=files)
 
         # The default passes the same validator a configured value does, which applies the
         # field's `writable` and resolves a relative path against the project.
@@ -3082,5 +3114,7 @@ class MountField[M: MountPath](BoundField[M]):
         marker.access = None if access is None else MountAccess(access)
         marker.layout = parsed
         marker.zone = zone
+        marker.files = files
+        marker.atoms = atoms
         self.metadata.append(BeforeValidator(marker.settle))
         self.metadata.append(AfterValidator(marker.apply))

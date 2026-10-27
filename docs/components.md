@@ -99,24 +99,25 @@ components:
 
 ### Layouts
 
-A mount with a `layout` keeps its files in dated folders below its root. `dated(when)` returns the mount for the folder holding `when`, creating the folders, and `periods(after, before)` walks the folders that exist for a span, oldest first. Without a layout, `dated` returns the mount itself and `periods` yields it.
+A mount with a `layout` keeps its files in dated folders below its root, and its `files` name each kind of file the component writes there. `file(kind, when, values)` returns the path a new file of that kind takes, creating its folders, and `periods(after, before)` walks the folders that exist for a span, oldest first. Without a layout, files land at the mount's root and `periods` yields the mount itself.
 
 ```python
 from datetime import UTC, datetime
 
-from ceres import Bound, Component, Mount, PathTemplate
+from ceres import Bound, Component, Mount
 
 
 class Photographer(Component):
-    stills: Bound[Mount] = Mount.Field(..., layout="{year}/{month}/{day}", zone="local")
-    file_name: PathTemplate = PathTemplate.Field(
-        "still_{datetime}_{sequence}.jpg", atoms=["sequence"]
+    stills: Bound[Mount] = Mount.Field(
+        ...,
+        layout="{year}/{month}/{day}",
+        zone="local",
+        files={"still": "still_{datetime}_{sequence}.jpg", "thumb": "thumbs/{datetime}.jpg"},
+        atoms=["sequence"],
     )
 
     def keep(self, image: bytes, sequence: int) -> None:
-        now = datetime.now(UTC)
-        name = self.stills.render(self.file_name, now, {"sequence": sequence})
-        (self.stills.dated(now) / name).write_bytes(image)
+        self.stills.file("still", datetime.now(UTC), {"sequence": sequence}).write_bytes(image)
 ```
 
 ```yaml
@@ -124,17 +125,22 @@ components:
   - name: photographer
     class: photographer.Photographer
     arguments:
-      stills: {path: ./stills, layout: "{year}/{month}", zone: utc}
+      stills:
+        path: ./stills
+        layout: "{year}/{month}"
+        zone: utc
+        files: {still: "{date}_{sequence}.jpg"}
 ```
 
 - A layout names time from the year down: `{year}` or `{yy}`, then `{month}`, `{m}`, `{mon}`, `{month_name}`, or `{doy}`, then `{day}` or `{d}`, `{hour}` or `{h}`, `{minute}`, and `{second}`. `{date}`, `{time}`, and `{datetime}` count as their parts. It may also use `{component}`, `{mount}`, `{project}`, and `{host}`. The engine refuses any other atom, since `periods` could not read the time back from the folder name.
 - `zone` decides which day a time falls on, `utc` when omitted, `local` for the server's time zone, or an IANA name such as `America/Los_Angeles`.
-- Configuration replaces each key it gives, and `layout: null` turns the layout off. A key left out keeps the field's.
+- Configuration replaces each key it gives, and `layout: null` turns the layout off. A key left out keeps the field's. Under `files` it replaces each kind it names and keeps the rest, and the engine refuses a kind the field does not declare.
+- A file template may hold folders of its own, so kinds sharing a mount stay apart. `file` also takes a `PathTemplate` for a one-off file.
 - The console's "Files" page shows a "Today" button on a mount with a layout, which opens the folder holding the current time.
 
 ### File Name Templates
 
-`PathTemplate` is the grammar a layout uses, for any file name a component writes. `PathTemplate.Field` declares one as a field, so configuration can change it, and refuses a bad template when the class is created or the configuration loads. `atoms` names the atoms the component supplies itself. `mount.render(template, when, values)` renders it in the mount's zone with the mount's names, and the dictionary supplies the rest.
+A layout and a mount's `files` share one grammar, `PathTemplate`. The engine refuses a bad template when the class is created or the configuration loads. `atoms` names the atoms the component supplies itself, and `file` fills the time in the mount's zone, the mount's names, and the dictionary for the rest. `PathTemplate.Field` declares a template outside any mount, which `mount.render(template, when, values)` renders the same way.
 
 | Atoms | Render 2026-10-27 13:45:09 UTC as |
 | --- | --- |
