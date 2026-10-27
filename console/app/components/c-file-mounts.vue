@@ -11,8 +11,8 @@ import {
 import icons from '@/icons'
 
 const { root = null, linked = true } = defineProps<{
-  /** The component whose folder this lists, its subcomponents' folders then its own mounts, the
-  top of the list with the engine's own mounts when null. */
+  /** The component whose folder this lists, its own mounts then its subcomponents' folders, the
+  top of the list with the project's own mounts when null. */
   root?: string | null
   /** Whether each row links to its page, rather than emitting `open` or `openFolder`. */
   linked?: boolean
@@ -57,24 +57,36 @@ const mounts = $computed(() =>
       }}
     </c-text>
   </slot>
-  <c-list v-else-if="folders.length > 0 || mounts.length > 0">
-    <c-list-item
-      v-for="folder in folders"
-      :key="folder"
-      :to="linked ? filesPlacePath(filePlace(null, [], folder)) : null"
-      @click="emit('openFolder', folder)"
-    >
-      <c-icon class="shrink-0" :name="icons.components" size="16" />
-      <c-text class="min-w-0 flex-1 truncate" variant="body3">
-        {{ fileComponentFolderName(folder) }}
+  <div v-else-if="folders.length > 0 || mounts.length > 0" class="flex flex-col gap-3">
+    <section v-if="mounts.length > 0" class="flex flex-col gap-1">
+      <c-text class="text-muted px-1" variant="th">
+        {{ root ?? 'Project Mounts' }}
       </c-text>
-    </c-list-item>
-    <c-file-mount
-      v-for="current in mounts"
-      :key="current.id"
-      :linked
-      :mount="current"
-      @click="emit('open', current)"
-    />
-  </c-list>
+      <c-list>
+        <c-file-mount
+          v-for="current in mounts"
+          :key="current.id"
+          :linked
+          :mount="current"
+          @click="emit('open', current)"
+        />
+      </c-list>
+    </section>
+    <section v-if="folders.length > 0" class="flex flex-col gap-1">
+      <c-text class="text-muted px-1" variant="th">Component Mounts</c-text>
+      <c-list>
+        <c-list-item
+          v-for="folder in folders"
+          :key="folder"
+          :to="linked ? filesPlacePath(filePlace(null, [], folder)) : null"
+          @click="emit('openFolder', folder)"
+        >
+          <c-icon class="shrink-0" :name="icons.components" size="16" />
+          <c-text class="min-w-0 flex-1 truncate" variant="body3">
+            {{ fileComponentFolderName(folder) }}
+          </c-text>
+        </c-list-item>
+      </c-list>
+    </section>
+  </div>
 </template>
