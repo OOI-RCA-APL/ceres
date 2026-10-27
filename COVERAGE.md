@@ -1,6 +1,6 @@
 # Coverage
 
-<!-- coverage:fingerprint:3a1667a4f59a3d6f -->
+<!-- coverage:fingerprint:2ca54aaba09f5260 -->
 
 ## Python
 
@@ -57,9 +57,9 @@
 | `ceres/address.py` | 99% |
 | `ceres/alert.py` | 85% |
 | `ceres/channel.py` | 92% |
-| `ceres/component.py` | 90% |
-| `ceres/concurrency.py` | 91% |
-| `ceres/config.py` | 83% |
+| `ceres/component.py` | 91% |
+| `ceres/concurrency.py` | 94% |
+| `ceres/config.py` | 84% |
 | `ceres/connection/__init__.py` | 62% |
 | `ceres/connection/buffer.py` | 81% |
 | `ceres/connection/source.py` | 97% |
@@ -88,11 +88,11 @@
 | `ceres/loaded.py` | 94% |
 | `ceres/logs.py` | 86% |
 | `ceres/message.py` | 96% |
-| `ceres/mount.py` | 94% |
+| `ceres/mount.py` | 95% |
 | `ceres/node.py` | 87% |
 | `ceres/notifier.py` | 100% |
 | `ceres/particle.py` | 91% |
-| `ceres/paths.py` | 100% |
+| `ceres/paths.py` | 96% |
 | `ceres/permission.py` | 95% |
 | `ceres/project.py` | 100% |
 | `ceres/pruner.py` | 58% |
@@ -145,7 +145,7 @@
 | `rust/ceres-cli/src/service.rs` | 42% |
 | `rust/ceres-config/src/database.rs` | 89% |
 | `rust/ceres-config/src/error.rs` | 95% |
-| `rust/ceres-config/src/files.rs` | 100% |
+| `rust/ceres-config/src/files.rs` | 92% |
 | `rust/ceres-config/src/logging.rs` | 91% |
 | `rust/ceres-config/src/meta.rs` | 88% |
 | `rust/ceres-config/src/server.rs` | 97% |
@@ -238,8 +238,8 @@
 | `rust/ceres-webrtc/src/delivery.rs` | 100% |
 | `rust/ceres-webrtc/src/parameter_sets.rs` | 98% |
 | `rust/ceres-webrtc/src/picture.rs` | 100% |
-| `rust/ceres-webrtc/src/server.rs` | 85% |
-| `rust/ceres-webrtc/src/session.rs` | 87% |
+| `rust/ceres-webrtc/src/server.rs` | 84% |
+| `rust/ceres-webrtc/src/session.rs` | 88% |
 | `rust/ceres-webrtc/src/socket.rs` | 96% |
 | **Total** | **75%** |
 <!-- coverage:rust:end -->
