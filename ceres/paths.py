@@ -1,3 +1,4 @@
+import os
 import re
 import socket
 from collections.abc import Callable, Iterable, Iterator, Mapping
@@ -125,7 +126,9 @@ _DIRECTIVES: Final[Mapping[str, Callable[[datetime], str]]] = {
     "u": lambda when: str(when.isoweekday()),
     "w": lambda when: str(when.isoweekday() % 7),
     "z": _offset,
-    "Z": lambda when: when.tzname() or _offset(when),
+    # Zone abbreviations differ between tzdata releases and are missing for most of the world,
+    # so a zone renders as its offset, which every renderer computes alike.
+    "Z": lambda when: "UTC" if when.utcoffset() == timedelta(0) else _offset(when),
     "%": lambda when: "%",
 }
 
@@ -585,7 +588,10 @@ class PathLayout(PathTemplate):
 
             pattern, captures = patterns[depth]
             try:
-                entries = list(folder.iterdir())
+                # On a network share every stat is a round trip, so the listing's own entry
+                # types decide which entries are folders, and only those in range are asked.
+                with os.scandir(folder) as listing:
+                    entries = list(listing)
             except FileNotFoundError, NotADirectoryError:
                 return
 
@@ -593,7 +599,7 @@ class PathLayout(PathTemplate):
             for entry in entries:
                 match = pattern.fullmatch(entry.name)
                 fields = None if match is None else _merge(known, captures, match.groups())
-                if fields is None or not entry.is_dir():
+                if fields is None:
                     continue
 
                 try:
@@ -604,11 +610,14 @@ class PathLayout(PathTemplate):
                 if period is not None and not (period[0] < before and period[1] > after):
                     continue
 
-                key = tuple(fields.get(field, 0) for field in (*_CALENDAR, "doy"))
-                found.append((key, entry.name, entry, fields))
+                if not entry.is_dir():
+                    continue
 
-            for _, _, entry, fields in sorted(found, key=lambda item: item[:2]):
-                yield from visit(entry, depth + 1, fields)
+                key = tuple(fields.get(field, 0) for field in (*_CALENDAR, "doy"))
+                found.append((key, entry.name, folder / entry.name, fields))
+
+            for _, _, path, fields in sorted(found, key=lambda item: item[:2]):
+                yield from visit(path, depth + 1, fields)
 
         yield from visit(root, 0, {})
 

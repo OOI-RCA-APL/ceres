@@ -262,6 +262,10 @@ describe('datedFolder', () => {
   it('names no folder for a mount without a layout', () => {
     expect(datedFolder(mountOf(null), new Date())).toBeNull()
   })
+
+  it('names no folder for a layout naming a host the server keeps', () => {
+    expect(datedFolder(mountOf(null, { layout: '{host}/{year}' }), new Date())).toBeNull()
+  })
 })
 
 describe('isFileMountUnder', () => {

@@ -440,6 +440,11 @@ class TestLayout:
         assert dump(mount) == {"path": str(tmp_path), "layout": "{year}", "zone": "local"}
         assert validate(Mount, dump(mount)).layout == PathLayout("{year}")
 
+    def test_an_empty_layout_clears_a_given_one(self, tmp_path: Path) -> None:
+        dated = Mount(tmp_path, layout="{year}")
+        assert Mount(dated).layout == PathLayout("{year}")
+        assert Mount(dated, layout="").layout is None
+
 
 class Photographer(Component):
     stills: Bound[Mount] = Mount.Field("./stills", layout="{mount}/{year}", zone="local")
@@ -473,6 +478,11 @@ class TestLayoutField:
 
     def test_names_the_component_and_mount(self) -> None:
         assert photographer().stills.names == {"component": "abc", "mount": "stills"}
+
+    def test_renames_its_mounts_with_the_component(self) -> None:
+        component = photographer()
+        component.system.name = "abcd"
+        assert component.stills.names["component"] == "abcd"
 
     async def test_names_the_project_of_its_engine(self, tmp_path: Path) -> None:
         path = tmp_path / "ceres.yaml"

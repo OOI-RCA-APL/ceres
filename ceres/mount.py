@@ -166,7 +166,7 @@ class MountPath(PathLike[str]):
             if access is not None:
                 self._access = MountAccess(access)
 
-            if parsed is not None:
+            if layout is not None:
                 self._layout = parsed
 
             if zone is not None:
@@ -654,6 +654,7 @@ class Mount(MountPath):
             return self
 
         folder = self / self.render(self._layout, when)
+        # A read-only mount may still read a folder that exists, which `mkdir` would refuse.
         if not folder.is_dir():
             folder.mkdir()
 

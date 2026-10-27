@@ -1959,6 +1959,7 @@ class ComponentSystem(Node, ComponentSource):
         """
         if self.parent is None:
             self._name = name
+            self.__name_mounts()
             return
 
         if name == self._name:
@@ -1973,6 +1974,7 @@ class ComponentSystem(Node, ComponentSource):
         self._name = name
         self.parent._children.pop(old_name, None)
         self.parent._children[name] = self
+        self.__name_mounts()
         self.__propagate_tree_change()
 
     @property
@@ -2994,7 +2996,7 @@ class MountFieldArgs(BoundFieldArgs, total=False):
 
     layout: str | None
     """Dated folders the mount writes into, see `PathLayout`. Configuration may replace it, or
-    clear it with `null`."""
+    clear it with `null`. A `Mount` given in code keeps its own layout."""
 
     zone: str
     """Time zone the layout and file names render in, `utc` when omitted. Configuration may

@@ -1,6 +1,6 @@
 from abc import abstractmethod
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Literal, Self, TypeAlias, override
 
@@ -1055,11 +1055,13 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
     def _validate_mount_layouts(cls, server: ServerConfig) -> ServerConfig:
         # The native section stores each engine mount's layout and zone as text, and the
         # grammar lives in Python, so a bad one fails here at load rather than at a request.
+        # The probe render refuses a name no engine mount has, such as `{component}`.
+        names = {"project": "x", "host": "x"}
         for name, setting in server.files.mounts.items():
             layout, zone = setting.get("layout"), setting.get("zone")
             try:
                 if layout:
-                    PathLayout(layout)
+                    PathLayout(layout).render(datetime.now(UTC), values={**names, "mount": name})
 
                 if zone:
                     resolve_zone(zone)

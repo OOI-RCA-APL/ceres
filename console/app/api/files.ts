@@ -34,11 +34,18 @@ export const FileMountModel = z.object({
   names: z.record(z.string(), z.string()),
 })
 
-/** The folder of `mount` holding `when`, null when the mount has no layout. */
+/** The folder of `mount` holding `when`, null when the mount has no layout or the console cannot
+render it, as when the layout names the host of a server that keeps its paths. */
 export function datedFolder(mount: FileMount, when: Date) {
-  return mount.layout == null
-    ? null
-    : new PathTemplate(mount.layout).render(when, mount.zone, mount.names)
+  if (mount.layout == null) {
+    return null
+  }
+
+  try {
+    return new PathTemplate(mount.layout).render(when, mount.zone, mount.names)
+  } catch {
+    return null
+  }
 }
 
 /** The mount in `mounts` with `id`, null when the caller cannot reach it. */

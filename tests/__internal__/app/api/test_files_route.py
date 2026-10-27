@@ -228,6 +228,15 @@ async def test_mounts_carry_their_layout_zone_and_names(tmp_path: Path) -> None:
     await engine.database.dispose()
 
 
+async def test_mounts_keep_the_host_name_where_paths_stay_hidden(tmp_path: Path) -> None:
+    engine, _ = await _engine(tmp_path, reveal_paths=False)
+
+    mounts = await get_mounts(engine, _UNRESTRICTED)
+    assert not any("host" in mount.names for mount in mounts)
+
+    await engine.database.dispose()
+
+
 def test_files_mounts_read_a_path_or_a_mapping() -> None:
     mounts = ServerFilesConfig(
         mounts={"a": "./a", "b": {"path": "/b", "access": "view", "layout": "{year}"}}
@@ -242,7 +251,11 @@ def test_files_mounts_read_a_path_or_a_mapping() -> None:
 
 @pytest.mark.parametrize(
     ("setting", "match"),
-    [({"layout": "{day}"}, "calendar"), ({"zone": "Mars/Base"}, "not a time zone")],
+    [
+        ({"layout": "{day}"}, "calendar"),
+        ({"layout": "{component}/{year}"}, "no value"),
+        ({"zone": "Mars/Base"}, "not a time zone"),
+    ],
 )
 def test_files_mounts_refuse_a_bad_layout_or_zone_at_load(
     setting: dict[str, str], match: str

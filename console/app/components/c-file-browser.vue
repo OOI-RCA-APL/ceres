@@ -180,6 +180,9 @@ const mountsQuery = useQuery({
 const mountInfo = $computed(() => findFileMount(mountsQuery.data.value, mount))
 const writable = $computed(() => mountInfo?.access === 'edit')
 
+/** Whether the mount has a layout the console can render, which "Today" opens. */
+const dated = $computed(() => mountInfo != null && datedFolder(mountInfo, new Date()) != null)
+
 /** Open the folder of the current period, which the mount's layout names. */
 function openToday() {
   const folder = mountInfo == null ? null : datedFolder(mountInfo, new Date())
@@ -1082,7 +1085,7 @@ function onListContext(event: MouseEvent) {
             @click="persisted.hidden = !persisted.hidden"
           />
         </c-tooltip>
-        <c-tooltip v-if="mountInfo?.layout != null" text="Today">
+        <c-tooltip v-if="dated" text="Today">
           <c-button
             aria-label="Today"
             color="neutral"

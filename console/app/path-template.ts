@@ -46,16 +46,15 @@ interface PathTemplateTime {
   epoch: number
   /** Offset from UTC in minutes. */
   offset: number
-  zone: string
 }
 
-// One pair of formatters per time zone a mount names, a handful in any project.
-const formatters = new Map<string, readonly [Intl.DateTimeFormat, Intl.DateTimeFormat]>()
+// One formatter per time zone a mount names, a handful in any project.
+const formatters = new Map<string, Intl.DateTimeFormat>()
 
-function zoneFormatters(zone: string) {
-  let pair = formatters.get(zone)
-  if (pair == null) {
-    const fields = {
+function zoneFormatter(zone: string) {
+  let formatter = formatters.get(zone)
+  if (formatter == null) {
+    formatter = new Intl.DateTimeFormat('en-US', {
       timeZone: zone,
       hourCycle: 'h23',
       year: 'numeric',
@@ -64,15 +63,12 @@ function zoneFormatters(zone: string) {
       hour: 'numeric',
       minute: 'numeric',
       second: 'numeric',
-    } as const
-    pair = [
-      new Intl.DateTimeFormat('en-US', { ...fields, timeZoneName: 'longOffset' }),
-      new Intl.DateTimeFormat('en-US', { timeZone: zone, timeZoneName: 'short' }),
-    ]
-    formatters.set(zone, pair)
+      timeZoneName: 'longOffset',
+    })
+    formatters.set(zone, formatter)
   }
 
-  return pair
+  return formatter
 }
 
 function part(parts: Intl.DateTimeFormatPart[], type: Intl.DateTimeFormatPartTypes) {
@@ -80,8 +76,7 @@ function part(parts: Intl.DateTimeFormatPart[], type: Intl.DateTimeFormatPartTyp
 }
 
 function readTime(when: Date, zone: string): PathTemplateTime {
-  const [numeric, named] = zoneFormatters(zone)
-  const parts = numeric.formatToParts(when)
+  const parts = zoneFormatter(zone).formatToParts(when)
   const [year, month, day, hour, minute, second] = (
     ['year', 'month', 'day', 'hour', 'minute', 'second'] as const
   ).map((type) => Number(part(parts, type)))
@@ -108,7 +103,6 @@ function readTime(when: Date, zone: string): PathTemplateTime {
     isoWeek: Math.floor((thursday.getTime() - Date.UTC(isoYear, 0, 1)) / DAY / 7) + 1,
     epoch: Math.floor(when.getTime() / 1000),
     offset,
-    zone: part(named.formatToParts(when), 'timeZoneName'),
   }
 }
 
@@ -144,7 +138,9 @@ const DIRECTIVES: Readonly<Record<string, PathTemplateRender>> = {
   u: (time) => String(time.weekday),
   w: (time) => String(time.weekday % 7),
   z: (time) => formatOffset(time.offset),
-  Z: (time) => time.zone,
+  // Zone abbreviations differ between tzdata releases and are missing for most of the world, so a
+  // zone renders as its offset, as `ceres.paths` renders it.
+  Z: (time) => (time.offset === 0 ? 'UTC' : formatOffset(time.offset)),
   '%': () => '%',
 }
 

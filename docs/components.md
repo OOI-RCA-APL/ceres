@@ -146,6 +146,7 @@ components:
 | `{component}` `{mount}` `{connection}` `{project}` `{host}` | Names the component supplies, `{host}` this machine's name by default |
 
 - Long time atoms are zero padded to a fixed width, so names sort by time. Short ones read as people write them.
+- `{zone}` and `%Z` render `UTC` at a zero offset and the offset otherwise, `-0700` in Los Angeles summer time, since zone abbreviations differ between platforms.
 - `{time:%j}` renders a `strftime` pattern limited to `%Y %y %m %d %H %I %p %M %S %j %b %B %a %A %G %V %u %w %z %Z %%`, in English on every platform. `{{` and `}}` write a brace.
 - A template renders a relative path. The engine refuses an unknown atom, an absolute path, an empty, `.`, or `..` segment, a character Windows cannot hold in a file name, and a name Windows reserves, such as `CON`. A name atom rendering a separator fails when it renders.
 

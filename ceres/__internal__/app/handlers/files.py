@@ -110,8 +110,14 @@ def _engine_mounts(engine: Engine) -> dict[str, _EngineMount]:
 
 
 def _names(engine: Engine, names: Mapping[str, str]) -> dict[str, str]:
-    """Return `names` with the `{project}` and `{host}` values every mount shares."""
-    shared = {"host": host_name()}
+    """Return `names` with the `{project}` and `{host}` values every mount shares.
+
+    The host name says where files live, so it goes out only where `reveal_paths` does.
+    """
+    shared: dict[str, str] = {}
+    if engine.config.server.files.reveal_paths:
+        shared["host"] = host_name()
+
     if engine.project is not None:
         shared["project"] = engine.project.directory.name
 
