@@ -388,8 +388,9 @@ function measureReadOnlyLine() {
   const start = anchor.getBoundingClientRect().right + 2
   readOnlyLine = {
     left: start - origin.left,
-    // The lock sits raised at the top of its crumb, 10px tall.
-    top: anchor.getBoundingClientRect().top - origin.top + 5,
+    // Through the lock's middle, which sits raised 3px above its crumb, so the line clears the
+    // names under it.
+    top: anchor.getBoundingClientRect().top - origin.top + 2,
     width: last.getBoundingClientRect().right - start,
   }
 }
@@ -1049,7 +1050,7 @@ function onListContext(event: MouseEvent) {
                       :name="item.icon"
                     />
                     <span :class="ui.linkLabel()">{{ item.label }}</span>
-                    <c-file-read-only-lock v-if="item.viewOnly" />
+                    <c-file-read-only-lock v-if="item.viewOnly" :active raised />
                   </component>
                 </c-dropdown-menu>
               </span>
