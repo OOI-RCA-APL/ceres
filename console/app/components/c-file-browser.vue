@@ -1003,7 +1003,9 @@ function onListContext(event: MouseEvent) {
                 >
                   <c-icon
                     v-if="item.icon"
-                    :class="ui.linkLeadingIcon({ active })"
+                    :class="
+                      ui.linkLeadingIcon({ active, class: FILE_BREADCRUMB_UI.linkLeadingIcon })
+                    "
                     :name="item.icon"
                   />
                   <span :class="ui.linkLabel()">{{ item.label }}</span>
