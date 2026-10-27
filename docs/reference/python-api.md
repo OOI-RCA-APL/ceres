@@ -256,6 +256,10 @@ from the package, `from ceres import Component`.
     options:
       heading_level: 3
 
+::: ceres.paths.PathTemplate
+    options:
+      heading_level: 3
+
 ::: ceres.directory.Directory
     options:
       heading_level: 3

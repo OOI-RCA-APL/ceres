@@ -36,7 +36,10 @@ _SECTIONS: list[tuple[str, tuple[str, ...]]] = [
     ("Components", ("ceres.component", "ceres.engine", "ceres.loaded", "ceres.schedule")),
     ("Connections", ("ceres.connection", "ceres.connectivity", "ceres.server", "ceres.channel")),
     ("Particles", ("ceres.particle", "ceres.record")),
-    ("Addressing", ("ceres.address", "ceres.reference", "ceres.mount", "ceres.directory")),
+    (
+        "Addressing",
+        ("ceres.address", "ceres.reference", "ceres.mount", "ceres.paths", "ceres.directory"),
+    ),
     (
         "Data",
         (

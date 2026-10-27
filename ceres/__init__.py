@@ -106,6 +106,8 @@ __all__ = [
     "ParticleData",
     "RegexParticle",
     "GroupedRegexParticle",
+    # .paths
+    "PathTemplate",
     # .permission
     "GroupPermission",
     "PermissionTargetType",
@@ -216,6 +218,7 @@ with __lazy_imports__(__name__, export=True):
         ParticleData,
         RegexParticle,
     )
+    from ceres.paths import PathTemplate
     from ceres.permission import GroupPermission, PermissionTargetType, UserPermission
     from ceres.project import Project
     from ceres.record import Record, RecordType
