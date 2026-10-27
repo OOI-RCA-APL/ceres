@@ -5,9 +5,10 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 import pytest
+import tzlocal
 from pydantic import BaseModel, ValidationError
 
-from ceres.paths import PathTemplate, proj, rel
+from ceres.paths import PathTemplate, proj, rel, zone_name
 
 
 class TestRel:
@@ -114,6 +115,17 @@ class TestPathTemplate:
         assert PathTemplate("{year}") == PathTemplate("{year}")
         assert len({PathTemplate("{year}"), PathTemplate("{year}")}) == 1
         assert str(PathTemplate("{year}")) == "{year}"
+
+
+class TestZoneName:
+    def test_names_each_zone_by_its_iana_name(self) -> None:
+        assert zone_name("utc") == "UTC"
+        assert zone_name("America/Los_Angeles") == "America/Los_Angeles"
+        assert zone_name("local") == tzlocal.get_localzone_name()
+
+    def test_refuses_unknown_zone(self) -> None:
+        with pytest.raises(ValueError, match="not a time zone"):
+            zone_name("abc")
 
 
 class Producer(BaseModel):

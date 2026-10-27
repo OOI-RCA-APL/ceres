@@ -1,5 +1,6 @@
+from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 from ceres.__internal__.app.shared import get_component_access, get_components_access
 from ceres.address import Address
@@ -7,6 +8,7 @@ from ceres.component import Component, ComponentAccessLevel
 from ceres.data import DataObject, Name
 from ceres.error import NotFoundError
 from ceres.mount import MountAccess, MountPath
+from ceres.paths import host_name, zone_name
 
 if TYPE_CHECKING:
     from ceres.__internal__.app.shared import Actor
@@ -32,6 +34,12 @@ class MountInfo(DataObject):
     reference to it."""
     reveal_paths: bool
     """Whether `?stat` answers where an entry lives on the server, the same for every mount."""
+    layout: str | None
+    """Dated folders below the root, such as `{year}/{month}`, `None` for none."""
+    zone: str
+    """IANA name of the time zone the layout reads in."""
+    names: dict[str, str]
+    """Values of the name atoms the layout may use, `{host}` included."""
 
 
 MountInfo.__name__ = "FileMount"
@@ -77,20 +85,37 @@ def _mount_access(engine: Engine, level: ComponentAccessLevel, mount: MountPath)
     return min(declared, _cap(engine), caller)
 
 
-def _engine_mounts(engine: Engine) -> dict[str, tuple[Path, MountAccess]]:
-    """Return each engine mount by name, its absolute path and effective access, which every
+class _EngineMount(NamedTuple):
+    path: Path
+    access: MountAccess
+    layout: str | None
+    zone: str
+
+
+def _engine_mounts(engine: Engine) -> dict[str, _EngineMount]:
+    """Return each engine mount by name, with its absolute path and the effective access every
     signed-in caller shares. A mount whose access is `none` is left out."""
     project = engine.project
     base = project.directory.path if project is not None else Path.cwd()
     cap = _cap(engine)
-    mounts: dict[str, tuple[Path, MountAccess]] = {}
+    mounts: dict[str, _EngineMount] = {}
     for name, setting in engine.config.server.files.mounts.items():
         declared = setting["access"]
         access = min(MountAccess.EDIT if declared is None else MountAccess(declared), cap)
         if access != MountAccess.NONE:
-            mounts[name] = ((base / setting["path"]).absolute(), access)
+            path = (base / setting["path"]).absolute()
+            mounts[name] = _EngineMount(path, access, setting["layout"], setting["zone"] or "utc")
 
     return mounts
+
+
+def _names(engine: Engine, names: Mapping[str, str]) -> dict[str, str]:
+    """Return `names` with the `{project}` and `{host}` values every mount shares."""
+    shared = {"host": host_name()}
+    if engine.project is not None:
+        shared["project"] = engine.project.directory.name
+
+    return {**shared, **names}
 
 
 def component_mounts(
@@ -117,6 +142,9 @@ def component_mounts(
                 access=access,
                 temporary=mount.temporary,
                 reveal_paths=engine.config.server.files.reveal_paths,
+                layout=None if mount.layout is None else mount.layout.source,
+                zone=zone_name(mount.zone),
+                names=_names(engine, mount.names),
             )
         )
 
@@ -131,11 +159,14 @@ async def get_mounts(engine: Engine, actor: Actor) -> list[MountInfo]:
             name=name,
             label=name,
             component=None,
-            access=access,
+            access=mount.access,
             temporary=False,
             reveal_paths=engine.config.server.files.reveal_paths,
+            layout=mount.layout,
+            zone=zone_name(mount.zone),
+            names=_names(engine, {"mount": name}),
         )
-        for name, (_, access) in _engine_mounts(engine).items()
+        for name, mount in _engine_mounts(engine).items()
     ]
 
     components = [
@@ -161,13 +192,13 @@ async def resolve_mount(engine: Engine, actor: Actor, id: str) -> ResolvedMount:
     """
     files = engine.config.server.files
     if not id.startswith("@"):
-        path, access = _engine_mounts(engine).get(id, (None, MountAccess.NONE))
-        if path is None:
+        mount = _engine_mounts(engine).get(id)
+        if mount is None:
             raise NotFoundError()
 
         return ResolvedMount(
-            path=str(path),
-            access=access,
+            path=str(mount.path),
+            access=mount.access,
             exclude=list(files.exclude),
             max_upload=files.max_upload,
             reveal_paths=files.reveal_paths,

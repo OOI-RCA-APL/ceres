@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, override
 from zoneinfo import ZoneInfo
 
+import tzlocal
 from pydantic import BeforeValidator, Field
 
 if TYPE_CHECKING:
@@ -216,6 +217,27 @@ def resolve_zone(zone: str) -> tzinfo | None:
         raise ValueError(f"'{zone}' is not a time zone, use utc, local, or an IANA name") from error
 
 
+def zone_name(zone: str) -> str:
+    """Return the IANA name of the time zone `zone` names, the system's own for `local`.
+
+    Raises:
+        ValueError: If `zone` names no known time zone.
+    """
+    resolve_zone(zone)
+    if zone == "utc":
+        return "UTC"
+
+    if zone == "local":
+        return tzlocal.get_localzone_name() or "UTC"
+
+    return zone
+
+
+def host_name() -> str:
+    """Return this machine's host name up to its first dot, the value of `{host}`."""
+    return socket.gethostname().partition(".")[0]
+
+
 class _Atom:
     __slots__ = ("name", "render")
 
@@ -413,7 +435,7 @@ def _parse_atom(source: str, body: str, extras: frozenset[str]) -> _Atom:
 def _name_value(name: str, values: Mapping[str, object]) -> str:
     given = values.get(name)
     if given is None and name == "host":
-        return socket.gethostname().partition(".")[0]
+        return host_name()
 
     if given is None:
         raise ValueError(f"atom '{{{name}}}' has no value")

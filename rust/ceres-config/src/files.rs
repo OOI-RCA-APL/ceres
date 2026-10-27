@@ -19,8 +19,8 @@ use crate::values::ByteSize;
 #[schemars(title = "ServerFilesConfig")]
 pub struct RawServerFilesConfig {
     /// Directories the file browser serves besides component mounts, keyed by name, each a
-    /// path or a mapping of `path` and `access`. A relative path resolves against the project
-    /// directory. On a network share each listed entry costs a round trip.
+    /// path or a mapping of `path`, `access`, `layout`, and `zone`. A relative path resolves
+    /// against the project directory. On a network share each listed entry costs a round trip.
     pub mounts: Option<BTreeMap<String, RawEngineMount>>,
 
     /// Glob patterns naming entries that are never listed or served, in any mount, such as
@@ -75,22 +75,40 @@ pub struct RawEngineMountSetting {
     pub path: PathBuf,
     /// Most the files API may do with the mount, `edit` when omitted.
     pub access: Option<MountAccess>,
+    /// Dated folders below the root, such as `{year}/{month}`, which the console opens at the
+    /// current period. The engine checks it when it starts.
+    pub layout: Option<String>,
+    /// Time zone the layout reads in, `utc`, `local`, or an IANA name, `utc` when omitted.
+    pub zone: Option<String>,
 }
 
 /// A validated engine mount.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct EngineMount {
     pub path: PathBuf,
     pub access: Option<MountAccess>,
+    pub layout: Option<String>,
+    pub zone: Option<String>,
 }
 
 impl From<RawEngineMount> for EngineMount {
     fn from(raw: RawEngineMount) -> Self {
         match raw {
-            RawEngineMount::Path(path) => Self { path, access: None },
-            RawEngineMount::Setting(RawEngineMountSetting { path, access }) => {
-                Self { path, access }
-            }
+            RawEngineMount::Path(path) => Self {
+                path,
+                ..Self::default()
+            },
+            RawEngineMount::Setting(RawEngineMountSetting {
+                path,
+                access,
+                layout,
+                zone,
+            }) => Self {
+                path,
+                access,
+                layout,
+                zone,
+            },
         }
     }
 }
@@ -285,13 +303,25 @@ mod tests {
         let mount = |path: &str, access| EngineMount {
             path: PathBuf::from(path),
             access,
+            ..EngineMount::default()
         };
-        let config = parse("mounts: {a: ./a, b: {path: /b, access: view}}").unwrap();
+        let config = parse(
+            "mounts: {a: ./a, b: {path: /b, access: view}, c: {path: c, layout: '{year}', zone: local}}",
+        )
+        .unwrap();
         assert_eq!(
             config.mounts.into_iter().collect::<Vec<_>>(),
             [
                 ("a".to_string(), mount("./a", None)),
                 ("b".to_string(), mount("/b", Some(MountAccess::View))),
+                (
+                    "c".to_string(),
+                    EngineMount {
+                        layout: Some("{year}".into()),
+                        zone: Some("local".into()),
+                        ..mount("c", None)
+                    }
+                ),
             ]
         );
         assert!(parse("{}").unwrap().mounts.is_empty());

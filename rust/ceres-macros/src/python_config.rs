@@ -316,6 +316,9 @@ impl ClassDefinition {
                         }
                     }
                     FieldKind::Any(annotation) => {
+                        // Binding through the declared type checks it, which nothing else does
+                        // for a field crossing untyped.
+                        let ty = &field.ty;
                         quote! {
                             #(#field_docs)*
                             #[getter]
@@ -324,7 +327,8 @@ impl ClassDefinition {
                                 &self,
                                 py: ::pyo3::Python<'_>,
                             ) -> ::pyo3::PyResult<::pyo3::Py<::pyo3::types::PyAny>> {
-                                crate::interop::to_python(py, &#access)
+                                let value: &#ty = &#access;
+                                crate::interop::to_python(py, value)
                             }
                         }
                     }

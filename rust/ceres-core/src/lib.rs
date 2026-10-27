@@ -21,9 +21,14 @@ pub mod server;
 pub mod store;
 pub mod writer;
 
-use std::path::PathBuf;
+use std::collections::BTreeMap;
+use std::net::IpAddr;
+use std::path::{Path, PathBuf};
 
-use ceres_config::{ByteSize, TimeDelta};
+use ceres_config::{
+    ByteSize, EngineMount, MaybeSequence, MountAccess, Name, ServerCertificateConfig, TimeDelta,
+    TlsVersion,
+};
 use ceres_macros::python_config;
 use pyo3::prelude::*;
 
@@ -38,9 +43,9 @@ python_config! {
     /// Process-level options applied when running the engine as a system service.
     ServiceConfig(ceres_config::ServiceConfig, ceres_config::RawServiceConfig) {
         /// Service name registered with the operating system.
-        name: Option<ceres_config::Name>,
+        name: Option<Name>,
         /// User the service runs as.
-        user: Option<ceres_config::Name>,
+        user: Option<Name>,
         /// Optional path to redirect standard output to.
         stdout: Option<PathBuf>,
         /// Optional path to redirect standard error to.
@@ -62,10 +67,10 @@ python_config! {
         /// The certificate the listener presents, `"auto"` for one Ceres issues and renews
         /// itself, or a mapping of `path`, `key`, `key-password`, and `auto`.
         #[python(any = "str | dict[str, typing.Any]")]
-        certificate: ceres_config::ServerCertificateConfig,
+        certificate: ServerCertificateConfig,
         /// Lowest TLS version offered, `"1.2"` or `"1.3"`.
         #[python(any = "str")]
-        min_version: ceres_config::TlsVersion,
+        min_version: TlsVersion,
     }
 
     /// The plain HTTP listener of the engine's HTTP server.
@@ -96,20 +101,20 @@ python_config! {
         enabled: bool,
         /// Origins allowed to make cross-origin requests.
         #[python(any = "str | list[str]")]
-        allow_origins: ceres_config::MaybeSequence<String>,
+        allow_origins: MaybeSequence<String>,
         /// Pattern matching additional allowed origins.
         allow_origin_regex: Option<String>,
         /// Methods allowed for cross-origin requests.
         #[python(any = "str | list[str]")]
-        allow_methods: ceres_config::MaybeSequence<String>,
+        allow_methods: MaybeSequence<String>,
         /// Headers allowed in cross-origin requests.
         #[python(any = "str | list[str]")]
-        allow_headers: ceres_config::MaybeSequence<String>,
+        allow_headers: MaybeSequence<String>,
         /// Whether credentialed cross-origin requests are allowed.
         allow_credentials: bool,
         /// Headers exposed to cross-origin callers.
         #[python(any = "str | list[str]")]
-        expose_headers: ceres_config::MaybeSequence<String>,
+        expose_headers: MaybeSequence<String>,
         /// How long preflight responses may be cached, in seconds.
         max_age: u64,
     }
@@ -146,7 +151,7 @@ python_config! {
         /// Addresses browsers are told to reach the media port at, besides those of every
         /// interface.
         #[python(any = "list[str]")]
-        hosts: Vec<std::net::IpAddr>,
+        hosts: Vec<IpAddr>,
         /// Most WebRTC sessions served at once.
         max_sessions: u64,
         /// How long a session waits for its browser to connect before giving up its slot.
@@ -156,17 +161,17 @@ python_config! {
     /// What the console's file browser serves.
     ServerFilesConfig(ceres_config::ServerFilesConfig, ceres_config::RawServerFilesConfig) {
         /// Directories the file browser serves besides component mounts, keyed by name. Each
-        /// is set as a path or a mapping of `path` and `access`, and reads back as the mapping,
-        /// `access` `None` when the setting omits it.
+        /// is set as a path or a mapping of `path`, `access`, `layout`, and `zone`, and reads
+        /// back as the mapping, each key `None` when the setting omits it.
         #[python(any = "dict[str, typing.Any]")]
-        mounts: std::collections::BTreeMap<String, ceres_config::EngineMount>,
+        mounts: BTreeMap<String, EngineMount>,
         /// Glob patterns naming entries that are never listed or served, in any mount.
         exclude: Vec<String>,
         /// Largest file one upload may write, in bytes, unlimited when `None`.
         max_upload: Option<ByteSize>,
         /// Most any caller may do with any mount, `"none"`, `"view"`, or `"edit"`.
         #[python(any = "str")]
-        access: ceres_config::MountAccess,
+        access: MountAccess,
         /// Whether the console may show where an entry lives on the server.
         reveal_paths: bool,
     }
@@ -264,6 +269,6 @@ fn ceres_core(module: &Bound<'_, PyModule>) -> PyResult<()> {
 /// distribution instead so the packaging that names it lives at the repository root and
 /// there is no manifest beside the crate to find.
 pub fn stub_info() -> pyo3_stub_gen::Result<pyo3_stub_gen::StubInfo> {
-    let manifest: &std::path::Path = env!("CARGO_MANIFEST_DIR").as_ref();
+    let manifest: &Path = env!("CARGO_MANIFEST_DIR").as_ref();
     pyo3_stub_gen::StubInfo::from_pyproject_toml(manifest.join("../../pyproject.toml"))
 }

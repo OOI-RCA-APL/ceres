@@ -79,6 +79,7 @@ from ceres.level import Level
 from ceres.logs import LogEntryFilter
 from ceres.message import MessageFilter
 from ceres.particle import ParticleFilter
+from ceres.paths import PathLayout, resolve_zone
 from ceres.project import Project
 from ceres.schedule import ScheduleExpr
 
@@ -1049,6 +1050,23 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
         Discriminator(_database_config_type),
     ] = Field(default_factory=SQLiteDatabaseConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
+
+    @field_validator("server")
+    def _validate_mount_layouts(cls, server: ServerConfig) -> ServerConfig:
+        # The native section stores each engine mount's layout and zone as text, and the
+        # grammar lives in Python, so a bad one fails here at load rather than at a request.
+        for name, setting in server.files.mounts.items():
+            layout, zone = setting.get("layout"), setting.get("zone")
+            try:
+                if layout:
+                    PathLayout(layout)
+
+                if zone:
+                    resolve_zone(zone)
+            except ValueError as error:
+                raise ValueError(f"engine mount '{name}': {error}") from error
+
+        return server
 
     @classmethod
     def read(cls, source: ConfigSource[Self]) -> Self:

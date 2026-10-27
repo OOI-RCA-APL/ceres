@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 import pytest
@@ -7,9 +8,10 @@ from ceres.__internal__.app.handlers.components import get_component
 from ceres.__internal__.app.handlers.files import get_mounts, resolve_mount
 from ceres.__internal__.app.shared import Actor
 from ceres.component import ComponentAccessLevel, ComponentConfig, get_mount_bindings
-from ceres.config import ServerConfig, ServerFilesConfig
-from ceres.error import NotFoundError
+from ceres.config import Config, ServerConfig, ServerFilesConfig
+from ceres.error import ConfigValidationError, NotFoundError
 from ceres.mount import MountAccess
+from ceres.paths import host_name
 from ceres.permission import PermissionTargetType, UserPermission
 from ceres.user import User
 
@@ -21,7 +23,7 @@ class Hoarder(Component):
     ledger: Bound[Mount] = Mount.Field(..., title="Ledger", writable=False)
     vault: Bound[AsyncMount] = Mount.Field(..., access="none")
     spare: Bound[Mount | None] = Mount.Field(default=None)
-    scratch: Bound[Mount] = Mount.Field()
+    scratch: Bound[Mount] = Mount.Field(layout="{mount}/{year}")
     plain: Mount | None = None
 
 
@@ -31,7 +33,12 @@ async def _engine(
     engine = Engine()
     mounts = {
         "project": ".",
-        "logs": {"path": str(tmp_path), "access": "view"},
+        "logs": {
+            "path": str(tmp_path),
+            "access": "view",
+            "layout": "{year}",
+            "zone": "America/Los_Angeles",
+        },
         "vault": {"path": "abc", "access": "none"},
     }
     engine.config.server = ServerConfig(
@@ -201,14 +208,52 @@ async def test_engine_mounts_serve_any_signed_in_caller(tmp_path: Path) -> None:
     await engine.database.dispose()
 
 
+async def test_mounts_carry_their_layout_zone_and_names(tmp_path: Path) -> None:
+    engine, _ = await _engine(tmp_path)
+
+    mounts = {mount.id: mount for mount in await get_mounts(engine, _UNRESTRICTED)}
+    logs, scratch = mounts["logs"], mounts["@hoarder/scratch"]
+    assert (logs.layout, logs.zone, logs.names) == (
+        "{year}",
+        "America/Los_Angeles",
+        {"host": host_name(), "mount": "logs"},
+    )
+    assert (scratch.layout, scratch.zone, scratch.names) == (
+        "{mount}/{year}",
+        "UTC",
+        {"host": host_name(), "component": "hoarder", "mount": "scratch"},
+    )
+    assert mounts["project"].layout is None
+
+    await engine.database.dispose()
+
+
 def test_files_mounts_read_a_path_or_a_mapping() -> None:
-    mounts = ServerFilesConfig(mounts={"a": "./a", "b": {"path": "/b", "access": "view"}}).mounts
+    mounts = ServerFilesConfig(
+        mounts={"a": "./a", "b": {"path": "/b", "access": "view", "layout": "{year}"}}
+    ).mounts
     assert mounts == {
-        "a": {"path": "./a", "access": None},
-        "b": {"path": "/b", "access": "view"},
+        "a": {"path": "./a", "access": None, "layout": None, "zone": None},
+        "b": {"path": "/b", "access": "view", "layout": "{year}", "zone": None},
     }
     with pytest.raises(ValueError, match="mounts"):
         ServerFilesConfig(mounts={"@a": "./a"})
+
+
+@pytest.mark.parametrize(
+    ("setting", "match"),
+    [({"layout": "{day}"}, "calendar"), ({"zone": "Mars/Base"}, "not a time zone")],
+)
+def test_files_mounts_refuse_a_bad_layout_or_zone_at_load(
+    setting: dict[str, str], match: str
+) -> None:
+    mounts = {"a": {"path": "a", **setting}}
+    with pytest.raises(ConfigValidationError) as raised:
+        Config.read({"server": {"files": {"mounts": mounts}}})
+
+    [problem] = raised.value.problems
+    assert problem.location == ["server"]
+    assert re.search(f"'a'.*{match}", problem.message)
 
 
 def test_files_max_upload_reads_a_byte_size() -> None:

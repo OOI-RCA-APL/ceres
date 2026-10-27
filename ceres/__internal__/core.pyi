@@ -1174,8 +1174,8 @@ class ServerFilesConfig:
     def mounts(self) -> dict[str, Any]:
         r"""
         Directories the file browser serves besides component mounts, keyed by name. Each
-        is set as a path or a mapping of `path` and `access`, and reads back as the mapping,
-        `access` `None` when the setting omits it.
+        is set as a path or a mapping of `path`, `access`, `layout`, and `zone`, and reads
+        back as the mapping, each key `None` when the setting omits it.
         """
     @property
     def exclude(self) -> list[str]:
