@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import * as z from 'zod'
 
+import { Address } from '@/api/address'
 import { useClient } from '@/api/client'
 import { type ValueHistory, createHistory } from '@/history'
 import { usePersisted } from '@/persistence'
@@ -38,6 +39,34 @@ export function isFileMountUnder(mount: FileMount, root: string | null) {
     (mount.component != null &&
       (mount.component === root || mount.component.startsWith(`${root}.`)))
   )
+}
+
+/** The component folders from below `root` down to `address`, each named by its address, so
+`@rig.cam.lens` under `@rig` gives `@rig.cam` then `@rig.cam.lens`. */
+export function fileComponentChain(address: string, root: string | null): string[] {
+  const names = Address.parse(address).names
+  const chain = names.map((_, index) => `@${names.slice(0, index + 1).join('.')}`)
+  return chain.slice(root == null ? 0 : chain.indexOf(root) + 1)
+}
+
+/** The component folders in the folder of `root`, the top of the list when null, in order. A
+component shows as a folder whenever a mount sits at or below it. */
+export function childComponentFolders(mounts: readonly FileMount[], root: string | null): string[] {
+  const depth = root == null ? 0 : Address.parse(root).depth
+  const folders = new Set<string>()
+  for (const mount of mounts) {
+    if (mount.component != null && mount.component !== root && isFileMountUnder(mount, root)) {
+      folders.add(fileComponentChain(mount.component, null)[depth]!)
+    }
+  }
+  return [...folders].sort()
+}
+
+/** How the folder of the component at `address` reads: a top-level component by its address, one
+below it by its own name. */
+export function fileComponentFolderName(address: string): string {
+  const parsed = Address.parse(address)
+  return parsed.depth === 1 ? address : (parsed.name ?? address)
 }
 
 export type FileKind = z.infer<typeof FileKindModel>
@@ -220,23 +249,20 @@ function filesUrl(base: string, mount: string, path: readonly string[]): string 
   ].join('/')
 }
 
-/** Split a files URL's `segments` into the mount and the path under it. An engine mount takes
-one segment, its name, and a component's two, its address, which starts with `@`, and its name. A
-malformed mount is kept whole, which no mount matches. */
-export function parseFilesRoute(segments: readonly string[]): {
-  mount: string | null
-  path: string[]
-} {
+/** Split a files URL's `segments` into the place they name. An engine mount takes one segment, its
+name, and a component's two, its address, which starts with `@`, and its name. A lone address is
+that component's folder. */
+export function parseFilesRoute(segments: readonly string[]): FilePlace {
   const [first, second, ...rest] = segments
   if (first == null) {
-    return { mount: null, path: [] }
+    return filePlace(null)
   }
 
-  if (first.startsWith('@') && second != null) {
-    return { mount: `${first}/${second}`, path: rest }
+  if (first.startsWith('@')) {
+    return second == null ? filePlace(null, [], first) : filePlace(`${first}/${second}`, rest)
   }
 
-  return { mount: first, path: segments.slice(1) }
+  return filePlace(first, segments.slice(1))
 }
 
 /** The files page's catch-all route parameter as segments. The router gives a string for one
@@ -246,7 +272,7 @@ export function filesRouteSegments(value: string | readonly string[] | undefined
 }
 
 /** The key the files page mounts under, one instance per mount, so moving within a mount keeps
-the browser's selection and focus. */
+the browser's selection and focus. Every component folder shares the list's instance. */
 export function filesPageKey(value: string | readonly string[] | undefined): string {
   return `files:${parseFilesRoute(filesRouteSegments(value)).mount ?? ''}`
 }
@@ -289,12 +315,32 @@ export function filesPagePath(mount: string | null, path: readonly string[] = []
   return mount == null ? '/files' : filesUrl('/files', mount, path)
 }
 
-/** A place a file view shows, a path under a mount or the list of mounts without one. */
+/** The console's page for `place`. */
+export function filesPlacePath(place: FilePlace): string {
+  return place.mount == null && place.component != null
+    ? `/files/${encodeURIComponent(place.component).replaceAll('%40', '@')}`
+    : filesPagePath(place.mount, place.path)
+}
+
+/** A place a file view shows: a path under a mount, or without a mount the list of mounts and
+component folders in `component`'s folder, the top of the list when null. `component` counts only
+while `mount` is null, and `filePlace` keeps it null otherwise so two equal places compare equal. */
 export type FilePlace = z.infer<typeof FilePlaceModel>
 export const FilePlaceModel = z.object({
   mount: z.string().nullable(),
+  component: z.string().nullable().catch(null),
   path: z.array(z.string()),
 })
+
+export function filePlace(
+  mount: string | null,
+  path: readonly string[] = [],
+  component: string | null = null,
+): FilePlace {
+  return mount == null
+    ? { mount, component, path: [] }
+    : { mount, component: null, path: [...path] }
+}
 
 const FileHistoryStateModel = z.object({
   entries: z.array(FilePlaceModel).catch([]),
@@ -313,7 +359,7 @@ export function useFileHistory(key: string): ValueHistory<FilePlace> {
   })
   return createHistory<FilePlace>({
     limit: FILE_HISTORY_LIMIT,
-    clone: (place) => ({ mount: place.mount, path: [...place.path] }),
+    clone: (place) => filePlace(place.mount, place.path, place.component),
     state,
   })
 }

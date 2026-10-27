@@ -6,8 +6,12 @@ import { useRoute, useRouter } from 'vue-router'
 
 import {
   type FilePlace,
+  fileComponentChain,
+  fileComponentFolderName,
+  filePlace,
   filesPageKey,
   filesPagePath,
+  filesPlacePath,
   filesRouteSegments,
   parseFilesRoute,
   useFileHistory,
@@ -25,15 +29,18 @@ const router = useRouter()
 const initial = parseFilesRoute(filesRouteSegments(route.params.path))
 const mount = initial.mount
 let path = $ref(initial.path)
+// The list's instance serves every component folder, so the folder follows the route.
+let component = $ref(initial.component)
 
 // A route leaving for another mount reaches this instance before it unmounts, so only a route
-// within its own mount moves the path.
+// within its own mount, or among the folders of the list, moves it.
 watch(
   () => route.params.path,
   (value) => {
     const next = parseFilesRoute(filesRouteSegments(value))
     if (next.mount === mount) {
       path = next.path
+      component = next.component
     }
   },
 )
@@ -43,16 +50,26 @@ watch(
 const viewKey = 'page'
 const history = useFileHistory(viewKey)
 watch(
-  () => ({ mount, path }),
+  () => filePlace(mount, path, component),
   (place) => history.record(place),
   { immediate: true },
 )
 
 async function go(place: FilePlace) {
-  await router.push(filesPagePath(place.mount, place.path))
+  await router.push(filesPlacePath(place))
 }
 
 const home: BreadcrumbItem[] = [{ label: 'Files', icon: icons.files, to: filesPagePath(null) }]
+
+/** The list's crumbs, the top of the list, then each component folder down to the one shown. */
+const listCrumbs = $computed<BreadcrumbItem[]>(() => [
+  ...home,
+  ...(component == null ? [] : fileComponentChain(component, null)).map((folder) => ({
+    label: fileComponentFolderName(folder),
+    icon: icons.components,
+    to: filesPlacePath(filePlace(null, [], folder)),
+  })),
+])
 
 function linkTo(target: string[]) {
   return filesPagePath(mount, target)
@@ -95,9 +112,9 @@ async function preview(target: string[]) {
       <template v-else>
         <div class="flex items-center gap-2">
           <c-file-history :history @go="go" />
-          <c-breadcrumb class="min-w-0" :items="home" :ui="FILE_BREADCRUMB_UI" />
+          <c-breadcrumb class="min-w-0" :items="listCrumbs" :ui="FILE_BREADCRUMB_UI" />
         </div>
-        <c-file-mounts />
+        <c-file-mounts :root="component" />
       </template>
     </div>
   </c-full-page>

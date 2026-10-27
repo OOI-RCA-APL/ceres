@@ -4,7 +4,12 @@ import {
   FileColumnsModel,
   type FileEntry,
   TEXT_PREVIEW_LIMIT,
+  childComponentFolders,
   copyFile,
+  fileComponentChain,
+  fileComponentFolderName,
+  filePlace,
+  filesPlacePath,
   decodeText,
   describeFileWriteStatus,
   droppedFiles,
@@ -138,6 +143,18 @@ describe('filesApiPath', () => {
   })
 })
 
+function mountOf(component: string | null) {
+  return {
+    id: 'abc',
+    name: 'abc',
+    label: 'Abc',
+    component,
+    access: 'view' as const,
+    temporary: false,
+    reveal_paths: true,
+  }
+}
+
 describe('filesPagePath', () => {
   it('leads to the mount picker without a mount', () => {
     expect(filesPagePath(null)).toBe('/files')
@@ -147,18 +164,52 @@ describe('filesPagePath', () => {
 
 describe('parseFilesRoute', () => {
   it('reads the mount from one segment for the engine and two for a component', () => {
-    expect(parseFilesRoute([])).toEqual({ mount: null, path: [] })
-    expect(parseFilesRoute(['abc', '@a', 'b'])).toEqual({ mount: 'abc', path: ['@a', 'b'] })
-    expect(parseFilesRoute(['@a.b', 'c', 'd'])).toEqual({ mount: '@a.b/c', path: ['d'] })
+    expect(parseFilesRoute([])).toEqual(filePlace(null))
+    expect(parseFilesRoute(['abc', '@a', 'b'])).toEqual(filePlace('abc', ['@a', 'b']))
+    expect(parseFilesRoute(['@a.b', 'c', 'd'])).toEqual(filePlace('@a.b/c', ['d']))
   })
 
-  it('keeps a malformed mount whole', () => {
-    expect(parseFilesRoute(['@a'])).toEqual({ mount: '@a', path: [] })
+  it('reads a lone address as its component folder', () => {
+    expect(parseFilesRoute(['@a.b'])).toEqual(filePlace(null, [], '@a.b'))
   })
 
   it('round trips the page path', () => {
-    const segments = filesPagePath('@a.b/c', ['d']).split('/').slice(2).map(decodeURIComponent)
-    expect(parseFilesRoute(segments)).toEqual({ mount: '@a.b/c', path: ['d'] })
+    for (const place of [filePlace('@a.b/c', ['d']), filePlace(null, [], '@a.b')]) {
+      const segments = filesPlacePath(place).split('/').slice(2).map(decodeURIComponent)
+      expect(parseFilesRoute(segments)).toEqual(place)
+    }
+  })
+})
+
+describe('filePlace', () => {
+  it('keeps the component only for a place without a mount', () => {
+    expect(filePlace('abc', ['d'], '@a')).toEqual({ mount: 'abc', component: null, path: ['d'] })
+    expect(filePlace(null, ['d'], '@a')).toEqual({ mount: null, component: '@a', path: [] })
+  })
+})
+
+describe('fileComponentChain', () => {
+  it('names each folder below the root down to the address', () => {
+    expect(fileComponentChain('@a.b.c', '@a')).toEqual(['@a.b', '@a.b.c'])
+    expect(fileComponentChain('@a.b', null)).toEqual(['@a', '@a.b'])
+    expect(fileComponentChain('@a', '@a')).toEqual([])
+  })
+})
+
+describe('childComponentFolders', () => {
+  const mounts = ['@b.c', '@a', '@a.d.e', null].map((component) => mountOf(component))
+
+  it('lists one level below the root for every mount under it', () => {
+    expect(childComponentFolders(mounts, null)).toEqual(['@a', '@b'])
+    expect(childComponentFolders(mounts, '@a')).toEqual(['@a.d'])
+    expect(childComponentFolders(mounts, '@b.c')).toEqual([])
+  })
+})
+
+describe('fileComponentFolderName', () => {
+  it('names a top-level component by its address and one below by its name', () => {
+    expect(fileComponentFolderName('@a')).toBe('@a')
+    expect(fileComponentFolderName('@a.b')).toBe('b')
   })
 })
 
@@ -193,16 +244,6 @@ describe('findFileMount', () => {
 })
 
 describe('isFileMountUnder', () => {
-  const mountOf = (component: string | null) => ({
-    id: 'abc',
-    name: 'abc',
-    label: 'Abc',
-    component,
-    access: 'view' as const,
-    temporary: false,
-    reveal_paths: true,
-  })
-
   it('takes the root component and those below it, and every mount without a root', () => {
     expect(isFileMountUnder(mountOf('@a'), '@a')).toBe(true)
     expect(isFileMountUnder(mountOf('@a.b'), '@a')).toBe(true)

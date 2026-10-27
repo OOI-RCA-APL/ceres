@@ -2,7 +2,13 @@
 import type { BreadcrumbItem } from '@nuxt/ui'
 import { computed, watch } from 'vue'
 
-import { useFileHistory } from '@/api/files'
+import {
+  type FilePlace,
+  fileComponentChain,
+  fileComponentFolderName,
+  filePlace,
+  useFileHistory,
+} from '@/api/files'
 import { FILE_BREADCRUMB_UI } from '@/components/c-file-history.vue'
 import icons from '@/icons'
 import { usePersisted } from '@/persistence'
@@ -21,11 +27,8 @@ const workspace = useWorkspace()
 /** The component whose mounts the widget lists, null for every mount. */
 const root = $computed(() => filesWidgetRoot(widget.component, workspace.scope))
 
-/** Where the widget opens, the list of mounts when `mount` is null. */
-const start = $computed(() => ({
-  mount: widget.mount ?? null,
-  path: widget.mount == null ? [] : widget.path,
-}))
+/** Where the widget opens, the folder of `root` when `mount` is null. */
+const start = $computed(() => filePlace(widget.mount ?? null, widget.path, root))
 
 // Where the widget is belongs to this browser and not to the workspace, so two people sharing a
 // workspace each keep their own place in it. `start` records where the widget opened, so a new
@@ -35,6 +38,7 @@ const persisted = usePersisted({
     object({
       start: string().nullable().default(null),
       mount: string().nullable().default(null),
+      component: string().nullable().default(null),
       path: array(string()).default([]),
     }),
   methods: computed(() => [{ type: 'local-storage' as const, key: ['files-widget', widget.id] }]),
@@ -43,18 +47,21 @@ const persisted = usePersisted({
 const startKey = $computed(() => JSON.stringify([root, start.mount, start.path]))
 
 const place = $computed(() =>
-  persisted.start === startKey ? { mount: persisted.mount, path: persisted.path } : start,
+  persisted.start === startKey
+    ? filePlace(persisted.mount, persisted.path, persisted.component)
+    : start,
 )
 
-function go(mount: string | null, path: string[]) {
+function go({ mount, component, path }: FilePlace) {
   persisted.start = startKey
   persisted.mount = mount
+  persisted.component = component
   persisted.path = path
 }
 
 const path = $computed({
   get: () => place.path,
-  set: (value: string[]) => go(place.mount, value),
+  set: (value: string[]) => go(filePlace(place.mount, value)),
 })
 
 // Back and Forward run across the list of mounts and every mount opened from it, so the history
@@ -71,7 +78,17 @@ watch(
 const listLabel = $computed(() => root ?? 'Files')
 
 const home = $computed<BreadcrumbItem[]>(() => [
-  { label: listLabel, icon: icons.files, onClick: () => go(null, []) },
+  { label: listLabel, icon: icons.files, onClick: () => go(filePlace(null, [], root)) },
+])
+
+/** The list's crumbs, its own, then each component folder below `root` down to the one shown. */
+const listCrumbs = $computed<BreadcrumbItem[]>(() => [
+  ...home,
+  ...(place.component == null ? [] : fileComponentChain(place.component, root)).map((folder) => ({
+    label: fileComponentFolderName(folder),
+    icon: icons.components,
+    onClick: () => go(filePlace(null, [], folder)),
+  })),
 ])
 </script>
 
@@ -81,23 +98,25 @@ const home = $computed<BreadcrumbItem[]>(() => [
       v-if="place.mount != null"
       :key="place.mount"
       v-model:path="path"
+      :component="root"
       :history
       :home
       :mount="place.mount"
       :view-key
-      @go="go($event.mount, $event.path)"
+      @go="go"
       @preview="path = $event"
     />
     <div v-else class="flex h-full min-h-0 flex-col gap-3 overflow-auto">
       <div class="flex shrink-0 items-center gap-2">
-        <c-file-history :history @go="go($event.mount, $event.path)" />
-        <c-breadcrumb
-          class="min-w-0"
-          :items="[{ label: listLabel, icon: icons.files }]"
-          :ui="FILE_BREADCRUMB_UI"
-        />
+        <c-file-history :history @go="go" />
+        <c-breadcrumb class="min-w-0" :items="listCrumbs" :ui="FILE_BREADCRUMB_UI" />
       </div>
-      <c-file-mounts :linked="false" :root @open="go($event.id, [])">
+      <c-file-mounts
+        :linked="false"
+        :root="place.component"
+        @open="go(filePlace($event.id))"
+        @open-folder="go(filePlace(null, [], $event))"
+      >
         <template #empty>
           <div class="flex flex-1 flex-col items-center justify-center gap-2 py-8 text-center">
             <c-icon class="text-dimmed" :name="icons.folderOpen" size="48" />

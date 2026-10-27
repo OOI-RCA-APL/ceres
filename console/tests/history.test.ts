@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { effectScope } from 'vue'
 
-import { useFileHistory } from '@/api/files'
+import { filePlace, useFileHistory } from '@/api/files'
 import { createHistory } from '@/history'
 
 function historyOf(values: string[], limit = 10) {
@@ -96,12 +96,12 @@ describe('useFileHistory', () => {
 
   it('keeps its places for the next view with the same key', () => {
     const first = inScope(() => useFileHistory('abc'))
-    first.result.record({ mount: 'a', path: [] })
-    first.result.record({ mount: 'a', path: ['b'] })
+    first.result.record(filePlace(null, [], '@a'))
+    first.result.record(filePlace('a', ['b']))
     first.stop()
 
     const next = inScope(() => useFileHistory('abc')).result
-    expect(next.back()).toEqual({ mount: 'a', path: [] })
+    expect(next.back()).toEqual(filePlace(null, [], '@a'))
     expect(inScope(() => useFileHistory('abcd')).result.canBack).toBe(false)
   })
 })
