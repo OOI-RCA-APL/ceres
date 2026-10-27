@@ -60,7 +60,7 @@ const mounts = $computed(() =>
   <div v-else-if="folders.length > 0 || mounts.length > 0" class="flex flex-col gap-3">
     <section v-if="mounts.length > 0" class="flex flex-col gap-1">
       <c-text class="text-muted px-1" variant="th">
-        {{ root ?? 'Project Mounts' }}
+        {{ root ?? 'Project' }}
       </c-text>
       <c-list>
         <c-file-mount
@@ -73,7 +73,7 @@ const mounts = $computed(() =>
       </c-list>
     </section>
     <section v-if="folders.length > 0" class="flex flex-col gap-1">
-      <c-text class="text-muted px-1" variant="th">Component Mounts</c-text>
+      <c-text class="text-muted px-1" variant="th">Components</c-text>
       <c-list>
         <c-list-item
           v-for="folder in folders"
