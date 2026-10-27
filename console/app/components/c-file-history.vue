@@ -8,7 +8,7 @@ import icons from '@/icons'
 /** The breadcrumb beside Back and Forward, in the file views' smaller text. */
 export const FILE_BREADCRUMB_UI = {
   link: 'text-xs',
-  linkLeadingIcon: 'size-4',
+  linkLeadingIcon: 'size-3.5',
   separatorIcon: 'size-4',
 }
 
