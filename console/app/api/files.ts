@@ -1,10 +1,9 @@
 import { defineStore } from 'pinia'
-import { reactive, watch } from 'vue'
 import * as z from 'zod'
 
 import { useClient } from '@/api/client'
 import { type ValueHistory, createHistory } from '@/history'
-import { readStored, writeStored } from '@/persistence'
+import { usePersisted } from '@/persistence'
 import { utc } from '@/time'
 import { type HighlightLanguage, getHttpUrl } from '@/utilities'
 
@@ -305,42 +304,18 @@ const FileHistoryStateModel = z.object({
 /** The most places one file view's Back and Forward keep. */
 const FILE_HISTORY_LIMIT = 30
 
-/** The most file views held in memory at once, the least recently opened dropped first. */
-const FILE_HISTORY_VIEWS = 32
-
-const fileHistories = new Map<string, { history: ValueHistory<FilePlace>; stop: () => void }>()
-
 /** The Back and Forward history of the file view `key`, stored in local storage so it outlives a
-reload and the browser remounting for another mount. Views showing the same `key` share one. */
+reload and the browser remounting for another mount. */
 export function useFileHistory(key: string): ValueHistory<FilePlace> {
-  const storageKey = ['files', 'history', key]
-  let held = fileHistories.get(key)
-  if (held != null) {
-    fileHistories.delete(key)
-  } else {
-    const parsed = FileHistoryStateModel.safeParse(readStored(storageKey))
-    const state = reactive(parsed.success ? parsed.data : { entries: [], index: -1 })
-    const history = createHistory<FilePlace>({
-      limit: FILE_HISTORY_LIMIT,
-      clone: (place) => ({ mount: place.mount, path: [...place.path] }),
-      state,
-    })
-    // Held outside any component scope, so the eviction below stops it.
-    const stop = watch(state, () => writeStored(storageKey, state), { deep: true })
-    held = { history, stop }
-  }
-
-  fileHistories.set(key, held)
-  for (const [stale, { stop }] of fileHistories) {
-    if (fileHistories.size <= FILE_HISTORY_VIEWS) {
-      break
-    }
-
-    stop()
-    fileHistories.delete(stale)
-  }
-
-  return held.history
+  const state = usePersisted({
+    schema: FileHistoryStateModel,
+    methods: [{ type: 'local-storage', key: ['files', 'history', key] }],
+  })
+  return createHistory<FilePlace>({
+    limit: FILE_HISTORY_LIMIT,
+    clone: (place) => ({ mount: place.mount, path: [...place.path] }),
+    state,
+  })
 }
 
 /** `size` bytes in the largest binary unit that keeps the number at one or more. */

@@ -211,11 +211,17 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
   }
 
   function undo() {
-    data = history.back() ?? data
+    const previous = history.back()
+    if (previous != null) {
+      data = previous
+    }
   }
 
   function redo() {
-    data = history.forward() ?? data
+    const next = history.forward()
+    if (next != null) {
+      data = next
+    }
   }
 
   const draft = new DraftSync()

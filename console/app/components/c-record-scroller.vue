@@ -244,11 +244,11 @@ where the system hides scroll bars until a scroll. Firefox reads only the standa
 
 .bar::-webkit-scrollbar-thumb {
   border-radius: 4px;
-  background-color: rgb(128 128 128 / 50%);
+  background-color: #80808080;
 }
 
 .bar::-webkit-scrollbar-thumb:hover {
-  background-color: rgb(128 128 128 / 75%);
+  background-color: #808080bf;
 }
 
 @supports not selector(::-webkit-scrollbar) {

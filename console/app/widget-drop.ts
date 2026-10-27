@@ -16,15 +16,15 @@ import {
 /** The band inside a widget's edge that counts as its frame, about a widget's usual padding. */
 const WIDGET_FRAME_BAND = 8
 
-/** Whether `event` lands on the frame of the widget `card`, its padding or the band inside its
-edge, rather than on what the widget shows or on a widget nested in it. */
+/** Whether `event` lands on the frame of the widget `card`, its header, its padding or the band
+inside its edge, rather than on what the widget shows or on a widget nested in it. */
 export function isOnWidgetFrame(event: MouseEvent, card: Element): boolean {
   const target = event.target
   if (!(target instanceof Element) || target.closest('[data-widget-id]') !== card) {
     return false
   }
 
-  if (target.hasAttribute('data-widget-frame')) {
+  if (target.hasAttribute('data-widget-frame') || target.closest('[data-widget-header]') != null) {
     return true
   }
 

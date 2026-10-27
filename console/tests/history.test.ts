@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
+import { effectScope } from 'vue'
 
+import { useFileHistory } from '@/api/files'
 import { createHistory } from '@/history'
 
 function historyOf(values: string[], limit = 10) {
@@ -80,5 +82,26 @@ describe('createHistory', () => {
     first.push('changed')
 
     expect(history.back()).toEqual(['a'])
+  })
+})
+
+describe('useFileHistory', () => {
+  afterEach(() => localStorage.clear())
+
+  function inScope<T>(run: () => T) {
+    const scope = effectScope()
+    const result = scope.run(run)!
+    return { result, stop: () => scope.stop() }
+  }
+
+  it('keeps its places for the next view with the same key', () => {
+    const first = inScope(() => useFileHistory('abc'))
+    first.result.record({ mount: 'a', path: [] })
+    first.result.record({ mount: 'a', path: ['b'] })
+    first.stop()
+
+    const next = inScope(() => useFileHistory('abc')).result
+    expect(next.back()).toEqual({ mount: 'a', path: [] })
+    expect(inScope(() => useFileHistory('abcd')).result.canBack).toBe(false)
   })
 })

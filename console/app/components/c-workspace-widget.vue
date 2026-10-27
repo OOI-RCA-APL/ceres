@@ -284,9 +284,12 @@ function keepMenuToFrame(event: MouseEvent) {
   }
 }
 
-/** A press on the frame picks the widget out the way one on its header does, without a drag. */
+/** A press on the frame picks the widget out the way one on its header does, without a drag. The
+header's own handler runs for a press on it, which this one would repeat. */
 function onFramePress(event: MouseEvent) {
-  if (card.value != null && isOnWidgetFrame(event, card.value)) {
+  const inHeader =
+    event.target instanceof Element && event.target.closest('[data-widget-header]') != null
+  if (card.value != null && !inHeader && isOnWidgetFrame(event, card.value)) {
     pickOut(event)
   }
 }
@@ -295,11 +298,7 @@ function onFramePress(event: MouseEvent) {
 let isFrameHovered = $ref(false)
 
 function onFrameHover(event: PointerEvent) {
-  const target = event.target instanceof Element ? event.target : null
-  isFrameHovered =
-    card.value != null &&
-    target?.closest('[data-widget-id]') === card.value &&
-    (target.closest('[data-widget-header]') != null || isOnWidgetFrame(event, card.value))
+  isFrameHovered = card.value != null && isOnWidgetFrame(event, card.value)
 }
 </script>
 

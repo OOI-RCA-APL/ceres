@@ -2,13 +2,13 @@ import { isEqual } from 'lodash-es'
 import { shallowReactive } from 'vue'
 
 /** Where a history keeps its entries, reactive so a caller can persist it. */
-export interface ValueHistoryState<T> {
+export type ValueHistoryState<T> = {
   entries: T[]
   /** The current entry's index, -1 while there are no entries. */
   index: number
 }
 
-export interface ValueHistoryOptions<T> {
+export type ValueHistoryOptions<T> = {
   /** The most entries kept, the oldest dropped first. */
   limit: number
   equal?: (left: T, right: T) => boolean
@@ -19,7 +19,7 @@ export interface ValueHistoryOptions<T> {
 }
 
 /** A linear history of values with a current entry, like a browser's Back and Forward. */
-export interface ValueHistory<T> {
+export type ValueHistory<T> = {
   readonly canBack: boolean
   readonly canForward: boolean
   /** Makes `value` the current entry and drops every entry ahead of it. A value equal to the

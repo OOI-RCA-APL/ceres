@@ -7,13 +7,17 @@ const { root = null, linked = true } = defineProps<{
   /** Lists only the mounts of the component at this address and those below it, every mount when
   null. */
   root?: string | null
-  /** Whether each mount links to its page, rather than emitting `open`. The `empty` slot replaces
-  what shows when no mount is listed. */
+  /** Whether each mount links to its page, rather than emitting `open`. */
   linked?: boolean
 }>()
 
 const emit = defineEmits<{
   open: [mount: FileMount]
+}>()
+
+defineSlots<{
+  /** What shows when no mount is listed. */
+  empty?: () => unknown
 }>()
 
 const engine = useEngine()
