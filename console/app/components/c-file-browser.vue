@@ -1007,9 +1007,7 @@ function onListContext(event: MouseEvent) {
                     :name="item.icon"
                   />
                   <span :class="ui.linkLabel()">{{ item.label }}</span>
-                  <c-tooltip v-if="item.viewOnly" text="Read-only">
-                    <c-icon class="text-dimmed size-3.5 shrink-0" :name="icons.locked" />
-                  </c-tooltip>
+                  <c-file-read-only-lock v-if="item.viewOnly" />
                 </component>
               </c-dropdown-menu>
             </span>

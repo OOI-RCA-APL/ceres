@@ -7,6 +7,7 @@ import {
   fileComponentFolderName,
   filesPlacePath,
   filePlace,
+  isFileMountUnder,
 } from '@/api/files'
 import icons from '@/icons'
 
@@ -36,6 +37,18 @@ const mountsQuery = useQuery({
 })
 
 const folders = $computed(() => childComponentFolders(mountsQuery.data.value ?? [], root))
+
+/** The folders holding no mount the caller may change. */
+const readOnlyFolders = $computed(
+  () =>
+    new Set(
+      folders.filter((folder) =>
+        (mountsQuery.data.value ?? []).every(
+          (mount) => !isFileMountUnder(mount, folder) || mount.access !== 'edit',
+        ),
+      ),
+    ),
+)
 
 const mounts = $computed(() =>
   (mountsQuery.data.value ?? [])
@@ -82,9 +95,12 @@ const mounts = $computed(() =>
           @click="emit('openFolder', folder)"
         >
           <c-icon class="shrink-0" :name="icons.components" size="16" />
-          <c-text class="min-w-0 flex-1 truncate" variant="body3">
-            {{ fileComponentFolderName(folder) }}
-          </c-text>
+          <div class="flex min-w-0 flex-1 items-center gap-1.5">
+            <c-text class="min-w-0 truncate" variant="body3">
+              {{ fileComponentFolderName(folder) }}
+            </c-text>
+            <c-file-read-only-lock v-if="readOnlyFolders.has(folder)" />
+          </div>
         </c-list-item>
       </c-list>
     </section>
