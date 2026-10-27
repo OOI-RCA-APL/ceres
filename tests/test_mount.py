@@ -565,6 +565,14 @@ class TestLayoutField:
             "thumb": "thumbs/{datetime}.jpg",
         }
 
+    def test_fills_the_declared_files_into_a_mount_given_in_code(self, tmp_path: Path) -> None:
+        stills = Photographer(stills=Mount(tmp_path, files={"still": "abc.jpg"})).stills
+        assert {kind: file.source for kind, file in stills.files.items()} == {
+            "still": "abc.jpg",
+            "thumb": "thumbs/{datetime}.jpg",
+        }
+        assert Photographer(stills=Mount(tmp_path)).stills.layout is None
+
     def test_refuses_a_configured_file_kind_it_does_not_declare(self, tmp_path: Path) -> None:
         with pytest.raises(ValidationError, match="declares no file 'abc'"):
             validate(Photographer, {"stills": {"path": str(tmp_path), "files": {"abc": "a"}}})

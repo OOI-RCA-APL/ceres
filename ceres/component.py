@@ -3046,7 +3046,15 @@ class MountField[M: MountPath](BoundField[M]):
                 ValueError: If the configuration names a file kind the field does not declare,
                     which no code would write.
             """
-            if isinstance(value, str | PathLike) and not isinstance(value, MountPath):
+            if isinstance(value, MountPath):
+                # The component's code writes the kinds the field declares, so a mount given in
+                # code gains any it lacks, while its own layout and kinds stand.
+                missing = {
+                    kind: file for kind, file in self.files.items() if kind not in value.files
+                }
+                return {"path": value, "files": missing} if missing else value
+
+            if isinstance(value, str | PathLike):
                 value = {"path": value}
 
             if not isinstance(value, dict):

@@ -157,7 +157,9 @@ class MountPath(PathLike[str]):
             zone: Time zone the layout and file names render in, `utc`, `local`, or an IANA
                 name. Defaults to the converted value's zone, `utc` otherwise.
             files: File name templates by kind, see `files`. Each kind given replaces the
-                converted value's template of that kind.
+                converted value's template of that kind. A `PathTemplate` keeps its own `atoms`
+                and a string parses with none, so a template needing extra atoms is passed
+                parsed. A dump keeps only the source, which loads back without those atoms.
 
         Raises:
             ValueError: If `layout` is not a valid `PathLayout`, a file is not a valid
@@ -726,8 +728,13 @@ class Mount(MountPath):
                 or the name renders outside the mount.
             PermissionError: If the mount is read-only.
         """
-        target = self.dated(when) / self.render(self._file(kind), when, values)
-        target.parent.mkdir()
+        name = self.render(self._file(kind), when, values)
+        target = self.dated(when) / name
+        # `dated` made the folder already, so only a name holding folders of its own needs one,
+        # which saves a system call per file on a busy or networked mount.
+        if "/" in name:
+            target.parent.mkdir()
+
         return target
 
     def periods(self, after: datetime, before: datetime) -> Iterator[Mount]:
