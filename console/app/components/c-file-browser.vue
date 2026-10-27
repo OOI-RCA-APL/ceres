@@ -2,7 +2,7 @@
 import type { BreadcrumbItem, ContextMenuItem } from '@nuxt/ui'
 import { useQueryClient } from '@tanstack/vue-query'
 import { useDropZone, useElementSize, useResizeObserver } from '@vueuse/core'
-import { computed, watch } from 'vue'
+import { computed, onMounted, watch } from 'vue'
 
 import { useQuery } from '@/api/client'
 import { useEngine } from '@/api/engine'
@@ -378,19 +378,19 @@ let readOnlyLine = $ref<{ left: number; top: number; width: number } | null>(nul
 function measureReadOnlyLine() {
   const bar = crumbBar.value
   const anchor = bar?.querySelector('[data-read-only-crumb]')
+  const lock = anchor?.querySelector('[data-read-only-lock]')
   const last = [...(bar?.querySelectorAll('[data-crumb]') ?? [])].at(-1)
-  if (bar == null || anchor == null || last == null || last === anchor) {
+  if (bar == null || anchor == null || lock == null || last == null || last === anchor) {
     readOnlyLine = null
     return
   }
 
   const origin = bar.getBoundingClientRect()
-  const start = anchor.getBoundingClientRect().right + 2
+  const icon = lock.getBoundingClientRect()
+  const start = icon.right + 3
   readOnlyLine = {
     left: start - origin.left,
-    // Through the lock's middle, which sits raised 3px above its crumb, so the line clears the
-    // names under it.
-    top: anchor.getBoundingClientRect().top - origin.top + 2,
+    top: Math.round(icon.top - origin.top),
     width: last.getBoundingClientRect().right - start,
   }
 }
@@ -406,7 +406,8 @@ const breadcrumbs = $computed<BreadcrumbItem[]>(() => [
 ])
 
 useResizeObserver(crumbBar, measureReadOnlyLine)
-watch(() => breadcrumbs, measureReadOnlyLine, { flush: 'post' })
+// Started once mounted, since the crumbs read state declared further down this script.
+onMounted(() => watch(() => breadcrumbs, measureReadOnlyLine, { flush: 'post', immediate: true }))
 
 /** The menu of the crumb for `target`. A folder in a writable mount takes a new folder too. */
 function crumbMenu(target: string[]): ContextMenuItem[][] {
@@ -1006,10 +1007,11 @@ function onListContext(event: MouseEvent) {
     <div class="flex shrink-0 items-center gap-2">
       <c-file-history :history @go="emit('go', $event)" />
       <div ref="crumbBar" class="relative min-w-0">
-        <!-- Carries the mount's lock across every crumb below it, which shares its access. -->
+        <!-- Carries the mount's lock across every crumb below it, which shares its access, and
+        turns down at the last one like a bracket. -->
         <div
           v-if="readOnlyLine"
-          class="text-muted pointer-events-none absolute h-px bg-current opacity-40"
+          class="text-dimmed pointer-events-none absolute h-1 rounded-tr-sm border-t border-r border-current opacity-60"
           :style="{
             left: `${readOnlyLine.left}px`,
             top: `${readOnlyLine.top}px`,
