@@ -1,6 +1,5 @@
 import errno
 import os
-import re
 import shutil
 import weakref
 from collections.abc import Callable, Iterator
@@ -72,11 +71,6 @@ class MountSetting(TypedDict):
 
     path: StrPath
     access: NotRequired[MountAccessInput]
-
-
-def mount_label(name: str) -> str:
-    """Return the console's label for a mount named `name`, its words capitalized."""
-    return " ".join(word.capitalize() for word in re.split(r"[-_]+", name) if word)
 
 
 class _MountFieldReference:
