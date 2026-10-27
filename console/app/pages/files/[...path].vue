@@ -6,8 +6,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import {
   type FilePlace,
-  fileComponentChain,
-  fileComponentFolderName,
+  fileMountComponent,
   filePlace,
   filesPageKey,
   filesPagePath,
@@ -16,7 +15,7 @@ import {
   parseFilesRoute,
   useFileHistory,
 } from '@/api/files'
-import { FILE_BREADCRUMB_UI } from '@/components/c-file-history.vue'
+import { FILE_BREADCRUMB_UI, fileFolderCrumbs } from '@/components/c-file-history.vue'
 import icons from '@/icons'
 
 // One instance per mount, so a step to another file in it keeps the listing in place.
@@ -59,17 +58,19 @@ async function go(place: FilePlace) {
   await router.push(filesPlacePath(place))
 }
 
-const home: BreadcrumbItem[] = [{ label: 'Files', icon: icons.files, to: filesPagePath(null) }]
+const files: BreadcrumbItem = { label: 'Files', icon: icons.files, to: filesPagePath(null) }
 
-/** The list's crumbs, the top of the list, then each component folder down to the one shown. */
-const listCrumbs = $computed<BreadcrumbItem[]>(() => [
-  ...home,
-  ...(component == null ? [] : fileComponentChain(component, null)).map((folder) => ({
-    label: fileComponentFolderName(folder),
-    icon: icons.components,
-    to: filesPlacePath(filePlace(null, [], folder)),
-  })),
-])
+/** The crumbs from the top of the list down to the folder of `address`, each a link. */
+function folderCrumbs(address: string | null): BreadcrumbItem[] {
+  return [
+    files,
+    ...fileFolderCrumbs(address, null, (folder) => ({
+      to: filesPlacePath(filePlace(null, [], folder)),
+    })),
+  ]
+}
+
+const home = $computed(() => (mount == null ? [] : folderCrumbs(fileMountComponent(mount))))
 
 function linkTo(target: string[]) {
   return filesPagePath(mount, target)
@@ -112,7 +113,7 @@ async function preview(target: string[]) {
       <template v-else>
         <div class="flex items-center gap-2">
           <c-file-history :history @go="go" />
-          <c-breadcrumb class="min-w-0" :items="listCrumbs" :ui="FILE_BREADCRUMB_UI" />
+          <c-breadcrumb class="min-w-0" :items="folderCrumbs(component)" :ui="FILE_BREADCRUMB_UI" />
         </div>
         <c-file-mounts :root="component" />
       </template>

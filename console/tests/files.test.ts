@@ -8,6 +8,7 @@ import {
   copyFile,
   fileComponentChain,
   fileComponentFolderName,
+  fileMountComponent,
   filePlace,
   filesPlacePath,
   decodeText,
@@ -185,6 +186,13 @@ describe('filePlace', () => {
   it('keeps the component only for a place without a mount', () => {
     expect(filePlace('abc', ['d'], '@a')).toEqual({ mount: 'abc', component: null, path: ['d'] })
     expect(filePlace(null, ['d'], '@a')).toEqual({ mount: null, component: '@a', path: [] })
+  })
+})
+
+describe('fileMountComponent', () => {
+  it('reads the address of a component mount and none for an engine mount', () => {
+    expect(fileMountComponent('@a.b/c')).toBe('@a.b')
+    expect(fileMountComponent('abc')).toBeNull()
   })
 })
 

@@ -29,8 +29,6 @@ import {
   filesDownloadPath,
   filesPagePath,
   findFileMount,
-  fileComponentChain,
-  fileComponentFolderName,
   filePlace,
   filterEntries,
   formatFileSize,
@@ -59,13 +57,10 @@ const {
   history,
   viewKey,
   home = [],
-  component = null,
   linkTo,
 } = defineProps<{
   /** The ID of the mount to browse. */
   mount: string
-  /** The component the view narrows to, whose address the mount's crumb leaves out. */
-  component?: string | null
   /** Names the view showing the browser, `page` or `widget/<id>`, whose preview layout it keeps. */
   viewKey: string
   /** The caller's Back and Forward, which records each place it opens. The browser replaces the
@@ -377,13 +372,6 @@ function placeCrumb(target: string[], crumb: BreadcrumbItem): BreadcrumbItem {
 
 const breadcrumbs = $computed<BreadcrumbItem[]>(() => [
   ...home,
-  ...(mountInfo?.component == null ? [] : fileComponentChain(mountInfo.component, component)).map(
-    (folder): BreadcrumbItem => ({
-      label: fileComponentFolderName(folder),
-      icon: icons.components,
-      onClick: () => emit('go', filePlace(null, [], folder)),
-    }),
-  ),
   placeCrumb([], { label: mountLabel, icon: icons.mount }),
   ...path.map((name, index) => placeCrumb(path.slice(0, index + 1), { label: name })),
 ])

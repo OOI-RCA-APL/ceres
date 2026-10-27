@@ -41,25 +41,36 @@ export function isFileMountUnder(mount: FileMount, root: string | null) {
   )
 }
 
+/** The address of the component holding the mount `id`, `@rig.cam` for `@rig.cam/stills`, null
+for an engine mount. */
+export function fileMountComponent(id: string): string | null {
+  const split = id.indexOf('/')
+  return split < 0 ? null : id.slice(0, split)
+}
+
 /** The component folders from below `root` down to `address`, each named by its address, so
-`@rig.cam.lens` under `@rig` gives `@rig.cam` then `@rig.cam.lens`. */
+`@rig.cam.lens` under `@rig` gives `@rig.cam` then `@rig.cam.lens`. A `root` off the chain, which
+only a stale place names, gives the whole chain. */
 export function fileComponentChain(address: string, root: string | null): string[] {
   const names = Address.parse(address).names
   const chain = names.map((_, index) => `@${names.slice(0, index + 1).join('.')}`)
   return chain.slice(root == null ? 0 : chain.indexOf(root) + 1)
 }
 
-/** The component folders in the folder of `root`, the top of the list when null, in order. A
-component shows as a folder whenever a mount sits at or below it. */
+/** The component folders in the folder of `root`, the top of the list when null, in the order
+they show. A component shows as a folder whenever a mount sits at or below it. */
 export function childComponentFolders(mounts: readonly FileMount[], root: string | null): string[] {
   const depth = root == null ? 0 : Address.parse(root).depth
   const folders = new Set<string>()
   for (const mount of mounts) {
     if (mount.component != null && mount.component !== root && isFileMountUnder(mount, root)) {
+      // The component sits below `root`, so its chain reaches past `depth`.
       folders.add(fileComponentChain(mount.component, null)[depth]!)
     }
   }
-  return [...folders].sort()
+  return [...folders].sort((left, right) =>
+    fileComponentFolderName(left).localeCompare(fileComponentFolderName(right)),
+  )
 }
 
 /** How the folder of the component at `address` reads: a top-level component by its address, one
@@ -240,7 +251,8 @@ export function highlightLanguageOf(name: string): HighlightLanguage | null {
 }
 
 /** `base`, then the mount's URL segments, then `path`, each segment escaped. A component
-mount's ID, `<address>/<name>`, spans two segments, and `@` stays bare where a URL allows it. */
+mount's ID, `<address>/<name>`, spans two segments, a component address alone one, and `@` stays
+bare where a URL allows it. */
 function filesUrl(base: string, mount: string, path: readonly string[]): string {
   const segments = [...mount.split('/'), ...path]
   return [
@@ -315,10 +327,10 @@ export function filesPagePath(mount: string | null, path: readonly string[] = []
   return mount == null ? '/files' : filesUrl('/files', mount, path)
 }
 
-/** The console's page for `place`. */
+/** The console's page for `place`. A component folder's URL is its address alone. */
 export function filesPlacePath(place: FilePlace): string {
   return place.mount == null && place.component != null
-    ? `/files/${encodeURIComponent(place.component).replaceAll('%40', '@')}`
+    ? filesUrl('/files', place.component, [])
     : filesPagePath(place.mount, place.path)
 }
 

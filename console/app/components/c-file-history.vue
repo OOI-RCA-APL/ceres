@@ -1,17 +1,33 @@
 <script lang="ts">
+import type { BreadcrumbItem } from '@nuxt/ui'
+
+import { type FilePlace, fileComponentChain, fileComponentFolderName } from '@/api/files'
+import type { ValueHistory } from '@/history'
+import icons from '@/icons'
+
 /** The breadcrumb beside Back and Forward, in the file views' smaller text. */
 export const FILE_BREADCRUMB_UI = {
   link: 'text-xs',
   linkLeadingIcon: 'size-4',
   separatorIcon: 'size-4',
 }
+
+/** The crumbs of the component folders from below `root` down to `component`, none without one.
+`open` gives each crumb its link or click. */
+export function fileFolderCrumbs(
+  component: string | null,
+  root: string | null,
+  open: (folder: string) => Partial<BreadcrumbItem>,
+): BreadcrumbItem[] {
+  return (component == null ? [] : fileComponentChain(component, root)).map((folder) => ({
+    label: fileComponentFolderName(folder),
+    icon: icons.components,
+    ...open(folder),
+  }))
+}
 </script>
 
 <script lang="ts" setup>
-import type { FilePlace } from '@/api/files'
-import type { ValueHistory } from '@/history'
-import icons from '@/icons'
-
 const { history } = defineProps<{
   history: ValueHistory<FilePlace>
 }>()

@@ -2,14 +2,8 @@
 import type { BreadcrumbItem } from '@nuxt/ui'
 import { computed, watch } from 'vue'
 
-import {
-  type FilePlace,
-  fileComponentChain,
-  fileComponentFolderName,
-  filePlace,
-  useFileHistory,
-} from '@/api/files'
-import { FILE_BREADCRUMB_UI } from '@/components/c-file-history.vue'
+import { type FilePlace, fileMountComponent, filePlace, useFileHistory } from '@/api/files'
+import { FILE_BREADCRUMB_UI, fileFolderCrumbs } from '@/components/c-file-history.vue'
 import icons from '@/icons'
 import { usePersisted } from '@/persistence'
 import { type FilesWidget, filesWidgetRoot, useWorkspace } from '@/workspace'
@@ -77,19 +71,19 @@ watch(
 /** The list's crumb, named for the component it narrows to. */
 const listLabel = $computed(() => root ?? 'Files')
 
-const home = $computed<BreadcrumbItem[]>(() => [
-  { label: listLabel, icon: icons.files, onClick: () => go(filePlace(null, [], root)) },
-])
+/** The crumbs from the list down to the folder of `address` below `root`. */
+function folderCrumbs(address: string | null): BreadcrumbItem[] {
+  return [
+    { label: listLabel, icon: icons.files, onClick: () => go(filePlace(null, [], root)) },
+    ...fileFolderCrumbs(address, root, (folder) => ({
+      onClick: () => go(filePlace(null, [], folder)),
+    })),
+  ]
+}
 
-/** The list's crumbs, its own, then each component folder below `root` down to the one shown. */
-const listCrumbs = $computed<BreadcrumbItem[]>(() => [
-  ...home,
-  ...(place.component == null ? [] : fileComponentChain(place.component, root)).map((folder) => ({
-    label: fileComponentFolderName(folder),
-    icon: icons.components,
-    onClick: () => go(filePlace(null, [], folder)),
-  })),
-])
+const home = $computed(() =>
+  place.mount == null ? [] : folderCrumbs(fileMountComponent(place.mount)),
+)
 </script>
 
 <template>
@@ -98,7 +92,6 @@ const listCrumbs = $computed<BreadcrumbItem[]>(() => [
       v-if="place.mount != null"
       :key="place.mount"
       v-model:path="path"
-      :component="root"
       :history
       :home
       :mount="place.mount"
@@ -109,7 +102,11 @@ const listCrumbs = $computed<BreadcrumbItem[]>(() => [
     <div v-else class="flex h-full min-h-0 flex-col gap-3 overflow-auto">
       <div class="flex shrink-0 items-center gap-2">
         <c-file-history :history @go="go" />
-        <c-breadcrumb class="min-w-0" :items="listCrumbs" :ui="FILE_BREADCRUMB_UI" />
+        <c-breadcrumb
+          class="min-w-0"
+          :items="folderCrumbs(place.component)"
+          :ui="FILE_BREADCRUMB_UI"
+        />
       </div>
       <c-file-mounts
         :linked="false"
