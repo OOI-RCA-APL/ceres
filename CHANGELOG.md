@@ -8,6 +8,76 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+**Breaking**
+
+- `Directory` is a deprecated name for `Mount` and warns with a `FutureWarning` when built. It
+  keeps only the name, so its methods are the `pathlib.Path` names `Mount` mirrors:
+  `directory.open("a.txt", "w")` becomes `(directory / "a.txt").open("w")`, `subdir` and
+  `subpath` become `/`, `subpaths` becomes `iterdir`, `remove` becomes `unlink` or `rmtree`,
+  `move` becomes `rename`, and `create()` becomes `mkdir()`. The constructor takes no `parent` or
+  `temporary`, and only a missing path makes a temporary directory. `/` returns a `Mount`, whose
+  `path` holds the `Path` it returned before, and refuses an absolute path or a `..` segment.
+- A relative `Mount` or `Directory` path in `ceres.yaml` resolves against the directory holding
+  the file, wherever the engine runs from.
+- `Engine.project_directory` gives way to `Engine.project`, whose `directory` is the same
+  directory as a `Mount`.
+
+**Engine**
+
+- `Mount` holds a directory a component reads or writes. Its methods mirror `pathlib.Path`,
+  joining with `/` never leaves the directory, and `parent` stops at it. `AsyncMount` offers the
+  same methods as coroutines that run off the event loop. `create` writes a new file whole or
+  not at all, `append` adds to one, and `writable=False` makes the component's own writes raise
+  `PermissionError`.
+- `Mount.Field` declares a mount the console lists, with a `title`, a `name`, `writable`, and an
+  `access` of `view` or `none` that lowers what the console may do with it. Configuration may
+  lower `access` further with a mapping, `output: {path: ./data, access: view}`, and never makes
+  a read-only field writable. A field with no path holds a temporary directory, removed once
+  nothing refers to it.
+- A mount's `layout` keeps its files in dated folders, such as `{year}/{month}/{day}`, in the
+  time zone its `zone` names. `dated(when)` returns the folder holding `when`, creating it, and
+  `periods(after, before)` walks the folders that exist for a span, oldest first. Configuration
+  replaces either key, and `layout: null` turns the layout off.
+- `PathTemplate` renders file names from time atoms, a limited `strftime`, and the names of the
+  component, mount, project, and host, the same on every platform. `PathTemplate.Field` makes
+  one configurable and refuses a bad template when the class is created or the configuration
+  loads, and `mount.render(template, when, values)` renders it in the mount's zone.
+- `/api/files` lists the mounts a caller may view and, under each one, lists directories, serves
+  and describes files, uploads, creates directories, renames, moves, copies, and deletes. A
+  folder or a selection downloads as one zip the engine streams as it writes. Anyone who may
+  view a component browses and downloads its mounts, and anyone who may operate it also changes
+  them, up to the mount's `access`.
+- `server.files` configures the file browser. `mounts` serves directories that belong to no
+  component, none until configured, `exclude` keeps matching entries out of every mount,
+  `max-upload` caps one upload, `access` caps every mount at `edit`, `view`, or `none`, and
+  `reveal-paths: false` keeps an entry's location on the server out of the console.
+- An upload or a copy writes a hidden part file beside its target and renames it into place once
+  complete, so no reader sees half a file. The first listing an hour after a dropped upload
+  removes its part.
+- A component's description in `/api/components` carries the mounts the caller may view.
+- `Project` names the project a configuration file belongs to, and `Engine.project` returns it.
+- Response compression leaves `application/octet-stream` alone, since binary data of an unknown
+  type is rarely compressible and often large.
+
+**Web Console**
+
+- The drawer's "Files" page lists the project's mounts and every component's mounts, with
+  component addresses as folders, and its Back and Forward move through where you have been. A
+  read-only mount shows a lock in the mount list and along the path, a temporary one a
+  "Temporary" badge, and a mount with a layout a "Today" button that opens the current folder.
+- The file browser selects entries by click, keyboard, and "Select All", and acts on them from
+  the toolbar and a context menu. It uploads dropped files, creates folders, renames in place,
+  moves and copies through a folder picker, deletes after you type a folder's name, and
+  downloads a file, a folder, or a selection. It asks before replacing a file.
+- A file previews beside the listing as an image, video, audio, or highlighted text with a raw
+  view. "Info" shows an entry's details and full path, and the listing's columns are yours to
+  choose. "Copy Link" and "Copy System Path" work everywhere, and "Copy", which puts a file's
+  contents on the clipboard, works over HTTPS.
+- A "Files View" widget puts a mount in a workspace, each browser keeping its own open folder,
+  and a component's page links each of its mounts.
+- Preferences open as their own page, the drawer marks the page you are on, and its component
+  rows stay dim until hovered or open.
+
 ## [0.49.3] - 2026-10-16
 
 **Engine**
