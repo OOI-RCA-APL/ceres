@@ -4,6 +4,7 @@ import * as z from 'zod'
 import { Address } from '@/api/address'
 import { useClient } from '@/api/client'
 import { type ValueHistory, createHistory } from '@/history'
+import { PathTemplate } from '@/path-template'
 import { usePersisted } from '@/persistence'
 import { utc } from '@/time'
 import { type HighlightLanguage, getHttpUrl } from '@/utilities'
@@ -25,7 +26,20 @@ export const FileMountModel = z.object({
   temporary: z.boolean(),
   /** Whether a stat answers where an entry lives on the server, the same for every mount. */
   reveal_paths: z.boolean(),
+  /** Dated folders below the root, such as `{year}/{month}`, null for none. */
+  layout: z.string().nullable(),
+  /** IANA name of the time zone the layout reads in. */
+  zone: z.string(),
+  /** Values of the name atoms the layout may use. */
+  names: z.record(z.string(), z.string()),
 })
+
+/** The folder of `mount` holding `when`, null when the mount has no layout. */
+export function datedFolder(mount: FileMount, when: Date) {
+  return mount.layout == null
+    ? null
+    : new PathTemplate(mount.layout).render(when, mount.zone, mount.names)
+}
 
 /** The mount in `mounts` with `id`, null when the caller cannot reach it. */
 export function findFileMount(mounts: readonly FileMount[] | undefined, id: string) {

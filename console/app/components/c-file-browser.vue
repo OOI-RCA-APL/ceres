@@ -23,6 +23,7 @@ import {
   LISTING_MIN_WIDTH,
   PREVIEW_MIN_WIDTH,
   copyFile,
+  datedFolder,
   droppedFiles,
   fileActions,
   fileColumns,
@@ -178,6 +179,14 @@ const mountsQuery = useQuery({
 })
 const mountInfo = $computed(() => findFileMount(mountsQuery.data.value, mount))
 const writable = $computed(() => mountInfo?.access === 'edit')
+
+/** Open the folder of the current period, which the mount's layout names. */
+function openToday() {
+  const folder = mountInfo == null ? null : datedFolder(mountInfo, new Date())
+  if (folder != null) {
+    path = folder.split('/')
+  }
+}
 
 // The listing query's key reads `entry`, which reads the listing, so the listing reaches `entry`
 // through this, filled in once the query exists below.
@@ -1071,6 +1080,16 @@ function onListContext(event: MouseEvent) {
             size="xs"
             variant="ghost"
             @click="persisted.hidden = !persisted.hidden"
+          />
+        </c-tooltip>
+        <c-tooltip v-if="mountInfo?.layout != null" text="Today">
+          <c-button
+            aria-label="Today"
+            color="neutral"
+            :icon="icons.folderToday"
+            size="xs"
+            variant="ghost"
+            @click="openToday"
           />
         </c-tooltip>
         <c-tooltip text="Refresh">

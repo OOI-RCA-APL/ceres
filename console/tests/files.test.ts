@@ -3,9 +3,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   FileColumnsModel,
   type FileEntry,
+  type FileMount,
   TEXT_PREVIEW_LIMIT,
   childComponentFolders,
   copyFile,
+  datedFolder,
   fileComponentChain,
   fileComponentFolderName,
   fileMountComponent,
@@ -144,15 +146,19 @@ describe('filesApiPath', () => {
   })
 })
 
-function mountOf(component: string | null) {
+function mountOf(component: string | null, fields: Partial<FileMount> = {}): FileMount {
   return {
     id: 'abc',
     name: 'abc',
     label: 'Abc',
     component,
-    access: 'view' as const,
+    access: 'view',
     temporary: false,
     reveal_paths: true,
+    layout: null,
+    zone: 'UTC',
+    names: {},
+    ...fields,
   }
 }
 
@@ -236,18 +242,25 @@ describe('filesPageKey', () => {
 
 describe('findFileMount', () => {
   it('finds a listed mount and nothing for an unlisted one', () => {
-    const mount = {
-      id: 'project',
-      name: 'project',
-      label: 'Project',
-      component: null,
-      access: 'view' as const,
-      temporary: false,
-      reveal_paths: true,
-    }
+    const mount = mountOf(null, { id: 'project' })
     expect(findFileMount([mount], 'project')).toBe(mount)
     expect(findFileMount([mount], 'abc')).toBeNull()
     expect(findFileMount(undefined, 'project')).toBeNull()
+  })
+})
+
+describe('datedFolder', () => {
+  it('renders the layout in the mount zone with its names', () => {
+    const mount = mountOf(null, {
+      layout: '{mount}/{year}/{month}/{day}',
+      zone: 'America/Los_Angeles',
+      names: { mount: 'abc' },
+    })
+    expect(datedFolder(mount, new Date('2026-10-28T03:00:00Z'))).toBe('abc/2026/10/27')
+  })
+
+  it('names no folder for a mount without a layout', () => {
+    expect(datedFolder(mountOf(null), new Date())).toBeNull()
   })
 })
 
@@ -575,15 +588,7 @@ describe('fileInfoRows', () => {
 })
 
 describe('fileInfoPlace', () => {
-  const mount = {
-    id: 'abc',
-    name: 'abc',
-    label: 'Abc',
-    component: null,
-    access: 'view' as const,
-    temporary: false,
-    reveal_paths: true,
-  }
+  const mount = mountOf(null)
 
   it('names an engine mount alone, with nothing holding it', () => {
     expect(fileInfoPlace(mount, 'Abc', [])).toEqual({ name: 'Abc', location: [] })
