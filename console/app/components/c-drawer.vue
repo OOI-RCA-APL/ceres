@@ -1,6 +1,5 @@
 <script lang="ts" setup>
 import type { DropdownMenuItem } from '@nuxt/ui'
-import { computed } from 'vue'
 
 import { useEngine } from '@/api/engine'
 import type { User } from '@/api/users'
@@ -11,7 +10,6 @@ import icons from '@/icons'
 import { useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
 import { usePreferences } from '@/preferences'
-import { displayDuration, duration } from '@/time'
 
 const engine = useEngine()
 const drawer = useDrawer()
@@ -54,18 +52,6 @@ const matchingComponents = $computed(() => {
 const isDeveloperMode = $computed(() => isDevelopment && preferences.isDeveloperModeEnabled)
 
 void engine.auth.loadFeatures()
-
-// Carried as seconds because the select matches an item by value, and two `Duration` objects
-// built from the same length are never the same object.
-const statisticsDurationItems = [60, 5 * 60, 30 * 60, 3600, 12 * 3600, 86400].map((seconds) => ({
-  label: displayDuration(duration(seconds, 'seconds')),
-  value: seconds,
-}))
-
-const statisticsSeconds = computed({
-  get: () => preferences.statisticsDuration.asSeconds(),
-  set: (seconds: number) => (preferences.statisticsDuration = duration(seconds, 'seconds')),
-})
 
 // Everything only an administrator may do, gathered behind the one entry that says so rather
 // than standing along the foot of the drawer beside what anyone can reach.
@@ -194,11 +180,21 @@ const footerRowClass =
     <div class="grow overflow-y-auto">
       <!-- A workspace row dropped here is made global, the same as one dropped on a component
       below is associated with it. -->
-      <nuxt-link :class="[footerRowClass, 'py-3']" data-workspace-drop-placement="~" to="/">
+      <nuxt-link
+        :class="footerRowClass"
+        data-workspace-drop-placement="~"
+        exact-active-class="text-primary"
+        to="/"
+      >
         <c-icon class="size-5" :name="icons.home" />
         <span>Home</span>
       </nuxt-link>
-      <nuxt-link v-if="engine.auth.user != null" :class="[footerRowClass, 'py-3']" to="/files">
+      <nuxt-link
+        v-if="engine.auth.user != null"
+        active-class="text-primary"
+        :class="footerRowClass"
+        to="/files"
+      >
         <c-icon class="size-5" :name="icons.files" />
         <span>Files</span>
       </nuxt-link>
@@ -251,44 +247,10 @@ const footerRowClass =
         </template>
       </c-modal>
 
-      <c-popover :content="{ side: 'right', align: 'end' }" :ui="{ content: 'w-[350px]' }">
-        <div :class="footerRowClass">
-          <c-icon class="size-5" :name="icons.preferences" />
-          <span class="grow text-left">Preferences</span>
-          <c-icon class="size-5" :name="icons.menuRight" />
-        </div>
-        <template #content>
-          <div class="flex items-center justify-evenly gap-3 p-3">
-            <c-switch v-model="preferences.isDarkModeEnabled" label="Dark Mode" />
-            <c-switch
-              v-if="isDevelopment"
-              v-model="preferences.isDeveloperModeEnabled"
-              label="Developer Mode"
-            />
-          </div>
-          <c-separator />
-          <div class="p-3">
-            <c-switch
-              v-model="preferences.isPrivateCommitConfirmationEnabled"
-              description="Shared workspaces always ask, since everyone with access sees the commit."
-              label="Confirm Private Workspace Commits"
-            />
-          </div>
-          <c-separator />
-          <div class="p-3">
-            <c-form-field
-              description="The time over which statistics, like alert counts, are calculated."
-              label="Statistics Duration"
-            >
-              <c-select
-                v-model="statisticsSeconds"
-                class="w-full"
-                :items="statisticsDurationItems"
-              />
-            </c-form-field>
-          </div>
-        </template>
-      </c-popover>
+      <nuxt-link active-class="text-primary" :class="footerRowClass" to="/preferences">
+        <c-icon class="size-5" :name="icons.preferences" />
+        <span class="grow text-left">Preferences</span>
+      </nuxt-link>
 
       <!-- Everything here is a development tool, which the engine warns should only be turned on
       while developing. So the whole section follows the one switch that says whether these are
