@@ -250,11 +250,11 @@ export function highlightLanguageOf(name: string): HighlightLanguage | null {
   return highlightExtensions.get(extensionOf(name)) ?? null
 }
 
-/** `base`, then the mount's URL segments, then `path`, each segment escaped. A component
-mount's ID, `<address>/<name>`, spans two segments, a component address alone one, and `@` stays
+/** `base`, then the segments of `head`, a mount ID or a component address, then `path`, each
+segment escaped. A component mount's ID, `<address>/<name>`, spans two segments, and `@` stays
 bare where a URL allows it. */
-function filesUrl(base: string, mount: string, path: readonly string[]): string {
-  const segments = [...mount.split('/'), ...path]
+function filesUrl(base: string, head: string, path: readonly string[]): string {
+  const segments = [...head.split('/'), ...path]
   return [
     base,
     ...segments.map((segment) => encodeURIComponent(segment).replaceAll('%40', '@')),
