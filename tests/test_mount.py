@@ -3,15 +3,19 @@ import gc
 import inspect
 import os
 from collections.abc import Callable, Iterable
+from datetime import datetime
 from pathlib import Path, PurePath
 from typing import TYPE_CHECKING, Any, BinaryIO
 
 import pytest
 import yaml
+from pydantic import ValidationError
 
-from ceres import AsyncMount, Bound, Component, Config, Mount, Project
+from ceres import AsyncMount, Bound, Component, Config, Engine, Mount, PathTemplate, Project
+from ceres.component import get_mount_bindings
 from ceres.data import dump, validate
 from ceres.mount import MountAccess
+from ceres.paths import PathLayout
 
 if TYPE_CHECKING:
     from ceres.mount import MountPath
@@ -320,3 +324,191 @@ class TestAsync:
         assert (await created.stat()).st_size == 3
         await created.unlink()
         assert not await created.exists()
+
+    async def test_dates_and_walks(self, mount: Mount) -> None:
+        dated = AsyncMount(mount, layout="{year}/{month}")
+        folder = await dated.dated(at("2026-10-27T13:45:09Z"))
+        assert type(folder) is AsyncMount
+        assert await dated.periods(at("2026-10-01T00:00:00Z"), at("2026-11-01T00:00:00Z")) == [
+            folder
+        ]
+
+
+def at(when: str) -> datetime:
+    return datetime.fromisoformat(when)
+
+
+def folders(mount: Mount, *paths: str) -> Mount:
+    for path in paths:
+        (mount / path).mkdir()
+
+    return mount
+
+
+def walked(mount: Mount, after: str, before: str) -> list[str]:
+    return [folder.relative.as_posix() for folder in mount.periods(at(after), at(before))]
+
+
+class TestLayout:
+    def test_creates_the_folder_for_a_time_in_its_zone(self, tmp_path: Path) -> None:
+        mount = Mount(tmp_path, layout="{year}/{month}/{day}", zone="America/Los_Angeles")
+        folder = mount.dated(at("2026-10-27T03:00:00Z"))
+        assert folder == mount / "2026/10/26"
+        assert folder.is_dir()
+        assert mount.dated(at("2026-10-27T04:00:00Z")) == folder
+
+    def test_dates_to_itself_without_a_layout(self, mount: Mount) -> None:
+        assert mount.dated(at("2026-10-27T13:45:09Z")) is mount
+
+    def test_refuses_a_naive_time(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="timezone-aware"):
+            Mount(tmp_path, layout="{year}").dated(datetime(2026, 10, 27))  # noqa: DTZ001
+
+    def test_reads_an_existing_folder_without_writing(self, tmp_path: Path) -> None:
+        mount = folders(Mount(tmp_path, layout="{year}"), "2026")
+        readonly = Mount(mount, writable=False)
+        assert readonly.dated(at("2026-10-27T13:45:09Z")) == mount / "2026"
+        with pytest.raises(PermissionError):
+            readonly.dated(at("2027-10-27T13:45:09Z"))
+
+    @pytest.mark.parametrize(
+        "layout",
+        ["{month}", "{year}/{day}", "{year}/{week}", "{year}/{m}{d}", "{time:%Y}", "{connection}"],
+    )
+    def test_refuses_a_layout_it_cannot_read_back(self, tmp_path: Path, layout: str) -> None:
+        with pytest.raises(ValueError):
+            Mount(tmp_path, layout=layout)
+
+    def test_refuses_an_unknown_zone(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="not a time zone"):
+            Mount(tmp_path, zone="abc")
+
+    def test_walks_the_folders_overlapping_a_range_in_order(self, tmp_path: Path) -> None:
+        mount = folders(
+            Mount(tmp_path, layout="{year}/{month}/{day}"),
+            "2026/10/27",
+            "2026/10/01",
+            "2026/09/30",
+            "2026/11/01",
+            "2025/12/31",
+            "2026/13/01",
+            "2026/10/abc",
+            "abc",
+        )
+        (mount / "2026/10/28").write_bytes(b"")
+        assert walked(mount, "2026-10-01T00:00:00Z", "2026-11-01T00:00:00Z") == [
+            "2026/10/01",
+            "2026/10/27",
+        ]
+
+    def test_walks_a_partial_day(self, tmp_path: Path) -> None:
+        mount = folders(Mount(tmp_path, layout="{year}/{month}/{day}"), "2026/10/26", "2026/10/27")
+        assert walked(mount, "2026-10-26T23:00:00Z", "2026-10-27T01:00:00Z") == [
+            "2026/10/26",
+            "2026/10/27",
+        ]
+
+    def test_walks_in_the_mounts_zone(self, tmp_path: Path) -> None:
+        mount = folders(
+            Mount(tmp_path, layout="{date}", zone="Asia/Kolkata"), "20261026", "20261027"
+        )
+        assert walked(mount, "2026-10-26T19:00:00Z", "2026-10-26T20:00:00Z") == ["20261027"]
+
+    def test_walks_unpadded_and_named_months_by_time(self, tmp_path: Path) -> None:
+        mount = folders(Mount(tmp_path, layout="{year}/{m}-{mon}"), "2026/10-Oct", "2026/2-Feb")
+        (mount / "2026/3-Feb").mkdir()
+        assert walked(mount, "2026-01-01T00:00:00Z", "2027-01-01T00:00:00Z") == [
+            "2026/2-Feb",
+            "2026/10-Oct",
+        ]
+
+    def test_walks_days_of_the_year(self, tmp_path: Path) -> None:
+        mount = folders(Mount(tmp_path, layout="{year}/{doy}"), "2026/300", "2026/299", "2026/366")
+        assert walked(mount, "2026-10-27T00:00:00Z", "2027-01-01T00:00:00Z") == ["2026/300"]
+
+    def test_walks_itself_without_a_layout(self, mount: Mount) -> None:
+        assert walked(mount, "2026-10-27T00:00:00Z", "2026-10-28T00:00:00Z") == ["."]
+
+    def test_renders_a_file_name_with_its_names_and_zone(self, tmp_path: Path) -> None:
+        mount = Mount(tmp_path, zone="America/Los_Angeles")._named({"mount": "abc"})
+        template = PathTemplate("{mount}_{datetime}_{sequence}", atoms=["sequence"])
+        rendered = mount.render(template, at("2026-10-27T13:45:09Z"), {"sequence": 7})
+        assert rendered == "abc_20261027T064509_7"
+
+    def test_dumps_its_layout_and_zone(self, tmp_path: Path) -> None:
+        mount = Mount(tmp_path, layout="{year}", zone="local")
+        assert dump(mount) == {"path": str(tmp_path), "layout": "{year}", "zone": "local"}
+        assert validate(Mount, dump(mount)).layout == PathLayout("{year}")
+
+
+class Photographer(Component):
+    stills: Bound[Mount] = Mount.Field("./stills", layout="{mount}/{year}", zone="local")
+
+
+def photographer(stills: object = None) -> Photographer:
+    arguments = {} if stills is None else {"stills": stills}
+    component = (
+        Config.read(
+            {
+                "components": [
+                    {
+                        "name": "abc",
+                        "class": "tests.test_mount:Photographer",
+                        "arguments": arguments,
+                    }
+                ]
+            }
+        )
+        .components[0]
+        .create()
+    )
+    assert isinstance(component, Photographer)
+    return component
+
+
+class TestLayoutField:
+    def test_declares_a_layout_and_zone(self) -> None:
+        stills = photographer().stills
+        assert (stills.layout, stills.zone) == (PathLayout("{mount}/{year}"), "local")
+
+    def test_names_the_component_and_mount(self) -> None:
+        assert photographer().stills.names == {"component": "abc", "mount": "stills"}
+
+    async def test_names_the_project_of_its_engine(self, tmp_path: Path) -> None:
+        path = tmp_path / "ceres.yaml"
+        path.write_text(
+            "components: [{name: abc, class: 'tests.test_mount:Photographer'}]\n"
+            f"database: {{type: sqlite, path: {tmp_path / 'records.sqlite'}}}\n"
+        )
+        engine = Engine()
+        await engine.load(path, checks=())
+        try:
+            component = engine.get_component("abc")
+            assert isinstance(component, Photographer)
+            assert component.stills.names["project"] == tmp_path.name
+        finally:
+            await engine.database.dispose()
+
+    def test_dates_with_its_names(self, tmp_path: Path) -> None:
+        stills = photographer(str(tmp_path)).stills
+        assert stills.dated(at("2026-07-01T12:00:00Z")) == stills / "stills/2026"
+
+    def test_takes_a_configured_layout_and_zone(self, tmp_path: Path) -> None:
+        setting = {"path": str(tmp_path), "layout": "{year}/{month}", "zone": "utc"}
+        stills = photographer(setting).stills
+        assert (stills.layout, stills.zone) == (PathLayout("{year}/{month}"), "utc")
+
+    def test_clears_the_layout_from_configuration(self, tmp_path: Path) -> None:
+        assert photographer({"path": str(tmp_path), "layout": None}).stills.layout is None
+
+    def test_refuses_a_bad_configured_layout(self, tmp_path: Path) -> None:
+        with pytest.raises(ValidationError, match="calendar"):
+            validate(Photographer, {"stills": {"path": str(tmp_path), "layout": "{day}"}})
+
+    def test_refuses_a_bad_layout_when_declared(self) -> None:
+        with pytest.raises(ValueError, match="calendar"):
+            Mount.Field(layout="{day}")
+
+    def test_lists_the_declared_layout(self) -> None:
+        binding = get_mount_bindings(Photographer)["stills"]
+        assert (binding.layout, binding.zone) == (PathLayout("{mount}/{year}"), "local")

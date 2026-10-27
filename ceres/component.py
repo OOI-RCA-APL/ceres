@@ -15,6 +15,7 @@ from dataclasses import InitVar, dataclass, field
 from datetime import timedelta
 from functools import cached_property
 from inspect import Parameter
+from os import PathLike
 from pathlib import Path
 from string import ascii_lowercase
 from types import EllipsisType, MappingProxyType, NoneType, UnionType
@@ -43,6 +44,7 @@ from pydantic import (
     AfterValidator,
     AliasChoices,
     AliasPath,
+    BeforeValidator,
     ByteSize,
     ConfigDict,
     Field,
@@ -135,12 +137,11 @@ from ceres.event import (
 from ceres.message import Message, MessageData, MessageDirectionInput, MessageFilter
 from ceres.mount import Mount, MountAccess, MountAccessInput, MountPath, StrPath
 from ceres.node import Node
+from ceres.paths import PathLayout, resolve_zone
 from ceres.timing import delta
 from ceres.variable import InternalVariableName, Variable
 
 if TYPE_CHECKING:
-    from os import PathLike
-
     from pydantic.config import JsonDict
     from pydantic.types import Discriminator
 
@@ -503,6 +504,12 @@ class MountBinding(DataObject.Frozen):
     access: MountAccess | None
     """Most the files API may do with the mount, `None` to follow `writable`."""
 
+    layout: PathLayout | None
+    """Dated folders the field declares, which configuration may replace."""
+
+    zone: str
+    """Time zone the field declares for its layout and file names."""
+
 
 @cached(weak=True)
 def get_mount_bindings(cls: type, /) -> Mapping[Name, MountBinding]:
@@ -560,6 +567,8 @@ def get_mount_bindings(cls: type, /) -> Mapping[Name, MountBinding]:
                 label=info.title or name,
                 writable=marker.writable,
                 access=marker.access,
+                layout=marker.layout,
+                zone=marker.zone,
             )
         except ValidationError as error:
             raise TypeError(
@@ -1648,7 +1657,7 @@ class ComponentSystem(Node, ComponentSource):
 
         # A malformed mount declaration raises while the component is built, never at the
         # first request to the files API.
-        self.get_mount_bindings()
+        self.__name_mounts()
 
         # Add connections from bindings, static connections, then configuration.
         connections: dict[str, Connection] = {}
@@ -2076,6 +2085,23 @@ class ComponentSystem(Node, ComponentSource):
 
         mount = getattr(self.component, binding.field, None)
         return mount if isinstance(mount, MountPath) else None
+
+    def __name_mounts(self) -> None:
+        # Gives each mount field the names its layout and file names render. The field takes a
+        # copy, since a mount passed in from code may be shared, and the assignment bypasses
+        # `__setattr__` so the field does not read as set by the user.
+        engine = self.engine
+        project = None if engine is None or engine.project is None else engine.project
+        for binding in self.get_mount_bindings().values():
+            mount = getattr(self.component, binding.field, None)
+            if not isinstance(mount, MountPath):
+                continue
+
+            names = {"component": str(self.name), "mount": str(binding.name)}
+            if project is not None:
+                names["project"] = project.directory.name
+
+            object.__setattr__(self.component, binding.field, mount._named(names))
 
     def __propagate_tree_change(self) -> None:
         # Notify every component that the structure changed so they can recompute cached child
@@ -2966,6 +2992,14 @@ class MountFieldArgs(BoundFieldArgs, total=False):
     """Most the files API may do with the mount, see `MountPath.access`. Configuration may
     lower it further."""
 
+    layout: str | None
+    """Dated folders the mount writes into, see `PathLayout`. Configuration may replace it, or
+    clear it with `null`."""
+
+    zone: str
+    """Time zone the layout and file names render in, `utc` when omitted. Configuration may
+    replace it."""
+
 
 class MountField[M: MountPath](BoundField[M]):
     """Pydantic field that declares a component directory the files API serves.
@@ -2986,6 +3020,24 @@ class MountField[M: MountPath](BoundField[M]):
 
         writable: bool = True
         access: MountAccess | None = None
+        layout: PathLayout | None = None
+        zone: str = "utc"
+
+        def settle(self, value: object) -> object:
+            """Fill the field's `layout` and `zone` into a configured path or mapping that
+            leaves them out, so a configured key replaces the field's."""
+            if isinstance(value, str | PathLike) and not isinstance(value, MountPath):
+                value = {"path": value}
+
+            if not isinstance(value, dict):
+                return value
+
+            setting = cast("dict[str, object]", value)
+            return {
+                "layout": None if self.layout is None else self.layout.source,
+                "zone": self.zone,
+                **setting,
+            }
 
         def apply[P: MountPath](self, value: P | None) -> P | None:
             """Return `value` limited to the field's `writable` and `access`."""
@@ -3009,8 +3061,14 @@ class MountField[M: MountPath](BoundField[M]):
     ):
         writable = kwargs.pop("writable", True)
         access = kwargs.pop("access", None)
+        layout = kwargs.pop("layout", None)
+        zone = kwargs.pop("zone", "utc")
+
+        # Parsed here, so a bad layout or zone fails when the class is created.
+        parsed = None if not layout else PathLayout(layout)
+        resolve_zone(zone)
         if path is None and default is PydanticUndefined and "default_factory" not in kwargs:
-            kwargs["default_factory"] = Mount
+            kwargs["default_factory"] = lambda: Mount(layout=parsed, zone=zone)
 
         # The default passes the same validator a configured value does, which applies the
         # field's `writable` and resolves a relative path against the project.
@@ -3020,4 +3078,7 @@ class MountField[M: MountPath](BoundField[M]):
         marker = cast("MountField.Marker", self.marker)
         marker.writable = writable
         marker.access = None if access is None else MountAccess(access)
+        marker.layout = parsed
+        marker.zone = zone
+        self.metadata.append(BeforeValidator(marker.settle))
         self.metadata.append(AfterValidator(marker.apply))

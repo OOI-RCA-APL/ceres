@@ -1,7 +1,7 @@
 import re
 import socket
-from collections.abc import Callable, Iterable, Mapping
-from datetime import UTC, datetime, tzinfo
+from collections.abc import Callable, Iterable, Iterator, Mapping
+from datetime import UTC, datetime, timedelta, tzinfo
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, override
@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from pydantic_core import CoreSchema
 
 __all__ = [
+    "PathLayout",
     "PathTemplate",
     "rel",
     "proj",
@@ -406,17 +407,278 @@ def _parse_atom(source: str, body: str, extras: frozenset[str]) -> _Atom:
     if name not in _IDENTITY_ATOMS and name not in extras:
         raise ValueError(f"template '{source}' uses '{{{name}}}', which is not an atom")
 
-    def value(when: datetime, values: Mapping[str, object]) -> str:
-        given = values.get(name)
-        if given is None and name == "host":
-            return socket.gethostname().partition(".")[0]
+    return _Atom(name, lambda when, values: _name_value(name, values))
 
-        if given is None:
-            raise ValueError(f"atom '{{{name}}}' has no value")
 
-        return str(given)
+def _name_value(name: str, values: Mapping[str, object]) -> str:
+    given = values.get(name)
+    if given is None and name == "host":
+        return socket.gethostname().partition(".")[0]
 
-    return _Atom(name, value)
+    if given is None:
+        raise ValueError(f"atom '{{{name}}}' has no value")
+
+    return str(given)
+
+
+class _Capture:
+    """One calendar field a layout atom renders, and how to read it back from a folder name."""
+
+    __slots__ = ("field", "pattern", "read")
+
+    def __init__(self, field: str, pattern: str, read: Callable[[str], int] = int):
+        self.field = field
+        self.pattern = pattern
+        self.read = read
+
+
+def _names(names: Iterable[str], field: str) -> _Capture:
+    listed = list(names)
+    return _Capture(field, "|".join(listed), lambda text: listed.index(text) + 1)
+
+
+_DATE: Final = (_Capture("year", r"\d{4}"), _Capture("month", r"\d{2}"), _Capture("day", r"\d{2}"))
+_TIME: Final = (
+    _Capture("hour", r"\d{2}"),
+    _Capture("minute", r"\d{2}"),
+    _Capture("second", r"\d{2}"),
+)
+
+# The time atoms a layout may use, each read back by `PathLayout.walk`. A capture of variable
+# width cannot sit beside another, `{m}{d}` reads `111` two ways.
+_LAYOUT_ATOMS: Final[Mapping[str, tuple[_Capture | str, ...]]] = {
+    "year": (_DATE[0],),
+    "yy": (_Capture("year", r"\d{2}", lambda text: 2000 + int(text)),),
+    "month": (_DATE[1],),
+    "m": (_Capture("month", r"\d{1,2}"),),
+    "mon": (_names((month[:3] for month in _MONTHS), "month"),),
+    "month_name": (_names(_MONTHS, "month"),),
+    "doy": (_Capture("doy", r"\d{3}"),),
+    "day": (_DATE[2],),
+    "d": (_Capture("day", r"\d{1,2}"),),
+    "hour": (_TIME[0],),
+    "h": (_Capture("hour", r"\d{1,2}"),),
+    "minute": (_TIME[1],),
+    "second": (_TIME[2],),
+    "date": _DATE,
+    "time": _TIME,
+    "datetime": (*_DATE, "T", *_TIME),
+}
+_VARIABLE_WIDTH: Final = frozenset({"m", "d", "h", "mon", "month_name"})
+_LAYOUT_NAMES: Final = frozenset({"component", "mount", "project", "host"})
+
+_CALENDAR: Final = ("year", "month", "day", "hour", "minute", "second")
+
+
+class PathLayout(PathTemplate):
+    """A `PathTemplate` for dated folders, which `walk` reads back to find a time range.
+
+    A layout uses calendar atoms from the year down without a gap, `{year}/{month}` or
+    `{year}/{doy}`, plus `{component}`, `{mount}`, `{project}`, and `{host}`. A folder's
+    period runs from its time to the next value of its finest atom.
+    """
+
+    __slots__ = ("_segments",)
+
+    def __init__(self, source: str):
+        """Parse `source`.
+
+        Raises:
+            ValueError: If `source` breaks a `PathTemplate` rule, uses an atom a folder name
+                cannot be read back from, skips a calendar field, or puts two atoms of
+                variable width side by side.
+        """
+        super().__init__(source)
+        segments: list[list[str | _Atom]] = [[]]
+        for part in self._parts:
+            if isinstance(part, _Atom):
+                if part.name not in _LAYOUT_ATOMS and part.name not in _LAYOUT_NAMES:
+                    raise ValueError(
+                        f"layout '{source}' uses '{{{part.name}}}', which a folder cannot"
+                    )
+
+                if (
+                    part.name in _VARIABLE_WIDTH
+                    and segments[-1]
+                    and isinstance(segments[-1][-1], _Atom)
+                    and segments[-1][-1].name in _VARIABLE_WIDTH
+                ):
+                    raise ValueError(f"layout '{source}' puts two atoms of variable width together")
+
+                segments[-1].append(part)
+                continue
+
+            first, *rest = part.split("/")
+            segments[-1].append(first)
+            segments.extend([piece] for piece in rest)
+
+        fields = {
+            capture.field
+            for part in self._parts
+            if isinstance(part, _Atom)
+            for capture in _LAYOUT_ATOMS.get(part.name, ())
+            if isinstance(capture, _Capture)
+        }
+        if "doy" in fields:
+            fields |= {"month", "day"}
+
+        if fields - {"doy"} != set(_CALENDAR[: len(fields - {"doy"})]):
+            raise ValueError(f"layout '{source}' must name calendar fields from the year down")
+
+        self._segments = tuple(tuple(segment) for segment in segments)
+
+    def walk(
+        self,
+        root: Path,
+        after: datetime,
+        before: datetime,
+        zone: str = "utc",
+        values: Mapping[str, object] | None = None,
+    ) -> Iterator[Path]:
+        """Yield each existing folder below `root` whose period overlaps `after` to `before`.
+
+        Folders come in time order. A name the layout cannot have rendered is skipped.
+
+        Args:
+            root: Folder the layout starts from.
+            after: Start of the range, inclusive, timezone-aware.
+            before: End of the range, exclusive, timezone-aware.
+            zone: Time zone the folder names are written in, see `resolve_zone`.
+            values: Value of each name atom, as `render` takes them.
+
+        Raises:
+            ValueError: If `after` or `before` is naive, or a name atom has no value.
+        """
+        if after.tzinfo is None or before.tzinfo is None:
+            raise ValueError("a layout walks only a timezone-aware range")
+
+        given = {} if values is None else values
+        patterns = [_segment_pattern(segment, given) for segment in self._segments]
+        place = resolve_zone(zone)
+
+        def visit(folder: Path, depth: int, known: dict[str, int]) -> Iterator[Path]:
+            if depth == len(patterns):
+                yield folder
+                return
+
+            pattern, captures = patterns[depth]
+            try:
+                entries = list(folder.iterdir())
+            except FileNotFoundError, NotADirectoryError:
+                return
+
+            found: list[tuple[tuple[int, ...], str, Path, dict[str, int]]] = []
+            for entry in entries:
+                match = pattern.fullmatch(entry.name)
+                fields = None if match is None else _merge(known, captures, match.groups())
+                if fields is None or not entry.is_dir():
+                    continue
+
+                try:
+                    period = _period(fields, place)
+                except ValueError, OverflowError:
+                    continue
+
+                if period is not None and not (period[0] < before and period[1] > after):
+                    continue
+
+                key = tuple(fields.get(field, 0) for field in (*_CALENDAR, "doy"))
+                found.append((key, entry.name, entry, fields))
+
+            for _, _, entry, fields in sorted(found, key=lambda item: item[:2]):
+                yield from visit(entry, depth + 1, fields)
+
+        yield from visit(root, 0, {})
+
+
+def _segment_pattern(
+    segment: Iterable[str | _Atom],
+    values: Mapping[str, object],
+) -> tuple[re.Pattern[str], list[_Capture]]:
+    pattern: list[str] = []
+    captures: list[_Capture] = []
+    for part in segment:
+        if isinstance(part, str):
+            pattern.append(re.escape(part))
+            continue
+
+        if part.name in _LAYOUT_NAMES:
+            pattern.append(re.escape(_name_value(part.name, values)))
+            continue
+
+        for piece in _LAYOUT_ATOMS[part.name]:
+            if isinstance(piece, str):
+                pattern.append(re.escape(piece))
+            else:
+                pattern.append(f"({piece.pattern})")
+                captures.append(piece)
+
+    return re.compile("".join(pattern)), captures
+
+
+def _merge(
+    known: Mapping[str, int],
+    captures: Iterable[_Capture],
+    groups: Iterable[str | None],
+) -> dict[str, int] | None:
+    """Return `known` plus the fields a folder name gives, `None` when two disagree."""
+    fields = dict(known)
+    for capture, text in zip(captures, groups, strict=True):
+        assert text is not None
+        value = capture.read(text)
+        if fields.setdefault(capture.field, value) != value:
+            return None
+
+    if "doy" in fields and "year" in fields:
+        try:
+            day = datetime(fields["year"], 1, 1) + timedelta(days=fields["doy"] - 1)  # noqa: DTZ001
+        except OverflowError:
+            return None
+
+        if day.year != fields["year"]:
+            return None
+
+        for field, value in (("month", day.month), ("day", day.day)):
+            if fields.setdefault(field, value) != value:
+                return None
+
+    return fields
+
+
+def _period(fields: Mapping[str, int], place: tzinfo | None) -> tuple[datetime, datetime] | None:
+    """Return the span `fields` name, `None` when they name no calendar prefix yet.
+
+    Raises:
+        ValueError: If the fields name no real date, such as month 13.
+    """
+    depth = 0
+    while depth < len(_CALENDAR) and _CALENDAR[depth] in fields:
+        depth += 1
+
+    if depth == 0 or any(field in fields for field in _CALENDAR[depth:]):
+        return None
+
+    start = datetime(  # noqa: DTZ001
+        fields["year"],
+        fields.get("month", 1),
+        fields.get("day", 1),
+        fields.get("hour", 0),
+        fields.get("minute", 0),
+        fields.get("second", 0),
+    )
+    unit = _CALENDAR[depth - 1]
+    if unit == "year":
+        end = start.replace(year=start.year + 1)
+    elif unit == "month":
+        end = (start + timedelta(days=32)).replace(day=1)
+    else:
+        end = start + timedelta(**{f"{unit}s": 1})
+
+    return _localize(start, place), _localize(end, place)
+
+
+def _localize(naive: datetime, place: tzinfo | None) -> datetime:
+    return naive.astimezone() if place is None else naive.replace(tzinfo=place)
 
 
 def _check_segment(source: str, segment: str) -> None:
