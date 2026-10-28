@@ -153,6 +153,7 @@ class Engine(Node):
         "_server",
         "_server_override",
         "_exports",
+        "_started",
     )
 
     def __init__(self) -> None:
@@ -172,6 +173,9 @@ class Engine(Node):
         # Exports of loaded records, each removing itself when done, so it holds only those
         # still running.
         self._exports: set[asyncio.Task[None]] = set()
+        # Set once the enabled components have started. The server answers before then, and an
+        # export of loaded records waits for it so it finds every exporter.
+        self._started = asyncio.Event()
 
     @property
     @override
@@ -270,6 +274,7 @@ class Engine(Node):
             if system.enabled:
                 system.start(all_enabled=True)
 
+        self._started.set()
         if self._project is not None:
             self.__export(drain_pending_exports(self, self._project.state_directory))
 
@@ -285,6 +290,7 @@ class Engine(Node):
 
     @override
     async def __stop__(self) -> None:
+        self._started.clear()
         for task in list(self._exports):
             task.cancel()
 
@@ -332,7 +338,11 @@ class Engine(Node):
         """Merge records a load wrote into the files of every exporter that exports them,
         without waiting for the runs.
         """
-        self.__export(export_pending(self, entries))
+        self.__export(self.__export_started(entries))
+
+    async def __export_started(self, entries: Sequence[PendingExport]) -> None:
+        await self._started.wait()
+        await export_pending(self, entries)
 
     def __export(self, exporting: Coroutine[Any, Any, None]) -> None:
         task = asyncio.create_task(exporting)

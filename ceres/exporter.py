@@ -115,7 +115,7 @@ _ORDER = ["timestamp:asc", "id:asc"]
 
 _REVERSE_ORDER = ["timestamp:desc", "id:desc"]
 
-_TICK = timedelta(microseconds=1)
+TICK = timedelta(microseconds=1)
 """The finest step between two timestamps, which turns an inclusive bound exclusive."""
 
 _START_CHECKS = 100
@@ -1564,7 +1564,7 @@ class ExporterManager(BaseComponentManager):
 
             starts = [
                 start
-                for start, _ in periods(exporter.period, first, started + _TICK)
+                for start, _ in periods(exporter.period, first, started + TICK)
                 if start is not None
             ] or [period_start(exporter.period, started)]
             if len(starts) > _START_CHECKS:
@@ -1686,7 +1686,7 @@ class ExporterManager(BaseComponentManager):
         relative, final = target.relative.as_posix(), target.path
         # The upper bound keeps out a record committed after this wake took its keys, whose
         # own notification would otherwise read as late.
-        async with self.__query(exporter, first[0], last[0] + _TICK) as results:
+        async with self.__query(exporter, first[0], last[0] + TICK) as results:
             stream = _Counted(_within(results, first, last))
             head = await anext(stream, None)
             if head is None:

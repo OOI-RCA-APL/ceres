@@ -9,7 +9,7 @@ from uuid import UUID
 
 import pytest
 
-from ceres import Bound, Component
+from ceres import Bound, Component, Engine
 from ceres.__internal__.database.writer import FlushSummary, Writer
 from ceres.__internal__.entity import DeleteExecutor
 from ceres.__internal__.pending_exports import (
@@ -1018,8 +1018,47 @@ async def test_an_engine_exports_what_loads_left_pending(tmp_path: Path) -> None
     assert list(exported.files()) == ["2026/01/01/00.csv"]
     assert list(state.iterdir()) == []
     assert "Skipping line 2" in engine.lines[0]
-    assert "through '@archive' 'messages'" in engine.lines[1]
-    assert "No exporter takes the loaded alert records" in engine.lines[2]
+    assert "No exporter takes the loaded alert records" in engine.lines[1]
+    assert "through '@archive' 'messages'" in engine.lines[2]
+
+
+async def test_a_load_across_addresses_runs_each_exporter_once(tmp_path: Path) -> None:
+    exported = Exported.create(tmp_path)
+    await exported.store(message(5, id=1), message(70, id=2))
+    engine = Loading(exported.component, [])
+    entries = [
+        validate(PendingExport, from_json(pending("message", address, first, last)))
+        for address, first, last in [("@archive", 5, 5), ("@archive.abc", 70, 70)]
+    ]
+
+    await export_pending(engine, entries)  # type: ignore[reportArgumentType]
+
+    assert list(exported.files()) == ["2026/01/01/00.csv", "2026/01/01/01.csv"]
+    assert engine.lines == [
+        "Exported the loaded records of '@archive', '@archive.abc' from "
+        "2026-01-01T00:05:00+00:00 to 2026-01-01T01:10:00+00:00 through '@archive' 'messages'"
+    ]
+
+
+async def test_an_export_of_a_load_waits_for_the_engine_to_start_its_components(
+    tmp_path: Path,
+) -> None:
+    engine = Engine()
+    await engine.database.migrate()
+    exported = Exported.create(tmp_path, live=False)
+    engine.attach(exported.component)
+    await exported.store(message(5))
+    await Live(exported.component, tmp_path).begin()
+    entry = validate(PendingExport, from_json(pending("message", "@archive", 5, 5)))
+
+    engine.export_loaded([entry])
+    await sleep(0.2)
+    assert exported.files() == {}
+
+    engine._started.set()  # pyright: ignore[reportPrivateUsage]
+    await wait_for_condition("the load to export", lambda: bool(exported.files()), 5)
+    await exported.component.system.stop()
+    await engine.database.dispose()
 
 
 async def test_a_load_outside_the_component_exports_nothing(tmp_path: Path) -> None:
