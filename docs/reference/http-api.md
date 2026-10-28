@@ -93,6 +93,12 @@ caller themselves against the resource they name.
 | `GET` | `/api/components/{id}/exporters/{second}/runs` | required | List one exporter's recent runs, newest first. |
 | `POST` | `/api/components/{id}/exporters/{second}/runs` | optional | Start an export run over a range, access checked by the operation. |
 
+## Exports
+
+| Method | Path | Token | Description |
+| --- | --- | --- | --- |
+| `POST` | `/api/exports/pending` | required | Merge records a load wrote into the files of every exporter that exports them, without waiting for the runs. |
+
 ## Files
 
 | Method | Path | Token | Description |

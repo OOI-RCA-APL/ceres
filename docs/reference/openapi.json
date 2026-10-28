@@ -1254,6 +1254,27 @@
         ]
       }
     },
+    "/api/exports/pending": {
+      "post": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Merge records a load wrote into the files of every exporter that exports them, without waiting for the runs.",
+        "tags": [
+          "exports"
+        ]
+      }
+    },
     "/api/files": {
       "get": {
         "responses": {
@@ -2858,6 +2879,9 @@
     },
     {
       "name": "logs"
+    },
+    {
+      "name": "exports"
     },
     {
       "name": "users"
