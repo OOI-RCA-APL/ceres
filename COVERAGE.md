@@ -1,6 +1,6 @@
 # Coverage
 
-<!-- coverage:fingerprint:2ca54aaba09f5260 -->
+<!-- coverage:fingerprint:fa5212a7de899261 -->
 
 ## Python
 
@@ -92,7 +92,7 @@
 | `ceres/node.py` | 87% |
 | `ceres/notifier.py` | 100% |
 | `ceres/particle.py` | 91% |
-| `ceres/paths.py` | 96% |
+| `ceres/paths.py` | 95% |
 | `ceres/permission.py` | 95% |
 | `ceres/project.py` | 100% |
 | `ceres/pruner.py` | 58% |
@@ -238,7 +238,7 @@
 | `rust/ceres-webrtc/src/delivery.rs` | 100% |
 | `rust/ceres-webrtc/src/parameter_sets.rs` | 98% |
 | `rust/ceres-webrtc/src/picture.rs` | 100% |
-| `rust/ceres-webrtc/src/server.rs` | 84% |
+| `rust/ceres-webrtc/src/server.rs` | 85% |
 | `rust/ceres-webrtc/src/session.rs` | 88% |
 | `rust/ceres-webrtc/src/socket.rs` | 96% |
 | **Total** | **75%** |
