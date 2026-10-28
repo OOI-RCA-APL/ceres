@@ -697,10 +697,7 @@ class Mount(MountPath):
             ValueError: If `when` is naive or a name atom has no value.
             PermissionError: If the folder is missing and the mount is read-only.
         """
-        if self._layout is None:
-            return self
-
-        folder = self / self.render(self._layout, when)
+        folder = self if self._layout is None else self / self.render(self._layout, when)
         # A read-only mount may still read a folder that exists, which `mkdir` would refuse.
         if not folder.is_dir():
             folder.mkdir()
