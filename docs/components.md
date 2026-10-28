@@ -138,7 +138,7 @@ components:
 - A layout names time from the year down: `{yyyy}` or `{yy}`, then `{MM}`, `{M}`, `{MMM}`, `{MMMM}`, or `{DDD}`, then `{dd}` or `{d}`, `{HH}`, `{H}`, or `{hh}` with `{a}` in the same folder, `{mm}`, and `{ss}`. It may also use `{component}`, `{mount}`, `{project}`, and `{host}`. The engine refuses any other atom, since `periods` could not read the time back from the folder name.
 - `zone` decides which day a time falls on, `utc` when omitted, `local` for the server's time zone, or an IANA name such as `America/Los_Angeles`.
 - Configuration replaces each key it gives, and `layout: null` turns the layout off. A key left out keeps the field's. Under `files` it replaces each kind it names and keeps the rest, and the engine refuses a kind the field does not declare.
-- A file template may hold folders of its own, so kinds sharing a mount stay apart. `file` also takes a `PathTemplate` for a one-off file.
+- A file template may hold folders of its own, so kinds sharing a mount stay apart. `file` also takes a `PathTemplate` for a one-off file. `place` names the same file without creating its folder, so async code calls it on `aio()` and creates the folder itself.
 - The console's "Files" page shows a "Today" button on a mount with a layout, which opens the folder holding the current time.
 
 ### File Name Templates

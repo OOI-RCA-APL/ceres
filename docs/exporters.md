@@ -207,10 +207,34 @@ to the current time. `GET /api/components/@sensor/exporters/messages/runs` lists
 20 runs, newest first, with each one's state, record count and files, to anyone who can view the
 component.
 
+`ceres export` starts the same run from the command line and waits for it to end. Without an
+exporter name, it runs every exporter of the component in turn. A time without a zone is UTC.
+
+```bash
+ceres export @sensor messages --after 2026-01-01 --before 2026-01-02
+ceres export @sensor --after 2026-01-01 --replace
+```
+
 The console's component page lists each exporter in its "Exporters" section with its last run.
 Its "Rebuild" button asks for the range and starts a run, and the section shows the run's record
 count while it goes. A format that cannot merge offers no "Replace file contents" choice, since
 every run of it replaces.
+
+### Exporting Loaded Records
+
+Records that `ceres messages load` and its siblings write reach an exporter only when the load
+passes `--export`:
+
+```bash
+ceres messages load rows.jsonl --export
+```
+
+The load then runs, as a merge, every merging exporter of the kind it loaded on each component
+holding a loaded address, over the time from that address's first loaded record to its last. With
+no engine running, the load appends those ranges to `.ceres/pending-exports.jsonl` beside the
+configuration, and the engine exports them when it next starts. That file sits on the host running
+the load, so a load on another host reaches the engine only while the engine runs. Records written
+to the database any other way reach no exporter until a run covers their time.
 
 Each run emits `ExportRunStartedEvent`, one `ExportRunProgressEvent` per file it writes, and then
 `ExportRunCompletedEvent` or `ExportRunFailedEvent`. A completed run also writes one log entry
@@ -243,7 +267,12 @@ POST /api/components/@sensor/playbacks
 
 `before` defaults to, and is capped at, the current time. One playback of a component runs at a
 time. `GET /api/components/@sensor/playbacks` lists the last 20, newest first. The console's
-"Play Back" button in the "Exporters" section asks for the same values.
+"Play Back" button in the "Exporters" section asks for the same values, and `ceres playback`
+starts one from the command line and waits for it to end:
+
+```bash
+ceres playback @sensor --after 2026-01-01 --before 2026-01-02 --level full --no-export
+```
 
 - `level: particles`, the default, stores each particle and emits nothing.
 - `level: full` also emits each particle's `ParticleEvent`, so every listener runs as if live,
