@@ -23,7 +23,7 @@ class Hoarder(Component):
     ledger: Bound[Mount] = Mount.Field(..., title="Ledger", writable=False)
     vault: Bound[AsyncMount] = Mount.Field(..., access="none")
     spare: Bound[Mount | None] = Mount.Field(default=None)
-    scratch: Bound[Mount] = Mount.Field(layout="{mount}/{year}")
+    scratch: Bound[Mount] = Mount.Field(layout="{mount}/{yyyy}")
     plain: Mount | None = None
 
 
@@ -36,7 +36,7 @@ async def _engine(
         "logs": {
             "path": str(tmp_path),
             "access": "view",
-            "layout": "{year}",
+            "layout": "{yyyy}",
             "zone": "America/Los_Angeles",
         },
         "vault": {"path": "abc", "access": "none"},
@@ -214,12 +214,12 @@ async def test_mounts_carry_their_layout_zone_and_names(tmp_path: Path) -> None:
     mounts = {mount.id: mount for mount in await get_mounts(engine, _UNRESTRICTED)}
     logs, scratch = mounts["logs"], mounts["@hoarder/scratch"]
     assert (logs.layout, logs.zone, logs.names) == (
-        "{year}",
+        "{yyyy}",
         "America/Los_Angeles",
         {"host": host_name(), "mount": "logs"},
     )
     assert (scratch.layout, scratch.zone, scratch.names) == (
-        "{mount}/{year}",
+        "{mount}/{yyyy}",
         "UTC",
         {"host": host_name(), "component": "hoarder", "mount": "scratch"},
     )
@@ -239,11 +239,11 @@ async def test_mounts_keep_the_host_name_where_paths_stay_hidden(tmp_path: Path)
 
 def test_files_mounts_read_a_path_or_a_mapping() -> None:
     mounts = ServerFilesConfig(
-        mounts={"a": "./a", "b": {"path": "/b", "access": "view", "layout": "{year}"}}
+        mounts={"a": "./a", "b": {"path": "/b", "access": "view", "layout": "{yyyy}"}}
     ).mounts
     assert mounts == {
         "a": {"path": "./a", "access": None, "layout": None, "zone": None},
-        "b": {"path": "/b", "access": "view", "layout": "{year}", "zone": None},
+        "b": {"path": "/b", "access": "view", "layout": "{yyyy}", "zone": None},
     }
     with pytest.raises(ValueError, match="mounts"):
         ServerFilesConfig(mounts={"@a": "./a"})
@@ -252,8 +252,8 @@ def test_files_mounts_read_a_path_or_a_mapping() -> None:
 @pytest.mark.parametrize(
     ("setting", "match"),
     [
-        ({"layout": "{day}"}, "calendar"),
-        ({"layout": "{component}/{year}"}, "no value"),
+        ({"layout": "{dd}"}, "calendar"),
+        ({"layout": "{component}/{yyyy}"}, "no value"),
         ({"zone": "Mars/Base"}, "not a time zone"),
     ],
 )

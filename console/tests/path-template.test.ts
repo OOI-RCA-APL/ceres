@@ -24,7 +24,7 @@ describe('PathTemplate', () => {
   it.each(vectors.render)('renders $template', (vector) => {
     const template = new PathTemplate(vector.template, vector.atoms)
     const zone = ZONES[vector.zone ?? 'utc'] ?? vector.zone
-    expect(template.render(new Date(vector.when!), zone, vector.values)).toBe(vector.expected)
+    expect(template.render(vector.when!, zone, vector.values)).toBe(vector.expected)
   })
 
   it.each(vectors.invalid)('refuses $template', (vector) => {

@@ -35,7 +35,7 @@ class MountInfo(DataObject):
     reveal_paths: bool
     """Whether `?stat` answers where an entry lives on the server, the same for every mount."""
     layout: str | None
-    """Dated folders below the root, such as `{year}/{month}`, `None` for none."""
+    """Dated folders below the root, such as `{yyyy}/{MM}`, `None` for none."""
     zone: str
     """IANA name of the time zone the layout reads in."""
     names: dict[str, str]

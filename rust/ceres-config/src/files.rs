@@ -75,7 +75,7 @@ pub struct RawEngineMountSetting {
     pub path: PathBuf,
     /// Most the files API may do with the mount, `edit` when omitted.
     pub access: Option<MountAccess>,
-    /// Dated folders below the root, such as `{year}/{month}`, which the console opens at the
+    /// Dated folders below the root, such as `{yyyy}/{MM}`, which the console opens at the
     /// current period. The engine checks it when it starts.
     pub layout: Option<String>,
     /// Time zone the layout reads in, `utc`, `local`, or an IANA name, `utc` when omitted.
@@ -306,7 +306,7 @@ mod tests {
             ..EngineMount::default()
         };
         let config = parse(
-            "mounts: {a: ./a, b: {path: /b, access: view}, c: {path: c, layout: '{year}', zone: local}}",
+            "mounts: {a: ./a, b: {path: /b, access: view}, c: {path: c, layout: '{yyyy}', zone: local}}",
         )
         .unwrap();
         assert_eq!(
@@ -317,7 +317,7 @@ mod tests {
                 (
                     "c".to_string(),
                     EngineMount {
-                        layout: Some("{year}".into()),
+                        layout: Some("{yyyy}".into()),
                         zone: Some("local".into()),
                         ..mount("c", None)
                     }

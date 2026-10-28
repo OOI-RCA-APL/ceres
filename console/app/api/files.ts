@@ -26,7 +26,7 @@ export const FileMountModel = z.object({
   temporary: z.boolean(),
   /** Whether a stat answers where an entry lives on the server, the same for every mount. */
   reveal_paths: z.boolean(),
-  /** Dated folders below the root, such as `{year}/{month}`, null for none. */
+  /** Dated folders below the root, such as `{yyyy}/{MM}`, null for none. */
   layout: z.string().nullable(),
   /** IANA name of the time zone the layout reads in. */
   zone: z.string(),

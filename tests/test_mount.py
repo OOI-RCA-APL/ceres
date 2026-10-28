@@ -326,7 +326,7 @@ class TestAsync:
         assert not await created.exists()
 
     async def test_dates_and_walks(self, mount: Mount) -> None:
-        dated = AsyncMount(mount, layout="{year}/{month}")
+        dated = AsyncMount(mount, layout="{yyyy}/{MM}")
         folder = await dated.dated(at("2026-10-27T13:45:09Z"))
         assert type(folder) is AsyncMount
         assert await dated.periods(at("2026-10-01T00:00:00Z"), at("2026-11-01T00:00:00Z")) == [
@@ -351,7 +351,7 @@ def walked(mount: Mount, after: str, before: str) -> list[str]:
 
 class TestLayout:
     def test_creates_the_folder_for_a_time_in_its_zone(self, tmp_path: Path) -> None:
-        mount = Mount(tmp_path, layout="{year}/{month}/{day}", zone="America/Los_Angeles")
+        mount = Mount(tmp_path, layout="{yyyy}/{MM}/{dd}", zone="America/Los_Angeles")
         folder = mount.dated(at("2026-10-27T03:00:00Z"))
         assert folder == mount / "2026/10/26"
         assert folder.is_dir()
@@ -362,10 +362,10 @@ class TestLayout:
 
     def test_refuses_a_naive_time(self, tmp_path: Path) -> None:
         with pytest.raises(ValueError, match="timezone-aware"):
-            Mount(tmp_path, layout="{year}").dated(datetime(2026, 10, 27))  # noqa: DTZ001
+            Mount(tmp_path, layout="{yyyy}").dated(datetime(2026, 10, 27))  # noqa: DTZ001
 
     def test_reads_an_existing_folder_without_writing(self, tmp_path: Path) -> None:
-        mount = folders(Mount(tmp_path, layout="{year}"), "2026")
+        mount = folders(Mount(tmp_path, layout="{yyyy}"), "2026")
         readonly = Mount(mount, writable=False)
         assert readonly.dated(at("2026-10-27T13:45:09Z")) == mount / "2026"
         with pytest.raises(PermissionError):
@@ -373,7 +373,15 @@ class TestLayout:
 
     @pytest.mark.parametrize(
         "layout",
-        ["{month}", "{year}/{day}", "{year}/{week}", "{year}/{m}{d}", "{time:%Y}", "{connection}"],
+        [
+            "{MM}",
+            "{yyyy}/{dd}",
+            "{yyyy}/{EEE}",
+            "{yyyy}/{M}{d}",
+            "{yyyy}/{SSS}",
+            "{hh}/{a}",
+            "{connection}",
+        ],
     )
     def test_refuses_a_layout_it_cannot_read_back(self, tmp_path: Path, layout: str) -> None:
         with pytest.raises(ValueError):
@@ -385,7 +393,7 @@ class TestLayout:
 
     def test_walks_the_folders_overlapping_a_range_in_order(self, tmp_path: Path) -> None:
         mount = folders(
-            Mount(tmp_path, layout="{year}/{month}/{day}"),
+            Mount(tmp_path, layout="{yyyy}/{MM}/{dd}"),
             "2026/10/27",
             "2026/10/01",
             "2026/09/30",
@@ -402,7 +410,7 @@ class TestLayout:
         ]
 
     def test_walks_a_partial_day(self, tmp_path: Path) -> None:
-        mount = folders(Mount(tmp_path, layout="{year}/{month}/{day}"), "2026/10/26", "2026/10/27")
+        mount = folders(Mount(tmp_path, layout="{yyyy}/{MM}/{dd}"), "2026/10/26", "2026/10/27")
         assert walked(mount, "2026-10-26T23:00:00Z", "2026-10-27T01:00:00Z") == [
             "2026/10/26",
             "2026/10/27",
@@ -410,12 +418,12 @@ class TestLayout:
 
     def test_walks_in_the_mounts_zone(self, tmp_path: Path) -> None:
         mount = folders(
-            Mount(tmp_path, layout="{date}", zone="Asia/Kolkata"), "20261026", "20261027"
+            Mount(tmp_path, layout="{yyyy}{MM}{dd}", zone="Asia/Kolkata"), "20261026", "20261027"
         )
         assert walked(mount, "2026-10-26T19:00:00Z", "2026-10-26T20:00:00Z") == ["20261027"]
 
     def test_walks_unpadded_and_named_months_by_time(self, tmp_path: Path) -> None:
-        mount = folders(Mount(tmp_path, layout="{year}/{m}-{mon}"), "2026/10-Oct", "2026/2-Feb")
+        mount = folders(Mount(tmp_path, layout="{yyyy}/{M}-{MMM}"), "2026/10-Oct", "2026/2-Feb")
         (mount / "2026/3-Feb").mkdir()
         assert walked(mount, "2026-01-01T00:00:00Z", "2027-01-01T00:00:00Z") == [
             "2026/2-Feb",
@@ -423,7 +431,7 @@ class TestLayout:
         ]
 
     def test_walks_days_of_the_year(self, tmp_path: Path) -> None:
-        mount = folders(Mount(tmp_path, layout="{year}/{doy}"), "2026/300", "2026/299", "2026/366")
+        mount = folders(Mount(tmp_path, layout="{yyyy}/{DDD}"), "2026/300", "2026/299", "2026/366")
         assert walked(mount, "2026-10-27T00:00:00Z", "2027-01-01T00:00:00Z") == ["2026/300"]
 
     def test_walks_itself_without_a_layout(self, mount: Mount) -> None:
@@ -431,46 +439,51 @@ class TestLayout:
 
     def test_renders_a_file_name_with_its_names_and_zone(self, tmp_path: Path) -> None:
         mount = Mount(tmp_path, zone="America/Los_Angeles")._named({"mount": "abc"})
-        template = PathTemplate("{mount}_{datetime}_{sequence}", atoms=["sequence"])
+        template = PathTemplate(
+            "{mount}_{yyyy}{MM}{dd}T{HH}{mm}{ss}_{sequence}", atoms=["sequence"]
+        )
         rendered = mount.render(template, at("2026-10-27T13:45:09Z"), {"sequence": 7})
         assert rendered == "abc_20261027T064509_7"
 
     def test_dumps_its_layout_and_zone(self, tmp_path: Path) -> None:
-        mount = Mount(tmp_path, layout="{year}", zone="local")
-        assert dump(mount) == {"path": str(tmp_path), "layout": "{year}", "zone": "local"}
-        assert validate(Mount, dump(mount)).layout == PathLayout("{year}")
+        mount = Mount(tmp_path, layout="{yyyy}", zone="local")
+        assert dump(mount) == {"path": str(tmp_path), "layout": "{yyyy}", "zone": "local"}
+        assert validate(Mount, dump(mount)).layout == PathLayout("{yyyy}")
 
     def test_an_empty_layout_clears_a_given_one(self, tmp_path: Path) -> None:
-        dated = Mount(tmp_path, layout="{year}")
-        assert Mount(dated).layout == PathLayout("{year}")
+        dated = Mount(tmp_path, layout="{yyyy}")
+        assert Mount(dated).layout == PathLayout("{yyyy}")
         assert Mount(dated, layout="").layout is None
 
     def test_names_a_file_by_kind_or_template(self, tmp_path: Path) -> None:
-        mount = Mount(tmp_path, layout="{year}", files={"abc": "abc/{date}.txt"})
+        mount = Mount(tmp_path, layout="{yyyy}", files={"abc": "abc/{yyyy}{MM}{dd}.txt"})
         when = at("2026-10-27T13:45:09Z")
         assert mount.file("abc", when) == mount / "2026/abc/20261027.txt"
         assert (tmp_path / "2026/abc").is_dir()
-        assert mount.file(PathTemplate("{time}.txt"), when) == mount / "2026/134509.txt"
+        assert mount.file(PathTemplate("{HH}{mm}{ss}.txt"), when) == mount / "2026/134509.txt"
         with pytest.raises(ValueError, match="no file 'abcd'"):
             mount.file("abcd", when)
 
     def test_refuses_a_file_on_a_read_only_mount(self, tmp_path: Path) -> None:
-        mount = Mount(tmp_path, writable=False, files={"abc": "abc/{date}.txt"})
+        mount = Mount(tmp_path, writable=False, files={"abc": "abc/{yyyy}{MM}{dd}.txt"})
         with pytest.raises(PermissionError):
             mount.file("abc", at("2026-10-27T13:45:09Z"))
 
     def test_dumps_its_files(self, tmp_path: Path) -> None:
-        mount = Mount(tmp_path, files={"abc": "{date}.txt"})
-        assert dump(mount) == {"path": str(tmp_path), "files": {"abc": "{date}.txt"}}
-        assert validate(Mount, dump(mount)).files == {"abc": PathTemplate("{date}.txt")}
+        mount = Mount(tmp_path, files={"abc": "{yyyy}{MM}{dd}.txt"})
+        assert dump(mount) == {"path": str(tmp_path), "files": {"abc": "{yyyy}{MM}{dd}.txt"}}
+        assert validate(Mount, dump(mount)).files == {"abc": PathTemplate("{yyyy}{MM}{dd}.txt")}
 
 
 class Photographer(Component):
     stills: Bound[Mount] = Mount.Field(
         "./stills",
-        layout="{mount}/{year}",
+        layout="{mount}/{yyyy}",
         zone="local",
-        files={"still": "{datetime}_{sequence}.jpg", "thumb": "thumbs/{datetime}.jpg"},
+        files={
+            "still": "{yyyy}{MM}{dd}T{HH}{mm}{ss}_{sequence}.jpg",
+            "thumb": "thumbs/{yyyy}{MM}{dd}T{HH}{mm}{ss}.jpg",
+        },
         atoms=["sequence"],
     )
 
@@ -499,7 +512,7 @@ def photographer(stills: object = None) -> Photographer:
 class TestLayoutField:
     def test_declares_a_layout_and_zone(self) -> None:
         stills = photographer().stills
-        assert (stills.layout, stills.zone) == (PathLayout("{mount}/{year}"), "local")
+        assert (stills.layout, stills.zone) == (PathLayout("{mount}/{yyyy}"), "local")
 
     def test_names_the_component_and_mount(self) -> None:
         assert photographer().stills.names == {"component": "abc", "mount": "stills"}
@@ -529,24 +542,24 @@ class TestLayoutField:
         assert stills.dated(at("2026-07-01T12:00:00Z")) == stills / "stills/2026"
 
     def test_takes_a_configured_layout_and_zone(self, tmp_path: Path) -> None:
-        setting = {"path": str(tmp_path), "layout": "{year}/{month}", "zone": "utc"}
+        setting = {"path": str(tmp_path), "layout": "{yyyy}/{MM}", "zone": "utc"}
         stills = photographer(setting).stills
-        assert (stills.layout, stills.zone) == (PathLayout("{year}/{month}"), "utc")
+        assert (stills.layout, stills.zone) == (PathLayout("{yyyy}/{MM}"), "utc")
 
     def test_clears_the_layout_from_configuration(self, tmp_path: Path) -> None:
         assert photographer({"path": str(tmp_path), "layout": None}).stills.layout is None
 
     def test_refuses_a_bad_configured_layout(self, tmp_path: Path) -> None:
         with pytest.raises(ValidationError, match="calendar"):
-            validate(Photographer, {"stills": {"path": str(tmp_path), "layout": "{day}"}})
+            validate(Photographer, {"stills": {"path": str(tmp_path), "layout": "{dd}"}})
 
     def test_refuses_a_bad_layout_when_declared(self) -> None:
         with pytest.raises(ValueError, match="calendar"):
-            Mount.Field(layout="{day}")
+            Mount.Field(layout="{dd}")
 
     def test_lists_the_declared_layout(self) -> None:
         binding = get_mount_bindings(Photographer)["stills"]
-        assert (binding.layout, binding.zone) == (PathLayout("{mount}/{year}"), "local")
+        assert (binding.layout, binding.zone) == (PathLayout("{mount}/{yyyy}"), "local")
         assert set(binding.files) == {"still", "thumb"}
 
     def test_writes_each_file_kind_into_the_dated_folder(self, tmp_path: Path) -> None:
@@ -558,18 +571,18 @@ class TestLayoutField:
         assert stills.file("thumb", when).parent.is_dir()
 
     def test_takes_a_configured_file_and_keeps_the_others(self, tmp_path: Path) -> None:
-        setting = {"path": str(tmp_path), "files": {"still": "{date}_{sequence}.jpg"}}
+        setting = {"path": str(tmp_path), "files": {"still": "{yyyy}{MM}{dd}_{sequence}.jpg"}}
         files = photographer(setting).stills.files
         assert {kind: file.source for kind, file in files.items()} == {
-            "still": "{date}_{sequence}.jpg",
-            "thumb": "thumbs/{datetime}.jpg",
+            "still": "{yyyy}{MM}{dd}_{sequence}.jpg",
+            "thumb": "thumbs/{yyyy}{MM}{dd}T{HH}{mm}{ss}.jpg",
         }
 
     def test_fills_the_declared_files_into_a_mount_given_in_code(self, tmp_path: Path) -> None:
         stills = Photographer(stills=Mount(tmp_path, files={"still": "abc.jpg"})).stills
         assert {kind: file.source for kind, file in stills.files.items()} == {
             "still": "abc.jpg",
-            "thumb": "thumbs/{datetime}.jpg",
+            "thumb": "thumbs/{yyyy}{MM}{dd}T{HH}{mm}{ss}.jpg",
         }
         assert Photographer(stills=Mount(tmp_path)).stills.layout is None
 

@@ -38,11 +38,11 @@ interface PathTemplateTime {
   hour: number
   minute: number
   second: number
+  microsecond: number
   /** ISO weekday, 1 for Monday. */
   weekday: number
   doy: number
-  isoYear: number
-  isoWeek: number
+  /** Whole seconds since the Unix epoch. */
   epoch: number
   /** Offset from UTC in minutes. */
   offset: number
@@ -75,8 +75,16 @@ function part(parts: Intl.DateTimeFormatPart[], type: Intl.DateTimeFormatPartTyp
   return parts.find((candidate) => candidate.type === type)?.value ?? ''
 }
 
-function readTime(when: Date, zone: string): PathTemplateTime {
-  const parts = zoneFormatter(zone).formatToParts(when)
+function readTime(when: Date | string, zone: string): PathTemplateTime {
+  const instant = typeof when === 'string' ? new Date(when) : when
+  // A `Date` holds milliseconds, so an ISO string's own fraction carries the microseconds.
+  const fraction = typeof when === 'string' ? /T[^.]*\.(\d+)/.exec(when)?.[1] : undefined
+  const microsecond =
+    fraction == null
+      ? (((instant.getTime() % 1000) + 1000) % 1000) * 1000
+      : Number(fraction.padEnd(6, '0').slice(0, 6))
+
+  const parts = zoneFormatter(zone).formatToParts(instant)
   const [year, month, day, hour, minute, second] = (
     ['year', 'month', 'day', 'hour', 'minute', 'second'] as const
   ).map((type) => Number(part(parts, type)))
@@ -87,9 +95,6 @@ function readTime(when: Date, zone: string): PathTemplateTime {
       : (offsetMatch[1] === '-' ? -1 : 1) * (Number(offsetMatch[2]) * 60 + Number(offsetMatch[3]))
 
   const date = Date.UTC(year!, month! - 1, day)
-  const weekday = ((new Date(date).getUTCDay() + 6) % 7) + 1
-  const thursday = new Date(date + (4 - weekday) * DAY)
-  const isoYear = thursday.getUTCFullYear()
   return {
     year: year!,
     month: month!,
@@ -97,11 +102,10 @@ function readTime(when: Date, zone: string): PathTemplateTime {
     hour: hour!,
     minute: minute!,
     second: second!,
-    weekday,
+    microsecond,
+    weekday: ((new Date(date).getUTCDay() + 6) % 7) + 1,
     doy: (date - Date.UTC(year!, 0, 1)) / DAY + 1,
-    isoYear,
-    isoWeek: Math.floor((thursday.getTime() - Date.UTC(isoYear, 0, 1)) / DAY / 7) + 1,
-    epoch: Math.floor(when.getTime() / 1000),
+    epoch: Math.floor(instant.getTime() / 1000),
     offset,
   }
 }
@@ -115,77 +119,45 @@ function formatOffset(minutes: number) {
   return `${sign}${pad(Math.floor(Math.abs(minutes) / 60))}${pad(Math.abs(minutes) % 60)}`
 }
 
+function hour12(time: PathTemplateTime) {
+  return ((time.hour + 11) % 12) + 1
+}
+
 type PathTemplateRender = (time: PathTemplateTime) => string
 
-// The `strftime` directives a `{time:...}` atom may use, the same set `ceres.paths` renders.
-const DIRECTIVES: Readonly<Record<string, PathTemplateRender>> = {
-  Y: (time) => pad(time.year, 4),
-  y: (time) => pad(time.year % 100),
-  m: (time) => pad(time.month),
-  d: (time) => pad(time.day),
-  H: (time) => pad(time.hour),
-  I: (time) => pad(((time.hour + 11) % 12) + 1),
-  p: (time) => (time.hour < 12 ? 'AM' : 'PM'),
-  M: (time) => pad(time.minute),
-  S: (time) => pad(time.second),
-  j: (time) => pad(time.doy, 3),
-  b: (time) => MONTHS[time.month - 1]!.slice(0, 3),
-  B: (time) => MONTHS[time.month - 1]!,
-  a: (time) => WEEKDAYS[time.weekday - 1]!.slice(0, 3),
-  A: (time) => WEEKDAYS[time.weekday - 1]!,
-  G: (time) => pad(time.isoYear, 4),
-  V: (time) => pad(time.isoWeek),
-  u: (time) => String(time.weekday),
-  w: (time) => String(time.weekday % 7),
-  z: (time) => formatOffset(time.offset),
-  // Zone abbreviations differ between tzdata releases and are missing for most of the world, so a
-  // zone renders as its offset, as `ceres.paths` renders it.
-  Z: (time) => (time.offset === 0 ? 'UTC' : formatOffset(time.offset)),
-  '%': () => '%',
-}
-
-function strftime(pattern: string): PathTemplateRender {
-  const pieces: (string | PathTemplateRender)[] = []
-  for (const match of pattern.matchAll(/%([\s\S]?)|[^%]+/g)) {
-    if (!match[0].startsWith('%')) {
-      pieces.push(match[0])
-      continue
-    }
-
-    const directive = DIRECTIVES[match[1]!]
-    if (directive == null) {
-      throw new Error(`'${pattern}' uses '${match[0]}', which a template cannot use`)
-    }
-
-    pieces.push(directive)
-  }
-
-  return (time) => pieces.map((piece) => (typeof piece === 'string' ? piece : piece(time))).join('')
-}
-
-const TIME_ATOMS: Readonly<Record<string, PathTemplateRender>> = {
-  year: strftime('%Y'),
-  month: strftime('%m'),
-  day: strftime('%d'),
-  hour: strftime('%H'),
-  minute: strftime('%M'),
-  second: strftime('%S'),
-  date: strftime('%Y%m%d'),
-  time: strftime('%H%M%S'),
-  datetime: strftime('%Y%m%dT%H%M%S'),
-  week: strftime('%V'),
-  doy: strftime('%j'),
-  epoch: (time) => String(time.epoch),
-  zone: strftime('%Z'),
-  yy: strftime('%y'),
-  m: (time) => String(time.month),
+// The Unicode LDML date symbols (UTS #35) a template may use, the same set `ceres.paths` renders.
+const SYMBOLS: Readonly<Record<string, PathTemplateRender>> = {
+  yyyy: (time) => pad(time.year, 4),
+  yy: (time) => pad(time.year % 100),
+  MM: (time) => pad(time.month),
+  M: (time) => String(time.month),
+  MMM: (time) => MONTHS[time.month - 1]!.slice(0, 3),
+  MMMM: (time) => MONTHS[time.month - 1]!,
+  dd: (time) => pad(time.day),
   d: (time) => String(time.day),
-  h: (time) => String(time.hour),
-  mon: strftime('%b'),
-  month_name: strftime('%B'),
-  wd: strftime('%a'),
-  weekday: strftime('%A'),
+  DDD: (time) => pad(time.doy, 3),
+  HH: (time) => pad(time.hour),
+  H: (time) => String(time.hour),
+  hh: (time) => pad(hour12(time)),
+  h: (time) => String(hour12(time)),
+  a: (time) => (time.hour < 12 ? 'AM' : 'PM'),
+  mm: (time) => pad(time.minute),
+  ss: (time) => pad(time.second),
+  ...Object.fromEntries(
+    [1, 2, 3, 4, 5, 6].map((width) => [
+      'S'.repeat(width),
+      (time: PathTemplateTime) => pad(time.microsecond, 6).slice(0, width),
+    ]),
+  ),
+  EEE: (time) => WEEKDAYS[time.weekday - 1]!.slice(0, 3),
+  EEEE: (time) => WEEKDAYS[time.weekday - 1]!,
+  Z: (time) => formatOffset(time.offset),
+  XX: (time) => (time.offset === 0 ? 'Z' : formatOffset(time.offset)),
 }
+
+const EPOCH_UNITS: Readonly<Record<string, bigint>> = { '': 1n, ms: 1_000n, us: 1_000_000n }
+
+const HOURS = new Set(['HH', 'H', 'hh', 'h'])
 
 const IDENTITY_ATOMS = new Set(['component', 'mount', 'connection', 'project', 'host'])
 
@@ -231,7 +203,7 @@ export class PathTemplate {
       if (match[0] === '{{' || match[0] === '}}') {
         parts.push(match[0][0]!)
       } else if (match[1] == null) {
-        throw new Error(`template '${source}' has an unmatched '${match[0]}'`)
+        throw new Error(`template '${source}' has an unmatched brace`)
       } else {
         parts.push(parseAtom(source, match[1], declared))
       }
@@ -248,16 +220,18 @@ export class PathTemplate {
       throw new Error(`template '${source}' is absolute, a template renders relative paths`)
     }
 
+    checkClock(source, this.atoms)
     this.render(PROBE, 'UTC', Object.fromEntries([...this.atoms].map((name) => [name, 'x'])))
   }
 
   /**
-   * Render the path for `when` in the IANA time zone `zone`, a `/` between segments.
+   * Render the path for `when` in the IANA time zone `zone`, a `/` between segments. An ISO
+   * string keeps the microseconds a `Date` drops.
    *
    * @throws {Error} If a name atom has no value in `values` or renders a separator, or the path
    *   breaks a rule the constructor checks.
    */
-  render(when: Date, zone = 'UTC', values: Readonly<Record<string, string>> = {}) {
+  render(when: Date | string, zone = 'UTC', values: Readonly<Record<string, string>> = {}) {
     const time = readTime(when, zone)
     const path = this.parts
       .map((piece) => {
@@ -284,36 +258,61 @@ export class PathTemplate {
 function parseAtom(source: string, body: string, extras: ReadonlySet<string>): PathTemplateAtom {
   const colon = body.indexOf(':')
   const name = colon < 0 ? body : body.slice(0, colon)
-  if (colon >= 0) {
-    if (name !== 'time') {
+  if (colon >= 0 || name === 'epoch') {
+    const perSecond = name === 'epoch' ? EPOCH_UNITS[colon < 0 ? '' : body.slice(colon + 1)] : null
+    if (perSecond == null) {
       throw new Error(
-        `template '${source}' gives a pattern to '{${name}}', only '{time}' takes one`,
+        `template '${source}' uses '{${body}}', only '{epoch}' takes a unit, ms or us`,
       )
     }
 
-    const render = strftime(body.slice(colon + 1))
-    return { name, render: (time) => render(time) }
+    // Integer arithmetic, since a microsecond count passes what a float holds exactly.
+    return {
+      name: body,
+      render: (time) =>
+        String(
+          BigInt(time.epoch) * perSecond + (BigInt(time.microsecond) * perSecond) / 1_000_000n,
+        ),
+    }
   }
 
-  const time = TIME_ATOMS[name]
-  if (time != null) {
-    return { name, render: (moment) => time(moment) }
+  const symbol = SYMBOLS[name]
+  if (symbol != null) {
+    return { name, render: (time) => symbol(time) }
   }
 
-  if (!IDENTITY_ATOMS.has(name) && !extras.has(name)) {
-    throw new Error(`template '${source}' uses '{${name}}', which is not an atom`)
+  if (IDENTITY_ATOMS.has(name) || extras.has(name)) {
+    return {
+      name,
+      render: (_, values) => {
+        const value = values[name]
+        if (value == null) {
+          throw new Error(`atom '{${name}}' has no value`)
+        }
+
+        return value
+      },
+    }
   }
 
-  return {
-    name,
-    render: (_, values) => {
-      const value = values[name]
-      if (value == null) {
-        throw new Error(`atom '{${name}}' has no value`)
-      }
+  if (/^([A-Za-z])\1*$/.test(name)) {
+    throw new Error(`template '${source}' uses '{${name}}', a symbol a template does not render`)
+  }
 
-      return value
-    },
+  throw new Error(`template '${source}' uses '{${name}}', which is not an atom`)
+}
+
+function checkClock(source: string, atoms: ReadonlySet<string>) {
+  if ((atoms.has('hh') || atoms.has('h')) && !atoms.has('a')) {
+    throw new Error(`template '${source}' uses the 12-hour clock without '{a}'`)
+  }
+
+  if (atoms.has('mm') && ![...HOURS].some((hour) => atoms.has(hour))) {
+    throw new Error(`template '${source}' uses '{mm}' without an hour`)
+  }
+
+  if (atoms.has('ss') && !atoms.has('mm')) {
+    throw new Error(`template '${source}' uses '{ss}' without '{mm}'`)
   }
 }
 

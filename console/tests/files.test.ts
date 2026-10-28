@@ -253,7 +253,7 @@ describe('findFileMount', () => {
 describe('datedFolder', () => {
   it('renders the layout in the mount zone with its names', () => {
     const mount = mountOf(null, {
-      layout: '{mount}/{year}/{month}/{day}',
+      layout: '{mount}/{yyyy}/{MM}/{dd}',
       zone: 'America/Los_Angeles',
       names: { mount: 'abc' },
     })
@@ -265,7 +265,7 @@ describe('datedFolder', () => {
   })
 
   it('names no folder for a layout naming a host the server keeps', () => {
-    expect(datedFolder(mountOf(null, { layout: '{host}/{year}' }), new Date())).toBeNull()
+    expect(datedFolder(mountOf(null, { layout: '{host}/{yyyy}' }), new Date())).toBeNull()
   })
 })
 

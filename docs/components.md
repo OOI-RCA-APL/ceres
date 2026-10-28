@@ -110,9 +110,12 @@ from ceres import Bound, Component, Mount
 class Photographer(Component):
     stills: Bound[Mount] = Mount.Field(
         ...,
-        layout="{year}/{month}/{day}",
+        layout="{yyyy}/{MM}/{dd}",
         zone="local",
-        files={"still": "still_{datetime}_{sequence}.jpg", "thumb": "thumbs/{datetime}.jpg"},
+        files={
+            "still": "still_{HH}{mm}{ss}.{SSS}_{sequence}.jpg",
+            "thumb": "thumbs/{HH}{mm}{ss}.{SSS}.jpg",
+        },
         atoms=["sequence"],
     )
 
@@ -127,12 +130,12 @@ components:
     arguments:
       stills:
         path: ./stills
-        layout: "{year}/{month}"
+        layout: "{yyyy}/{MM}"
         zone: utc
-        files: {still: "{date}_{sequence}.jpg"}
+        files: {still: "{yyyy}{MM}{dd}T{HH}{mm}{ss}_{sequence}.jpg"}
 ```
 
-- A layout names time from the year down: `{year}` or `{yy}`, then `{month}`, `{m}`, `{mon}`, `{month_name}`, or `{doy}`, then `{day}` or `{d}`, `{hour}` or `{h}`, `{minute}`, and `{second}`. `{date}`, `{time}`, and `{datetime}` count as their parts. It may also use `{component}`, `{mount}`, `{project}`, and `{host}`. The engine refuses any other atom, since `periods` could not read the time back from the folder name.
+- A layout names time from the year down: `{yyyy}` or `{yy}`, then `{MM}`, `{M}`, `{MMM}`, `{MMMM}`, or `{DDD}`, then `{dd}` or `{d}`, `{HH}`, `{H}`, or `{hh}` with `{a}` in the same folder, `{mm}`, and `{ss}`. It may also use `{component}`, `{mount}`, `{project}`, and `{host}`. The engine refuses any other atom, since `periods` could not read the time back from the folder name.
 - `zone` decides which day a time falls on, `utc` when omitted, `local` for the server's time zone, or an IANA name such as `America/Los_Angeles`.
 - Configuration replaces each key it gives, and `layout: null` turns the layout off. A key left out keeps the field's. Under `files` it replaces each kind it names and keeps the rest, and the engine refuses a kind the field does not declare.
 - A file template may hold folders of its own, so kinds sharing a mount stay apart. `file` also takes a `PathTemplate` for a one-off file.
@@ -142,19 +145,24 @@ components:
 
 A layout and a mount's `files` share one grammar, `PathTemplate`. The engine refuses a bad template when the class is created or the configuration loads. `atoms` names the atoms the component supplies itself, and `file` fills the time in the mount's zone, the mount's names, and the dictionary for the rest. `PathTemplate.Field` declares a template outside any mount, which `mount.render(template, when, values)` renders the same way.
 
-| Atoms | Render 2026-10-27 13:45:09 UTC as |
+Time atoms are [Unicode LDML date symbols](https://unicode.org/reports/tr35/tr35-dates.html#Date_Field_Symbol_Table), one spelling for each meaning.
+
+| Atoms | Render 2026-10-27 13:45:09.123456 UTC as |
 | --- | --- |
-| `{year}` `{month}` `{day}` `{hour}` `{minute}` `{second}` | `2026` `10` `27` `13` `45` `09` |
-| `{date}` `{time}` `{datetime}` | `20261027` `134509` `20261027T134509` |
-| `{week}` `{doy}` `{epoch}` `{zone}` | `44` `300` `1793108709` `UTC` |
-| `{yy}` `{m}` `{d}` `{h}` | `26` `10` `27` `13` |
-| `{mon}` `{month_name}` `{wd}` `{weekday}` | `Oct` `October` `Tue` `Tuesday` |
+| `{yyyy}` `{yy}` | `2026` `26` |
+| `{MM}` `{M}` `{MMM}` `{MMMM}` | `10` `10` `Oct` `October` |
+| `{dd}` `{d}` `{DDD}` | `27` `27` `300`, the day of the year |
+| `{HH}` `{H}` `{hh}` `{h}` `{a}` | `13` `13` `01` `1` `PM` |
+| `{mm}` `{ss}` | `45` `09` |
+| `{S}` to `{SSSSSS}` | `1` to `123456`, the fraction of the second, cut rather than rounded |
+| `{EEE}` `{EEEE}` | `Tue` `Tuesday` |
+| `{Z}` `{XX}` | `+0000` `Z`, and `-0700` for both in Los Angeles summer time |
+| `{epoch}` `{epoch:ms}` `{epoch:us}` | `1793108709` `1793108709123` `1793108709123456`, Unix time |
 | `{component}` `{mount}` `{connection}` `{project}` `{host}` | Names the component supplies, `{host}` this machine's name by default |
 
-- Long time atoms are zero padded to a fixed width, so names sort by time. Short ones read as people write them.
-- `{zone}` and `%Z` render `UTC` at a zero offset and the offset otherwise, `-0700` in Los Angeles summer time, since zone abbreviations differ between platforms.
-- `{time:%j}` renders a `strftime` pattern limited to `%Y %y %m %d %H %I %p %M %S %j %b %B %a %A %G %V %u %w %z %Z %%`, in English on every platform. `{{` and `}}` write a brace.
-- A template renders a relative path. The engine refuses an unknown atom, an absolute path, an empty, `.`, or `..` segment, a character Windows cannot hold in a file name, and a name Windows reserves, such as `CON`. A name atom rendering a separator fails when it renders.
+- Two letters pad to a fixed width, so names sort by time, and one letter does not. Names render in English on every platform.
+- `{hh}` and `{h}` need `{a}`, `{mm}` needs an hour, and `{ss}` needs `{mm}`, so `{yyyy}-{mm}-{dd}` fails rather than writing the minute where the month belongs. The engine names the symbol meant for other LDML spellings, such as `{YYYY}`, the week-based year, or `{year}`.
+- `{{` and `}}` write a brace. A template renders a relative path. The engine refuses an unknown atom, an absolute path, an empty, `.`, or `..` segment, a character Windows cannot hold in a file name, and a name Windows reserves, such as `CON`. A name atom rendering a separator fails when it renders.
 
 ## Component Trees
 

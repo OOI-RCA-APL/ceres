@@ -1,4 +1,5 @@
 import json
+import re
 import socket
 from datetime import datetime
 from pathlib import Path, PurePosixPath
@@ -95,13 +96,28 @@ class TestPathTemplate:
         with pytest.raises(ValueError):
             PathTemplate(case["template"]).render(at("2026-10-27T13:45:09Z"), values=case["values"])
 
+    @pytest.mark.parametrize(
+        ("template", "meant"),
+        [
+            ("{YYYY}", "'{yyyy}' for the year"),
+            ("{DD}", "'{dd}' for the day of the month"),
+            ("{yyyy}-{mm}-{dd}", "'{MM}' the month"),
+            ("{hh}{mm}", "the 24-hour hour is '{HH}'"),
+            ("{zzzz}", "use '{Z}' or '{XX}'"),
+            ("{SSSSSSS}", "'{SSSSSS}', the microsecond"),
+        ],
+    )
+    def test_names_the_symbol_meant(self, template: str, meant: str) -> None:
+        with pytest.raises(ValueError, match=re.escape(meant)):
+            PathTemplate(template)
+
     def test_refuses_naive_time(self) -> None:
         with pytest.raises(ValueError, match="timezone-aware"):
-            PathTemplate("{year}").render(datetime(2026, 10, 27))  # noqa: DTZ001
+            PathTemplate("{yyyy}").render(datetime(2026, 10, 27))  # noqa: DTZ001
 
     def test_renders_local_zone(self) -> None:
         when = at("2026-10-27T13:45:09Z")
-        assert PathTemplate("{hour}").render(when, "local") == f"{when.astimezone().hour:02d}"
+        assert PathTemplate("{HH}").render(when, "local") == f"{when.astimezone().hour:02d}"
 
     def test_renders_host_by_default(self) -> None:
         host = socket.gethostname().partition(".")[0]
@@ -109,12 +125,12 @@ class TestPathTemplate:
 
     def test_refuses_unknown_zone(self) -> None:
         with pytest.raises(ValueError, match="not a time zone"):
-            PathTemplate("{year}").render(at("2026-10-27T13:45:09Z"), "abc")
+            PathTemplate("{yyyy}").render(at("2026-10-27T13:45:09Z"), "abc")
 
     def test_compares_by_source(self) -> None:
-        assert PathTemplate("{year}") == PathTemplate("{year}")
-        assert len({PathTemplate("{year}"), PathTemplate("{year}")}) == 1
-        assert str(PathTemplate("{year}")) == "{year}"
+        assert PathTemplate("{yyyy}") == PathTemplate("{yyyy}")
+        assert len({PathTemplate("{yyyy}"), PathTemplate("{yyyy}")}) == 1
+        assert str(PathTemplate("{yyyy}")) == "{yyyy}"
 
 
 class TestZoneName:
@@ -129,13 +145,13 @@ class TestZoneName:
 
 
 class Producer(BaseModel):
-    name: PathTemplate = PathTemplate.Field("{date}_{sequence}", atoms=["sequence"])
-    folder: PathTemplate = PathTemplate("{year}")
+    name: PathTemplate = PathTemplate.Field("{yyyy}{MM}{dd}_{sequence}", atoms=["sequence"])
+    folder: PathTemplate = PathTemplate("{yyyy}")
 
 
 class TestPathTemplateField:
     def test_accepts_declared_atoms(self) -> None:
-        assert Producer().name == PathTemplate("{date}_{sequence}", atoms=["sequence"])
+        assert Producer().name == PathTemplate("{yyyy}{MM}{dd}_{sequence}", atoms=["sequence"])
         assert Producer(name="{sequence}").name.atoms == {"sequence"}  # type: ignore[arg-type]
 
     def test_refuses_undeclared_atom(self) -> None:
@@ -147,4 +163,4 @@ class TestPathTemplateField:
             PathTemplate.Field("{abc}")
 
     def test_serializes_source(self) -> None:
-        assert Producer().model_dump() == {"name": "{date}_{sequence}", "folder": "{year}"}
+        assert Producer().model_dump() == {"name": "{yyyy}{MM}{dd}_{sequence}", "folder": "{yyyy}"}

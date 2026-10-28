@@ -34,15 +34,17 @@ written, and the release workflow refuses a version that has no entry here.
   lower `access` further with a mapping, `output: {path: ./data, access: view}`, and never makes
   a read-only field writable. A field with no path holds a temporary directory, removed once
   nothing refers to it.
-- A mount's `layout` keeps its files in dated folders, such as `{year}/{month}/{day}`, in the
+- A mount's `layout` keeps its files in dated folders, such as `{yyyy}/{MM}/{dd}`, in the
   time zone its `zone` names. `dated(when)` returns the folder holding `when`, creating it, and
   `periods(after, before)` walks the folders that exist for a span, oldest first. Configuration
   replaces either key, and `layout: null` turns the layout off.
 - A mount's `files` name each kind of file a component writes into its dated folders, such as
-  `{"still": "still_{datetime}.jpg"}`, and `file(kind, when, values)` returns the path a new file
-  takes, creating its folders. Configuration replaces any kind the field declares and no other.
-- `PathTemplate` renders file names from time atoms, a limited `strftime`, and the names of the
-  component, mount, project, and host, the same on every platform. `PathTemplate.Field` makes
+  `{"still": "still_{HH}{mm}{ss}.jpg"}`, and `file(kind, when, values)` returns the path a new
+  file takes, creating its folders. Configuration replaces any kind the field declares and no
+  other.
+- `PathTemplate` renders file names from Unicode LDML date symbols, such as `{yyyy}{MM}{dd}`,
+  Unix time, and the names of the component, mount, connection, project, and host, the same on
+  every platform, and names the symbol meant for any other spelling. `PathTemplate.Field` makes
   one configurable and refuses a bad template when the class is created or the configuration
   loads, and `mount.render(template, when, values)` renders it in the mount's zone.
 - `/api/files` lists the mounts a caller may view and, under each one, lists directories, serves

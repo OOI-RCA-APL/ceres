@@ -1,113 +1,117 @@
 {
   "render": [
     {
-      "template": "{year}/{month}/{day}",
+      "template": "{yyyy}/{MM}/{dd}",
       "when": "2026-10-27T13:45:09Z",
       "expected": "2026/10/27"
     },
     {
-      "template": "{hour}{minute}{second}",
-      "when": "2026-10-27T13:45:09Z",
-      "expected": "134509"
-    },
-    {
-      "template": "{date}_{time}",
-      "when": "2026-10-27T13:45:09Z",
-      "expected": "20261027_134509"
-    },
-    {
-      "template": "TimeLapse_{datetime}_UTC.jpg",
+      "template": "TimeLapse_{yyyy}{MM}{dd}T{HH}{mm}{ss}_UTC.jpg",
       "when": "2026-10-27T13:45:09Z",
       "expected": "TimeLapse_20261027T134509_UTC.jpg"
     },
     {
-      "template": "{week}-{doy}-{epoch}",
+      "template": "{yy}-{M}-{d}-{H}",
+      "when": "2026-01-05T08:03:04Z",
+      "expected": "26-1-5-8"
+    },
+    {
+      "template": "{MMM} {MMMM} {EEE} {EEEE} {DDD}",
       "when": "2026-10-27T13:45:09Z",
-      "expected": "44-300-1793108709"
+      "expected": "Oct October Tue Tuesday 300"
+    },
+    {
+      "template": "{DDD}",
+      "when": "2026-01-05T08:03:04Z",
+      "expected": "005"
+    },
+    {
+      "template": "{hh}{mm} {h} {a}",
+      "when": "2026-01-05T00:03:04Z",
+      "expected": "1203 12 AM"
+    },
+    {
+      "template": "{hh}{mm} {h} {a}",
+      "when": "2026-01-05T12:03:04Z",
+      "expected": "1203 12 PM"
+    },
+    {
+      "template": "{hh}{mm} {h} {a}",
+      "when": "2026-10-27T13:45:09Z",
+      "expected": "0145 1 PM"
+    },
+    {
+      "template": "{S}_{SS}_{SSS}_{SSSS}_{SSSSS}_{SSSSSS}",
+      "when": "2026-10-27T13:45:09.000123Z",
+      "expected": "0_00_000_0001_00012_000123"
+    },
+    {
+      "template": "{S}_{SSS}_{SSSSSS}",
+      "when": "2026-10-27T13:45:09.987654Z",
+      "expected": "9_987_987654"
+    },
+    {
+      "template": "{epoch} {epoch:ms} {epoch:us}",
+      "when": "2026-10-27T13:45:09.987654Z",
+      "expected": "1793108709 1793108709987 1793108709987654"
     },
     {
       "template": "{epoch}",
       "when": "2026-01-05T08:03:04Z",
       "expected": "1767600184"
     },
-    { "template": "{zone}", "when": "2026-10-27T13:45:09Z", "expected": "UTC" },
     {
-      "template": "{yy}-{m}-{d}-{h}",
-      "when": "2026-01-05T08:03:04Z",
-      "expected": "26-1-5-8"
-    },
-    {
-      "template": "{mon} {month_name} {wd} {weekday}",
+      "template": "{Z} {XX}",
       "when": "2026-10-27T13:45:09Z",
-      "expected": "Oct October Tue Tuesday"
+      "expected": "+0000 Z"
     },
     {
-      "template": "{time:%Y%m%d %H%M%S %y %j %b %B %a %A}",
-      "when": "2026-10-27T13:45:09Z",
-      "expected": "20261027 134509 26 300 Oct October Tue Tuesday"
-    },
-    {
-      "template": "{time:%G-W%V-%u %w %I%p %z %%}",
-      "when": "2026-10-27T13:45:09Z",
-      "expected": "2026-W44-2 2 01PM +0000 %"
-    },
-    {
-      "template": "{time:%I%p}",
-      "when": "2026-01-05T00:03:04Z",
-      "expected": "12AM"
-    },
-    {
-      "template": "{time:%G-W%V}",
-      "when": "2027-01-01T12:00:00Z",
-      "expected": "2026-W53"
-    },
-    {
-      "template": "{year}/{month}/{day}/{hour} {zone}",
+      "template": "{yyyy}/{MM}/{dd}/{HH} {Z} {XX}",
       "when": "2026-10-27T13:45:09Z",
       "zone": "America/Los_Angeles",
-      "expected": "2026/10/27/06 -0700"
+      "expected": "2026/10/27/06 -0700 -0700"
     },
     {
-      "template": "{year}/{month}/{day} {zone} {time:%z}",
+      "template": "{yyyy}/{MM}/{dd} {Z}",
       "when": "2026-01-05T08:03:04Z",
       "zone": "America/Los_Angeles",
-      "expected": "2026/01/05 -0800 -0800"
+      "expected": "2026/01/05 -0800"
     },
     {
-      "template": "{zone} {time:%Z}",
+      "template": "{HH}{mm} {Z} {XX}",
       "when": "2026-10-27T13:45:09Z",
       "zone": "Asia/Kolkata",
-      "expected": "+0530 +0530"
+      "expected": "1915 +0530 +0530"
     },
     {
-      "template": "{zone}",
+      "template": "{HH}{mm} {Z} {XX}",
+      "when": "2026-01-05T08:03:04Z",
+      "zone": "America/St_Johns",
+      "expected": "0433 -0330 -0330"
+    },
+    {
+      "template": "{Z}",
       "when": "2026-07-01T12:00:00Z",
       "zone": "Europe/Berlin",
       "expected": "+0200"
     },
     {
-      "template": "{zone}",
+      "template": "{Z}",
       "when": "2026-07-01T12:00:00Z",
       "zone": "America/Sao_Paulo",
       "expected": "-0300"
     },
     {
-      "template": "{zone}",
+      "template": "{Z}",
       "when": "2026-07-01T12:00:00Z",
       "zone": "Europe/London",
       "expected": "+0100"
     },
     {
-      "template": "{zone}",
+      "template": "{Z} {XX}",
       "when": "2026-01-01T12:00:00Z",
       "zone": "Europe/London",
-      "expected": "UTC"
-    },
-    {
-      "template": "{hour}{minute} {time:%z}",
-      "when": "2026-10-27T13:45:09Z",
-      "zone": "Asia/Kolkata",
-      "expected": "1915 +0530"
+      "expected": "+0000 Z"
     },
     {
       "template": "{component}/{mount}/{project}/{host}/{connection}_{sequence}",
@@ -124,7 +128,7 @@
       "expected": "abc/abcd/ab/a/b_7777"
     },
     {
-      "template": "{{a}}_{year}",
+      "template": "{{a}}_{yyyy}",
       "when": "2026-10-27T13:45:09Z",
       "expected": "{a}_2026"
     }
@@ -133,10 +137,24 @@
     { "template": "" },
     { "template": "{abc}" },
     { "template": "{sequence}" },
-    { "template": "{month:%m}" },
-    { "template": "{time:%x}" },
-    { "template": "{time:%c}" },
-    { "template": "{time:%}" },
+    { "template": "{year}" },
+    { "template": "{date}" },
+    { "template": "{datetime}" },
+    { "template": "{YYYY}" },
+    { "template": "{y}" },
+    { "template": "{DD}" },
+    { "template": "{m}" },
+    { "template": "{ww}" },
+    { "template": "{zzzz}" },
+    { "template": "{XXX}" },
+    { "template": "{G}" },
+    { "template": "{SSSSSSS}" },
+    { "template": "{hh}{mm}" },
+    { "template": "{yyyy}-{mm}-{dd}" },
+    { "template": "{HH}{ss}" },
+    { "template": "{MM:ms}" },
+    { "template": "{epoch:ns}" },
+    { "template": "{yyyy!r}" },
     { "template": "/abc" },
     { "template": "abc/../abcd" },
     { "template": "abc/./abcd" },
@@ -147,17 +165,16 @@
     { "template": "abc?" },
     { "template": "CON" },
     { "template": "con.txt" },
-    { "template": "{year}/lpt1" },
+    { "template": "{yyyy}/lpt1" },
     { "template": "abc." },
     { "template": "{" },
     { "template": "}" },
-    { "template": "{year}{" },
-    { "template": "{time:%Y/%m}" }
+    { "template": "{yyyy}{" }
   ],
   "unrenderable": [
     { "template": "{component}", "values": { "component": "a/b" } },
     { "template": "{component}", "values": {} },
-    { "template": "{year}_{component}", "values": { "component": "a\\b" } },
+    { "template": "{yyyy}_{component}", "values": { "component": "a\\b" } },
     { "template": "{component}", "values": { "component": ".." } },
     { "template": "{component}", "values": { "component": "nul" } }
   ]

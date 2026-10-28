@@ -338,7 +338,7 @@ class MountPath(PathLike[str]):
     @property
     def files(self) -> Mapping[str, PathTemplate]:
         """File name templates by kind, each naming one kind of file `file` writes into the
-        layout's folders, such as `{"still": "{datetime}.jpg"}`.
+        layout's folders, such as `{"still": "{yyyy}{MM}{dd}T{HH}{mm}{ss}.jpg"}`.
 
         A template may hold folders of its own, so kinds sharing a mount can keep apart.
         """

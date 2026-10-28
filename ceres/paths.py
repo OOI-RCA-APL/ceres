@@ -5,6 +5,7 @@ from collections.abc import Callable, Iterable, Iterator, Mapping
 from datetime import UTC, datetime, timedelta, tzinfo
 from functools import lru_cache
 from pathlib import Path
+from string import Formatter
 from typing import TYPE_CHECKING, Any, Final, override
 from zoneinfo import ZoneInfo
 
@@ -104,81 +105,74 @@ def _offset(when: datetime) -> str:
     return f"{sign}{abs(minutes) // 60:02d}{abs(minutes) % 60:02d}"
 
 
-# The `strftime` directives a `{time:...}` atom may use, rendered here rather than by the
-# platform, so every platform and the console's renderer agree and names stay English.
-_DIRECTIVES: Final[Mapping[str, Callable[[datetime], str]]] = {
-    "Y": lambda when: f"{when.year:04d}",
-    "y": lambda when: f"{when.year % 100:02d}",
-    "m": lambda when: f"{when.month:02d}",
-    "d": lambda when: f"{when.day:02d}",
-    "H": lambda when: f"{when.hour:02d}",
-    "I": lambda when: f"{(when.hour - 1) % 12 + 1:02d}",
-    "p": lambda when: "AM" if when.hour < 12 else "PM",
-    "M": lambda when: f"{when.minute:02d}",
-    "S": lambda when: f"{when.second:02d}",
-    "j": lambda when: f"{when.timetuple().tm_yday:03d}",
-    "b": lambda when: _MONTHS[when.month - 1][:3],
-    "B": lambda when: _MONTHS[when.month - 1],
-    "a": lambda when: _WEEKDAYS[when.weekday()][:3],
-    "A": lambda when: _WEEKDAYS[when.weekday()],
-    "G": lambda when: f"{when.isocalendar().year:04d}",
-    "V": lambda when: f"{when.isocalendar().week:02d}",
-    "u": lambda when: str(when.isoweekday()),
-    "w": lambda when: str(when.isoweekday() % 7),
-    "z": _offset,
-    # Zone abbreviations differ between tzdata releases and are missing for most of the world,
-    # so a zone renders as its offset, which every renderer computes alike.
-    "Z": lambda when: "UTC" if when.utcoffset() == timedelta(0) else _offset(when),
-    "%": lambda when: "%",
-}
+def _hour12(when: datetime) -> int:
+    return (when.hour - 1) % 12 + 1
 
 
-def _strftime(pattern: str) -> Callable[[datetime], str]:
-    """Compile `pattern`, a `strftime` pattern limited to `_DIRECTIVES`, into a renderer.
-
-    Raises:
-        ValueError: If `pattern` uses another directive or ends in a lone `%`.
-    """
-    pieces: list[str | Callable[[datetime], str]] = []
-    for match in re.finditer(r"%(.?)|[^%]+", pattern, re.DOTALL):
-        if not match.group().startswith("%"):
-            pieces.append(match.group())
-            continue
-
-        directive = _DIRECTIVES.get(match.group(1))
-        if directive is None:
-            raise ValueError(f"'{pattern}' uses '{match.group()}', which a template cannot use")
-
-        pieces.append(directive)
-
-    return lambda when: "".join(
-        piece if isinstance(piece, str) else piece(when) for piece in pieces
-    )
-
-
-_TIME_ATOMS: Final[Mapping[str, Callable[[datetime], str]]] = {
-    "year": _strftime("%Y"),
-    "month": _strftime("%m"),
-    "day": _strftime("%d"),
-    "hour": _strftime("%H"),
-    "minute": _strftime("%M"),
-    "second": _strftime("%S"),
-    "date": _strftime("%Y%m%d"),
-    "time": _strftime("%H%M%S"),
-    "datetime": _strftime("%Y%m%dT%H%M%S"),
-    "week": _strftime("%V"),
-    "doy": _strftime("%j"),
-    "epoch": lambda when: str(int(when.timestamp() // 1)),
-    "zone": _strftime("%Z"),
-    "yy": _strftime("%y"),
-    "m": lambda when: str(when.month),
+# The Unicode LDML date symbols (UTS #35) a template may use, one spelling per meaning. Names
+# render from English tables rather than the platform, so every platform and the console's
+# renderer agree.
+_SYMBOLS: Final[Mapping[str, Callable[[datetime], str]]] = {
+    "yyyy": lambda when: f"{when.year:04d}",
+    "yy": lambda when: f"{when.year % 100:02d}",
+    "MM": lambda when: f"{when.month:02d}",
+    "M": lambda when: str(when.month),
+    "MMM": lambda when: _MONTHS[when.month - 1][:3],
+    "MMMM": lambda when: _MONTHS[when.month - 1],
+    "dd": lambda when: f"{when.day:02d}",
     "d": lambda when: str(when.day),
-    "h": lambda when: str(when.hour),
-    "mon": _strftime("%b"),
-    "month_name": _strftime("%B"),
-    "wd": _strftime("%a"),
-    "weekday": _strftime("%A"),
+    "DDD": lambda when: f"{when.timetuple().tm_yday:03d}",
+    "HH": lambda when: f"{when.hour:02d}",
+    "H": lambda when: str(when.hour),
+    "hh": lambda when: f"{_hour12(when):02d}",
+    "h": lambda when: str(_hour12(when)),
+    "a": lambda when: "AM" if when.hour < 12 else "PM",
+    "mm": lambda when: f"{when.minute:02d}",
+    "ss": lambda when: f"{when.second:02d}",
+    **{
+        "S" * width: lambda when, width=width: f"{when.microsecond:06d}"[:width]
+        for width in range(1, 7)
+    },
+    "EEE": lambda when: _WEEKDAYS[when.weekday()][:3],
+    "EEEE": lambda when: _WEEKDAYS[when.weekday()],
+    "Z": _offset,
+    "XX": lambda when: "Z" if when.utcoffset() == timedelta(0) else _offset(when),
 }
+
+# Every other LDML spelling a reader might reach for, refused with the one meant.
+_REFUSED: Final[Mapping[str, str]] = {
+    **dict.fromkeys(("YYYY", "YY", "Y"), "the week-based year, use '{yyyy}' for the year"),
+    "y": "use '{yyyy}' for the year",
+    **dict.fromkeys(
+        ("D", "DD"), "use '{DDD}' for the day of the year, '{dd}' for the day of the month"
+    ),
+    "m": "use '{mm}' for the minute",
+    "s": "use '{ss}' for the second",
+    **dict.fromkeys(("k", "kk", "K", "KK"), "use '{HH}' for the hour, or '{hh}' with '{a}'"),
+    **dict.fromkeys(
+        ("MMMMM", "L", "LL", "LLL", "LLLL"), "use '{MM}', '{MMM}', or '{MMMM}' for the month"
+    ),
+    **dict.fromkeys(("E", "EE"), "use '{EEE}' for the weekday"),
+    **dict.fromkeys(("ZZ", "ZZZ"), "use '{Z}' for the offset"),
+    **dict.fromkeys(
+        ("ZZZZ", "XXX", "ZZZZZ"), "an offset with a colon, which a name cannot hold, use '{Z}'"
+    ),
+    "X": "an offset without its minutes, use '{XX}'",
+    **dict.fromkeys(
+        ("z", "zz", "zzz", "zzzz", "v", "vvvv", "O", "OOOO", "V", "VV"),
+        "a zone name, which differs between platforms, use '{Z}' or '{XX}'",
+    ),
+    **dict.fromkeys(("w", "ww", "W"), "a week number, which a template does not render"),
+    **dict.fromkeys(("u", "e", "ee", "c", "cc"), "a weekday number, use '{EEE}'"),
+    "year": "use '{yyyy}' for the year",
+    "month": "use '{MM}' for the month",
+    "day": "use '{dd}' for the day",
+    "hour": "use '{HH}' for the hour",
+    "minute": "use '{mm}' for the minute",
+    "second": "use '{ss}' for the second",
+}
+
+_HOURS: Final = frozenset({"HH", "H", "hh", "h"})
 
 _IDENTITY_ATOMS: Final = frozenset({"component", "mount", "connection", "project", "host"})
 
@@ -252,13 +246,12 @@ class _Atom:
 class PathTemplate:
     """A relative path rendered from a time and a few names, a file name or a folder layout.
 
-    Atoms in braces stand for parts of the time or for names: `{year}/{month}` or
-    `TimeLapse_{datetime}_{zone}.jpg`. Long time atoms are zero padded to a fixed width,
-    `{date}` `20261027`, `{time}` `134509`, `{datetime}` `20261027T134509`, and short ones read
-    as people write them, `{m}` `10`, `{mon}` `Oct`, `{weekday}` `Tuesday`. `{time:%j}` renders
-    a `strftime` pattern. `{component}`, `{mount}`, `{connection}`, `{project}`, and `{host}`
-    stand for names the producer supplies, and a producer may declare more atoms of its own.
-    `{{` and `}}` write a brace.
+    Atoms in braces stand for parts of the time or for names: `{yyyy}/{MM}` or
+    `TimeLapse_{yyyy}{MM}{dd}T{HH}{mm}{ss}_{XX}.jpg`. Time atoms are Unicode LDML date symbols,
+    one spelling per meaning, and every other spelling is refused with the one meant.
+    `{epoch}`, `{epoch:ms}`, and `{epoch:us}` count Unix time. `{component}`, `{mount}`,
+    `{connection}`, `{project}`, and `{host}` stand for names the producer supplies, and a
+    producer may declare more atoms of its own. `{{` and `}}` write a brace.
     """
 
     __slots__ = ("_source", "_parts", "_atoms")
@@ -277,19 +270,22 @@ class PathTemplate:
         """
         extras = frozenset(atoms)
         parts: list[str | _Atom] = []
-        position = 0
-        for match in re.finditer(r"\{\{|\}\}|\{([^{}]*)\}|[{}]", source):
-            parts.append(source[position : match.start()])
-            position = match.end()
-            text = match.group()
-            if text in ("{{", "}}"):
-                parts.append(text[0])
-            elif match.group(1) is None:
-                raise ValueError(f"template '{source}' has an unmatched '{text}'")
-            else:
-                parts.append(_parse_atom(source, match.group(1), extras))
+        try:
+            fields = list(Formatter().parse(source))
+        except ValueError as error:
+            raise ValueError(f"template '{source}' has an unmatched brace") from error
 
-        parts.append(source[position:])
+        for literal, name, unit, conversion in fields:
+            parts.append(literal)
+            if name is None:
+                continue
+
+            body = f"{name}:{unit}" if unit else name
+            if conversion is not None:
+                raise ValueError(f"template '{source}' uses '{{{body}!{conversion}}}', not an atom")
+
+            parts.append(_parse_atom(source, body, extras))
+
         self._source = source
         self._parts = tuple(part for part in parts if part != "")
         self._atoms = frozenset(part.name for part in self._parts if isinstance(part, _Atom))
@@ -297,6 +293,7 @@ class PathTemplate:
         if source.startswith(("/", "\\")):
             raise ValueError(f"template '{source}' is absolute, a template renders relative paths")
 
+        _check_clock(source, self._atoms)
         self.render(_PROBE, values=dict.fromkeys(self._atoms, "x"))
 
     @classmethod
@@ -414,25 +411,66 @@ class PathTemplate:
         return hash(self._source)
 
 
+_EPOCH_UNITS: Final[Mapping[str, int]] = {"": 1, "ms": 1_000, "us": 1_000_000}
+
+
+def _epoch(when: datetime, per_second: int) -> str:
+    # Integer arithmetic, since a float timestamp scaled to microseconds is off by one.
+    seconds = int((when - _EPOCH) // timedelta(seconds=1))
+    return str(seconds * per_second + when.microsecond * per_second // 1_000_000)
+
+
+_EPOCH: Final = datetime(1970, 1, 1, tzinfo=UTC)
+
+
 def _parse_atom(source: str, body: str, extras: frozenset[str]) -> _Atom:
-    name, colon, pattern = body.partition(":")
-    if colon:
-        if name != "time":
+    name, colon, unit = body.partition(":")
+    if colon or name == "epoch":
+        per_second = _EPOCH_UNITS.get(unit) if name == "epoch" else None
+        if per_second is None:
             raise ValueError(
-                f"template '{source}' gives a pattern to '{{{name}}}', only '{{time}}' takes one"
+                f"template '{source}' uses '{{{body}}}', only '{{epoch}}' takes a unit, ms or us"
             )
 
-        render = _strftime(pattern)
-        return _Atom(name, lambda when, values: render(when))
+        return _Atom(body, lambda when, values: _epoch(when, per_second))
 
-    time = _TIME_ATOMS.get(name)
-    if time is not None:
-        return _Atom(name, lambda when, values: time(when))
+    symbol = _SYMBOLS.get(name)
+    if symbol is not None:
+        return _Atom(name, lambda when, values: symbol(when))
 
-    if name not in _IDENTITY_ATOMS and name not in extras:
-        raise ValueError(f"template '{source}' uses '{{{name}}}', which is not an atom")
+    if name in _IDENTITY_ATOMS or name in extras:
+        return _Atom(name, lambda when, values: _name_value(name, values))
 
-    return _Atom(name, lambda when, values: _name_value(name, values))
+    refused = _REFUSED.get(name)
+    if refused is None and re.fullmatch(r"S{7,}", name):
+        refused = "use up to '{SSSSSS}', the microsecond"
+
+    if refused is None and re.fullmatch(r"([A-Za-z])\1*", name):
+        refused = "a date symbol a template does not render"
+
+    if refused is not None:
+        raise ValueError(f"template '{source}' uses '{{{name}}}', {refused}")
+
+    raise ValueError(f"template '{source}' uses '{{{name}}}', which is not an atom")
+
+
+def _check_clock(source: str, atoms: frozenset[str]) -> None:
+    """Refuse a 12-hour clock without its `{a}`, and a minute or second with nothing above it,
+    which is how `{mm}` written for the month shows itself."""
+    if atoms & {"hh", "h"} and "a" not in atoms:
+        raise ValueError(
+            f"template '{source}' uses the 12-hour clock without '{{a}}', the 24-hour hour is "
+            "'{HH}'"
+        )
+
+    if "mm" in atoms and not atoms & _HOURS:
+        raise ValueError(
+            f"template '{source}' uses '{{mm}}' without an hour, '{{mm}}' is the minute and "
+            "'{MM}' the month"
+        )
+
+    if "ss" in atoms and "mm" not in atoms:
+        raise ValueError(f"template '{source}' uses '{{ss}}' without '{{mm}}'")
 
 
 def _name_value(name: str, values: Mapping[str, object]) -> str:
@@ -462,34 +500,27 @@ def _names(names: Iterable[str], field: str) -> _Capture:
     return _Capture(field, "|".join(listed), lambda text: listed.index(text) + 1)
 
 
-_DATE: Final = (_Capture("year", r"\d{4}"), _Capture("month", r"\d{2}"), _Capture("day", r"\d{2}"))
-_TIME: Final = (
-    _Capture("hour", r"\d{2}"),
-    _Capture("minute", r"\d{2}"),
-    _Capture("second", r"\d{2}"),
-)
-
 # The time atoms a layout may use, each read back by `PathLayout.walk`. A capture of variable
-# width cannot sit beside another, `{m}{d}` reads `111` two ways.
-_LAYOUT_ATOMS: Final[Mapping[str, tuple[_Capture | str, ...]]] = {
-    "year": (_DATE[0],),
-    "yy": (_Capture("year", r"\d{2}", lambda text: 2000 + int(text)),),
-    "month": (_DATE[1],),
-    "m": (_Capture("month", r"\d{1,2}"),),
-    "mon": (_names((month[:3] for month in _MONTHS), "month"),),
-    "month_name": (_names(_MONTHS, "month"),),
-    "doy": (_Capture("doy", r"\d{3}"),),
-    "day": (_DATE[2],),
-    "d": (_Capture("day", r"\d{1,2}"),),
-    "hour": (_TIME[0],),
-    "h": (_Capture("hour", r"\d{1,2}"),),
-    "minute": (_TIME[1],),
-    "second": (_TIME[2],),
-    "date": _DATE,
-    "time": _TIME,
-    "datetime": (*_DATE, "T", *_TIME),
+# width cannot sit beside another, `{M}{d}` reads `111` two ways.
+_LAYOUT_ATOMS: Final[Mapping[str, _Capture]] = {
+    "yyyy": _Capture("year", r"\d{4}"),
+    "yy": _Capture("year", r"\d{2}", lambda text: 2000 + int(text)),
+    "MM": _Capture("month", r"\d{2}"),
+    "M": _Capture("month", r"\d{1,2}"),
+    "MMM": _names((month[:3] for month in _MONTHS), "month"),
+    "MMMM": _names(_MONTHS, "month"),
+    "DDD": _Capture("doy", r"\d{3}"),
+    "dd": _Capture("day", r"\d{2}"),
+    "d": _Capture("day", r"\d{1,2}"),
+    "HH": _Capture("hour", r"\d{2}"),
+    "H": _Capture("hour", r"\d{1,2}"),
+    "hh": _Capture("hour12", r"\d{2}"),
+    "h": _Capture("hour12", r"\d{1,2}"),
+    "a": _names(("AM", "PM"), "meridiem"),
+    "mm": _Capture("minute", r"\d{2}"),
+    "ss": _Capture("second", r"\d{2}"),
 }
-_VARIABLE_WIDTH: Final = frozenset({"m", "d", "h", "mon", "month_name"})
+_VARIABLE_WIDTH: Final = frozenset({"M", "d", "H", "h", "MMMM"})
 _LAYOUT_NAMES: Final = frozenset({"component", "mount", "project", "host"})
 
 _CALENDAR: Final = ("year", "month", "day", "hour", "minute", "second")
@@ -498,8 +529,8 @@ _CALENDAR: Final = ("year", "month", "day", "hour", "minute", "second")
 class PathLayout(PathTemplate):
     """A `PathTemplate` for dated folders, which `walk` reads back to find a time range.
 
-    A layout uses calendar atoms from the year down without a gap, `{year}/{month}` or
-    `{year}/{doy}`, plus `{component}`, `{mount}`, `{project}`, and `{host}`. A folder's
+    A layout uses calendar atoms from the year down without a gap, `{yyyy}/{MM}` or
+    `{yyyy}/{DDD}`, plus `{component}`, `{mount}`, `{project}`, and `{host}`. A folder's
     period runs from its time to the next value of its finest atom.
     """
 
@@ -537,13 +568,13 @@ class PathLayout(PathTemplate):
             segments[-1].append(first)
             segments.extend([piece] for piece in rest)
 
-        fields = {
-            capture.field
-            for part in self._parts
-            if isinstance(part, _Atom)
-            for capture in _LAYOUT_ATOMS.get(part.name, ())
-            if isinstance(capture, _Capture)
-        }
+        for segment in segments:
+            names = {part.name for part in segment if isinstance(part, _Atom)}
+            if names & {"hh", "h"} and "a" not in names or "a" in names and not names & {"hh", "h"}:
+                raise ValueError(f"layout '{source}' must keep '{{a}}' beside its 12-hour hour")
+
+        fields = {_LAYOUT_ATOMS[name].field for name in self._atoms if name in _LAYOUT_ATOMS}
+        fields = {"hour" if field == "hour12" else field for field in fields} - {"meridiem"}
         if "doy" in fields:
             fields |= {"month", "day"}
 
@@ -637,12 +668,9 @@ def _segment_pattern(
             pattern.append(re.escape(_name_value(part.name, values)))
             continue
 
-        for piece in _LAYOUT_ATOMS[part.name]:
-            if isinstance(piece, str):
-                pattern.append(re.escape(piece))
-            else:
-                pattern.append(f"({piece.pattern})")
-                captures.append(piece)
+        capture = _LAYOUT_ATOMS[part.name]
+        pattern.append(f"({capture.pattern})")
+        captures.append(capture)
 
     return re.compile("".join(pattern)), captures
 
@@ -658,6 +686,14 @@ def _merge(
         assert text is not None
         value = capture.read(text)
         if fields.setdefault(capture.field, value) != value:
+            return None
+
+    if "hour12" in fields and "meridiem" in fields:
+        if not 1 <= fields["hour12"] <= 12:
+            return None
+
+        hour = fields.pop("hour12") % 12 + 12 * (fields.pop("meridiem") - 1)
+        if fields.setdefault("hour", hour) != hour:
             return None
 
     if "doy" in fields and "year" in fields:
