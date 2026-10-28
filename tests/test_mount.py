@@ -58,8 +58,8 @@ class TestJoin:
 
 class TestIdentity:
     def test_compares_root_and_relative_across_types(self, mount: Mount) -> None:
-        assert mount / "a" == AsyncMount(mount) / "a"
-        assert hash(mount / "a") == hash(AsyncMount(mount / "a"))
+        assert mount / "a" == mount.aio() / "a"
+        assert hash(mount / "a") == hash((mount / "a").aio())
         assert mount / "a" != mount / "b"
         assert mount != str(mount)
 
@@ -71,13 +71,16 @@ class TestIdentity:
         assert not converted.writable
 
     def test_aio_keeps_the_place_and_every_setting(self, mount: Mount) -> None:
-        source = Mount(mount, writable=False, layout="{yyyy}", files={"abc": "{dd}"}) / "a"
+        source = Mount(mount, writable=False, layout="{yyyy}", zone="local", files={"abc": "{dd}"})
+        source = source._named({"component": "abc"}) / "a"
         view = source.aio()
         assert type(view) is AsyncMount
-        assert (view, view.writable, view.layout, view.files) == (
+        assert (view, view.writable, view.layout, view.zone, view.names, view.files) == (
             source,
             source.writable,
             source.layout,
+            source.zone,
+            source.names,
             source.files,
         )
 
@@ -190,7 +193,7 @@ class TestTemporary:
     def test_keeps_the_directory_while_a_child_lives(self) -> None:
         mount = Mount()
         root = mount.root
-        child = AsyncMount(mount / "a")
+        child = (mount / "a").aio()
         del mount
         gc.collect()
         assert root.is_dir()
@@ -269,7 +272,7 @@ class TestReadOnly:
 
     def test_passes_to_children(self, readonly: Mount) -> None:
         assert not (readonly / "a").writable
-        assert not AsyncMount(readonly).parent.writable
+        assert not readonly.aio().parent.writable
 
 
 class TestCreate:
@@ -324,20 +327,20 @@ class TestCreate:
 
 class TestAsync:
     async def test_runs_each_operation(self, mount: Mount) -> None:
-        directory = AsyncMount(mount) / "a"
+        directory = mount.aio() / "a"
         await directory.mkdir()
         created = await directory.create("b", b"ab")
         assert type(created) is AsyncMount
         await directory.append("b", b"c")
         assert await created.read_bytes() == b"abc"
         assert await directory.iterdir() == [created]
-        assert await AsyncMount(mount).glob("*/b") == [created]
+        assert await mount.aio().glob("*/b") == [created]
         assert (await created.stat()).st_size == 3
         await created.unlink()
         assert not await created.exists()
 
     async def test_dates_and_walks(self, mount: Mount) -> None:
-        dated = AsyncMount(mount, layout="{yyyy}/{MM}")
+        dated = Mount(mount, layout="{yyyy}/{MM}").aio()
         folder = await dated.dated(at("2026-10-27T13:45:09Z"))
         assert type(folder) is AsyncMount
         assert await dated.periods(at("2026-10-01T00:00:00Z"), at("2026-11-01T00:00:00Z")) == [
