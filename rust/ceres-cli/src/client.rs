@@ -164,8 +164,8 @@ fn agent(timeout: Option<Duration>) -> ureq::Agent {
         .into()
 }
 
-/// Percent-encode a query parameter value.
-fn encode(value: &str) -> String {
+/// Percent-encode a query parameter value or a path segment.
+pub(crate) fn encode(value: &str) -> String {
     let mut encoded = String::with_capacity(value.len());
     for byte in value.bytes() {
         match byte {

@@ -1062,7 +1062,7 @@ class ExportRunRecord(DataObject):
     """Records written so far."""
 
     files: list[str] = Field(default_factory=list)
-    """Files written so far, relative to the exporter's directory."""
+    """Files written so far, relative to the exporter's mount."""
 
     exception: str | None = None
     """Why the run failed, `None` unless it failed."""

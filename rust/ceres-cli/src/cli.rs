@@ -123,6 +123,65 @@ address_args! {
     DownArgs { "Addresses of components to stop and disable.", required: true }
 }
 
+/// The range of time an export run or playback covers.
+#[derive(Debug, Args)]
+pub struct RangeArgs {
+    /// Inclusive start, an ISO 8601 time such as 2026-01-01T00:00:00Z. UTC when it names no
+    /// zone.
+    #[arg(long, value_name = "TIME")]
+    pub after: String,
+
+    /// Exclusive end, in the form of --after. Now when omitted.
+    #[arg(long, value_name = "TIME")]
+    pub before: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct ExportArgs {
+    /// Address of the component whose exporters run.
+    #[arg(value_name = "ADDRESS")]
+    pub address: String,
+
+    /// Name of the exporter to run. Every exporter of the component when omitted.
+    #[arg(value_name = "EXPORTER")]
+    pub exporter: Option<String>,
+
+    #[command(flatten)]
+    pub range: RangeArgs,
+
+    /// Rewrite each period's file from the database alone, removing the file of a period
+    /// with no records.
+    #[arg(long)]
+    pub replace: bool,
+}
+
+/// What a playback does with each particle it parses.
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+pub enum PlaybackLevel {
+    /// Store the particle and emit nothing.
+    Particles,
+    /// Store the particle and emit its event, so every listener runs as if live.
+    Full,
+}
+
+#[derive(Debug, Args)]
+pub struct PlaybackArgs {
+    /// Address of the component whose stored messages replay.
+    #[arg(value_name = "ADDRESS")]
+    pub address: String,
+
+    #[command(flatten)]
+    pub range: RangeArgs,
+
+    /// What to do with each particle parsed.
+    #[arg(long, value_enum, default_value_t = PlaybackLevel::Particles)]
+    pub level: PlaybackLevel,
+
+    /// Leave the exporters' files as they are.
+    #[arg(long)]
+    pub no_export: bool,
+}
+
 #[derive(Debug, Args)]
 pub struct ConsoleArgs {
     #[command(subcommand)]
@@ -173,6 +232,19 @@ pub enum Command {
 
     /// Stop and disable components at the provided addresses.
     Down(DownArgs),
+
+    /// Write a component's records to its exporters' files over a range of time.
+    ///
+    /// Each run merges the database into the files of every period the range overlaps, or
+    /// rewrites them from the database alone with --replace. Waits for every run to end.
+    Export(ExportArgs),
+
+    /// Replay a component's stored messages through its sieves over a range of time.
+    ///
+    /// Replaces the component's stored particles of the types its sieves parse, then
+    /// rewrites the files of the exporters of those types unless --no-export. Waits for the
+    /// playback to end.
+    Playback(PlaybackArgs),
 
     /// Commands for interacting with a project's web console.
     Console(ConsoleArgs),

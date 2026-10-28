@@ -5,6 +5,7 @@ pub mod database;
 pub mod dump;
 pub mod engine;
 pub mod entities;
+pub mod exports;
 pub mod follow;
 pub mod generate;
 pub mod offline;
