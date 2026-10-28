@@ -4,13 +4,12 @@ from uuid import UUID
 
 import pytest
 
-from ceres import Component
+from ceres import Bound, Component, Mount
 from ceres.__internal__.playback import PlaybackLevel, PlaybackRecord, PlaybackState
 from ceres.address import Address
 from ceres.component import listener, sieve
 from ceres.config import ComponentConfig
 from ceres.data import validate
-from ceres.directory import Directory
 from ceres.error import AlreadyExistsError
 from ceres.event import ParticleEvent, PlaybackProgressEvent
 from ceres.message import Message, MessageDirection
@@ -41,7 +40,7 @@ class Other(Particle[OtherData]):
 
 
 class Counter(Component):
-    output: Directory
+    output: Bound[Mount] = Mount.Field(...)
 
     @sieve
     def count(self, message: Message) -> Count:
@@ -97,7 +96,7 @@ def counter(root: Path, **exporter: Any) -> Counter:
             "exporters": exporters,
         },
     )
-    return Counter(output=Directory(root), __with_name__="counter", __with_config__=config)  # type: ignore[reportCallIssue]
+    return Counter(output=Mount(root), __with_name__="counter", __with_config__=config)  # type: ignore[reportCallIssue]
 
 
 async def store(component: Component, *records: Message | Particle) -> None:
@@ -242,7 +241,7 @@ class Listening(Counter):
 
 
 async def test_a_full_playback_leaves_listeners_on_the_real_clock(tmp_path: Path) -> None:
-    component = Listening(output=Directory(tmp_path), __with_name__="counter")  # type: ignore[reportCallIssue]
+    component = Listening(output=Mount(tmp_path), __with_name__="counter")  # type: ignore[reportCallIssue]
     await store(component, message(10))
     component.system.start()
     try:

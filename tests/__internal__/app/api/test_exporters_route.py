@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from ceres import Address, Component, Engine
+from ceres import Address, Bound, Component, Engine, Mount
 from ceres.__internal__.app.handlers.exporters import (
     ExportRunRequest,
     get_component_exporters,
@@ -13,7 +13,6 @@ from ceres.__internal__.app.handlers.exporters import (
 from ceres.__internal__.app.shared import Actor
 from ceres.component import ComponentAccessLevel, ComponentConfig
 from ceres.data import validate
-from ceres.directory import Directory
 from ceres.error import NotFoundError, NotPermittedError, NotRunningError
 from ceres.permission import PermissionTargetType, UserPermission
 from ceres.user import User
@@ -26,7 +25,7 @@ _AFTER = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 class _Archive(Component):
-    output: Directory
+    output: Bound[Mount] = Mount.Field(...)
 
 
 async def _build_engine(root: Path) -> Engine:
@@ -46,13 +45,12 @@ async def _build_engine(root: Path) -> Engine:
                     "exports": "message",
                     "format": "csv",
                     "period": "hour",
-                    "path": "%Y/%m/%d/%H",
                 }
             ],
         },
     )
     engine.attach(
-        _Archive(output=Directory(root), __with_name__="archive", __with_config__=config)  # type: ignore[reportCallIssue]
+        _Archive(output=Mount(root), __with_name__="archive", __with_config__=config)  # type: ignore[reportCallIssue]
     )
     return engine
 
@@ -86,10 +84,22 @@ async def test_get_component_exporters_describes_each_exporter(tmp_path: Path) -
         engine=engine, actor=await _viewer(engine), address=Address("@archive")
     )
 
+    now = datetime.now(UTC)
     assert [
-        (info.name, info.format, info.merges, info.path, info.live, info.last_run)
+        (info.name, info.format, info.merges, info.mount, info.path, info.file, info.live)
         for info in result
-    ] == [("messages", "csv", True, "%Y/%m/%d/%H", True, None)]
+    ] == [
+        (
+            "messages",
+            "csv",
+            True,
+            "output",
+            "{exporter}_{yyyy}{MM}{dd}T{HH}",
+            f"messages_{now:%Y%m%dT%H}.csv",
+            True,
+        )
+    ]
+    assert result[0].last_run is None
 
 
 async def test_get_component_exporters_carries_the_newest_run(tmp_path: Path) -> None:

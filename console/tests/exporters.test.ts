@@ -24,9 +24,10 @@ function exporter(overrides: Partial<ExporterInfo> = {}): ExporterInfo {
     type: null,
     format: 'csv',
     merges: true,
-    directory: 'output',
+    mount: 'output',
     period: 'hour',
-    path: '%Y/%m/%d/%H',
+    path: '{exporter}_{yyyy}{MM}{dd}T{HH}',
+    file: 'abc_20260102T03.csv',
     live: false,
     interval: 'PT5S',
     schedule: null,
@@ -58,16 +59,24 @@ function failure(error: Record<string, unknown>): Failure {
 }
 
 describe('describeExporter', () => {
-  it('names the records, the format, and where the files go', () => {
+  it('names the records, the format, and the current file', () => {
     expect(describeExporter(exporter())).toBe(
-      'Writes message records as csv, one file per hour at output/%Y/%m/%d/%H.',
+      'Writes message records as csv, one file per hour like output/abc_20260102T03.csv.',
+    )
+  })
+
+  it('names the template when the mount is missing', () => {
+    expect(describeExporter(exporter({ file: null }))).toBe(
+      'Writes message records as csv, one file per hour like output/{exporter}_{yyyy}{MM}{dd}T{HH}.',
     )
   })
 
   it('names a particle type and one file for all time', () => {
-    expect(describeExporter(exporter({ exports: 'particle', type: 'abcd', period: 'all' }))).toBe(
-      'Writes particle "abcd" records as csv, one file at output/%Y/%m/%d/%H.',
-    )
+    expect(
+      describeExporter(
+        exporter({ exports: 'particle', type: 'abcd', period: 'all', file: 'abc.csv' }),
+      ),
+    ).toBe('Writes particle "abcd" records as csv, one file like output/abc.csv.')
   })
 
   it('reads a hyphenated kind as words', () => {

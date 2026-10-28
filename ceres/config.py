@@ -11,7 +11,6 @@ from typing import (
     Self,
     TypeAlias,
     cast,
-    get_args,
     override,
 )
 
@@ -380,16 +379,18 @@ class _ExporterConfig[TFilter: MessageFilter | ParticleFilter | AlertFilter | Lo
     format: Literal["csv", "jsonl", "netcdf", "raw"] | ExporterFormatConfig
     """A built-in format by name, or a custom format class with its arguments."""
 
-    directory: NonBlankStr = "output"
-    """Name of the component's `Directory` field the files live under."""
+    mount: NonBlankStr = "output"
+    """Name of the component's mount the files live under, a field declared with `Mount.Field`."""
 
     period: ExporterPeriod
     """Time one file covers."""
 
-    path: NonBlankStr
-    """`strftime` template of the period's UTC start, with `{exporter}` and `{connection}`.
+    path: NonBlankStr | None = None
+    """`PathTemplate` file name of the period, with `{exporter}`, written into the mount's layout
+    folder for the period, `{exporter}_{yyyy}{MM}{dd}` and its like for the period when omitted.
 
-    The format adds its extension, so the path ends without one.
+    Folder and name render at the period's UTC start whatever the mount's zone. The format adds
+    its extension, so the path ends without one.
     """
 
     live: bool | None = None
@@ -912,20 +913,22 @@ class ComponentConfig(DataObject):
         return exporters
 
     @model_validator(mode="after")
-    def _validate_exporter_directories(self) -> Self:
-        from ceres.directory import Directory
+    def _validate_exporter_mounts(self) -> Self:
+        from ceres.component import get_mount_bindings
 
-        fields: dict[str, Any] = getattr(self.cls, "__pydantic_fields__", {})
+        bindings = get_mount_bindings(self.cls)
         for exporter in self.exporters:
-            field = fields.get(exporter.directory)
-            annotation = field.annotation if field is not None else None
-            if not any(
-                isinstance(candidate, type) and issubclass(candidate, Directory)
-                for candidate in (annotation, *get_args(annotation))
-            ):
+            binding = bindings.get(exporter.mount)
+            if binding is None:
                 raise ValueError(
-                    f"exporter '{exporter.name}' writes to `{exporter.directory}`, which is not "
-                    f"a `Directory` field of `{self.cls.__qualname__}`"
+                    f"exporter '{exporter.name}' writes to mount '{exporter.mount}', which no "
+                    f"`Mount.Field` of `{self.cls.__qualname__}` declares"
+                )
+
+            if not binding.writable:
+                raise ValueError(
+                    f"exporter '{exporter.name}' writes to mount '{exporter.mount}', which is "
+                    "read-only"
                 )
 
         return self

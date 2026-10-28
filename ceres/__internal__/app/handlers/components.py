@@ -91,11 +91,13 @@ class ExporterInfo(DataObject):
     """A built-in format's name, or a custom format class's qualified name."""
     merges: bool
     """Whether a run can merge stored records into a file, so far only a keyed format."""
-    directory: str
-    """Name of the component's `Directory` field the files live under."""
+    mount: str
+    """Name of the component's mount the files live under."""
     period: ExporterPeriod
     path: str
-    """The path template, without the extension the format adds."""
+    """The file name template, without the extension the format adds."""
+    file: str | None
+    """The current period's file relative to the mount, `None` when the mount is missing."""
     live: bool
     interval: timedelta
     schedule: str | None
@@ -122,9 +124,12 @@ def _describe_exporters(component: Component) -> list[ExporterInfo]:
                 type=_get_cls_particle_type(particle) if particle is not None else None,
                 format=exporter.format_name,
                 merges=exporter.format_class.keyed,
-                directory=exporter.directory,
+                mount=exporter.mount,
                 period=exporter.period,
-                path=exporter.path,
+                path=exporter.create_path().template.source.removesuffix(
+                    exporter.create_format().extension
+                ),
+                file=exporters.get_current_file(exporter.name),
                 live=exporter.is_live,
                 interval=exporter.interval,
                 schedule=(

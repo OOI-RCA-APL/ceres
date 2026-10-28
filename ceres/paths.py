@@ -355,6 +355,11 @@ class PathTemplate:
         """Names of every atom the template uses."""
         return self._atoms
 
+    @property
+    def dated(self) -> bool:
+        """Whether an atom reads the time, so two times may render two paths."""
+        return not self._atoms.isdisjoint(_SYMBOLS.keys() | _EPOCH_ATOMS.keys())
+
     def render(
         self,
         when: datetime,
@@ -540,7 +545,7 @@ class PathLayout(PathTemplate):
     period runs from its time to the next value of its finest atom.
     """
 
-    __slots__ = ("_segments",)
+    __slots__ = ("_segments", "_unit")
 
     def __init__(self, source: str):
         """Parse `source`.
@@ -584,10 +589,18 @@ class PathLayout(PathTemplate):
         if "doy" in fields:
             fields |= {"month", "day"}
 
-        if fields - {"doy"} != set(_CALENDAR[: len(fields - {"doy"})]):
+        calendar = fields - {"doy"}
+        if calendar != set(_CALENDAR[: len(calendar)]):
             raise ValueError(f"layout '{source}' must name calendar fields from the year down")
 
         self._segments = tuple(tuple(segment) for segment in segments)
+        self._unit = _CALENDAR[len(calendar) - 1] if calendar else None
+
+    @property
+    def unit(self) -> str | None:
+        """Finest calendar field the folders split by, `year` through `second`, `None` for a
+        layout of names only."""
+        return self._unit
 
     def walk(
         self,

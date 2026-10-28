@@ -368,9 +368,9 @@ Exporter configuration that writes stored `Message` records to files.
 | `exports` | string | `'message'` |  |
 | `filter` | [`MessageFilter`](#messagefilter) |  | Records to export, every record of the kind at the component when omitted. |
 | `format` | `csv` or `jsonl` or `netcdf` or `raw` or [`ExporterFormatConfig`](#exporterformatconfig) | required |  |
-| `directory` | string | `'output'` |  |
+| `mount` | string | `'output'` |  |
 | `period` | `hour` or `day` or `month` or `all` | required |  |
-| `path` | string | required |  |
+| `path` | string |  |  |
 | `live` | boolean |  |  |
 | `schedule` | [`CronSchedule`](#cronschedule) or [`IntervalSchedule`](#intervalschedule) or [`OrSchedule`](#orschedule) |  |  |
 | `lookback` | integer |  |  |
@@ -386,9 +386,9 @@ Exporter configuration that writes stored `Particle` records to files.
 | `exports` | string | `'particle'` |  |
 | `filter` | [`ParticleFilter`](#particlefilter) |  | Records to export, every record of the kind at the component when omitted. |
 | `format` | `csv` or `jsonl` or `netcdf` or `raw` or [`ExporterFormatConfig`](#exporterformatconfig) | required |  |
-| `directory` | string | `'output'` |  |
+| `mount` | string | `'output'` |  |
 | `period` | `hour` or `day` or `month` or `all` | required |  |
-| `path` | string | required |  |
+| `path` | string |  |  |
 | `live` | boolean |  |  |
 | `schedule` | [`CronSchedule`](#cronschedule) or [`IntervalSchedule`](#intervalschedule) or [`OrSchedule`](#orschedule) |  |  |
 | `lookback` | integer |  |  |
@@ -405,9 +405,9 @@ Exporter configuration that writes stored `Alert` records to files.
 | `exports` | string | `'alert'` |  |
 | `filter` | [`AlertFilter`](#alertfilter) |  | Records to export, every record of the kind at the component when omitted. |
 | `format` | `csv` or `jsonl` or `netcdf` or `raw` or [`ExporterFormatConfig`](#exporterformatconfig) | required |  |
-| `directory` | string | `'output'` |  |
+| `mount` | string | `'output'` |  |
 | `period` | `hour` or `day` or `month` or `all` | required |  |
-| `path` | string | required |  |
+| `path` | string |  |  |
 | `live` | boolean |  |  |
 | `schedule` | [`CronSchedule`](#cronschedule) or [`IntervalSchedule`](#intervalschedule) or [`OrSchedule`](#orschedule) |  |  |
 | `lookback` | integer |  |  |
@@ -423,9 +423,9 @@ Exporter configuration that writes stored `LogEntry` records to files.
 | `exports` | string | `'log-entry'` |  |
 | `filter` | [`LogEntryFilter`](#logentryfilter) |  | Records to export, every record of the kind at the component when omitted. |
 | `format` | `csv` or `jsonl` or `netcdf` or `raw` or [`ExporterFormatConfig`](#exporterformatconfig) | required |  |
-| `directory` | string | `'output'` |  |
+| `mount` | string | `'output'` |  |
 | `period` | `hour` or `day` or `month` or `all` | required |  |
-| `path` | string | required |  |
+| `path` | string |  |  |
 | `live` | boolean |  |  |
 | `schedule` | [`CronSchedule`](#cronschedule) or [`IntervalSchedule`](#intervalschedule) or [`OrSchedule`](#orschedule) |  |  |
 | `lookback` | integer |  |  |

@@ -23,12 +23,12 @@ from collections.abc import AsyncIterable, AsyncIterator, Callable, Iterable, It
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from pathlib import Path, PurePosixPath
-from string import Formatter
+from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
     ClassVar,
+    Final,
     Literal,
     Union,
     cast,
@@ -46,7 +46,6 @@ from ceres.concurrency import cancel, sleep, spawn
 from ceres.config import ExporterPeriod
 from ceres.data import DataObject, DateTime, Name, StrEnum, replace, uuid4
 from ceres.data import dump as _dump
-from ceres.directory import Directory
 from ceres.entity import EntityType
 from ceres.error import AlreadyExistsError, trace
 from ceres.event import (
@@ -55,6 +54,8 @@ from ceres.event import (
     ExportRunProgressEvent,
     ExportRunStartedEvent,
 )
+from ceres.mount import Mount
+from ceres.paths import PathTemplate
 
 if TYPE_CHECKING:
     from apscheduler.job import Job as InternalJob
@@ -835,25 +836,17 @@ def _commit(temporary: Path, final: Path) -> None:
 
 
 @asynccontextmanager
-async def atomic_write(directory: Directory | Path, path: str | Path) -> AsyncIterator[Path]:
-    """Yield a temporary sibling of `directory / path` that replaces it when the block exits.
+async def atomic_write(target: Mount) -> AsyncIterator[Path]:
+    """Yield a temporary sibling of `target` that replaces it when the block exits.
 
     Readers see the old file or the new one, never a partial write. The temporary file is
-    removed when the block raises.
-
-    Args:
-        directory: Directory the file lives under.
-        path: File path relative to `directory`.
+    removed when the block raises. Missing parent directories are created.
 
     Raises:
-        ValueError: If `path` leads outside `directory`.
+        PermissionError: If the mount is read-only.
     """
-    root = Path(directory).resolve()
-    final = (root / path).resolve()
-    if not final.is_relative_to(root) or final == root:
-        raise ValueError(f"'{path}' leads outside '{root}'")
-
-    await anyio.Path(final.parent).mkdir(parents=True, exist_ok=True)
+    await target.parent.aio().mkdir()
+    final = target.path
     temporary = await spawn(_create_temporary, final)
     try:
         yield temporary
@@ -907,81 +900,113 @@ def periods(
         start = end
 
 
+_DEFAULT_PATHS: Final[Mapping[ExporterPeriod, str]] = {
+    ExporterPeriod.HOUR: "{exporter}_{yyyy}{MM}{dd}T{HH}",
+    ExporterPeriod.DAY: "{exporter}_{yyyy}{MM}{dd}",
+    ExporterPeriod.MONTH: "{exporter}_{yyyy}{MM}",
+    ExporterPeriod.ALL: "{exporter}",
+}
+
+# Calendar fields from the coarsest, to compare a layout's folders with a period.
+_UNITS: Final = ("year", "month", "day", "hour", "minute", "second")
+
+
 @dataclass(frozen=True, slots=True)
 class ExportPath:
-    """An exporter's path template, checked to give each period its own file."""
+    """An exporter's file name, checked to give each period its own file on a mount."""
 
-    template: str
-    """`strftime` template of the period's UTC start, with `{exporter}` and `{connection}`."""
+    template: PathTemplate
+    """File name of a period, its extension included, rendered at the period's UTC start."""
 
     period: ExporterPeriod
     """Time one file covers."""
 
-    exporter: str
-    """Exporter name `{exporter}` renders to."""
-
-    connection: str | None
-    """Connection name `{connection}` renders to, `None` when the filter pins none."""
-
-    extension: str
-    """Format extension appended to every rendered path."""
+    values: Mapping[str, str]
+    """Values of `{exporter}`, and of `{connection}` when the filter pins one."""
 
     @classmethod
     def create(
         cls,
-        template: str,
+        source: str | None,
         period: ExporterPeriod,
         exporter: str,
         connection: str | None,
         extension: str,
     ) -> ExportPath:
-        """Check `template` and return the path it describes.
+        """Check the file name `source` and return the path it describes.
+
+        Args:
+            source: `PathTemplate` of the file name without its extension, with `{exporter}`.
+                `None` takes the period's default, such as `{exporter}_{yyyy}{MM}{dd}`.
+            period: Time one file covers.
+            exporter: Exporter name `{exporter}` renders to.
+            connection: Connection name `{connection}` renders to, `None` when the filter pins
+                none.
+            extension: Format extension the name ends in.
 
         Raises:
-            ValueError: If the template uses an unknown placeholder, leaves the directory,
-                ends in a format extension, or renders one file for two periods.
+            ValueError: If the template is invalid, ends in a format extension, uses
+                `{connection}` without a pinned connection, or reads the time under
+                `period: all`.
         """
-        for _, field, spec, conversion in Formatter().parse(template):
-            if field is None:
-                continue
-            if field not in ("exporter", "connection") or spec or conversion:
-                raise ValueError(
-                    f"path placeholders are `{{exporter}}` and `{{connection}}`, got `{{{field}}}`"
-                )
-            if field == "connection" and connection is None:
-                raise ValueError("`{connection}` needs a filter that pins one connection")
-
-        if period == ExporterPeriod.ALL and re.search("%[^%]", template.replace("%%", "")):
-            raise ValueError("a `period: all` path takes no time directives")
-
-        path = cls(template, period, exporter, connection, extension)
-        sample = path.render(_EPOCH)[: -len(extension)]
-        parts = PurePosixPath(sample).parts
-        if sample.startswith("/") or sample.endswith("/") or ".." in parts:
-            raise ValueError(f"path '{template}' must name a file inside the directory")
-
+        source = _DEFAULT_PATHS[period] if source is None else source
         for known in sorted(
             {extension, *(format.extension for format in BUILTIN_FORMATS.values())}
         ):
-            if sample.lower().endswith(known):
+            if source.lower().endswith(known):
                 raise ValueError(
                     f"the format adds `{extension}`, so the path must not end in `{known}`"
                 )
 
-        if period != ExporterPeriod.ALL:
-            path.__check_collisions()
+        template = PathTemplate(source + extension, atoms=("exporter",))
+        if "connection" in template.atoms and connection is None:
+            raise ValueError("`{connection}` needs a filter that pins one connection")
 
-        return path
+        if period == ExporterPeriod.ALL and template.dated:
+            raise ValueError("a `period: all` path takes no time atoms")
 
-    def render(self, start: datetime | None) -> str:
-        """Return the file path for the period starting at `start`, relative to the directory."""
-        text = (start or _EPOCH).strftime(self.template)
-        return text.format(exporter=self.exporter, connection=self.connection) + self.extension
+        values = {"exporter": exporter}
+        if connection is not None:
+            values["connection"] = connection
 
-    def __check_collisions(self) -> None:
+        return cls(template, period, values)
+
+    def file(self, mount: Mount, start: datetime | None) -> Mount:
+        """Return the file for the period starting at `start` on `mount`, as `Mount.file` names
+        it, without creating its folder.
+
+        A file of `period: all` sits at the mount's root, every other in the layout's folder.
+        """
+        return mount / self.render(mount, start)
+
+    def render(self, mount: Mount, start: datetime | None) -> str:
+        """Return the file path for the period starting at `start`, relative to `mount`."""
+        name = mount.render(self.template, start or _EPOCH, self.values)
+        if start is None or mount.layout is None:
+            return name
+
+        return f"{mount.render(mount.layout, start)}/{name}"
+
+    def check(self, mount: Mount) -> None:
+        """Check that the periods take files of their own in `mount`'s layout.
+
+        Raises:
+            ValueError: If the layout splits folders finer than a period, or two periods
+                render one file.
+        """
+        if self.period == ExporterPeriod.ALL:
+            return
+
+        layout = mount.layout
+        if layout is not None and layout.unit is not None:
+            if _UNITS.index(layout.unit) > _UNITS.index(self.period.value):
+                raise ValueError(
+                    f"layout '{layout}' splits finer than period '{self.period.value}'"
+                )
+
         seen: dict[str, datetime] = {}
         for start in self.__probes():
-            rendered = self.render(start)
+            rendered = self.render(mount, start)
             earlier = seen.setdefault(rendered, start)
             if earlier != start:
                 raise ValueError(
@@ -1255,6 +1280,7 @@ class ExporterManager(BaseComponentManager):
         """Register an exporter, replacing any registered under the same name."""
         self.remove(exporter.name)
         registered = _Exporter(exporter, self.__system__.address)
+        registered.path.check(self.__mount(exporter))
         omitted = registered.format.check(registered.schema)
         if omitted:
             self.__system__.log.warning(
@@ -1271,6 +1297,24 @@ class ExporterManager(BaseComponentManager):
         """Return the exporter registered under `name`, or `None`."""
         registered = self.__exporters.get(name)
         return registered.config if registered is not None else None
+
+    def get_current_file(self, name: str) -> str | None:
+        """Return the file the current period writes, relative to the exporter's mount.
+
+        Returns:
+            The path, or `None` when no exporter is registered under `name` or its mount is
+            missing.
+        """
+        registered = self.__exporters.get(name)
+        if registered is None:
+            return None
+
+        period = registered.config.period
+        start = _bounds(period, period_start(period, datetime.now(UTC)))[0]
+        try:
+            return registered.path.render(self.__mount(registered.config), start)
+        except ValueError:
+            return None
 
     def get_all(self) -> list[ExporterConfig]:
         """Return every registered exporter."""
@@ -1547,7 +1591,7 @@ class ExporterManager(BaseComponentManager):
             # An unkeyed file cannot merge, so only a re-run that replaces it can fill it.
             start = _bounds(exporter.period, period_start(exporter.period, started))[0]
             if await self.__query(exporter, start, started).first() is not None:
-                relative = registered.path.render(start)
+                relative = registered.path.render(self.__mount(exporter), start)
                 after = f" --after {start.isoformat()}" if start is not None else ""
                 self.__system__.log.warning(
                     f"Exporter '{exporter.name}' lacks records stored before it started in "
@@ -1562,15 +1606,16 @@ class ExporterManager(BaseComponentManager):
         # the database are pruned records, so they stay.
         exporter, format, schema = registered.config, registered.format, registered.schema
         bounds = _bounds(exporter.period, start)
-        directory = self.__directory(exporter)
-        relative = registered.path.render(bounds[0])
+        mount = self.__mount(exporter)
+        target = registered.path.file(mount, bounds[0])
+        relative = target.relative.as_posix()
         async with self.__locks[exporter.name]:
             try:
-                if not await self.__lacks(registered, Path(directory / relative), *bounds):
+                if not await self.__lacks(registered, target.path, *bounds):
                     return
 
                 count = await self.__export_period(
-                    exporter, format, schema, directory, relative, bounds[0], bounds[1], False
+                    exporter, format, schema, target, bounds[0], bounds[1], False
                 )
             except ExportFileError as exception:
                 self.__system__.log.warning(
@@ -1621,13 +1666,13 @@ class ExporterManager(BaseComponentManager):
 
     async def __write_live(self, registered: _Exporter, live: _Live) -> None:
         exporter = registered.config
-        directory = self.__directory(exporter)
+        mount = self.__mount(exporter)
         live.working, live.pending = live.pending, {}
         written = sorted(live.working)
         async with self.__locks[exporter.name]:
             for start in written:
                 first, last = live.working[start]
-                await self.__write_period_live(registered, live, directory, start, first, last)
+                await self.__write_period_live(registered, live, mount, start, first, last)
                 del live.working[start]
                 live.cursor = last[0] if live.cursor is None else max(live.cursor, last[0])
 
@@ -1641,14 +1686,14 @@ class ExporterManager(BaseComponentManager):
         self,
         registered: _Exporter,
         live: _Live,
-        directory: Directory,
+        mount: Mount,
         start: datetime,
         first: ExportKey,
         last: ExportKey,
     ) -> None:
         exporter, format, schema = registered.config, registered.format, registered.schema
-        relative = registered.path.render(_bounds(exporter.period, start)[0])
-        final = Path(directory / relative)
+        target = registered.path.file(mount, _bounds(exporter.period, start)[0])
+        relative, final = target.relative.as_posix(), target.path
         # The upper bound keeps out a record committed after this wake took its keys, whose
         # own notification would otherwise read as late.
         async with self.__query(exporter, first[0], last[0] + _TICK) as results:
@@ -1670,11 +1715,11 @@ class ExporterManager(BaseComponentManager):
             if format.appendable and (
                 not format.keyed or previous is None or _record_key(head) > previous
             ):
-                await anyio.Path(final.parent).mkdir(parents=True, exist_ok=True)
+                await target.parent.aio().mkdir()
                 await format.append(final, schema, records)
             else:
                 exists = await anyio.Path(final).exists()
-                async with atomic_write(directory, relative) as temporary:
+                async with atomic_write(target) as temporary:
                     if exists:
                         await format.merge(final, schema, records, temporary)
                     else:
@@ -1770,12 +1815,13 @@ class ExporterManager(BaseComponentManager):
 
         return self.__records(exporter).where(filter)
 
-    def __directory(self, exporter: ExporterConfig) -> Directory:
-        directory = getattr(self.__component__, exporter.directory, None)
-        if not isinstance(directory, Directory):
-            raise ValueError(f"`{exporter.directory}` is not a `Directory` of this component")
+    def __mount(self, exporter: ExporterConfig) -> Mount:
+        mount = self.__system__.get_mount(exporter.mount)
+        if mount is None:
+            raise ValueError(f"component has no mount '{exporter.mount}'")
 
-        return directory
+        # A period starts at a UTC boundary, so its file says which period it holds only in UTC.
+        return Mount(mount, zone="utc")
 
     async def __export(self, registered: _Exporter, run: ExportRunRecord) -> None:
         exporter, format, schema, path = (
@@ -1794,13 +1840,14 @@ class ExporterManager(BaseComponentManager):
             replace=run.replace,
         )
         try:
-            directory = self.__directory(exporter)
+            mount = self.__mount(exporter)
             lock = self.__locks.setdefault(exporter.name, Lock())
             async with lock:
                 for start, end in periods(exporter.period, run.after, run.before):
-                    relative = path.render(start)
+                    target = path.file(mount, start)
+                    relative = target.relative.as_posix()
                     count = await self.__export_period(
-                        exporter, format, schema, directory, relative, start, end, run.replace
+                        exporter, format, schema, target, start, end, run.replace
                     )
                     self.__forget(exporter.name, start)
                     if count is None:
@@ -1864,14 +1911,13 @@ class ExporterManager(BaseComponentManager):
         exporter: ExporterConfig,
         format: Format,
         schema: ExportSchema,
-        directory: Directory,
-        relative: str,
+        target: Mount,
         start: datetime | None,
         end: datetime | None,
         replace: bool,
     ) -> int | None:
         # Returns the records written, or `None` when the period's file stays untouched.
-        final = anyio.Path(directory / relative)
+        final = anyio.Path(target.path)
         async with self.__query(exporter, start, end) as results:
             stream = _Counted(results)
             first = await anext(stream, None)
@@ -1883,7 +1929,7 @@ class ExporterManager(BaseComponentManager):
 
             records = _prepend(first, stream)
             exists = await final.exists()
-            async with atomic_write(directory, relative) as temporary:
+            async with atomic_write(target) as temporary:
                 if exists and not replace:
                     await format.merge(Path(final), schema, records, temporary)
                 else:
