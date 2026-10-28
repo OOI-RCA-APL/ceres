@@ -89,7 +89,7 @@ class TestPathTemplate:
     @pytest.mark.parametrize("case", VECTORS["invalid"], ids=lambda case: case["template"])
     def test_refuses(self, case: dict[str, Any]) -> None:
         with pytest.raises(ValueError):
-            PathTemplate(case["template"])
+            PathTemplate(case["template"], atoms=case.get("atoms", ()))
 
     @pytest.mark.parametrize("case", VECTORS["unrenderable"], ids=lambda case: str(case["values"]))
     def test_refuses_to_render(self, case: dict[str, Any]) -> None:

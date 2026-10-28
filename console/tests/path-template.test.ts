@@ -28,7 +28,7 @@ describe('PathTemplate', () => {
   })
 
   it.each(vectors.invalid)('refuses $template', (vector) => {
-    expect(() => new PathTemplate(vector.template)).toThrow()
+    expect(() => new PathTemplate(vector.template, vector.atoms)).toThrow()
   })
 
   it.each(vectors.unrenderable)('refuses to render $template', (vector) => {

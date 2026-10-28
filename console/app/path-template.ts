@@ -155,7 +155,11 @@ const SYMBOLS: Readonly<Record<string, PathTemplateRender>> = {
   XX: (time) => (time.offset === 0 ? 'Z' : formatOffset(time.offset)),
 }
 
-const EPOCH_UNITS: Readonly<Record<string, bigint>> = { '': 1n, ms: 1_000n, us: 1_000_000n }
+const EPOCH_ATOMS: ReadonlyMap<string, bigint> = new Map([
+  ['epoch', 1n],
+  ['epoch:ms', 1_000n],
+  ['epoch:us', 1_000_000n],
+])
 
 const HOURS = new Set(['HH', 'H', 'hh', 'h'])
 
@@ -195,6 +199,12 @@ export class PathTemplate {
    */
   constructor(source: string, extras: Iterable<string> = []) {
     const declared = new Set(extras)
+    for (const name of [...declared].sort()) {
+      if (Object.hasOwn(SYMBOLS, name) || IDENTITY_ATOMS.has(name) || name === 'epoch') {
+        throw new Error(`atom '${name}' is a built-in`)
+      }
+    }
+
     const parts: (string | PathTemplateAtom)[] = []
     let position = 0
     for (const match of source.matchAll(/\{\{|\}\}|\{([^{}]*)\}|[{}]/g)) {
@@ -259,7 +269,7 @@ function parseAtom(source: string, body: string, extras: ReadonlySet<string>): P
   const colon = body.indexOf(':')
   const name = colon < 0 ? body : body.slice(0, colon)
   if (colon >= 0 || name === 'epoch') {
-    const perSecond = name === 'epoch' ? EPOCH_UNITS[colon < 0 ? '' : body.slice(colon + 1)] : null
+    const perSecond = EPOCH_ATOMS.get(body)
     if (perSecond == null) {
       throw new Error(
         `template '${source}' uses '{${body}}', only '{epoch}' takes a unit, ms or us`,

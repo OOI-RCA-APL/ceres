@@ -5,7 +5,6 @@ from collections.abc import Callable, Iterable, Iterator, Mapping
 from datetime import UTC, datetime, timedelta, tzinfo
 from functools import lru_cache
 from pathlib import Path
-from string import Formatter
 from typing import TYPE_CHECKING, Any, Final, override
 from zoneinfo import ZoneInfo
 
@@ -176,6 +175,11 @@ _HOURS: Final = frozenset({"HH", "H", "hh", "h"})
 
 _IDENTITY_ATOMS: Final = frozenset({"component", "mount", "connection", "project", "host"})
 
+# A producer's atom under one of these names would never render, the built-in takes it.
+_BUILT_IN_ATOMS: Final = _SYMBOLS.keys() | _IDENTITY_ATOMS | {"epoch"}
+
+_TOKEN: Final = re.compile(r"\{\{|\}\}|\{([^{}]*)\}|[{}]")
+
 # Device names Windows reserves in every directory, with or without an extension.
 _RESERVED: Final = frozenset(
     {"CON", "PRN", "AUX", "NUL"}
@@ -269,23 +273,24 @@ class PathTemplate:
                 hold.
         """
         extras = frozenset(atoms)
+        for name in sorted(extras & _BUILT_IN_ATOMS):
+            raise ValueError(f"atom '{name}' is a built-in")
+
+        # The console's renderer tokenizes with this same expression, so both read one grammar.
         parts: list[str | _Atom] = []
-        try:
-            fields = list(Formatter().parse(source))
-        except ValueError as error:
-            raise ValueError(f"template '{source}' has an unmatched brace") from error
+        position = 0
+        for match in _TOKEN.finditer(source):
+            parts.append(source[position : match.start()])
+            position = match.end()
+            text = match.group()
+            if text in ("{{", "}}"):
+                parts.append(text[0])
+            elif match.group(1) is None:
+                raise ValueError(f"template '{source}' has an unmatched brace")
+            else:
+                parts.append(_parse_atom(source, match.group(1), extras))
 
-        for literal, name, unit, conversion in fields:
-            parts.append(literal)
-            if name is None:
-                continue
-
-            body = f"{name}:{unit}" if unit else name
-            if conversion is not None:
-                raise ValueError(f"template '{source}' uses '{{{body}!{conversion}}}', not an atom")
-
-            parts.append(_parse_atom(source, body, extras))
-
+        parts.append(source[position:])
         self._source = source
         self._parts = tuple(part for part in parts if part != "")
         self._atoms = frozenset(part.name for part in self._parts if isinstance(part, _Atom))
@@ -411,7 +416,7 @@ class PathTemplate:
         return hash(self._source)
 
 
-_EPOCH_UNITS: Final[Mapping[str, int]] = {"": 1, "ms": 1_000, "us": 1_000_000}
+_EPOCH_ATOMS: Final[Mapping[str, int]] = {"epoch": 1, "epoch:ms": 1_000, "epoch:us": 1_000_000}
 
 
 def _epoch(when: datetime, per_second: int) -> str:
@@ -424,9 +429,9 @@ _EPOCH: Final = datetime(1970, 1, 1, tzinfo=UTC)
 
 
 def _parse_atom(source: str, body: str, extras: frozenset[str]) -> _Atom:
-    name, colon, unit = body.partition(":")
+    name, colon, _ = body.partition(":")
     if colon or name == "epoch":
-        per_second = _EPOCH_UNITS.get(unit) if name == "epoch" else None
+        per_second = _EPOCH_ATOMS.get(body)
         if per_second is None:
             raise ValueError(
                 f"template '{source}' uses '{{{body}}}', only '{{epoch}}' takes a unit, ms or us"
