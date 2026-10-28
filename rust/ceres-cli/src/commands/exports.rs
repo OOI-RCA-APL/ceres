@@ -6,6 +6,7 @@ use std::io::Write;
 use std::time::Duration;
 
 use ceres_entities::{Address, Records, Timestamp};
+use chrono::{DurationRound, TimeDelta};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -32,6 +33,7 @@ struct Started {
 #[derive(Debug, Deserialize)]
 struct Exporter {
     name: String,
+    merges: bool,
 }
 
 /// Run one exporter of a component over `[after, before)`, or every one when `exporter` is
@@ -55,19 +57,46 @@ pub fn export(
                 fail!("Component '{address}' has no exporters.");
             }
 
-            exporters
-                .into_iter()
-                .map(|exporter| exporter.name)
-                .collect()
+            // A format that cannot merge only runs as a replace, which a run of every exporter
+            // must not choose for it.
+            let mut names = Vec::new();
+            for exporter in exporters {
+                if exporter.merges || replace {
+                    names.push(exporter.name);
+                } else {
+                    output.warn(format!(
+                        "Skipping exporter '{}', which cannot merge. Pass --replace to rewrite \
+                         its files.",
+                        exporter.name
+                    ));
+                }
+            }
+
+            names
         }
     };
 
+    // Every run starts before any is followed, so a run the engine refuses leaves the others
+    // running.
     let body = range.body(json!({ "replace": replace }));
     let mut failed = false;
+    let mut started = Vec::new();
     for name in names {
         let runs = format!("{component}/exporters/{}/runs", encode(&name));
-        let started: Started = parse(&client.post(&runs, &[], Some(&body))?)?;
-        let run = follow(&client, &runs, &started.id)?;
+        match client
+            .post(&runs, &[], Some(&body))
+            .and_then(|body| parse::<Started>(&body))
+        {
+            Ok(run) => started.push((name, runs, run.id)),
+            Err(error) => {
+                output.warn(format!("Exporter '{name}' did not start. {error}"));
+                failed = true;
+            }
+        }
+    }
+
+    for (name, runs, id) in started {
+        let run = follow(&client, &runs, &id)?;
         failed |= report(output, &format!("Exporter '{name}'"), &run);
     }
 
@@ -201,12 +230,28 @@ impl LoadedSpans {
             .iter()
             .flat_map(|(kind, addresses)| {
                 addresses.iter().map(move |(address, (first, last))| {
-                    json!({ "kind": kind, "address": address, "first": first, "last": last })
+                    // A file may carry nanoseconds, which a database rounds or truncates to
+                    // the microsecond, so the span widens to whole microseconds either way.
+                    let floor = |time: &Timestamp| {
+                        Timestamp(time.0.duration_trunc(MICROSECOND).unwrap_or(time.0))
+                    };
+                    let ceiling = match floor(last) {
+                        floor if floor == *last => floor,
+                        floor => Timestamp(floor.0 + MICROSECOND),
+                    };
+                    json!({
+                        "kind": kind,
+                        "address": address,
+                        "first": floor(first),
+                        "last": ceiling,
+                    })
                 })
             })
             .collect()
     }
 }
+
+const MICROSECOND: TimeDelta = TimeDelta::microseconds(1);
 
 /// Hand a load's spans to the running engine to export, or leave them in the project's
 /// state directory for the engine to export when it next starts.
@@ -292,6 +337,24 @@ mod tests {
                 span("@abc", "2026-01-01T01:00:00Z", "2026-01-01T03:00:00Z"),
                 span("@abcd", "2026-01-01T05:00:00Z", "2026-01-01T05:00:00Z"),
             ]
+        );
+    }
+
+    #[test]
+    fn a_span_widens_to_whole_microseconds() {
+        let mut spans = LoadedSpans::default();
+        spans.cover(&messages(&[
+            ("@abc", "2026-01-01T01:00:00.0000015Z"),
+            ("@abc", "2026-01-01T01:00:00.0000005Z"),
+        ]));
+
+        assert_eq!(
+            spans.entries(),
+            [span(
+                "@abc",
+                "2026-01-01T01:00:00Z",
+                "2026-01-01T01:00:00.000002Z"
+            )]
         );
     }
 

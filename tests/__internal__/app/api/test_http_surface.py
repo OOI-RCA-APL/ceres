@@ -193,6 +193,9 @@ async def _serve(
         engine.attach(component)
         component.system.start()
 
+    # Nothing runs the engine here, so this marks its components started as `__run__` does.
+    engine._started.set()  # pyright: ignore[reportPrivateUsage]
+
     host = Host(engine)
     records = engine.database._reader()
     console = Path(__file__).parent.parent.parent.parent.parent / "ceres" / "static" / "console"

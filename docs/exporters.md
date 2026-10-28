@@ -208,7 +208,8 @@ to the current time. `GET /api/components/@sensor/exporters/messages/runs` lists
 component.
 
 `ceres export` starts the same run from the command line and waits for it to end. Without an
-exporter name, it runs every exporter of the component in turn. A time without a zone is UTC.
+exporter name, it runs every exporter of the component that merges, or every one with
+`--replace`. A time without a zone is UTC.
 
 ```bash
 ceres export @sensor messages --after 2026-01-01 --before 2026-01-02
@@ -229,12 +230,12 @@ passes `--export`:
 ceres messages load rows.jsonl --export
 ```
 
-The load then runs, as a merge, every merging exporter of the kind it loaded on each component
-holding a loaded address, over the time from that address's first loaded record to its last. With
+The load then runs, as one merge each, every merging exporter of the kind it loaded on each
+component holding a loaded address, over the time from the first loaded record it takes to the
+last. With
 no engine running, the load appends those ranges to `.ceres/pending-exports.jsonl` beside the
 configuration, and the engine exports them when it next starts. That file sits on the host running
-the load, so a load on another host reaches the engine only while the engine runs. Records written
-to the database any other way reach no exporter until a run covers their time.
+the load, so a load on another host reaches the engine only while the engine runs.
 
 Each run emits `ExportRunStartedEvent`, one `ExportRunProgressEvent` per file it writes, and then
 `ExportRunCompletedEvent` or `ExportRunFailedEvent`. A completed run also writes one log entry
