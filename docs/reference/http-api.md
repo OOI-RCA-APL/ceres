@@ -85,6 +85,14 @@ caller themselves against the resource they name.
 | `POST` | `/api/stop` | required | Stop matching components. |
 | `POST` | `/api/up` | required | Enable and start matching components. |
 
+## Exporters
+
+| Method | Path | Token | Description |
+| --- | --- | --- | --- |
+| `GET` | `/api/components/{id}/exporters` | required | List one component's exporters. |
+| `GET` | `/api/components/{id}/exporters/{second}/runs` | required | List one exporter's recent runs, newest first. |
+| `POST` | `/api/components/{id}/exporters/{second}/runs` | optional | Start an export run over a range, access checked by the operation. |
+
 ## Files
 
 | Method | Path | Token | Description |

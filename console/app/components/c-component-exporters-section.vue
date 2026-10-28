@@ -14,6 +14,7 @@ import {
   isPlaybackRunning,
   type PlaybackRecord,
 } from '@/api/exporters'
+import { filesPagePath } from '@/api/files'
 import { useDialogs } from '@/dialogs'
 import icons from '@/icons'
 
@@ -87,6 +88,12 @@ const blockedReason = $computed(() => {
   return running ? null : 'Rebuilding needs the component running.'
 })
 
+/** The "Files" page at the folder of the exporter's current file, or at its mount's root. */
+function exporterFolderPath(exporter: ExporterInfo): string {
+  const folder = exporter.file?.split('/').slice(0, -1) ?? []
+  return filesPagePath(`${address.toString()}/${exporter.mount}`, folder)
+}
+
 function rebuild(exporter: ExporterInfo) {
   // The refetch picks up the new run's record at once, which starts the polling.
   dialogs.runExporter({ address, exporter }).onOk(() => {
@@ -124,6 +131,13 @@ function rebuild(exporter: ExporterInfo) {
           Last run: {{ describeExportRun(exporter.last_run) }}
         </c-text>
       </div>
+      <c-button
+        :icon="icons.mount"
+        label="Files"
+        size="xs"
+        :to="exporterFolderPath(exporter)"
+        variant="soft"
+      />
       <c-tooltip :disabled="blockedReason == null" :text="blockedReason ?? ''">
         <c-button
           :disabled="blockedReason != null"

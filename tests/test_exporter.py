@@ -9,14 +9,13 @@ from uuid import UUID
 
 import pytest
 
-from ceres import Component
+from ceres import Bound, Component
 from ceres.__internal__.database.writer import FlushSummary, Writer
 from ceres.__internal__.entity import DeleteExecutor
 from ceres.address import Address
 from ceres.alert import Alert
 from ceres.config import ComponentConfig, ExporterConfig, MessagePrunerConfig
 from ceres.data import replace, validate
-from ceres.directory import Directory
 from ceres.entity import EntityType
 from ceres.error import AlreadyExistsError, DatabaseUnreachableError
 from ceres.event import (
@@ -39,6 +38,7 @@ from ceres.exporter import (
 from ceres.level import Level
 from ceres.logs import LogEntry
 from ceres.message import Message, MessageDirection
+from ceres.mount import Mount
 from ceres.particle import Particle
 from tests.testing import wait_for_condition
 
@@ -52,7 +52,8 @@ RECENT = datetime.now(UTC).replace(minute=0, second=0, microsecond=0) - timedelt
 
 
 class Archive(Component):
-    output: Directory
+    output: Bound[Mount] = Mount.Field(...)
+    shelf: Bound[Mount] = Mount.Field(writable=False)
 
 
 def config(**exporter: Any) -> ComponentConfig:
@@ -68,7 +69,7 @@ def config(**exporter: Any) -> ComponentConfig:
                     "exports": "message",
                     "format": "csv",
                     "period": "hour",
-                    "path": "%Y/%m/%d/%H",
+                    "path": "{yyyy}/{MM}/{dd}/{HH}",
                     **exporter,
                 }
             ],
@@ -99,9 +100,13 @@ class Exported:
     root: Path
 
     @classmethod
-    def create(cls, root: Path, **exporter: Any) -> Self:
+    def create(
+        cls, root: Path, *, layout: str | None = None, zone: str | None = None, **exporter: Any
+    ) -> Self:
         component = Archive(
-            output=Directory(root), __with_name__="archive", __with_config__=config(**exporter)
+            output=Mount(root, layout=layout, zone=zone),
+            __with_name__="archive",
+            __with_config__=config(**exporter),
         )  # type: ignore[reportCallIssue]
         return cls(component, root)
 
@@ -419,45 +424,62 @@ async def test_files_take_the_umask_and_keep_their_mode(
     assert (created, path.stat().st_mode & 0o777) == (0o644, 0o640)
 
 
-def test_config_refuses_a_path_two_periods_share() -> None:
-    assert "to one file '2000/01/01.csv'" in refusal(path="%Y/%m/%d")
-    assert "to one file '2000/01/00.csv'" in refusal(path="%Y/%m/%H")
-    assert "to one file '2000-01-01T12.csv'" in refusal(path="%Y-%m-%dT%I")
-    assert "to one file '01.csv'" in refusal(period="month", path="%m")
-    assert "to one file '001.csv'" in refusal(period="day", path="%j")
-    assert "to one file '2000-01.csv'" in refusal(period="day", path="%Y-%U")
-    assert "to one file '2000-01-01 AM.csv'" in refusal(path="%Y-%m-%d %p")
+def start_refusal(root: Path, layout: str | None = None, **exporter: Any) -> str:
+    with pytest.raises(ValueError) as error:
+        Exported.create(root, layout=layout, **exporter)
+
+    return str(error.value)
 
 
-def test_config_refuses_a_two_digit_year() -> None:
-    assert "2000-01-01T00:00:00+00:00 and 2100-01-01T00:00:00+00:00" in refusal(
-        period="day", path="%y-%m-%d"
+def test_a_path_two_periods_share_is_refused(tmp_path: Path) -> None:
+    assert "to one file '2000/01/01.csv'" in start_refusal(tmp_path, path="{yyyy}/{MM}/{dd}")
+    assert "to one file '2000/01/00.csv'" in start_refusal(tmp_path, path="{yyyy}/{MM}/{HH}")
+    assert "to one file '01.csv'" in start_refusal(tmp_path, period="month", path="{MM}")
+    assert "to one file '001.csv'" in start_refusal(tmp_path, period="day", path="{DDD}")
+
+
+def test_a_two_digit_year_is_refused(tmp_path: Path) -> None:
+    assert "2000-01-01T00:00:00+00:00 and 2100-01-01T00:00:00+00:00" in start_refusal(
+        tmp_path, period="day", path="{yy}-{MM}-{dd}"
+    )
+
+
+def test_a_name_unique_only_beside_the_layout_is_accepted(tmp_path: Path) -> None:
+    Exported.create(tmp_path, layout="{yyyy}/{MM}/{dd}", path="{exporter}_{HH}")
+    assert "to one file '2000/01/01/messages.csv'" in start_refusal(
+        tmp_path, layout="{yyyy}/{MM}/{dd}", path="{exporter}"
+    )
+
+
+def test_a_layout_finer_than_the_period_is_refused(tmp_path: Path) -> None:
+    assert "layout '{yyyy}/{MM}/{dd}/{HH}' splits finer than period 'day'" in start_refusal(
+        tmp_path, layout="{yyyy}/{MM}/{dd}/{HH}", period="day"
     )
 
 
 def test_config_refuses_a_path_ending_in_an_extension() -> None:
     assert "the format adds `.csv`, so the path must not end in `.csv`" in refusal(
-        path="%Y-%m-%dT%H.csv"
+        path="{yyyy}{MM}{dd}T{HH}.csv"
     )
 
 
-def test_config_refuses_a_path_leaving_the_directory() -> None:
-    assert "must name a file inside the directory" in refusal(path="../%Y-%m-%dT%H")
-    assert "must name a file inside the directory" in refusal(path="/%Y-%m-%dT%H")
+def test_config_refuses_a_path_leaving_the_mount() -> None:
+    assert "renders an empty, '.', or '..' segment" in refusal(path="../{yyyy}{MM}{dd}T{HH}")
+    assert "is absolute" in refusal(path="/{yyyy}{MM}{dd}T{HH}")
 
 
-def test_config_refuses_unknown_placeholders() -> None:
-    assert "got `{name}`" in refusal(path="{name}/%Y-%m-%dT%H")
+def test_config_refuses_unknown_atoms() -> None:
+    assert "{name}" in refusal(path="{name}/{yyyy}{MM}{dd}T{HH}")
 
 
 def test_config_refuses_connection_without_a_pinned_connection() -> None:
-    assert "needs a filter that pins one connection" in refusal(path="{connection}/%Y-%m-%dT%H")
-    config(path="{connection}/%Y-%m-%dT%H", filter={"connection": "a"})
+    assert "needs a filter that pins one connection" in refusal(path="{connection}/{yyyy}{HH}")
+    config(path="{connection}/{yyyy}/{MM}/{dd}/{HH}", filter={"connection": "a"})
 
 
-def test_config_refuses_time_directives_in_a_whole_period() -> None:
-    assert "takes no time directives" in refusal(period="all", path="%Y")
-    config(period="all", path="all-100%%")
+def test_config_refuses_time_atoms_in_a_whole_period() -> None:
+    assert "takes no time atoms" in refusal(period="all", path="{yyyy}")
+    config(period="all", path="all-100%")
 
 
 def test_config_refuses_filter_order() -> None:
@@ -491,8 +513,37 @@ def test_config_resolves_a_builtin_format_by_its_short_name() -> None:
     assert "unexpected" in refusal(format={"class": "csv", "arguments": {"unexpected": 1}})
 
 
-def test_config_refuses_a_missing_directory_field() -> None:
-    assert "which is not a `Directory` field of `Archive`" in refusal(directory="missing")
+def test_config_refuses_a_missing_or_read_only_mount() -> None:
+    assert "mount 'missing', which no `Mount.Field` of `Archive` declares" in refusal(
+        mount="missing"
+    )
+    assert "mount 'shelf', which is read-only" in refusal(mount="shelf")
+
+
+def test_files_default_to_the_period_in_the_layout_folder(tmp_path: Path) -> None:
+    exported = Exported.create(tmp_path, layout="{yyyy}/{MM}", path=None)
+    file = exported.component.system.exporters.get_current_file("messages")
+    assert file == datetime.now(UTC).strftime("%Y/%m/messages_%Y%m%dT%H.csv")
+
+
+async def test_files_render_in_utc_whatever_the_mount_zone(tmp_path: Path) -> None:
+    exported = Exported.create(
+        tmp_path, layout="{yyyy}/{MM}/{dd}", zone="America/Los_Angeles", path="{exporter}_{HH}"
+    )
+    await exported.store(message(10))
+
+    await exported.run()
+
+    assert list(exported.files()) == ["2026/01/01/messages_00.csv"]
+
+
+async def test_a_whole_period_file_sits_at_the_mount_root(tmp_path: Path) -> None:
+    exported = Exported.create(tmp_path, layout="{yyyy}/{MM}", period="all", path=None)
+    await exported.store(message(10))
+
+    await exported.run()
+
+    assert list(exported.files()) == ["messages.csv"]
 
 
 @pytest.mark.parametrize(

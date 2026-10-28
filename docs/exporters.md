@@ -11,25 +11,26 @@ replaces the file's copy. Only a run that asks to replace rewrites a file from t
 ## Configuring An Exporter
 
 Exporters belong to a component in `ceres.yaml`. Each one names the records it writes, the format,
-the period one file covers, and a path template for the files.
+and the period one file covers. The files go to one of the component's mounts.
 
 ```yaml
 components:
   - name: sensor
     class: my_project.SensorDriver
     arguments:
-      output: /data/sensor
+      output:
+        path: /data/sensor
+        layout: "{yyyy}/{MM}/{dd}"
     exporters:
       - name: messages
         exports: message
         format: csv
         period: hour
-        path: "{exporter}/%Y/%m/%d/%H"
         schedule: "5 * * * *"
 ```
 
-This exporter writes the sensor's messages to `/data/sensor/messages/2026/01/01/00.csv` and one
-file for each later hour. It writes each message within a few seconds of storing it, and five minutes
+This exporter writes the sensor's messages to `/data/sensor/2026/01/01/messages_20260101T00.csv`
+and one file for each later hour. It writes each message within a few seconds of storing it, and five minutes
 past every hour it also merges the database into the files of the current hour and the hour before
 it.
 
@@ -40,9 +41,9 @@ it.
 | `filter` | Records to export, in the kind's filter syntax. Every record of the kind at the component when omitted. |
 | `type` | Particle class whose data fields become columns. Particle exporters only, and required for `csv` and `netcdf`. |
 | `format` | `csv`, `jsonl`, `netcdf`, `raw`, or a format class with its arguments as `{class, arguments}`. |
-| `directory` | Name of the component's `Directory` field the files live under, `output` when omitted. |
+| `mount` | Name of the component's mount the files live under, `output` when omitted. |
 | `period` | Time one file covers: `hour`, `day`, `month`, or `all` for a single file. |
-| `path` | Path template of each file, relative to the directory, without an extension. |
+| `path` | File name of each period, without an extension. A name for the period when omitted. |
 | `live` | Whether the exporter writes records as the component stores them. On when omitted, except for `netcdf`. |
 | `interval` | Least time between two live writes, 5 seconds when omitted and at least 1 second. |
 | `schedule` | Cron or interval expression for scheduled runs. No scheduled runs when omitted. |
@@ -55,13 +56,25 @@ timestamp order, and records with equal timestamps in ID order.
 
 ## Paths
 
-The path is a `strftime` template of the period's UTC start. `{exporter}` renders the exporter
-name, and `{connection}` renders the connection name when the filter pins exactly one connection.
-The format adds its extension: `.csv`, `.jsonl`, `.nc` for `netcdf`, or `.bin` for `raw`.
+The mount must be a writable field the component declares with `Mount.Field`. Each file goes in the
+mount's layout folder for its period, the same folder `Mount.file` picks, so the "Files" page finds
+it under the day it covers. A `period: all` file sits at the mount's root.
 
-Ceres refuses a path that writes two periods to one file, such as `%Y/%m/%d` for an hourly exporter
-or `%y` where two centuries meet. A `period: all` path takes no time directives, apart from `%%` for
-a literal `%`. A path must stay inside the directory, so it cannot start with `/` or contain `..`.
+The path is a file name template, as in [File Name Templates](components.md#file-name-templates).
+`{exporter}` renders the exporter name, and `{connection}` renders the connection name when the
+filter pins exactly one connection. The format adds its extension: `.csv`, `.jsonl`, `.nc` for
+`netcdf`, or `.bin` for `raw`. Without a path, the name is the exporter name and the period's start,
+`{exporter}_{yyyy}{MM}{dd}T{HH}` for an hour, `{exporter}_{yyyy}{MM}{dd}` for a day,
+`{exporter}_{yyyy}{MM}` for a month, and `{exporter}` for all time.
+
+Folder and name render at the period's UTC start, whatever zone the mount names, so a file's name
+says which UTC period it holds. On a mount with a `local` zone, a day file can sit in a different
+folder from what `Mount.file` picks for the same moment.
+
+A component refuses to start an exporter whose folder and name write two periods to one file, such as
+`{yyyy}/{MM}/{dd}` for an hourly exporter on a mount with no layout, or `{yy}` where two centuries
+meet. It also refuses a layout that splits folders finer than the period, such as an hour layout
+for a day exporter. A `period: all` path takes no time atoms.
 
 ## Formats
 

@@ -37,11 +37,13 @@ export const ExporterInfoModel = z.object({
   format: z.string(),
   /** Whether a run can merge stored records into a file, else every run replaces it. */
   merges: z.boolean(),
-  /** Name of the component's directory field the files live under. */
-  directory: z.string(),
+  /** Name of the component's mount the files live under. */
+  mount: z.string(),
   period: ExporterPeriodModel,
-  /** The path template, without the extension the format adds. */
+  /** The file name template, without the extension the format adds. */
   path: z.string(),
+  /** The current period's file relative to the mount, null when the mount is missing. */
+  file: z.string().nullable(),
   live: z.boolean(),
   /** An ISO 8601 duration. */
   interval: z.string(),
@@ -71,8 +73,9 @@ export function describeExporter(exporter: ExporterInfo): string {
   const kind = lowerCase(exporter.exports)
   const what = exporter.type == null ? `${kind} records` : `${kind} "${exporter.type}" records`
   const files = exporter.period === 'all' ? 'one file' : `one file per ${exporter.period}`
+  const place = exporter.file ?? exporter.path
   const sentences = [
-    `Writes ${what} as ${exporter.format}, ${files} at ${exporter.directory}/${exporter.path}.`,
+    `Writes ${what} as ${exporter.format}, ${files} like ${exporter.mount}/${place}.`,
   ]
   if (exporter.live) {
     sentences.push('Live.')
