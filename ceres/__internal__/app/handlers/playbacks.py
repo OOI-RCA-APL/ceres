@@ -5,7 +5,7 @@ from pydantic import model_validator
 
 from ceres.__internal__.app.handlers.components import _resolve_component
 from ceres.__internal__.app.shared import get_component_access
-from ceres.__internal__.playback import PlaybackLevel
+from ceres.__internal__.playback import PlaybackLevel, PlaybackRangeError
 from ceres.component import ComponentAccessLevel
 from ceres.data import DataObject, DateTime
 from ceres.error import (
@@ -99,8 +99,9 @@ async def start_playback(
             export=request.export,
         )
     except ValueError as error:
+        location: list[str | int] = ["after"] if isinstance(error, PlaybackRangeError) else []
         raise ValidationFailedError(
-            problems=[ValidationProblem(type="value_error", location=["after"], message=str(error))]
+            problems=[ValidationProblem(type="value_error", location=location, message=str(error))]
         ) from error
 
     return PlaybackStarted(id=run.id)

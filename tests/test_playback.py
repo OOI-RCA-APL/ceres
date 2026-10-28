@@ -5,7 +5,12 @@ from uuid import UUID
 import pytest
 
 from ceres import Bound, Component, Mount
-from ceres.__internal__.playback import PlaybackLevel, PlaybackRecord, PlaybackState
+from ceres.__internal__.playback import (
+    PlaybackLevel,
+    PlaybackRangeError,
+    PlaybackRecord,
+    PlaybackState,
+)
 from ceres.address import Address
 from ceres.component import listener, sieve
 from ceres.config import ComponentConfig
@@ -163,12 +168,34 @@ async def test_playback_refuses_a_sieve_without_a_particle_type(tmp_path: Path) 
 
 async def test_playback_refuses_a_range_older_than_the_stored_messages(tmp_path: Path) -> None:
     component = counter(tmp_path)
-    with pytest.raises(ValueError, match="no stored messages"):
+    with pytest.raises(ValueError, match="no stored messages") as refusal:
         await component.system.playbacks.start(START, at(60))
+    assert not isinstance(refusal.value, PlaybackRangeError)
 
     await store(component, message(10, id=1), message(20, id=2))
-    with pytest.raises(ValueError, match="only from 2026-01-01T00:10:00\\+00:00 to .*00:20:00"):
+    with pytest.raises(
+        PlaybackRangeError, match="only from 2026-01-01T00:10:00\\+00:00 to .*00:20:00"
+    ):
         await component.system.playbacks.start(START - timedelta(minutes=1), at(60))
+
+
+class Faulty(Component):
+    @sieve
+    def count(self, message: Message) -> Count:
+        if message.data == b"bad":
+            raise RuntimeError("abc")
+
+        return Count(type=Count.type, address=message.address, data=CountData(value=1))
+
+
+async def test_a_sieve_raising_mid_replay_fails_the_playback(tmp_path: Path) -> None:
+    component = Faulty(__with_name__="counter")  # type: ignore[reportCallIssue]
+    await store(component, message(10, id=1), message(20, b"bad", id=2), message(30, id=3))
+
+    run = await play(component)
+
+    assert (run.state, run.exception, run.messages) == (PlaybackState.FAILED, "abc", 2)
+    assert utc() > START + timedelta(days=1)
 
 
 async def test_a_second_playback_is_refused_while_one_runs(tmp_path: Path) -> None:

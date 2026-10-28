@@ -461,12 +461,20 @@ class _ExporterConfig[TFilter: MessageFilter | ParticleFilter | AlertFilter | Lo
         from ceres.exporter import ExportPath
 
         return ExportPath.create(
-            self.path,
+            self.path_source,
             self.period,
             self.name,
             self.__pinned_connection(),
             self.create_format().extension,
         )
+
+    @property
+    def path_source(self) -> str:
+        """File name template of each period without its extension, the period's default when
+        `path` is omitted."""
+        from ceres.exporter import _DEFAULT_PATHS
+
+        return self.path if self.path is not None else _DEFAULT_PATHS[self.period]
 
     @property
     def is_live(self) -> bool:

@@ -907,9 +907,6 @@ _DEFAULT_PATHS: Final[Mapping[ExporterPeriod, str]] = {
     ExporterPeriod.ALL: "{exporter}",
 }
 
-# Calendar fields from the coarsest, to compare a layout's folders with a period.
-_UNITS: Final = ("year", "month", "day", "hour", "minute", "second")
-
 
 @dataclass(frozen=True, slots=True)
 class ExportPath:
@@ -972,20 +969,19 @@ class ExportPath:
         return cls(template, period, values)
 
     def file(self, mount: Mount, start: datetime | None) -> Mount:
-        """Return the file for the period starting at `start` on `mount`, as `Mount.file` names
-        it, without creating its folder.
+        """Return the file for the period starting at `start` on `mount`, without creating its
+        folder.
 
         A file of `period: all` sits at the mount's root, every other in the layout's folder.
         """
-        return mount / self.render(mount, start)
+        if start is None:
+            return mount / mount.render(self.template, _EPOCH, self.values)
+
+        return mount.place(self.template, start, self.values)
 
     def render(self, mount: Mount, start: datetime | None) -> str:
         """Return the file path for the period starting at `start`, relative to `mount`."""
-        name = mount.render(self.template, start or _EPOCH, self.values)
-        if start is None or mount.layout is None:
-            return name
-
-        return f"{mount.render(mount.layout, start)}/{name}"
+        return self.file(mount, start).relative.as_posix()
 
     def check(self, mount: Mount) -> None:
         """Check that the periods take files of their own in `mount`'s layout.
@@ -998,11 +994,8 @@ class ExportPath:
             return
 
         layout = mount.layout
-        if layout is not None and layout.unit is not None:
-            if _UNITS.index(layout.unit) > _UNITS.index(self.period.value):
-                raise ValueError(
-                    f"layout '{layout}' splits finer than period '{self.period.value}'"
-                )
+        if layout is not None and layout.splits_finer_than(self.period.value):
+            raise ValueError(f"layout '{layout}' splits finer than period '{self.period.value}'")
 
         seen: dict[str, datetime] = {}
         for start in self.__probes():
@@ -1306,15 +1299,12 @@ class ExporterManager(BaseComponentManager):
             missing.
         """
         registered = self.__exporters.get(name)
-        if registered is None:
+        if registered is None or self.__system__.get_mount(registered.config.mount) is None:
             return None
 
         period = registered.config.period
         start = _bounds(period, period_start(period, datetime.now(UTC)))[0]
-        try:
-            return registered.path.render(self.__mount(registered.config), start)
-        except ValueError:
-            return None
+        return registered.path.render(self.__mount(registered.config), start)
 
     def get_all(self) -> list[ExporterConfig]:
         """Return every registered exporter."""

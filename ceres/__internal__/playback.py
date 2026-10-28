@@ -35,6 +35,7 @@ if TYPE_CHECKING:
 __all__ = [
     "PlaybackLevel",
     "PlaybackManager",
+    "PlaybackRangeError",
     "PlaybackRecord",
     "PlaybackState",
     "feed",
@@ -43,6 +44,10 @@ __all__ = [
 _RUN_RING_SIZE = 20
 _PROGRESS_PARTICLES = 1000
 _ORDER = ["timestamp:asc", "id:asc"]
+
+
+class PlaybackRangeError(ValueError):
+    """A playback refused for its range, as opposed to the component it would replay."""
 
 
 class PlaybackLevel(StrEnum):
@@ -191,8 +196,10 @@ class PlaybackManager(BaseComponentManager):
                 exporter whose type the playback replaced or that exports every type.
 
         Raises:
-            ValueError: If `after` does not precede `before`, a stored sieve declares no
-                particle type, or the stored messages do not reach back to `after`.
+            PlaybackRangeError: If `after` does not precede `before`, or the stored messages
+                do not reach back to `after`.
+            ValueError: If the component has no stored sieve, a stored sieve declares no
+                particle type, or a stored sieve has no stored messages.
             AlreadyExistsError: If a playback of the component already runs.
         """
         if self.__busy:
@@ -204,7 +211,7 @@ class PlaybackManager(BaseComponentManager):
             after = after.astimezone(UTC)
             before = min((before or now).astimezone(UTC), now)
             if after >= before:
-                raise ValueError("`after` must precede `before`")
+                raise PlaybackRangeError("`after` must precede `before`")
 
             sieves = self.__stored_sieves()
             for config, _ in sieves:
@@ -294,7 +301,7 @@ class PlaybackManager(BaseComponentManager):
 
         if after < oldest.timestamp:
             newest = await self.__messages(config, ["timestamp:desc", "id:desc"]).first()
-            raise ValueError(
+            raise PlaybackRangeError(
                 f"Sieve '{config.name}' has stored messages only from "
                 f"{oldest.timestamp.isoformat()} to {newest.timestamp.isoformat()}"
             )
@@ -390,8 +397,9 @@ class PlaybackManager(BaseComponentManager):
         finally:
             # Events, log lines and tasks after the replay take the real time.
             set_fake_now(None)
+            # A failed replay keeps its counts, which say how far it got.
+            run = self.__update(run, messages=messages, particles=particles)
 
-        run = self.__update(run, messages=messages, particles=particles)
         system.events.emit(
             PlaybackProgressEvent,
             playback=run.id,
