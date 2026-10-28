@@ -1,7 +1,11 @@
 //! Export runs and playbacks, started in a running engine and followed until they end.
 
+use std::collections::BTreeMap;
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::time::Duration;
 
+use ceres_entities::{Address, Records, Timestamp};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -13,6 +17,10 @@ use crate::project::Project;
 
 /// How often a started run's state is read while it runs.
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
+
+/// The file in the state directory a load leaves its spans in when no engine runs,
+/// named the same in `ceres/__internal__/pending_exports.py`.
+const PENDING_EXPORTS_FILE: &str = "pending-exports.jsonl";
 
 /// The ID the engine answers a started run or playback with.
 #[derive(Debug, Deserialize)]
@@ -41,12 +49,16 @@ pub fn export(
     let names = match exporter {
         Some(name) => vec![name.to_string()],
         None => {
-            let exporters: Vec<Exporter> = parse(&client.get(&format!("{component}/exporters"), &[])?)?;
+            let exporters: Vec<Exporter> =
+                parse(&client.get(&format!("{component}/exporters"), &[])?)?;
             if exporters.is_empty() {
                 fail!("Component '{address}' has no exporters.");
             }
 
-            exporters.into_iter().map(|exporter| exporter.name).collect()
+            exporters
+                .into_iter()
+                .map(|exporter| exporter.name)
+                .collect()
         }
     };
 
@@ -131,6 +143,186 @@ fn report(output: &Output, what: &str, run: &Value) -> bool {
     }
 }
 
+/// The first and last time a load wrote for each record kind and address.
+#[derive(Debug, Default)]
+pub(crate) struct LoadedSpans {
+    /// One entry per kind and address in the loaded file, so it grows with the file's
+    /// distinct addresses rather than its rows.
+    spans: BTreeMap<&'static str, BTreeMap<String, (Timestamp, Timestamp)>>,
+}
+
+impl LoadedSpans {
+    /// Widen the spans to cover one batch of loaded records.
+    pub(crate) fn cover(&mut self, records: &Records) {
+        match records {
+            Records::Messages(rows) => self.cover_rows(
+                "message",
+                rows.iter().map(|row| (&row.address, row.timestamp)),
+            ),
+            Records::Particles(rows) => self.cover_rows(
+                "particle",
+                rows.iter().map(|row| (&row.address, row.timestamp)),
+            ),
+            Records::Alerts(rows) => {
+                self.cover_rows(
+                    "alert",
+                    rows.iter().map(|row| (&row.address, row.timestamp)),
+                );
+            }
+            Records::LogEntries(rows) => self.cover_rows(
+                "log-entry",
+                rows.iter().map(|row| (&row.address, row.timestamp)),
+            ),
+        }
+    }
+
+    fn cover_rows<'a>(
+        &mut self,
+        kind: &'static str,
+        rows: impl Iterator<Item = (&'a Address, Timestamp)>,
+    ) {
+        let addresses = self.spans.entry(kind).or_default();
+        for (address, timestamp) in rows {
+            match addresses.get_mut(address.as_str()) {
+                Some((first, last)) => {
+                    *first = (*first).min(timestamp);
+                    *last = (*last).max(timestamp);
+                }
+                None => {
+                    addresses.insert(address.as_str().to_owned(), (timestamp, timestamp));
+                }
+            }
+        }
+    }
+
+    /// The spans in the shape the engine reads, one object per kind and address.
+    fn entries(&self) -> Vec<Value> {
+        self.spans
+            .iter()
+            .flat_map(|(kind, addresses)| {
+                addresses.iter().map(move |(address, (first, last))| {
+                    json!({ "kind": kind, "address": address, "first": first, "last": last })
+                })
+            })
+            .collect()
+    }
+}
+
+/// Hand a load's spans to the running engine to export, or leave them in the project's
+/// state directory for the engine to export when it next starts.
+pub(crate) fn export_loaded(project: &Project, output: &Output, spans: &LoadedSpans) -> Result<()> {
+    let entries = spans.entries();
+    if entries.is_empty() {
+        return Ok(());
+    }
+
+    if let Some(client) = Client::connect_alive(project) {
+        client.post("exports/pending", &[], Some(&json!({ "entries": entries })))?;
+        output.write("Exporting the loaded records in the running engine.");
+        return Ok(());
+    }
+
+    let path = project.state_directory().join(PENDING_EXPORTS_FILE);
+    let mut lines = String::new();
+    for entry in entries {
+        lines.push_str(&entry.to_string());
+        lines.push('\n');
+    }
+
+    std::fs::create_dir_all(project.state_directory())
+        .and_then(|()| {
+            OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)?
+                .write_all(lines.as_bytes())
+        })
+        .map_err(|error| failure!("Failed to write '{}'. {error}", path.display()))?;
+    output.write("No engine is running, so the next one to start exports the loaded records.");
+
+    Ok(())
+}
+
 fn parse<T: serde::de::DeserializeOwned>(body: &str) -> Result<T> {
     serde_json::from_str(body).map_err(|error| failure!("Received an invalid response. {error}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Messages at each `(address, timestamp)`.
+    fn messages(rows: &[(&str, &str)]) -> Records {
+        Records::Messages(
+            rows.iter()
+                .map(|(address, timestamp)| {
+                    serde_json::from_value(json!({
+                        "id": "0198c0de-0000-7000-8000-000000000001",
+                        "address": address,
+                        "timestamp": timestamp,
+                        "connection": null,
+                        "direction": "receive",
+                        "data": "abc",
+                    }))
+                    .unwrap()
+                })
+                .collect(),
+        )
+    }
+
+    fn span(address: &str, first: &str, last: &str) -> Value {
+        json!({ "kind": "message", "address": address, "first": first, "last": last })
+    }
+
+    #[test]
+    fn a_load_spans_each_address_from_its_first_record_to_its_last() {
+        let mut spans = LoadedSpans::default();
+        spans.cover(&messages(&[
+            ("@abc", "2026-01-01T02:00:00Z"),
+            ("@abcd", "2026-01-01T05:00:00Z"),
+        ]));
+        spans.cover(&messages(&[
+            ("@abc", "2026-01-01T03:00:00Z"),
+            ("@abc", "2026-01-01T01:00:00Z"),
+        ]));
+
+        assert_eq!(
+            spans.entries(),
+            [
+                span("@abc", "2026-01-01T01:00:00Z", "2026-01-01T03:00:00Z"),
+                span("@abcd", "2026-01-01T05:00:00Z", "2026-01-01T05:00:00Z"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_load_with_no_engine_leaves_its_spans_for_the_next_start() {
+        let directory = tempfile::tempdir().unwrap();
+        let project = Project::at(directory.path().join("ceres.yaml"));
+        let mut spans = LoadedSpans::default();
+        spans.cover(&messages(&[("@abc", "2026-01-01T01:00:00Z")]));
+
+        let output = Output::new(Some(false));
+        export_loaded(&project, &output, &spans).unwrap();
+        export_loaded(&project, &output, &spans).unwrap();
+
+        let path = project.state_directory().join(PENDING_EXPORTS_FILE);
+        let lines: Vec<Value> = std::fs::read_to_string(path)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        let entry = span("@abc", "2026-01-01T01:00:00Z", "2026-01-01T01:00:00Z");
+        assert_eq!(lines, [entry.clone(), entry]);
+    }
+
+    #[test]
+    fn a_load_of_nothing_leaves_nothing() {
+        let directory = tempfile::tempdir().unwrap();
+        let project = Project::at(directory.path().join("ceres.yaml"));
+
+        export_loaded(&project, &Output::new(Some(false)), &LoadedSpans::default()).unwrap();
+
+        assert!(!project.state_directory().exists());
+    }
 }

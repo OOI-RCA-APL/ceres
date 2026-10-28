@@ -287,9 +287,23 @@ impl Table {
                         .value_parser(["error", "ignore", "update"])
                         .default_value("error")
                         .help("What to do about a row whose key already exists."),
-                ),
+                )
+                .args(self.export_argument()),
             _ => unreachable!("every declared verb is built above"),
         }
+    }
+
+    /// The `--export` flag a record load takes, which an entity load has no exporter for.
+    fn export_argument(self) -> Option<Arg> {
+        matches!(self, Self::Record(_)).then(|| {
+            Arg::new("export")
+                .long("export")
+                .action(ArgAction::SetTrue)
+                .help(
+                    "Run the exporters that take these records over the times loaded, now \
+                     in the running engine or when it next starts.",
+                )
+        })
     }
 
     /// The filter arguments this table's verbs take.
@@ -393,7 +407,13 @@ impl Table {
             "load" => vec![
                 format!("ceres {plural} load rows.jsonl"),
                 format!("ceres {plural} load rows.csv --on-conflict update"),
-            ],
+            ]
+            .into_iter()
+            .chain(
+                self.export_argument()
+                    .map(|_| format!("ceres {plural} load rows.jsonl --export")),
+            )
+            .collect(),
             _ => return None,
         };
 

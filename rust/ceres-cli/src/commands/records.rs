@@ -13,6 +13,7 @@ use ceres_database::{Conflict, Credentials, Filter, LoadFormat, RecordStore, Rec
 use ceres_entities::Records;
 
 use crate::commands::dump::{Batches, DumpFormat, Dumpable, Invocation, StoreResult};
+use crate::commands::exports::LoadedSpans;
 use crate::commands::surface::Table;
 use crate::error::Result;
 
@@ -51,6 +52,10 @@ impl Dumpable for RecordTable {
     ) -> Option<Batches<Records>> {
         ceres_database::batches(self, file, format)
             .map(|batches| Box::new(batches) as Batches<Records>)
+    }
+
+    fn cover(batch: &Records, spans: &mut LoadedSpans) {
+        spans.cover(batch);
     }
 
     async fn count(store: &RecordStore, filter: &Filter<Self>) -> StoreResult<u64> {
@@ -158,6 +163,19 @@ mod tests {
             .try_get_matches_from(["messages", "select", "--nope", "x"])
             .unwrap_err();
 
+        assert_eq!(refused.kind(), clap::error::ErrorKind::UnknownArgument);
+    }
+
+    #[test]
+    fn only_a_record_load_takes_export() {
+        assert!(!read(RecordTable::Alerts, &["load", "rows.jsonl"]).export);
+        assert!(read(RecordTable::Alerts, &["load", "rows.jsonl", "--export"]).export);
+
+        let users = Table::Entity(ceres_database::EntityTable::Users);
+        let refused = users
+            .command()
+            .try_get_matches_from(["users", "load", "rows.jsonl", "--export"])
+            .unwrap_err();
         assert_eq!(refused.kind(), clap::error::ErrorKind::UnknownArgument);
     }
 
