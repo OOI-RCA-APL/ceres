@@ -93,6 +93,30 @@ Stop and disable components at the provided addresses.
 | --- | --- | --- |
 | `<ADDRESSES>` | yes | Addresses of components to stop and disable. |
 
+### `ceres export`
+
+Write a component's records to its exporters' files over a range of time.
+
+| Option | Required | Description |
+| --- | --- | --- |
+| `<ADDRESS>` | yes | Address of the component whose exporters run. |
+| `<EXPORTER>` |  | Name of the exporter to run. Every exporter of the component when omitted. |
+| `--after` `TIME` | yes | Inclusive start, an ISO 8601 time such as 2026-01-01T00:00:00Z. UTC when it names no zone. |
+| `--before` `TIME` |  | Exclusive end, in the form of --after. Now when omitted. |
+| `--replace` |  | Rewrite each period's file from the database alone, removing the file of a period with no records. |
+
+### `ceres playback`
+
+Replay a component's stored messages through its sieves over a range of time.
+
+| Option | Required | Description |
+| --- | --- | --- |
+| `<ADDRESS>` | yes | Address of the component whose stored messages replay. |
+| `--after` `TIME` | yes | Inclusive start, an ISO 8601 time such as 2026-01-01T00:00:00Z. UTC when it names no zone. |
+| `--before` `TIME` |  | Exclusive end, in the form of --after. Now when omitted. |
+| `--level` `LEVEL` |  | What to do with each particle parsed. |
+| `--no-export` |  | Leave the exporters' files as they are. |
+
 ### `ceres console`
 
 Commands for interacting with a project's web console.
@@ -424,6 +448,7 @@ Load alerts from a file, reporting how many.
 | `<PATH>` | yes | The file to read alerts from. |
 | `--format` `FORMAT` |  | The file's shape. Inferred from its extension when unset. |
 | `--on-conflict` `MODE` |  | What to do about a row whose key already exists. |
+| `--export` |  | Run the exporters that take these records over the times loaded, now in the running engine or when it next starts. |
 
 #### `ceres alerts follow`
 
@@ -694,6 +719,7 @@ Load logs from a file, reporting how many.
 | `<PATH>` | yes | The file to read logs from. |
 | `--format` `FORMAT` |  | The file's shape. Inferred from its extension when unset. |
 | `--on-conflict` `MODE` |  | What to do about a row whose key already exists. |
+| `--export` |  | Run the exporters that take these records over the times loaded, now in the running engine or when it next starts. |
 
 #### `ceres logs follow`
 
@@ -972,6 +998,7 @@ Load messages from a file, reporting how many.
 | `<PATH>` | yes | The file to read messages from. |
 | `--format` `FORMAT` |  | The file's shape. Inferred from its extension when unset. |
 | `--on-conflict` `MODE` |  | What to do about a row whose key already exists. |
+| `--export` |  | Run the exporters that take these records over the times loaded, now in the running engine or when it next starts. |
 
 #### `ceres messages follow`
 
@@ -1262,6 +1289,7 @@ Load particles from a file, reporting how many.
 | `<PATH>` | yes | The file to read particles from. |
 | `--format` `FORMAT` |  | The file's shape. Inferred from its extension when unset. |
 | `--on-conflict` `MODE` |  | What to do about a row whose key already exists. |
+| `--export` |  | Run the exporters that take these records over the times loaded, now in the running engine or when it next starts. |
 
 #### `ceres particles follow`
 
