@@ -485,6 +485,13 @@ async def exporters_run(host: Host, arguments: dict[str, Any]) -> Any:
     return _serialize(started)
 
 
+@operation("exports.pending")
+async def exports_pending(host: Host, arguments: dict[str, Any]) -> Any:
+    request = _validated(exporter_handlers.PendingExportsRequest, arguments)
+    host.engine.export_loaded(request.entries)
+    return {}
+
+
 @operation("playbacks.list")
 async def playbacks_list(host: Host, arguments: dict[str, Any]) -> Any:
     actor = await _actor(host, arguments)

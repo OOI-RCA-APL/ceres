@@ -12,10 +12,16 @@ import pytest
 from ceres import Bound, Component
 from ceres.__internal__.database.writer import FlushSummary, Writer
 from ceres.__internal__.entity import DeleteExecutor
+from ceres.__internal__.pending_exports import (
+    PENDING_EXPORTS_FILE,
+    PendingExport,
+    drain_pending_exports,
+    export_pending,
+)
 from ceres.address import Address
 from ceres.alert import Alert
 from ceres.config import ComponentConfig, ExporterConfig, MessagePrunerConfig
-from ceres.data import replace, validate
+from ceres.data import from_json, replace, to_json, validate
 from ceres.entity import EntityType
 from ceres.error import AlreadyExistsError, DatabaseUnreachableError
 from ceres.event import (
@@ -965,3 +971,63 @@ async def test_live_export_hears_only_records_the_component_selects(
     assert ids(await live.lines(RECENT_FILE, 1)) == [2]
     assert heard == [(inside.timestamp, inside.id)]
     await live.component.system.stop()
+
+
+@dataclass
+class Loading:
+    """An engine double running one component, keeping each line it logs."""
+
+    component: Component
+    lines: list[str]
+
+    def get_components(self, **_: Any) -> list[Component]:
+        return [self.component]
+
+    @property
+    def log(self) -> Self:
+        return self
+
+    def info(self, line: str) -> None:
+        self.lines.append(line)
+
+    warning = info
+
+
+def pending(kind: str, address: str, first: float, last: float) -> str:
+    return to_json(
+        {
+            "kind": kind,
+            "address": address,
+            "first": START + timedelta(minutes=first),
+            "last": START + timedelta(minutes=last),
+        }
+    )
+
+
+async def test_an_engine_exports_what_loads_left_pending(tmp_path: Path) -> None:
+    exported = Exported.create(tmp_path / "output")
+    await exported.store(message(5, id=1), message(70, id=2))
+    state = tmp_path / ".ceres"
+    state.mkdir()
+    lines = [pending("message", "@archive", 5, 5), "abc", pending("alert", "@archive", 5, 5)]
+    (state / PENDING_EXPORTS_FILE).write_text("\n".join(lines))
+    engine = Loading(exported.component, [])
+
+    await drain_pending_exports(engine, state)  # type: ignore[reportArgumentType]
+
+    assert list(exported.files()) == ["2026/01/01/00.csv"]
+    assert list(state.iterdir()) == []
+    assert "Skipping line 2" in engine.lines[0]
+    assert "through '@archive' 'messages'" in engine.lines[1]
+    assert "No exporter takes the loaded alert records" in engine.lines[2]
+
+
+async def test_a_load_outside_the_component_exports_nothing(tmp_path: Path) -> None:
+    exported = Exported.create(tmp_path)
+    await exported.store(message(5))
+    engine = Loading(exported.component, [])
+    entry = validate(PendingExport, from_json(pending("message", "@other", 5, 5)))
+
+    await export_pending(engine, [entry])  # type: ignore[reportArgumentType]
+
+    assert exported.files() == {}

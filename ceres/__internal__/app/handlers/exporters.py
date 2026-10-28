@@ -9,6 +9,7 @@ from ceres.__internal__.app.handlers.components import (
     _resolve_component,
 )
 from ceres.__internal__.app.shared import get_component_access
+from ceres.__internal__.pending_exports import PendingExport
 from ceres.component import Component, ComponentAccessLevel
 from ceres.data import DataObject, DateTime
 from ceres.error import (
@@ -42,6 +43,13 @@ class ExportRunRequest(DataObject):
             raise ValueError("`after` must precede `before`")
 
         return self
+
+
+class PendingExportsRequest(DataObject):
+    """Body of a request to export records a load wrote."""
+
+    entries: list[PendingExport]
+    """Records the load wrote, one entry per kind and address."""
 
 
 class ExportRunStarted(DataObject):

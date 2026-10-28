@@ -127,6 +127,10 @@ host_routes! {
     UpComponents: typed_post "/api/up" => Gate::Authenticated, "engine.up", body: true;
     /// Disable and stop matching components.
     DownComponents: typed_post "/api/down" => Gate::Authenticated, "engine.down", body: true;
+    /// Merge records a load wrote into the files of every exporter that exports them,
+    /// without waiting for the runs.
+    ExportsPending: typed_post "/api/exports/pending" => Gate::Admin, "exports.pending",
+        body: true;
 
     /// List users.
     UsersCollection: typed_get "/api/users" => Gate::Authenticated, "users.list";

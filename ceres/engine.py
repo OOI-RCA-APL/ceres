@@ -1,14 +1,19 @@
 import asyncio
 import traceback
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Coroutine, Sequence
 from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Self, Unpack, final, override
+from typing import TYPE_CHECKING, Any, Literal, Self, Unpack, final, override
 
 import anyio
 from pydantic import Field
 
 from ceres.__internal__.lazy import __lazy_imports__
+from ceres.__internal__.pending_exports import (
+    PendingExport,
+    drain_pending_exports,
+    export_pending,
+)
 from ceres.__internal__.project import LoadedProject
 from ceres.__internal__.server import Server
 from ceres.__internal__.utilities.collections import uniq
@@ -147,6 +152,7 @@ class Engine(Node):
         "_components",
         "_server",
         "_server_override",
+        "_exports",
     )
 
     def __init__(self) -> None:
@@ -163,6 +169,9 @@ class Engine(Node):
         self._database = Database()
         self._components: dict[Name, ComponentSystem] = {}
         self._server: Server | None = None
+        # Exports of loaded records, each removing itself when done, so it holds only those
+        # still running.
+        self._exports: set[asyncio.Task[None]] = set()
 
     @property
     @override
@@ -261,6 +270,9 @@ class Engine(Node):
             if system.enabled:
                 system.start(all_enabled=True)
 
+        if self._project is not None:
+            self.__export(drain_pending_exports(self, self._project.state_directory))
+
         try:
             await super().__run__()
         finally:
@@ -273,6 +285,9 @@ class Engine(Node):
 
     @override
     async def __stop__(self) -> None:
+        for task in list(self._exports):
+            task.cancel()
+
         await self._stop_server()
         for system in list(self._components.values()):
             await system.stop()
@@ -312,6 +327,17 @@ class Engine(Node):
             return top.component
 
         return top.get_component(".".join(names[1:]))
+
+    def export_loaded(self, entries: Sequence[PendingExport]) -> None:
+        """Merge records a load wrote into the files of every exporter that exports them,
+        without waiting for the runs.
+        """
+        self.__export(export_pending(self, entries))
+
+    def __export(self, exporting: Coroutine[Any, Any, None]) -> None:
+        task = asyncio.create_task(exporting)
+        self._exports.add(task)
+        task.add_done_callback(self._exports.discard)
 
     @override
     def get_components(
