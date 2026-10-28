@@ -232,10 +232,9 @@ ceres messages load rows.jsonl --export
 
 The load then runs, as one merge each, every merging exporter of the kind it loaded on each
 component holding a loaded address, over the time from the first loaded record it takes to the
-last. With
-no engine running, the load appends those ranges to `.ceres/pending-exports.jsonl` beside the
-configuration, and the engine exports them when it next starts. That file sits on the host running
-the load, so a load on another host reaches the engine only while the engine runs.
+last. With no engine running, the load appends those ranges to `.ceres/pending-exports.jsonl`
+beside the configuration, and the engine exports them when it next starts. That file sits on the
+host running the load, so a load on another host reaches the engine only while the engine runs.
 
 Each run emits `ExportRunStartedEvent`, one `ExportRunProgressEvent` per file it writes, and then
 `ExportRunCompletedEvent` or `ExportRunFailedEvent`. A completed run also writes one log entry
