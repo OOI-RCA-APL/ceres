@@ -25,8 +25,9 @@ written, and the release workflow refuses a version that has no entry here.
 **Engine**
 
 - `Mount` holds a directory a component reads or writes. Its methods mirror `pathlib.Path`,
-  joining with `/` never leaves the directory, and `parent` stops at it. `AsyncMount` offers the
-  same methods as coroutines that run off the event loop. `create` writes a new file whole or
+  joining with `/` never leaves the directory, and `parent` stops at it. `mount.aio()` returns an
+  `AsyncMount` with the same methods as coroutines that run off the event loop, so a mount field
+  is always typed `Mount`, sync code or async. `create` writes a new file whole or
   not at all, `append` adds to one, and `writable=False` makes the component's own writes raise
   `PermissionError`.
 - `Mount.Field` declares a mount the console lists, with a `title`, a `name`, `writable`, and an

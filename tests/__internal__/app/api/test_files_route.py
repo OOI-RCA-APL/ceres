@@ -21,7 +21,7 @@ _UNRESTRICTED = Actor(user=None, unrestricted=True)
 class Hoarder(Component):
     stash: Bound[Mount] = Mount.Field(..., title="Stash")
     ledger: Bound[Mount] = Mount.Field(..., title="Ledger", writable=False)
-    vault: Bound[AsyncMount] = Mount.Field(..., access="none")
+    vault: Bound[Mount] = Mount.Field(..., access="none")
     spare: Bound[Mount | None] = Mount.Field(default=None)
     scratch: Bound[Mount] = Mount.Field(layout="{mount}/{yyyy}")
     plain: Mount | None = None
@@ -50,7 +50,7 @@ async def _engine(
         __with_config__=ComponentConfig(name="hoarder", access=ComponentAccessLevel.DENY),
         stash=Mount(tmp_path),
         ledger=Mount(tmp_path),
-        vault=AsyncMount(tmp_path),
+        vault=Mount(tmp_path),
     )
     engine.attach(hoarder)
     return engine, hoarder
@@ -87,9 +87,9 @@ def test_mount_fields_bind_in_field_order() -> None:
 
 
 def test_mount_field_applies_its_writable_and_access(tmp_path: Path) -> None:
-    hoarder = Hoarder(stash=Mount(tmp_path), ledger=Mount(tmp_path), vault=AsyncMount(tmp_path))
+    hoarder = Hoarder(stash=Mount(tmp_path), ledger=Mount(tmp_path), vault=Mount(tmp_path))
     assert (hoarder.ledger.writable, hoarder.ledger.access) == (False, None)
-    assert (type(hoarder.vault), hoarder.vault.access) == (AsyncMount, MountAccess.NONE)
+    assert (type(hoarder.vault), hoarder.vault.access) == (Mount, MountAccess.NONE)
     assert hoarder.scratch.temporary
 
 
@@ -110,9 +110,10 @@ def test_mount_field_access_is_never_widened_by_configuration(
     assert Miser(purse=Mount(tmp_path, access=configured)).purse.access == expected
 
 
-def test_mount_field_on_a_field_that_is_not_a_mount_is_refused() -> None:
+@pytest.mark.parametrize("annotation", [int, AsyncMount])
+def test_mount_field_on_a_field_that_is_not_a_mount_is_refused(annotation: type) -> None:
     class Miser(Component):
-        coins: Bound[int] = Mount.Field(...)  # pyright: ignore[reportAssignmentType]
+        coins: Bound[annotation] = Mount.Field(...)  # pyright: ignore
 
     with pytest.raises(TypeError, match="coins"):
         get_mount_bindings(Miser)

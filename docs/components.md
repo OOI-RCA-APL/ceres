@@ -66,21 +66,21 @@ components:
 
 ## Mounts
 
-A `Mount` is a directory a component reads or writes. Each of its methods mirrors its `pathlib.Path` namesake, joining with `/` never leaves the directory, and `parent` stops at it. `AsyncMount` offers the same methods as coroutines, which run the filesystem call off the event loop. Either converts to the other at the same place, `AsyncMount(mount)`.
+A `Mount` is a directory a component reads or writes. Each of its methods mirrors its `pathlib.Path` namesake, joining with `/` never leaves the directory, and `parent` stops at it. `mount.aio()` returns the same place as an `AsyncMount`, whose methods are coroutines that run the filesystem call off the event loop, so async code reaches files through it. `Mount(async_mount)` converts back.
 
-A component declares a mount with `Mount.Field`, and the console's "Files" page then lists it for anyone who may view the component (see [Files](deployment.md#files)). The annotation picks the value type, and `AsyncMount.Field` is the same declaration.
+A component declares a mount with `Mount.Field`, and the console's "Files" page then lists it for anyone who may view the component (see [Files](deployment.md#files)). A mount field is always typed `Mount`, or `Mount | None`, whether the code using it is sync or async.
 
 ```python
-from ceres import AsyncMount, Bound, Component, Mount
+from ceres import Bound, Component, Mount
 
 
 class Recorder(Component):
-    output: Bound[AsyncMount] = Mount.Field(..., title="Recordings")
+    output: Bound[Mount] = Mount.Field(..., title="Recordings")
     calibration: Bound[Mount] = Mount.Field("./calibration", writable=False)
     scratch: Bound[Mount] = Mount.Field()
 
     async def save(self, name: str, data: bytes) -> None:
-        await (self.output / name).write_bytes(data)
+        await (self.output.aio() / name).write_bytes(data)
 ```
 
 ```yaml

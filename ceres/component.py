@@ -525,8 +525,8 @@ def get_mount_bindings(cls: type, /) -> Mapping[Name, MountBinding]:
         A mapping of mount name to `MountBinding`, in field order.
 
     Raises:
-        TypeError: If a mount field is not typed `Mount` or `AsyncMount`, alone or with
-            `None`, if its name is not a valid name, or if two fields share a name.
+        TypeError: If a mount field is not typed `Mount` or `Mount | None`, if its name is not a
+            valid name, or if two fields share a name.
     """
     __pydantic_fields__: dict[str, FieldInfo] = getattr(cls, "__pydantic_fields__", {})
 
@@ -546,14 +546,12 @@ def get_mount_bindings(cls: type, /) -> Mapping[Name, MountBinding]:
             else {annotation.type}
         )
         mounts = [
-            member
-            for member in members
-            if isinstance(member, type) and issubclass(member, MountPath)
+            member for member in members if isinstance(member, type) and issubclass(member, Mount)
         ]
         if len(mounts) != 1 or not members - set(mounts) <= {NoneType}:
             raise TypeError(
                 f"Field '{field}' in component '{cls}' is declared with `Mount.Field` but is "
-                "not typed `Mount`, `AsyncMount`, or either with `None`."
+                "not typed `Mount` or `Mount | None`. Async code calls `aio()` on the mount."
             )
 
         name = marker.name if marker.name is not None else field
@@ -2078,19 +2076,19 @@ class ComponentSystem(Node, ComponentSource):
         """Return a mapping of mount names to mount bindings on the underlying class."""
         return get_mount_bindings(type(self.component))
 
-    def get_mount(self, name: Name, /) -> MountPath | None:
+    def get_mount(self, name: Name, /) -> Mount | None:
         """Return the mount the component lists under `name`.
 
         Returns:
-            The field's `Mount` or `AsyncMount`, or `None` when no field declares `name` or the
-            field holds `None`.
+            The field's `Mount`, or `None` when no field declares `name` or the field holds
+            `None`.
         """
         binding = self.get_mount_bindings().get(name)
         if binding is None:
             return None
 
         mount = getattr(self.component, binding.field, None)
-        return mount if isinstance(mount, MountPath) else None
+        return mount if isinstance(mount, Mount) else None
 
     def __name_mounts(self) -> None:
         # Gives each mount field the names its layout and file names render. The field takes a
@@ -2100,7 +2098,7 @@ class ComponentSystem(Node, ComponentSource):
         project = None if engine is None or engine.project is None else engine.project
         for binding in self.get_mount_bindings().values():
             mount = getattr(self.component, binding.field, None)
-            if not isinstance(mount, MountPath):
+            if not isinstance(mount, Mount):
                 continue
 
             names = {"component": str(self.name), "mount": str(binding.name)}
@@ -3014,15 +3012,14 @@ class MountFieldArgs(BoundFieldArgs, total=False):
     """Atoms beyond the built-in ones that the component passes to every file template."""
 
 
-class MountField[M: MountPath](BoundField[M]):
+class MountField[M: Mount](BoundField[M]):
     """Pydantic field that declares a component directory the files API serves.
 
-    Reached as `Mount.Field` or `AsyncMount.Field`, both this class, and the annotation picks
-    the value type, `stills: Bound[Mount] = Mount.Field("./stills")`. A path default stays a
-    string until validation, so a relative one resolves beside the configuration file the
-    same way a configured path does. With no path the field holds a temporary mount,
-    `Mount.Field(...)` makes the field required, and `Mount.Field(default=None)` makes it
-    optional.
+    Reached as `Mount.Field`, `stills: Bound[Mount] = Mount.Field("./stills")`, and async code
+    calls `aio()` on the value for coroutine methods. A path default stays a string until
+    validation, so a relative one resolves beside the configuration file the same way a
+    configured path does. With no path the field holds a temporary mount, `Mount.Field(...)`
+    makes the field required, and `Mount.Field(default=None)` makes it optional.
     """
 
     __slots__ = ()

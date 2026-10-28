@@ -70,11 +70,22 @@ class TestIdentity:
         assert converted == source
         assert not converted.writable
 
+    def test_aio_keeps_the_place_and_every_setting(self, mount: Mount) -> None:
+        source = Mount(mount, writable=False, layout="{yyyy}", files={"abc": "{dd}"}) / "a"
+        view = source.aio()
+        assert type(view) is AsyncMount
+        assert (view, view.writable, view.layout, view.files) == (
+            source,
+            source.writable,
+            source.layout,
+            source.files,
+        )
+
     def test_offers_the_same_methods_on_both_types(self) -> None:
         def methods(kind: type) -> set[str]:
             return {name for name, _ in inspect.getmembers(kind) if not name.startswith("_")}
 
-        assert methods(Mount) - {"open"} == methods(AsyncMount)
+        assert methods(Mount) - {"open", "aio", "Field"} == methods(AsyncMount)
 
     def test_reads_as_a_path(self, tmp_path: Path, mount: Mount) -> None:
         assert str(mount / "a") == str(tmp_path / "a")

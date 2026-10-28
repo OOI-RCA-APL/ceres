@@ -124,12 +124,6 @@ class MountPath(PathLike[str]):
     value inside it. `None` on that value itself, since a reference to itself would delay its
     removal to the next garbage collection."""
 
-    if TYPE_CHECKING:
-        Field: ClassVar[type[MountField]]
-        """Declares a component field holding a mount, see `MountField`."""
-    else:
-        Field = _MountFieldReference()
-
     def __init__(
         self,
         path: StrPath | MountPath | None = None,
@@ -476,6 +470,16 @@ class Mount(MountPath):
 
     __slots__ = ()
 
+    if TYPE_CHECKING:
+        Field: ClassVar[type[MountField]]
+        """Declares a component field holding a mount, see `MountField`."""
+    else:
+        Field = _MountFieldReference()
+
+    def aio(self) -> AsyncMount:
+        """Return this value with coroutine methods, for code running on the event loop."""
+        return self._at(AsyncMount, self._relative)
+
     def __truediv__(self, part: StrPath) -> Mount:
         """Return the value at `part` below this one, see `MountPath._join`."""
         return self._at(Mount, self._join(part))
@@ -755,10 +759,10 @@ class Mount(MountPath):
 
 
 class AsyncMount(MountPath):
-    """A directory a component owns or reads, with file operations run on a worker thread.
+    """A mount's coroutine methods, which `Mount.aio` returns, run on a worker thread.
 
     Each method awaits its `Mount` namesake through `spawn`, so a slow disk never blocks the
-    event loop. `AsyncMount(mount)` and `Mount(async_mount)` convert at the same place.
+    event loop. `Mount(async_mount)` converts back at the same place.
     """
 
     __slots__ = ()
