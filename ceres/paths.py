@@ -602,6 +602,15 @@ class PathLayout(PathTemplate):
         layout of names only."""
         return self._unit
 
+    def splits_finer_than(self, unit: str) -> bool:
+        """Return whether the folders split by a calendar field finer than `unit`, such as an
+        `hour` layout against `day`.
+
+        Raises:
+            ValueError: If `unit` is not a calendar field, `year` through `second`.
+        """
+        return self._unit is not None and _CALENDAR.index(self._unit) > _CALENDAR.index(unit)
+
     def walk(
         self,
         root: Path,

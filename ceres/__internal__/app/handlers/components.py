@@ -126,9 +126,7 @@ def _describe_exporters(component: Component) -> list[ExporterInfo]:
                 merges=exporter.format_class.keyed,
                 mount=exporter.mount,
                 period=exporter.period,
-                path=exporter.create_path().template.source.removesuffix(
-                    exporter.create_format().extension
-                ),
+                path=exporter.path_source,
                 file=exporters.get_current_file(exporter.name),
                 live=exporter.is_live,
                 interval=exporter.interval,

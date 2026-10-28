@@ -478,6 +478,13 @@ class TestLayout:
         with pytest.raises(ValueError, match="no file 'abcd'"):
             mount.file("abcd", when)
 
+    def test_places_a_file_without_creating_its_folder(self, tmp_path: Path) -> None:
+        mount = Mount(tmp_path, layout="{yyyy}", files={"abc": "abc/{yyyy}{MM}{dd}.txt"})
+        placed = mount.aio().place("abc", at("2026-10-27T13:45:09Z"))
+        assert placed == mount / "2026/abc/20261027.txt"
+        assert isinstance(placed, AsyncMount)
+        assert not (tmp_path / "2026").exists()
+
     def test_refuses_a_file_on_a_read_only_mount(self, tmp_path: Path) -> None:
         mount = Mount(tmp_path, writable=False, files={"abc": "abc/{yyyy}{MM}{dd}.txt"})
         with pytest.raises(PermissionError):
