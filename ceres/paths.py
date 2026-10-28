@@ -273,8 +273,9 @@ class PathTemplate:
                 hold.
         """
         extras = frozenset(atoms)
-        for name in sorted(extras & _BUILT_IN_ATOMS):
-            raise ValueError(f"atom '{name}' is a built-in")
+        shadowed = min(extras & _BUILT_IN_ATOMS, default=None)
+        if shadowed is not None:
+            raise ValueError(f"atom '{shadowed}' is a built-in")
 
         # The console's renderer tokenizes with this same expression, so both read one grammar.
         parts: list[str | _Atom] = []

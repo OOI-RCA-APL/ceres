@@ -199,10 +199,13 @@ export class PathTemplate {
    */
   constructor(source: string, extras: Iterable<string> = []) {
     const declared = new Set(extras)
-    for (const name of [...declared].sort()) {
-      if (Object.hasOwn(SYMBOLS, name) || IDENTITY_ATOMS.has(name) || name === 'epoch') {
-        throw new Error(`atom '${name}' is a built-in`)
-      }
+    const shadowed = [...declared]
+      .filter(
+        (name) => Object.hasOwn(SYMBOLS, name) || IDENTITY_ATOMS.has(name) || name === 'epoch',
+      )
+      .sort()[0]
+    if (shadowed != null) {
+      throw new Error(`atom '${shadowed}' is a built-in`)
     }
 
     const parts: (string | PathTemplateAtom)[] = []
