@@ -162,7 +162,7 @@ export function exportRunSchema(merges: boolean): SchemaObject {
     type: 'object',
     properties: {
       ...range,
-      replace: { type: 'boolean', title: 'Replace file contents', default: false },
+      replace: { type: 'boolean', title: 'Replace File Contents', default: false },
     },
     required: ['after'],
   }
@@ -323,7 +323,7 @@ export function playbackSchema(): SchemaObject {
       },
       export: {
         type: 'boolean',
-        title: 'Rebuild exporter files',
+        title: 'Rebuild Exporter Files',
         default: true,
       },
     },

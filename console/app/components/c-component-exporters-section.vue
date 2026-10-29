@@ -112,7 +112,7 @@ function rebuild(exporter: ExporterInfo) {
       <div class="grow">
         <c-text variant="body3">Playback</c-text>
         <c-text variant="description">
-          Last playback: {{ describePlayback(lastPlayback, time.now) }}
+          Last Playback: {{ describePlayback(lastPlayback, time.now) }}
         </c-text>
         <c-progress
           v-if="lastPlayback?.state === 'running'"
@@ -142,7 +142,7 @@ function rebuild(exporter: ExporterInfo) {
         <c-text variant="body3">{{ exporter.name }}</c-text>
         <c-text variant="description">{{ describeExporter(exporter) }}</c-text>
         <c-text variant="description">
-          Last run: {{ describeExportRun(exporter.last_run, time.now) }}
+          Last Run: {{ describeExportRun(exporter.last_run, time.now) }}
         </c-text>
         <c-progress
           v-if="exporter.last_run?.state === 'running'"
