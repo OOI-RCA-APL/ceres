@@ -71,7 +71,7 @@ const form = useSchemaForm({
 
 <template>
   <c-modal
-    :title="`Play back ${address}`"
+    :title="`Play Back ${address}`"
     :ui="{ content: 'w-[480px] max-w-[95vw]' }"
     @update:open="(value: boolean) => value || emit('close', false)"
   >
