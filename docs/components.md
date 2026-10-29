@@ -139,7 +139,6 @@ components:
 - `zone` decides which day a time falls on, `utc` when omitted, `local` for the server's time zone, or an IANA name such as `America/Los_Angeles`.
 - Configuration replaces each key it gives, and `layout: null` turns the layout off. A key left out keeps the field's. Under `files` it replaces each kind it names and keeps the rest, and the engine refuses a kind the field does not declare.
 - A file template may hold folders of its own, so kinds sharing a mount stay apart. `file` also takes a `PathTemplate` for a one-off file.
-- The console's "Files" page shows a "Today" button on a mount with a layout, which opens the folder holding the current time.
 
 ### File Name Templates
 

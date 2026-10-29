@@ -69,8 +69,8 @@ written, and the release workflow refuses a version that has no entry here.
 
 - The drawer's "Files" page lists the project's mounts and every component's mounts, with
   component addresses as folders, and its Back and Forward move through where you have been. A
-  read-only mount shows a lock in the mount list and along the path, a temporary one a
-  "Temporary" badge, and a mount with a layout a "Today" button that opens the current folder.
+  read-only mount shows a lock in the mount list and along the path, and a temporary one a
+  "Temporary" badge.
 - The file browser selects entries by click, keyboard, and "Select All", and acts on them from
   the toolbar and a context menu. It uploads dropped files, creates folders, renames in place,
   moves and copies through a folder picker, deletes after you type a folder's name, and

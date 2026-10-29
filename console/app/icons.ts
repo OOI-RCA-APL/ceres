@@ -54,7 +54,6 @@ const icons = {
   folder: 'i-lucide-folder',
   folderNew: 'i-lucide-folder-plus',
   folderOpen: 'i-lucide-folder-open',
-  folderToday: 'i-lucide-calendar-1',
   frame: 'i-mdi-border-all-variant',
   frameless: 'i-mdi-border-none-variant',
   fullscreen: 'i-mdi-fullscreen',
