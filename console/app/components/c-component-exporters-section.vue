@@ -9,14 +9,17 @@ import {
   describeExporter,
   describeExportRun,
   describePlayback,
+  exportRunPercent,
   type ExporterInfo,
   isExportRunning,
   isPlaybackRunning,
+  playbackPercent,
   type PlaybackRecord,
 } from '@/api/exporters'
 import { filesPagePath } from '@/api/files'
 import { useDialogs } from '@/dialogs'
 import icons from '@/icons'
+import { useTime } from '@/time'
 
 const { address } = defineProps<{ address: Address }>()
 
@@ -25,6 +28,7 @@ let expanded = $(defineModel<boolean>('expanded', { required: true }))
 const access = useAccess()
 const dialogs = useDialogs()
 const engine = useEngine()
+const time = useTime()
 
 // Each run's record changes while it goes, so the listing polls once a second until every run
 // has ended, and stops in a hidden tab.
@@ -107,7 +111,17 @@ function rebuild(exporter: ExporterInfo) {
     <c-list-item>
       <div class="grow">
         <c-text variant="body3">Playback</c-text>
-        <c-text variant="description">Last playback: {{ describePlayback(lastPlayback) }}</c-text>
+        <c-text variant="description">
+          Last playback: {{ describePlayback(lastPlayback, time.now) }}
+        </c-text>
+        <c-progress
+          v-if="lastPlayback?.state === 'running'"
+          class="mt-1"
+          :model-value="
+            lastPlayback.sieves_done === lastPlayback.sieves ? null : playbackPercent(lastPlayback)
+          "
+          size="xs"
+        />
       </div>
       <c-tooltip :disabled="playbackBlockedReason == null" :text="playbackBlockedReason ?? ''">
         <c-button
@@ -128,8 +142,14 @@ function rebuild(exporter: ExporterInfo) {
         <c-text variant="body3">{{ exporter.name }}</c-text>
         <c-text variant="description">{{ describeExporter(exporter) }}</c-text>
         <c-text variant="description">
-          Last run: {{ describeExportRun(exporter.last_run) }}
+          Last run: {{ describeExportRun(exporter.last_run, time.now) }}
         </c-text>
+        <c-progress
+          v-if="exporter.last_run?.state === 'running'"
+          class="mt-1"
+          :model-value="exportRunPercent(exporter.last_run)"
+          size="xs"
+        />
       </div>
       <c-button
         :icon="icons.mount"

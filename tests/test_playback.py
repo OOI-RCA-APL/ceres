@@ -5,6 +5,7 @@ from uuid import UUID
 import pytest
 
 from ceres import Bound, Component, Mount
+from ceres.__internal__ import playback
 from ceres.__internal__.playback import (
     PlaybackLevel,
     PlaybackRangeError,
@@ -241,6 +242,35 @@ async def test_playback_events_take_the_real_time(
     run = await play(component)
 
     assert [now >= run.started for cls, now in emitted if cls is PlaybackProgressEvent] == [True]
+
+
+async def test_playback_reports_its_progress_through_the_range(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(playback, "_PROGRESS_SECONDS", 0.0)
+    component = counter(tmp_path)
+    await store(component, message(10, id=1), message(35, id=2))
+    emitted = emissions(component, monkeypatch)
+    events = component.system.events.every(PlaybackProgressEvent)
+    with events.read() as reader:
+        run = await play(component)
+        progress: list[Any] = reader.clear()
+
+    assert [(event.position, event.progress) for event in progress] == [
+        (at(10), 0.0),
+        (at(35), 0.5),
+        (None, 1.0),
+    ]
+    assert [now >= run.started for cls, now in emitted if cls is PlaybackProgressEvent] == [
+        True
+    ] * 3
+    assert (run.sieves, run.sieves_done, run.sieve, run.position, run.progress) == (
+        1,
+        1,
+        "count",
+        None,
+        1.0,
+    )
 
 
 def emissions(component: Component, monkeypatch: pytest.MonkeyPatch) -> list[tuple[type, datetime]]:

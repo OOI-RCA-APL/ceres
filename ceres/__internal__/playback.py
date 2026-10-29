@@ -5,6 +5,7 @@ from collections import deque
 from collections.abc import AsyncIterable, AsyncIterator, Sequence
 from datetime import UTC, datetime
 from enum import StrEnum
+from time import monotonic
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
@@ -42,7 +43,7 @@ __all__ = [
 ]
 
 _RUN_RING_SIZE = 20
-_PROGRESS_PARTICLES = 1000
+_PROGRESS_SECONDS = 1.0
 _ORDER = ["timestamp:asc", "id:asc"]
 
 
@@ -104,11 +105,38 @@ class PlaybackRecord(DataObject):
     particles: int = 0
     """Particles stored so far."""
 
+    sieves: int
+    """Stored sieves the playback replays, one after another."""
+
+    sieves_done: int = 0
+    """Sieves replayed so far."""
+
+    sieve: str | None = None
+    """Name of the sieve replaying now, `None` before the first starts."""
+
+    position: DateTime | None = None
+    """Timestamp of the last message the current sieve took, `None` before it takes one."""
+
+    progress: float = 0.0
+    """Fraction of the replay done, from 0 to 1, counting each sieve equally.
+
+    The exports that follow a replay report their own progress, so a playback reads 1 while
+    it still runs them.
+    """
+
     export_runs: list[UUID] = Field(default_factory=list)
     """IDs of the export runs the playback started, one per exporter it rewrote."""
 
     exception: str | None = None
     """Why the playback failed, `None` unless it failed."""
+
+
+def _progress(run: PlaybackRecord) -> float:
+    sieve = 0.0
+    if run.position is not None:
+        sieve = (run.position - run.after) / (run.before - run.after)
+
+    return (run.sieves_done + min(max(sieve, 0.0), 1.0)) / run.sieves
 
 
 async def feed(
@@ -224,6 +252,7 @@ class PlaybackManager(BaseComponentManager):
                 level=level,
                 export=export,
                 started=now,
+                sieves=len(sieves),
             )
             self.__runs.append(run)
             self.__task = create_task(self.__play(run, sieves))
@@ -310,7 +339,8 @@ class PlaybackManager(BaseComponentManager):
         # Starts from the ring's copy, which holds every earlier update.
         for index, current in enumerate(self.__runs):
             if current.id == run.id:
-                run = self.__runs[index] = replace(current, **changes)
+                updated = replace(current, **changes)
+                run = self.__runs[index] = replace(updated, progress=_progress(updated))
 
         return run
 
@@ -375,11 +405,38 @@ class PlaybackManager(BaseComponentManager):
         system = self.__system__
         full = run.level == PlaybackLevel.FULL
         messages, particles = run.messages, run.particles
+        position: datetime | None = None
+        run = self.__update(run, sieve=config.name, position=None)
+        reported = monotonic()
+
+        def report() -> None:
+            nonlocal run
+            run = self.__update(run, messages=messages, particles=particles, position=position)
+            system.events.emit(
+                PlaybackProgressEvent,
+                playback=run.id,
+                sieve=config.name,
+                messages=messages,
+                particles=particles,
+                sieves=run.sieves,
+                sieves_done=run.sieves_done,
+                position=position,
+                progress=run.progress,
+            )
 
         async def counted(records: AsyncIterable[Message]) -> AsyncIterator[Message]:
-            nonlocal messages
+            nonlocal messages, position, reported
             async for message in records:
                 messages += 1
+                # The clock reads the previous message's time here, which the event must not take.
+                previous, position = position, message.timestamp
+                # A time throttle, since a sieve may parse a million messages into nothing.
+                if (now := monotonic()) - reported >= _PROGRESS_SECONDS:
+                    reported = now
+                    set_fake_now(None)
+                    report()
+                    set_fake_now(previous)
+
                 yield message
 
         try:
@@ -391,22 +448,15 @@ class PlaybackManager(BaseComponentManager):
                     particles += 1
                     if full:
                         system.events.emit(ParticleEvent, particle=particle)
-
-                    if particles % _PROGRESS_PARTICLES == 0:
-                        run = self.__update(run, messages=messages, particles=particles)
         finally:
             # Events, log lines and tasks after the replay take the real time.
             set_fake_now(None)
             # A failed replay keeps its counts, which say how far it got.
-            run = self.__update(run, messages=messages, particles=particles)
+            run = self.__update(run, messages=messages, particles=particles, position=position)
 
-        system.events.emit(
-            PlaybackProgressEvent,
-            playback=run.id,
-            sieve=config.name,
-            messages=messages,
-            particles=particles,
-        )
+        position = None
+        run = self.__update(run, sieves_done=run.sieves_done + 1)
+        report()
         return run
 
     async def __export(self, run: PlaybackRecord, types: list[str]) -> PlaybackRecord:
