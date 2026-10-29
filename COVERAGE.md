@@ -1,6 +1,6 @@
 # Coverage
 
-<!-- coverage:fingerprint:0653199ed1121e35 -->
+<!-- coverage:fingerprint:b6a59046971e87f5 -->
 
 ## Python
 
@@ -33,7 +33,7 @@
 | `ceres/__internal__/netcdf.py` | 98% |
 | `ceres/__internal__/particles.py` | 96% |
 | `ceres/__internal__/pending_exports.py` | 94% |
-| `ceres/__internal__/playback.py` | 94% |
+| `ceres/__internal__/playback.py` | 95% |
 | `ceres/__internal__/project.py` | 97% |
 | `ceres/__internal__/protocols.py` | 100% |
 | `ceres/__internal__/record.py` | 82% |
@@ -130,7 +130,7 @@
 | `rust/ceres-cli/src/commands/dump.rs` | 82% |
 | `rust/ceres-cli/src/commands/engine.rs` | 47% |
 | `rust/ceres-cli/src/commands/entities.rs` | 97% |
-| `rust/ceres-cli/src/commands/exports.rs` | 56% |
+| `rust/ceres-cli/src/commands/exports.rs` | 57% |
 | `rust/ceres-cli/src/commands/follow.rs` | 0% |
 | `rust/ceres-cli/src/commands/generate.rs` | 88% |
 | `rust/ceres-cli/src/commands/offline.rs` | 88% |
@@ -243,7 +243,7 @@
 | `rust/ceres-webrtc/src/delivery.rs` | 100% |
 | `rust/ceres-webrtc/src/parameter_sets.rs` | 98% |
 | `rust/ceres-webrtc/src/picture.rs` | 100% |
-| `rust/ceres-webrtc/src/server.rs` | 84% |
+| `rust/ceres-webrtc/src/server.rs` | 85% |
 | `rust/ceres-webrtc/src/session.rs` | 88% |
 | `rust/ceres-webrtc/src/socket.rs` | 96% |
 | **Total** | **77%** |
