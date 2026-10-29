@@ -75,6 +75,7 @@ const persisted = usePersisted({
       connections: boolean().default(false),
       jobs: boolean().default(false),
       files: boolean().default(true),
+      exporters: boolean().default(false),
       particles: boolean().default(false),
       particleTypes: record(string(), boolean()).default({}),
       queries: boolean().default(false),
@@ -419,6 +420,7 @@ const configHighlighted = $computed(() =>
               >
                 <c-file-mount v-for="mount in component.mounts" :key="mount.id" :mount />
               </c-detail-section>
+              <c-component-exporters-section v-model:expanded="persisted.exporters" :address />
             </c-list>
 
             <c-list class="mt-2">

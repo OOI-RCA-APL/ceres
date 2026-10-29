@@ -582,6 +582,99 @@
         ]
       }
     },
+    "/api/components/{id}/exporters": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List one component's exporters.",
+        "tags": [
+          "exporters"
+        ]
+      }
+    },
+    "/api/components/{id}/exporters/{second}/runs": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "second",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List one exporter's recent runs, newest first.",
+        "tags": [
+          "exporters"
+        ]
+      },
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "second",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
+        "summary": "Start an export run over a range, access checked by the operation.",
+        "tags": [
+          "exporters"
+        ]
+      }
+    },
     "/api/components/{id}/jobs": {
       "get": {
         "parameters": [
@@ -607,6 +700,61 @@
         "summary": "List one component's scheduled jobs.",
         "tags": [
           "components"
+        ]
+      }
+    },
+    "/api/components/{id}/playbacks": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List one component's recent playbacks, newest first.",
+        "tags": [
+          "playbacks"
+        ]
+      },
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          },
+          {}
+        ],
+        "summary": "Start a playback of stored messages over a range, access checked by the operation.",
+        "tags": [
+          "playbacks"
         ]
       }
     },
@@ -1103,6 +1251,27 @@
         "summary": "Enable matching components.",
         "tags": [
           "engine"
+        ]
+      }
+    },
+    "/api/exports/pending": {
+      "post": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Merge records a load wrote into the files of every exporter that exports them, without waiting for the runs.",
+        "tags": [
+          "exports"
         ]
       }
     },
@@ -2712,6 +2881,9 @@
       "name": "logs"
     },
     {
+      "name": "exports"
+    },
+    {
       "name": "users"
     },
     {
@@ -2737,6 +2909,12 @@
     },
     {
       "name": "components"
+    },
+    {
+      "name": "exporters"
+    },
+    {
+      "name": "playbacks"
     },
     {
       "name": "queries"

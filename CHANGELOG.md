@@ -64,6 +64,30 @@ written, and the release workflow refuses a version that has no entry here.
 - `Project` names the project a configuration file belongs to, and `Engine.project` returns it.
 - Response compression leaves `application/octet-stream` alone, since binary data of an unknown
   type is rarely compressible and often large.
+- A component's `exporters` write its messages, particles, alerts, or log entries to files in
+  `csv`, `jsonl`, `netcdf`, `raw`, or a format class of your own, one file per `hour`, `day`, or
+  `month`, or one file for `all`. The files go under one of the component's mounts, in its
+  layout's dated folders, named by a `path` template rendered in UTC. An exporter writes records
+  live within seconds of storing them, merges the database into its files on a `schedule`, and
+  never removes a record from a file unless a run asks to replace it.
+- An export run rewrites every period overlapping a range, `POST
+  /api/components/{address}/exporters/{name}/runs`, and `GET` on the same path lists the last 20.
+  Each run counts `periods` and `periods_done`, and emits `ExportRunStartedEvent`,
+  `ExportRunProgressEvent` per file, and `ExportRunCompletedEvent` or `ExportRunFailedEvent`.
+- A playback parses a component's stored messages again over a range, replacing the particles
+  its sieves stored and then re-running their exporters, `POST
+  /api/components/{address}/playbacks`. `level: full` also emits each particle's event. Its
+  record reads `progress` from 0 to 1, and `PlaybackProgressEvent` fires about once a second.
+- A pruner of an exported kind waits for the exporters to write a record before deleting it,
+  unless `wait_for_exports: false`.
+- `Mount.place` names the file `file` returns without creating its folder.
+
+**CLI**
+
+- `ceres export` and `ceres playback` start a run or a playback in the running engine and wait
+  for it to end.
+- `ceres messages load --export`, and the same flag on the other record loads, exports what the
+  load wrote, now in the running engine or when the engine next starts.
 
 **Web Console**
 
@@ -83,6 +107,8 @@ written, and the release workflow refuses a version that has no entry here.
   and a component's page links each of its mounts.
 - Preferences open as their own page, the drawer marks the page you are on, and its component
   rows stay dim until hovered or open.
+- A component's page lists its exporters with each one's last run. "Rebuild" starts a run over
+  a range, "Play Back" starts a playback, and "Files" opens the folder of the current file.
 
 ## [0.49.3] - 2026-10-16
 

@@ -6,15 +6,16 @@ and leaves the wire behavior unpinned. A server port must pass this file unchang
 """
 
 import json
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 import httpx
 
-from ceres import Component, Engine, listener, query
+from ceres import Bound, Component, Engine, Mount, listener, query
 from ceres.address import Address
 from ceres.component import FileOutput, StreamingOutput
 from ceres.config import ComponentConfig, Config
@@ -25,10 +26,11 @@ from ceres.event import (
     ProcedureCompletedEvent,
     ProcedureExceptionEvent,
 )
+from ceres.message import Message, MessageDirection
 from ceres.particle import Particle
 from ceres.rtsp import rtsp
 from ceres.user import User
-from tests.testing import rtsp_server
+from tests.testing import rtsp_server, wait_for_condition
 
 ADMIN_PASSWORD = "correct horse battery staple"
 VIEWER_PASSWORD = "viewer password"
@@ -143,6 +145,7 @@ async def _serve(
     cli_token: str | None = None,
     database_path: Path | None = None,
     log: object = None,
+    components: Sequence[Component] = (),
 ) -> AsyncIterator[tuple[Engine, httpx.AsyncClient]]:
     """Serve an engine natively on a loopback port and yield a client against it.
 
@@ -186,6 +189,13 @@ async def _serve(
         # Started so its listener records how each call ended.
         _media["component"].system.start()
 
+    for component in components:
+        engine.attach(component)
+        component.system.start()
+
+    # Nothing runs the engine here, so this marks its components started as `__run__` does.
+    engine._started.set()  # pyright: ignore[reportPrivateUsage]
+
     host = Host(engine)
     records = engine.database._reader()
     console = Path(__file__).parent.parent.parent.parent.parent / "ceres" / "static" / "console"
@@ -217,6 +227,9 @@ async def _serve(
 
             if media:
                 await _media["component"].system.stop()
+
+            for component in components:
+                await component.system.stop()
 
             await engine.database.dispose()
 
@@ -857,3 +870,99 @@ async def test_unknown_console_paths_fall_back_to_the_index() -> None:
         fallback = await client.get("/some/console/route")
         assert fallback.status_code == 200
         assert fallback.content == index.content
+
+
+class _Archive(Component):
+    """A component exporting its messages to one CSV file an hour, for the exporter routes."""
+
+    output: Bound[Mount] = Mount.Field(...)
+
+
+def _archive(root: Path) -> _Archive:
+    config = validate(
+        ComponentConfig,
+        {
+            "name": "archive",
+            "class": _Archive,
+            "arguments": {"output": "."},
+            "exporters": [
+                {"name": "messages", "exports": "message", "format": "csv", "period": "hour"}
+            ],
+        },
+    )
+    return _Archive(output=Mount(root), __with_name__="archive", __with_config__=config)  # type: ignore[reportCallIssue]
+
+
+async def _store_message(archive: _Archive) -> None:
+    await archive.system.messages._insert(
+        Message(
+            id=uuid4(),
+            address=Address("@archive"),
+            timestamp=datetime(2026, 1, 1, 0, 30, tzinfo=UTC),
+            direction=MessageDirection.RECEIVE,
+            data=b"abc",
+        )
+    )
+
+
+async def test_an_export_run_starts_and_reports_over_http(tmp_path: Path) -> None:
+    archive = _archive(tmp_path)
+    async with _serve(authentication=False, components=[archive]) as (_, client):
+        await _store_message(archive)
+        listed = (await client.get("/api/components/@archive/exporters")).json()
+        assert [exporter["name"] for exporter in listed] == ["messages"]
+
+        runs = "/api/components/@archive/exporters/messages/runs"
+        started = await client.post(
+            runs, json={"after": "2026-01-01T00:00:00Z", "before": "2026-01-01T01:00:00Z"}
+        )
+        assert started.status_code == 200
+        ended: list[dict[str, Any]] = []
+
+        async def run_ended() -> bool:
+            ended[:] = [
+                run
+                for run in (await client.get(runs)).json()
+                if run["id"] == started.json()["id"] and run["state"] != "running"
+            ]
+            return bool(ended)
+
+        await wait_for_condition("the export run to end", run_ended, 5)
+
+        assert (ended[0]["state"], ended[0]["files"]) == ("completed", ["messages_20260101T00.csv"])
+        assert (tmp_path / "messages_20260101T00.csv").read_text().count("abc") == 1
+
+
+async def test_loaded_records_export_through_the_pending_route(tmp_path: Path) -> None:
+    archive = _archive(tmp_path)
+    async with _serve(authentication=False, components=[archive]) as (_, client):
+        await _store_message(archive)
+        response = await client.post(
+            "/api/exports/pending",
+            json={
+                "entries": [
+                    {
+                        "kind": "message",
+                        "address": "@archive",
+                        "first": "2026-01-01T00:30:00Z",
+                        "last": "2026-01-01T00:30:00Z",
+                    }
+                ]
+            },
+        )
+        assert response.status_code == 200
+
+        exported = tmp_path / "messages_20260101T00.csv"
+        await wait_for_condition("the loaded hour to export", exported.exists, 5)
+
+
+async def test_the_pending_exports_route_takes_an_admin() -> None:
+    async with _serve() as (engine, client):
+        await _create_user(engine, "viewer", VIEWER_PASSWORD)
+        identity = await _login(client, "viewer", VIEWER_PASSWORD)
+
+        response = await client.post(
+            "/api/exports/pending", json={"entries": []}, headers=_bearer(identity)
+        )
+
+        assert response.status_code == 403

@@ -91,7 +91,6 @@ from ceres.config import (
     MethodSieveConfig,
     PrunerConfig,
     SieveConfig,
-    SQLiteDatabaseConfig,
 )
 from ceres.config import RawComponentAccessLevel as RawComponentAccessLevel
 from ceres.data import (
@@ -155,8 +154,10 @@ else:
     ConnectionField = Any
 
 with __lazy_imports__(__name__):
+    from ceres.__internal__.playback import PlaybackManager
     from ceres.connection import ComponentConnectionManager
     from ceres.database import Database
+    from ceres.exporter import ExporterManager
     from ceres.job import JobManager
     from ceres.pruner import PrunerManager
     from ceres.reference import Reference, unref
@@ -1750,6 +1751,10 @@ class ComponentSystem(Node, ComponentSource):
         for pruner in pruners.values():
             self.pruners.add(pruner)
 
+        if self.config is not None:
+            for exporter in self.config.exporters:
+                self.exporters.add(exporter)
+
     @override
     def __str__(self) -> str:
         return repr(self)
@@ -1837,7 +1842,7 @@ class ComponentSystem(Node, ComponentSource):
             return container.database
 
         if self._database is None:
-            self._database = Database(SQLiteDatabaseConfig())
+            self._database = Database()
         return self._database
 
     @property
@@ -1938,6 +1943,16 @@ class ComponentSystem(Node, ComponentSource):
     def pruners(self) -> PrunerManager:
         """Manager for the component's data pruners."""
         return PrunerManager(self)
+
+    @cached_property
+    def exporters(self) -> ExporterManager:
+        """Manager for the component's exporters."""
+        return ExporterManager(self)
+
+    @cached_property
+    def playbacks(self) -> PlaybackManager:
+        """Manager for the component's playbacks of stored messages."""
+        return PlaybackManager(self)
 
     @override
     async def __node_sync__(self) -> None:
@@ -2577,6 +2592,8 @@ class ComponentSystem(Node, ComponentSource):
                         self.connections.__run__(),
                         self.sieves.__run__(),
                         self.pruners.__run__(),
+                        self.exporters.__run__(),
+                        self.playbacks.__run__(),
                     )
                 except Exception:
                     self.log.error(

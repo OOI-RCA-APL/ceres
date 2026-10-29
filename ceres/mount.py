@@ -430,6 +430,32 @@ class MountPath(PathLike[str]):
         value._names = names
         return value
 
+    def place[M: MountPath](
+        self: M,
+        kind: str | PathTemplate,
+        when: datetime,
+        values: Mapping[str, object] | None = None,
+    ) -> M:
+        """Return the path a new file of `kind` takes for `when`, touching no file.
+
+        One time renders both the layout's folder and the file's name, so a file written at
+        midnight never takes one day's name in the next day's folder.
+
+        Args:
+            kind: A kind `files` names, or a `PathTemplate` for a one-off file.
+            when: The time the file is for, timezone-aware.
+            values: Values for the name's atoms beyond the mount's names.
+
+        Raises:
+            ValueError: If `files` names no such kind, `when` is naive, an atom has no value,
+                or the name renders outside the mount.
+        """
+        name = self.render(self._file(kind), when, values)
+        if self._layout is not None:
+            name = f"{self.render(self._layout, when)}/{name}"
+
+        return self._at(type(self), self._join(name))
+
     def _file(self, kind: str | PathTemplate) -> PathTemplate:
         if isinstance(kind, PathTemplate):
             return kind
@@ -716,24 +742,14 @@ class Mount(MountPath):
     ) -> Mount:
         """Return the path a new file of `kind` takes for `when`, creating its folder.
 
-        One time renders both the layout's folder and the file's name, so a file written at
-        midnight never takes one day's name in the next day's folder.
-
-        Args:
-            kind: A kind `files` names, or a `PathTemplate` for a one-off file.
-            when: The time the file is for, timezone-aware.
-            values: Values for the template's atoms beyond the mount's names.
+        Arguments and refusals are those of `place`.
 
         Raises:
-            ValueError: If `files` names no such kind, `when` is naive, an atom has no value,
-                or the name renders outside the mount.
-            PermissionError: If the mount is read-only.
+            PermissionError: If the folder is missing and the mount is read-only.
         """
-        name = self.render(self._file(kind), when, values)
-        target = self.dated(when) / name
-        # `dated` made the folder already, so only a name holding folders of its own needs one,
-        # which saves a system call per file on a busy or networked mount.
-        if "/" in name:
+        target = self.place(kind, when, values)
+        # A read-only mount may still read a folder that exists, which `mkdir` would refuse.
+        if not target.parent.is_dir():
             target.parent.mkdir()
 
         return target

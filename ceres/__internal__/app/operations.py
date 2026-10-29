@@ -16,8 +16,10 @@ from uuid import UUID
 
 from ceres.__internal__.app.handlers import components as component_handlers
 from ceres.__internal__.app.handlers import engine as engine_handlers
+from ceres.__internal__.app.handlers import exporters as exporter_handlers
 from ceres.__internal__.app.handlers import files as file_handlers
 from ceres.__internal__.app.handlers import permissions as permission_handlers
+from ceres.__internal__.app.handlers import playbacks as playback_handlers
 from ceres.__internal__.app.handlers import settings as setting_handlers
 from ceres.__internal__.app.handlers import workspace_edits as edit_handlers
 from ceres.__internal__.app.handlers import workspaces as workspace_handlers
@@ -445,6 +447,71 @@ async def components_send(host: Host, arguments: dict[str, Any]) -> Any:
         input=data,
     )
     return _serialize(sent)
+
+
+@operation("exporters.list")
+async def exporters_list(host: Host, arguments: dict[str, Any]) -> Any:
+    actor = await _actor(host, arguments)
+    return _entities(
+        await exporter_handlers.get_component_exporters(
+            engine=host.engine, actor=actor, address=_address(arguments)
+        )
+    )
+
+
+@operation("exporters.runs")
+async def exporters_runs(host: Host, arguments: dict[str, Any]) -> Any:
+    actor = await _actor(host, arguments)
+    return _entities(
+        await exporter_handlers.get_exporter_runs(
+            engine=host.engine,
+            actor=actor,
+            address=_address(arguments),
+            name=validate(Name, _path(arguments, "name")),
+        )
+    )
+
+
+@operation("exporters.run")
+async def exporters_run(host: Host, arguments: dict[str, Any]) -> Any:
+    actor = await _actor(host, arguments)
+    started = await exporter_handlers.start_exporter_run(
+        engine=host.engine,
+        actor=actor,
+        address=_address(arguments),
+        name=validate(Name, _path(arguments, "name")),
+        request=_validated(exporter_handlers.ExportRunRequest, arguments),
+    )
+    return _serialize(started)
+
+
+@operation("exports.pending")
+async def exports_pending(host: Host, arguments: dict[str, Any]) -> Any:
+    request = _validated(exporter_handlers.PendingExportsRequest, arguments)
+    host.engine.export_loaded(request.entries)
+    return {}
+
+
+@operation("playbacks.list")
+async def playbacks_list(host: Host, arguments: dict[str, Any]) -> Any:
+    actor = await _actor(host, arguments)
+    return _entities(
+        await playback_handlers.get_component_playbacks(
+            engine=host.engine, actor=actor, address=_address(arguments)
+        )
+    )
+
+
+@operation("playbacks.run")
+async def playbacks_run(host: Host, arguments: dict[str, Any]) -> Any:
+    actor = await _actor(host, arguments)
+    started = await playback_handlers.start_playback(
+        engine=host.engine,
+        actor=actor,
+        address=_address(arguments),
+        request=_validated(playback_handlers.PlaybackRequest, arguments),
+    )
+    return _serialize(started)
 
 
 def _bindings(namespace: str):

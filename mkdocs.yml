@@ -70,6 +70,7 @@ nav:
   - Components: components.md
   - Connections: connections.md
   - Writing a Driver: writing-a-driver.md
+  - Exporters: exporters.md
   - Deployment: deployment.md
   - Reference:
       - Configuration: reference/configuration.md

@@ -21,8 +21,10 @@ use ceres_database::{
 use ceres_entities::RenderRows;
 use clap::ArgMatches;
 
+use crate::commands::exports::{LoadedSpans, export_loaded};
 use crate::commands::surface::{self, Table};
 use crate::error::Result;
+use crate::output::Output;
 use crate::project::Project;
 
 /// The output projection a verb asked for, as ordered `(field, alias)` pairs.
@@ -142,6 +144,8 @@ pub(crate) struct Invocation {
     pub(crate) on_conflict: Option<String>,
     /// The file a load reads.
     pub(crate) path: Option<PathBuf>,
+    /// Whether `--export` asked a record load to run the exporters over what it wrote.
+    pub(crate) export: bool,
     /// The output projection as ordered `(field, alias)` pairs, empty for every field.
     pub(crate) projection: Vec<(String, String)>,
 }
@@ -177,6 +181,7 @@ impl Invocation {
             set: text("set"),
             on_conflict: text("on_conflict"),
             path: text("path").map(PathBuf::from),
+            export: flag("export").unwrap_or(false),
             projection: projection(matches),
         }
     }
@@ -904,6 +909,9 @@ where
         credentials: Option<Credentials>,
     ) -> Option<Batches<Self::Batch>>;
 
+    /// Widen a load's spans to cover one batch, which only records have.
+    fn cover(_batch: &Self::Batch, _spans: &mut LoadedSpans) {}
+
     /// Count what the filter matches.
     async fn count(store: &RecordStore, filter: &Filter<Self>) -> StoreResult<u64>;
 
@@ -1128,6 +1136,7 @@ where
     // refuse without having produced partial output.
     let projection = invocation.projection.clone();
     let header = invocation.header;
+    let mut spans = LoadedSpans::default();
     let rendered = runtime.block_on(async {
         let filter = || {
             filter
@@ -1184,6 +1193,11 @@ where
                     .conflict()
                     .expect("a load resolved its conflict mode above");
                 let batches = source.take().expect("a load opened its file above");
+                let batches = batches.inspect(|batch| {
+                    if let Ok(batch) = batch {
+                        T::cover(batch, &mut spans);
+                    }
+                });
                 T::load(&store, batches, conflict)
                     .await
                     .map(|written| Rendered::Text(format!("{written}\n")))
@@ -1227,6 +1241,11 @@ where
         }
         Err(error) => return Err(crate::error::Exit::failed(error.to_string())),
     };
+
+    // Only a committed load reaches here, so its records are there for an exporter to read.
+    if invocation.export {
+        export_loaded(&project, &Output::new(color), &spans)?;
+    }
 
     deliver(&invocation, rendered, colored)
 }

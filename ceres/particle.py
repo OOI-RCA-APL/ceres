@@ -613,8 +613,8 @@ class Particle(
             cls: Concrete `Particle` subclass to convert to.
 
         Returns:
-            A new `cls` instance carrying the same id, address, timestamp, type, and span
-            as `self`, with `data` re-validated against the target payload type.
+            A new `cls` instance carrying the same id, address, timestamp, connection, type,
+            and span as `self`, with `data` re-validated against the target payload type.
 
         Raises:
             ValidationError: If `self.data` cannot be coerced to the target `cls.Data` type.
@@ -629,6 +629,7 @@ class Particle(
             id=self.id,
             address=self.address,
             timestamp=self.timestamp,
+            connection=self.connection,
             type=self.type,
             data=data,
             span=self.span,

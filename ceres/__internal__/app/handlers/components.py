@@ -1,4 +1,5 @@
 import traceback
+from datetime import timedelta
 from functools import cache
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -24,8 +25,10 @@ from ceres.component import (
     ProcedureType,
     QueryBinding,
 )
+from ceres.config import ExporterPeriod
 from ceres.connectivity import Connectivity
 from ceres.data import DataModel, DataObject, DateTime, Name, replace, to_json_schema
+from ceres.entity import EntityType
 from ceres.error import (
     NotConnectedError,
     NotFoundError,
@@ -34,6 +37,7 @@ from ceres.error import (
     ProcedureNotFoundError,
     ProcedureNotPermittedError,
 )
+from ceres.exporter import ExportRunSummary
 from ceres.message import Message, MessageData
 from ceres.particle import Particle, _get_cls_particle_type
 
@@ -76,6 +80,68 @@ class ParticleTypeInfo(DataObject):
     """
 
 
+class ExporterInfo(DataObject):
+    """Description of an exporter on a component."""
+
+    name: Name
+    exports: EntityType
+    type: str | None
+    """The exported particle type, `None` for every type or another kind."""
+    format: str
+    """A built-in format's name, or a custom format class's qualified name."""
+    merges: bool
+    """Whether a run can merge stored records into a file, so far only a keyed format."""
+    mount: str
+    """Name of the component's mount the files live under."""
+    period: ExporterPeriod
+    path: str
+    """The file name template, without the extension the format adds."""
+    file: str | None
+    """The current period's file relative to the mount, `None` when the mount is missing."""
+    live: bool
+    interval: timedelta
+    schedule: str | None
+    """Human-readable form of the exporter's schedule, `None` without one."""
+    lookback: int | None
+    """Periods before the current one a scheduled run covers, `None` without a schedule."""
+    next_run: DateTime | None
+    """When the schedule next runs, or `None` when there is none or it is not running."""
+    last_run: ExportRunSummary | None
+    """The exporter's most recent run, `None` before its first."""
+
+
+def _describe_exporters(component: Component) -> list[ExporterInfo]:
+    exporters = component.system.exporters
+    infos: list[ExporterInfo] = []
+    for exporter in exporters.get_all():
+        particle = exporter.particle_class()
+        scheduled = exporter.schedule is not None and exporter.period != ExporterPeriod.ALL
+        runs = exporters.get_runs(exporter.name)
+        infos.append(
+            ExporterInfo(
+                name=exporter.name,
+                exports=exporter.exports,
+                type=_get_cls_particle_type(particle) if particle is not None else None,
+                format=exporter.format_name,
+                merges=exporter.format_class.keyed,
+                mount=exporter.mount,
+                period=exporter.period,
+                path=exporter.path_source,
+                file=exporters.get_current_file(exporter.name),
+                live=exporter.is_live,
+                interval=exporter.interval,
+                schedule=(
+                    _describe_schedule(exporter.schedule) if exporter.schedule is not None else None
+                ),
+                lookback=(exporter.lookback or 1) if scheduled else None,
+                next_run=exporters.get_next_fire_time(exporter.name),
+                last_run=runs[0].summary() if runs else None,
+            )
+        )
+
+    return infos
+
+
 class ComponentInfo(DataObject):
     """Recursive description of a component, its procedures, connections, and children."""
 
@@ -89,6 +155,8 @@ class ComponentInfo(DataObject):
     """The particle types the component declares, with their field schemas."""
     mounts: list[MountInfo]
     """The mounts the component's fields hold that the caller may view."""
+    exporters: list[ExporterInfo]
+    """The exporters writing the component's records to files."""
 
 
 ComponentInfo.__name__ = "Component"
@@ -119,12 +187,14 @@ def _describe_component(
         tags = system.tags
         particles = _described_particle_classes(component)
         mounts = component_mounts(engine, component, level)
+        exporters = _describe_exporters(component)
     else:
         procedures = []
         connections = []
         tags = []
         particles = []
         mounts = []
+        exporters = []
 
     return ComponentInfo(
         name=system.name,
@@ -135,6 +205,7 @@ def _describe_component(
         tags=tags,
         particles=particles,
         mounts=mounts,
+        exporters=exporters,
     )
 
 

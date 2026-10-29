@@ -682,6 +682,154 @@ PrunerEvent: TypeAlias = (
 """Union of pruner lifecycle events."""
 
 
+class ExportRunStartedEvent(Event, slots=True):
+    """Emitted when an export run starts."""
+
+    type: Literal["export-run-started"] = "export-run-started"
+    exporter: str
+    """Name of the exporter."""
+    run: UUID
+    """ID of the run."""
+    after: DateTime
+    """Inclusive start of the run's range."""
+    before: DateTime
+    """Exclusive end of the run's range."""
+    replace: bool
+    """Whether the run rewrites each file from the database alone."""
+
+
+class ExportRunProgressEvent(Event, slots=True):
+    """Emitted when an export run finishes writing one period's file."""
+
+    type: Literal["export-run-progress"] = "export-run-progress"
+    exporter: str
+    """Name of the exporter."""
+    run: UUID
+    """ID of the run."""
+    period: DateTime | None
+    """Start of the period written, `None` for an exporter whose one file covers all time."""
+    count: int
+    """Number of records written to the period's file."""
+    path: str
+    """Path of the file written, relative to the exporter's mount."""
+    periods: int
+    """Periods the run covers."""
+    periods_done: int
+    """Periods finished so far, written or found empty."""
+
+
+class ExportRunCompletedEvent(Event, slots=True):
+    """Emitted when an export run completes."""
+
+    type: Literal["export-run-completed"] = "export-run-completed"
+    exporter: str
+    """Name of the exporter."""
+    run: UUID
+    """ID of the run."""
+    count: int
+    """Number of records written over the whole run."""
+    files: list[str]
+    """Paths of the files written, relative to the exporter's mount."""
+    after: DateTime
+    """Inclusive start of the run's range."""
+    before: DateTime
+    """Exclusive end of the run's range."""
+    periods: int
+    """Periods the run covers."""
+    periods_done: int
+    """Periods finished, equal to `periods`."""
+
+
+class ExportRunFailedEvent(Event, slots=True):
+    """Emitted when an export run fails or its component stops before it completes."""
+
+    type: Literal["export-run-failed"] = "export-run-failed"
+    level: Level = Level.ERROR
+    exporter: str
+    """Name of the exporter."""
+    run: UUID
+    """ID of the run."""
+    exception: ExceptionInfo
+    """Captured exception information."""
+
+
+ExportRunEvent: TypeAlias = (
+    ExportRunStartedEvent | ExportRunProgressEvent | ExportRunCompletedEvent | ExportRunFailedEvent
+)
+"""Union of export run lifecycle events."""
+
+
+class PlaybackStartedEvent(Event, slots=True):
+    """Emitted when a playback starts."""
+
+    type: Literal["playback-started"] = "playback-started"
+    playback: UUID
+    """ID of the playback."""
+    after: DateTime
+    """Inclusive start of the replayed range."""
+    before: DateTime
+    """Exclusive end of the replayed range."""
+    playback_level: str
+    """What the playback does with each particle, `particles` or `full`."""
+    export: bool
+    """Whether the playback rewrites the files of the exporters it replaced particles for."""
+
+
+class PlaybackProgressEvent(Event, slots=True):
+    """Emitted about once a second while a playback replays, and when each sieve finishes."""
+
+    type: Literal["playback-progress"] = "playback-progress"
+    playback: UUID
+    """ID of the playback."""
+    sieve: str | None
+    """Name of the sieve replaying."""
+    messages: int
+    """Messages replayed so far."""
+    particles: int
+    """Particles stored so far."""
+    sieves: int
+    """Stored sieves the playback replays."""
+    sieves_done: int
+    """Sieves replayed so far."""
+    position: DateTime | None
+    """Timestamp of the sieve's last message, `None` before its first and once it finishes."""
+    progress: float
+    """Fraction of the replay done, from 0 to 1."""
+
+
+class PlaybackCompletedEvent(Event, slots=True):
+    """Emitted when a playback completes."""
+
+    type: Literal["playback-completed"] = "playback-completed"
+    playback: UUID
+    """ID of the playback."""
+    deleted: int
+    """Stored particles deleted before the replay."""
+    messages: int
+    """Messages replayed."""
+    particles: int
+    """Particles stored."""
+    export_runs: list[UUID]
+    """IDs of the export runs that rewrote the replaced particles' files."""
+
+
+class PlaybackFailedEvent(Event, slots=True):
+    """Emitted when a playback fails or its component stops before it completes."""
+
+    type: Literal["playback-failed"] = "playback-failed"
+    level: Level = Level.ERROR
+    playback: UUID
+    """ID of the playback."""
+    exception: ExceptionInfo
+    """Captured exception information."""
+
+
+PlaybackEvent: TypeAlias = (
+    PlaybackStartedEvent | PlaybackProgressEvent | PlaybackCompletedEvent | PlaybackFailedEvent
+)
+"""Union of playback lifecycle events."""
+
+
 class SieveAddedEvent(Event, slots=True):
     """Emitted when a sieve is registered."""
 
@@ -887,6 +1035,8 @@ StandardEvent: TypeAlias = (
     | RoutineEvent
     | JobEvent
     | PrunerEvent
+    | ExportRunEvent
+    | PlaybackEvent
     | SieveEvent
     | ProcedureEvent
     | StreamEvent

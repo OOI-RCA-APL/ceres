@@ -246,20 +246,20 @@ class SieveManager(BaseComponentTaskManager[SieveConfig]):
         forward each parsed particle through `ParticleEvent`. Optionally store particles
         when `config.stored` is true.
         """
+        from ceres.__internal__.playback import feed
+
         self.__system__.events.emit(SieveStartedEvent, sieve=config.name)
         retry = 0
-        source = _sole_connection(config)
 
         try:
             while True:
                 try:
-                    sieve = config.create(self.__system__.component)
-                    async for current in sieve.process(
-                        self.__system__.messages.stream.where(config.filter)
+                    async for current in feed(
+                        self.__system__.component,
+                        config,
+                        self.__system__.messages.stream.where(config.filter),
+                        replay=False,
                     ):
-                        if source is not None and current.connection is None:
-                            current.connection = source
-
                         if config.stored:
                             self.__system__.store(current)
                         self.__system__.events.emit(ParticleEvent, particle=current)

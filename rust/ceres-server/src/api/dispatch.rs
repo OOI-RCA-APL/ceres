@@ -127,6 +127,10 @@ host_routes! {
     UpComponents: typed_post "/api/up" => Gate::Authenticated, "engine.up", body: true;
     /// Disable and stop matching components.
     DownComponents: typed_post "/api/down" => Gate::Authenticated, "engine.down", body: true;
+    /// Merge records a load wrote into the files of every exporter that exports them,
+    /// without waiting for the runs.
+    ExportsPending: typed_post "/api/exports/pending" => Gate::Admin, "exports.pending",
+        body: true;
 
     /// List users.
     UsersCollection: typed_get "/api/users" => Gate::Authenticated, "users.list";
@@ -266,6 +270,16 @@ host_routes! {
     /// List one component's scheduled jobs.
     ComponentsJobs: typed_get "/api/components/{id}/jobs" => Gate::Authenticated,
         "components.jobs", params(id => "address": Raw);
+    /// List one component's exporters.
+    ExportersCollection: typed_get "/api/components/{id}/exporters" => Gate::Authenticated,
+        "exporters.list", params(id => "address": Raw);
+    /// List one exporter's recent runs, newest first.
+    ExportersRuns: typed_get "/api/components/{id}/exporters/{second}/runs" =>
+        Gate::Authenticated, "exporters.runs",
+        params(id => "address": Raw, second => "name": Raw);
+    /// List one component's recent playbacks, newest first.
+    PlaybacksCollection: typed_get "/api/components/{id}/playbacks" => Gate::Authenticated,
+        "playbacks.list", params(id => "address": Raw);
     /// List one component's procedures.
     ProceduresCollection: typed_get "/api/components/{id}/procedures" => Gate::Authenticated,
         "procedures.list", params(id => "address": Raw);
@@ -288,6 +302,12 @@ host_routes! {
     /// Call a procedure with body arguments, access checked by the operation.
     ProceduresCall: typed_post "/api/components/{id}/procedures/{second}/call" => Gate::Open,
         "procedures.call", params(id => "address": Raw, second => "name": Raw), body: true;
+    /// Start an export run over a range, access checked by the operation.
+    ExportersRun: typed_post "/api/components/{id}/exporters/{second}/runs" => Gate::Open,
+        "exporters.run", params(id => "address": Raw, second => "name": Raw), body: true;
+    /// Start a playback of stored messages over a range, access checked by the operation.
+    PlaybacksRun: typed_post "/api/components/{id}/playbacks" => Gate::Open, "playbacks.run",
+        params(id => "address": Raw), body: true;
     /// Call a procedure with query arguments, access checked by the operation.
     ProceduresCallByGet: typed_get "/api/components/{id}/procedures/{second}/call" => Gate::Open,
         "procedures.call_get", params(id => "address": Raw, second => "name": Raw);
