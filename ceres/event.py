@@ -792,7 +792,7 @@ class PlaybackProgressEvent(Event, slots=True):
     sieves_done: int
     """Sieves replayed so far."""
     position: DateTime | None
-    """Timestamp of the last message the sieve took, `None` once it finishes."""
+    """Timestamp of the sieve's last message, `None` before its first and once it finishes."""
     progress: float
     """Fraction of the replay done, from 0 to 1."""
 

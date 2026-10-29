@@ -173,8 +173,15 @@ async def feed(
 
 
 async def _clocked(messages: AsyncIterable[Message]) -> AsyncIterator[Message]:
-    # Sets the time in the consuming task's context, which a playback owns alone.
-    async for message in messages:
+    # Sets the time in the consuming task's context, which a playback owns alone. Fetching the
+    # next message takes the real time, so only the sieve's own code sees a message's time.
+    iterator = aiter(messages)
+    while True:
+        set_fake_now(None)
+        message = await anext(iterator, None)
+        if message is None:
+            return
+
         set_fake_now(message.timestamp)
         yield message
 
@@ -428,14 +435,11 @@ class PlaybackManager(BaseComponentManager):
             nonlocal messages, position, reported
             async for message in records:
                 messages += 1
-                # The clock reads the previous message's time here, which the event must not take.
-                previous, position = position, message.timestamp
+                position = message.timestamp
                 # A time throttle, since a sieve may parse a million messages into nothing.
                 if (now := monotonic()) - reported >= _PROGRESS_SECONDS:
                     reported = now
-                    set_fake_now(None)
                     report()
-                    set_fake_now(previous)
 
                 yield message
 
