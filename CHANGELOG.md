@@ -72,11 +72,12 @@ written, and the release workflow refuses a version that has no entry here.
   never removes a record from a file unless a run asks to replace it.
 - An export run rewrites every period overlapping a range, `POST
   /api/components/{address}/exporters/{name}/runs`, and `GET` on the same path lists the last 20.
-  Each run emits `ExportRunStartedEvent`, `ExportRunProgressEvent` per file, and
-  `ExportRunCompletedEvent` or `ExportRunFailedEvent`.
+  Each run counts `periods` and `periods_done`, and emits `ExportRunStartedEvent`,
+  `ExportRunProgressEvent` per file, and `ExportRunCompletedEvent` or `ExportRunFailedEvent`.
 - A playback parses a component's stored messages again over a range, replacing the particles
   its sieves stored and then re-running their exporters, `POST
-  /api/components/{address}/playbacks`. `level: full` also emits each particle's event.
+  /api/components/{address}/playbacks`. `level: full` also emits each particle's event. Its
+  record reads `progress` from 0 to 1, and `PlaybackProgressEvent` fires about once a second.
 - A pruner of an exported kind waits for the exporters to write a record before deleting it,
   unless `wait_for_exports: false`.
 - `Mount.place` names the file `file` returns without creating its folder.

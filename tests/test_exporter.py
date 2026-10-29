@@ -351,11 +351,23 @@ async def test_run_emits_events_and_logs(tmp_path: Path) -> None:
         ExportRunProgressEvent,
         ExportRunCompletedEvent,
     ]
-    assert [(event.path, event.count) for event in emitted[1:3]] == [
-        ("2026/01/01/00.csv", 1),
-        ("2026/01/01/01.csv", 1),
+    assert [(event.path, event.count, event.periods_done) for event in emitted[1:3]] == [
+        ("2026/01/01/00.csv", 1, 1),
+        ("2026/01/01/01.csv", 1, 2),
     ]
     assert (run.state, run.count) == (ExportRunState.COMPLETED, 2)
+
+
+async def test_a_run_counts_an_empty_period_toward_its_progress(tmp_path: Path) -> None:
+    exported = Exported.create(tmp_path)
+    await exported.store(message(10))
+
+    started = exported.start()
+    (run,) = await exported.settled(started)
+
+    assert (started.periods, started.periods_done) == (3, 0)
+    assert (run.periods, run.periods_done, len(run.files)) == (3, 3, 1)
+    assert (run.summary().periods, run.summary().periods_done) == (3, 3)
 
 
 async def test_run_ring_keeps_the_last_twenty(tmp_path: Path) -> None:

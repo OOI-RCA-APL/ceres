@@ -1064,6 +1064,12 @@ class ExportRunRecord(DataObject):
     files: list[str] = Field(default_factory=list)
     """Files written so far, relative to the exporter's mount."""
 
+    periods: int
+    """Periods the run covers, 1 for an exporter whose one file covers all time."""
+
+    periods_done: int = 0
+    """Periods finished so far, written or found empty."""
+
     exception: str | None = None
     """Why the run failed, `None` unless it failed."""
 
@@ -1079,6 +1085,8 @@ class ExportRunRecord(DataObject):
             ended=self.ended,
             count=self.count,
             file_count=len(self.files),
+            periods=self.periods,
+            periods_done=self.periods_done,
             exception=self.exception,
         )
 
@@ -1112,6 +1120,12 @@ class ExportRunSummary(DataObject):
 
     file_count: int
     """Files written so far."""
+
+    periods: int
+    """Periods the run covers, 1 for an exporter whose one file covers all time."""
+
+    periods_done: int
+    """Periods finished so far, written or found empty."""
 
     exception: str | None
     """Why the run failed, `None` unless it failed."""
@@ -1401,6 +1415,7 @@ class ExporterManager(BaseComponentManager):
             before=before,
             replace=replace,
             started=datetime.now(UTC),
+            periods=sum(1 for _ in periods(registered.config.period, after, before)),
         )
         self.__runs.append(run)
         self.__pending[name] = self.__pending.get(name, 0) + 1
@@ -1841,9 +1856,17 @@ class ExporterManager(BaseComponentManager):
                     )
                     self.__forget(exporter.name, start)
                     if count is None:
+                        # An empty period emits nothing, since a year of hours would log 8760
+                        # events, but it still counts toward the run's progress.
+                        run = self.__update(run, periods_done=run.periods_done + 1)
                         continue
 
-                    run = self.__update(run, count=run.count + count, files=[*run.files, relative])
+                    run = self.__update(
+                        run,
+                        count=run.count + count,
+                        files=[*run.files, relative],
+                        periods_done=run.periods_done + 1,
+                    )
                     events.emit(
                         ExportRunProgressEvent,
                         exporter=run.exporter,
@@ -1851,6 +1874,8 @@ class ExporterManager(BaseComponentManager):
                         period=start,
                         count=count,
                         path=relative,
+                        periods=run.periods,
+                        periods_done=run.periods_done,
                     )
         except CancelledError:
             self.__fail(run, RuntimeError("component stopped"))
@@ -1872,6 +1897,8 @@ class ExporterManager(BaseComponentManager):
             files=run.files,
             after=run.after,
             before=run.before,
+            periods=run.periods,
+            periods_done=run.periods_done,
         )
         shown = ", ".join(run.files[:5]) + (
             f" and {len(run.files) - 5} more" if len(run.files) > 5 else ""

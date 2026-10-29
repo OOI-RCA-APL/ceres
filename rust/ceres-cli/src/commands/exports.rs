@@ -96,7 +96,9 @@ pub fn export(
     }
 
     for (name, runs, id) in started {
-        let run = follow(&client, &runs, &id)?;
+        let run = follow(&client, output, &runs, &id, |run| {
+            describe_export(&name, run)
+        })?;
         failed |= report(output, &format!("Exporter '{name}'"), &run);
     }
 
@@ -120,7 +122,7 @@ pub fn playback(
     let playbacks = format!("components/{}/playbacks", encode(address));
     let body = range.body(json!({ "level": level, "export": export }));
     let started: Started = parse(&client.post(&playbacks, &[], Some(&body))?)?;
-    let run = follow(&client, &playbacks, &started.id)?;
+    let run = follow(&client, output, &playbacks, &started.id, describe_playback)?;
     if report(output, "Playback", &run) {
         fail!("The playback failed.");
     }
@@ -140,8 +142,16 @@ impl RangeArgs {
     }
 }
 
-/// Read the runs listed at `path` until the one with `id` leaves the running state.
-fn follow(client: &Client, path: &str, id: &str) -> Result<Value> {
+/// Read the runs listed at `path` until the one with `id` leaves the running state, writing
+/// a line of its progress to stderr each time the line `describe` makes of it changes.
+fn follow(
+    client: &Client,
+    output: &Output,
+    path: &str,
+    id: &str,
+    describe: impl Fn(&Value) -> String,
+) -> Result<Value> {
+    let mut shown = String::new();
     loop {
         let runs: Vec<Value> = parse(&client.get(path, &[])?)?;
         let Some(run) = runs.into_iter().find(|run| run["id"] == id) else {
@@ -152,8 +162,37 @@ fn follow(client: &Client, path: &str, id: &str) -> Result<Value> {
             return Ok(run);
         }
 
+        let line = describe(&run);
+        if line != shown {
+            output.write(&line);
+            shown = line;
+        }
+
         std::thread::sleep(POLL_INTERVAL);
     }
+}
+
+/// An export run's progress, as `follow` writes it.
+fn describe_export(name: &str, run: &Value) -> String {
+    format!(
+        "{name}: {}/{} periods, {} records",
+        run["periods_done"], run["periods"], run["count"]
+    )
+}
+
+/// A playback's progress, as `follow` writes it. A playback whose sieves are all done is
+/// running the export runs that rewrite its particles' files.
+fn describe_playback(run: &Value) -> String {
+    if run["sieves_done"] == run["sieves"] {
+        return format!("playback: exporting, {} particles", run["particles"]);
+    }
+
+    let percent = (run["progress"].as_f64().unwrap_or(0.0) * 100.0).floor();
+    let sieve = run["sieve"].as_str().unwrap_or("none");
+    format!(
+        "playback: {percent}%, sieve '{sieve}', {} messages, {} particles",
+        run["messages"], run["particles"]
+    )
 }
 
 /// Print an ended run, its record to stdout and a line about it to stderr, and return
@@ -295,6 +334,30 @@ fn parse<T: serde::de::DeserializeOwned>(body: &str) -> Result<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_run_describes_its_progress() {
+        let run = json!({ "periods": 48, "periods_done": 12, "count": 1204 });
+        assert_eq!(
+            describe_export("messages", &run),
+            "messages: 12/48 periods, 1204 records"
+        );
+
+        let playback = json!({
+            "sieves": 2, "sieves_done": 0, "sieve": "abc", "progress": 0.406,
+            "messages": 3000, "particles": 2100,
+        });
+        assert_eq!(
+            describe_playback(&playback),
+            "playback: 40%, sieve 'abc', 3000 messages, 2100 particles"
+        );
+
+        let exporting = json!({ "sieves": 1, "sieves_done": 1, "particles": 2100 });
+        assert_eq!(
+            describe_playback(&exporting),
+            "playback: exporting, 2100 particles"
+        );
+    }
 
     /// Messages at each `(address, timestamp)`.
     fn messages(rows: &[(&str, &str)]) -> Records {

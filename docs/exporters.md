@@ -236,10 +236,14 @@ last. With no engine running, the load appends those ranges to `.ceres/pending-e
 beside the configuration, and the engine exports them when it next starts. That file sits on the
 host running the load, so a load on another host reaches the engine only while the engine runs.
 
-Each run emits `ExportRunStartedEvent`, one `ExportRunProgressEvent` per file it writes, and then
-`ExportRunCompletedEvent` or `ExportRunFailedEvent`. A completed run also writes one log entry
-naming its range, its record count and its files. With `logging.events` on, every event becomes a
-log entry too, so a year of hourly files logs 8760 progress entries.
+A run keeps going when the page or command that started it closes. Its record counts the periods
+its range covers in `periods` and the ones it has finished in `periods_done`, a period with no
+records included, which the console shows as a progress bar and `ceres export` as a line each time
+it changes. Each run emits `ExportRunStartedEvent`, one `ExportRunProgressEvent` per file it
+writes, and then `ExportRunCompletedEvent` or `ExportRunFailedEvent`. A completed run also writes
+one log entry naming its range, its record count and its files. With `logging.events` on, every
+event becomes a log entry too, so a year of hourly files logs 8760 progress entries. The engine
+keeps runs in memory, so a restart stops every running run and forgets them all.
 
 ## Playing Back Stored Messages
 
@@ -290,5 +294,9 @@ The live sieves keep running. Readers see the range without particles while the 
 sieve that buffers bytes across messages may store a particle at `before` from live data after the
 delete, so keep `before` behind the newest live messages.
 
-Each playback emits `PlaybackStartedEvent`, one `PlaybackProgressEvent` per sieve, and then
-`PlaybackCompletedEvent` or `PlaybackFailedEvent`, and a completed one writes one log entry.
+A playback's record reads `progress` from 0 to 1 over its replay, each sieve an equal share, by
+the time of the last message the current sieve took (`position`) within the range. It reaches 1
+before the exports that follow, whose own runs report their progress. Each playback emits
+`PlaybackStartedEvent`, a `PlaybackProgressEvent` about once a second while it replays and when
+each sieve finishes, and then `PlaybackCompletedEvent` or `PlaybackFailedEvent`, and a completed
+one writes one log entry.

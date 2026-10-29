@@ -711,7 +711,11 @@ class ExportRunProgressEvent(Event, slots=True):
     count: int
     """Number of records written to the period's file."""
     path: str
-    """Path of the file written, relative to the exporter's directory."""
+    """Path of the file written, relative to the exporter's mount."""
+    periods: int
+    """Periods the run covers."""
+    periods_done: int
+    """Periods finished so far, written or found empty."""
 
 
 class ExportRunCompletedEvent(Event, slots=True):
@@ -725,11 +729,15 @@ class ExportRunCompletedEvent(Event, slots=True):
     count: int
     """Number of records written over the whole run."""
     files: list[str]
-    """Paths of the files written, relative to the exporter's directory."""
+    """Paths of the files written, relative to the exporter's mount."""
     after: DateTime
     """Inclusive start of the run's range."""
     before: DateTime
     """Exclusive end of the run's range."""
+    periods: int
+    """Periods the run covers."""
+    periods_done: int
+    """Periods finished, equal to `periods`."""
 
 
 class ExportRunFailedEvent(Event, slots=True):
@@ -768,17 +776,25 @@ class PlaybackStartedEvent(Event, slots=True):
 
 
 class PlaybackProgressEvent(Event, slots=True):
-    """Emitted when a playback finishes replaying one sieve's messages."""
+    """Emitted about once a second while a playback replays, and when each sieve finishes."""
 
     type: Literal["playback-progress"] = "playback-progress"
     playback: UUID
     """ID of the playback."""
     sieve: str | None
-    """Name of the sieve replayed."""
+    """Name of the sieve replaying."""
     messages: int
     """Messages replayed so far."""
     particles: int
     """Particles stored so far."""
+    sieves: int
+    """Stored sieves the playback replays."""
+    sieves_done: int
+    """Sieves replayed so far."""
+    position: DateTime | None
+    """Timestamp of the last message the sieve took, `None` once it finishes."""
+    progress: float
+    """Fraction of the replay done, from 0 to 1."""
 
 
 class PlaybackCompletedEvent(Event, slots=True):

@@ -3,7 +3,7 @@ import * as z from 'zod'
 
 import { Failure } from '@/errors'
 import type { SchemaObject } from '@/schema-form'
-import { utc } from '@/time'
+import { type Datetime, displayDuration, utc } from '@/time'
 
 export type ExportRunState = z.infer<typeof ExportRunStateModel>
 export const ExportRunStateModel = z.enum(['running', 'completed', 'failed'])
@@ -22,6 +22,10 @@ export const ExportRunSummaryModel = z.object({
   count: z.number(),
   /** Files written so far. */
   file_count: z.number(),
+  /** Periods the run covers. */
+  periods: z.number(),
+  /** Periods finished so far, written or found empty. */
+  periods_done: z.number(),
   exception: z.string().nullable(),
 })
 
@@ -92,15 +96,31 @@ export function describeExporter(exporter: ExporterInfo): string {
 
 const exceptionLength = 120
 
+/** How long a run has been going at `now`, such as "3m". */
+function elapsed(started: string, now: Datetime): string {
+  return displayDuration(Math.max(now.diff(utc(started), 'second'), 0), {
+    short: true,
+    decimals: 0,
+  })
+}
+
+/** How far a running export run has got, as a percentage. */
+export function exportRunPercent(run: ExportRunSummary): number {
+  return run.periods === 0 ? 0 : Math.floor((100 * run.periods_done) / run.periods)
+}
+
 /** How an exporter's last run went, as one line, or that it never ran. */
-export function describeExportRun(run: ExportRunSummary | null): string {
+export function describeExportRun(run: ExportRunSummary | null, now: Datetime): string {
   if (run == null) {
     return 'Never run.'
   }
 
   switch (run.state) {
     case 'running':
-      return `Running, ${counted(run.count, 'record')} so far.`
+      return (
+        `${run.periods_done} of ${counted(run.periods, 'period')}, ` +
+        `${counted(run.count, 'record')} so far, running ${elapsed(run.started, now)}.`
+      )
     case 'completed':
       return `${minute(run.started)}, ${counted(run.count, 'record')} in ${counted(run.file_count, 'file')}.`
     case 'failed': {
@@ -222,6 +242,14 @@ export const PlaybackRecordModel = z.object({
   messages: z.number(),
   /** Particles stored so far. */
   particles: z.number(),
+  sieves: z.number(),
+  sieves_done: z.number(),
+  /** The sieve replaying now. */
+  sieve: z.string().nullable(),
+  /** Timestamp of the last message the current sieve took. */
+  position: z.string().nullable(),
+  /** Fraction of the replay done, from 0 to 1, which reaches 1 before the exports that follow. */
+  progress: z.number(),
   export_runs: z.array(z.string()),
   exception: z.string().nullable(),
 })
@@ -234,16 +262,28 @@ export type PlaybackRequest = {
   export: boolean
 }
 
+/** How far a running playback's replay has got, as a percentage. */
+export function playbackPercent(run: PlaybackRecord): number {
+  return Math.floor(100 * run.progress)
+}
+
 /** How a component's last playback went, as one line, or that it never ran. */
-export function describePlayback(run: PlaybackRecord | undefined): string {
+export function describePlayback(run: PlaybackRecord | undefined, now: Datetime): string {
   if (run == null) {
     return 'Never played back.'
   }
 
   const counts = `${counted(run.messages, 'message')} into ${counted(run.particles, 'particle')}`
   switch (run.state) {
-    case 'running':
-      return `Playing back, ${counts} so far.`
+    case 'running': {
+      const time = `running ${elapsed(run.started, now)}`
+      if (run.sieves_done === run.sieves) {
+        return `Rebuilding exporter files, ${counts}, ${time}.`
+      }
+
+      const through = run.position == null ? '' : ` through ${minute(run.position)}`
+      return `${playbackPercent(run)}%${through}, ${counts} so far, ${time}.`
+    }
     case 'completed':
       return `${minute(run.started)}, ${counts}, replacing ${run.deleted}.`
     case 'failed': {

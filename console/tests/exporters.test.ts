@@ -8,14 +8,17 @@ import {
   describePlaybackFailure,
   type ExporterInfo,
   type ExportRunSummary,
+  exportRunPercent,
   exportRunRequest,
   exportRunSchema,
   isExportRunning,
   isPlaybackRunning,
+  playbackPercent,
   type PlaybackRecord,
   playbackRequest,
 } from '@/api/exporters'
 import { Failure } from '@/errors'
+import { utc } from '@/time'
 
 function exporter(overrides: Partial<ExporterInfo> = {}): ExporterInfo {
   return {
@@ -49,10 +52,15 @@ function run(overrides: Partial<ExportRunSummary> = {}): ExportRunSummary {
     ended: '2026-01-02T04:05:07Z',
     count: 12,
     file_count: 2,
+    periods: 3,
+    periods_done: 3,
     exception: null,
     ...overrides,
   }
 }
+
+/** Three minutes after every fixture run started. */
+const now = utc('2026-01-02T04:08:06Z')
 
 function failure(error: Record<string, unknown>): Failure {
   return new Failure({ __error__: true, type: 'validation-failed-error', ...error })
@@ -92,20 +100,22 @@ describe('describeExporter', () => {
 
 describe('describeExportRun', () => {
   it('says a never-run exporter never ran', () => {
-    expect(describeExportRun(null)).toBe('Never run.')
+    expect(describeExportRun(null, now)).toBe('Never run.')
   })
 
-  it('counts what a running run wrote so far', () => {
-    expect(describeExportRun(run({ state: 'running', count: 1 }))).toBe('Running, 1 record so far.')
+  it('counts the periods and records a running run finished so far', () => {
+    const running = run({ state: 'running', count: 1, periods: 48, periods_done: 12 })
+    expect(describeExportRun(running, now)).toBe('12 of 48 periods, 1 record so far, running 3m.')
+    expect(exportRunPercent(running)).toBe(25)
   })
 
   it('says when a completed run started and what it wrote', () => {
-    expect(describeExportRun(run())).toBe('2026-01-02 04:05 UTC, 12 records in 2 files.')
+    expect(describeExportRun(run(), now)).toBe('2026-01-02 04:05 UTC, 12 records in 2 files.')
   })
 
   it('shows a failed run the first line of its exception, truncated', () => {
     const exception = `${'x'.repeat(200)}\nsecond`
-    expect(describeExportRun(run({ state: 'failed', exception }))).toBe(
+    expect(describeExportRun(run({ state: 'failed', exception }), now)).toBe(
       `2026-01-02 04:05 UTC, failed: ${'x'.repeat(117)}...`,
     )
   })
@@ -188,6 +198,11 @@ function playback(overrides: Partial<PlaybackRecord> = {}): PlaybackRecord {
     deleted: 3,
     messages: 1,
     particles: 2,
+    sieves: 2,
+    sieves_done: 2,
+    sieve: 'abc',
+    position: null,
+    progress: 1,
     export_runs: [],
     exception: null,
     ...overrides,
@@ -196,20 +211,36 @@ function playback(overrides: Partial<PlaybackRecord> = {}): PlaybackRecord {
 
 describe('describePlayback', () => {
   it('says a component never played back', () => {
-    expect(describePlayback(undefined)).toBe('Never played back.')
+    expect(describePlayback(undefined, now)).toBe('Never played back.')
   })
 
   it('counts what a playback replayed and replaced', () => {
-    expect(describePlayback(playback())).toBe(
+    expect(describePlayback(playback(), now)).toBe(
       '2026-01-02 04:05 UTC, 1 message into 2 particles, replacing 3.',
     )
-    expect(describePlayback(playback({ state: 'running' }))).toBe(
-      'Playing back, 1 message into 2 particles so far.',
+  })
+
+  it('says how far a running replay got through the range', () => {
+    const replaying = playback({
+      state: 'running',
+      sieves_done: 0,
+      position: '2026-01-01T01:30:00Z',
+      progress: 0.256,
+    })
+    expect(describePlayback(replaying, now)).toBe(
+      '25% through 2026-01-01 01:30 UTC, 1 message into 2 particles so far, running 3m.',
+    )
+    expect(playbackPercent(replaying)).toBe(25)
+  })
+
+  it('says a playback past its replay rebuilds the exporter files', () => {
+    expect(describePlayback(playback({ state: 'running' }), now)).toBe(
+      'Rebuilding exporter files, 1 message into 2 particles, running 3m.',
     )
   })
 
   it('shows a failed playback the first line of its exception', () => {
-    expect(describePlayback(playback({ state: 'failed', exception: 'abc\ndef' }))).toBe(
+    expect(describePlayback(playback({ state: 'failed', exception: 'abc\ndef' }), now)).toBe(
       '2026-01-02 04:05 UTC, failed: abc',
     )
   })
