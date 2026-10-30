@@ -109,8 +109,7 @@ def _hour12(when: datetime) -> int:
 
 
 # The Unicode LDML date symbols (UTS #35) a template may use, one spelling per meaning. Names
-# render from English tables rather than the platform, so every platform and the console's
-# renderer agree.
+# render from English tables rather than the platform, so every platform agrees.
 _SYMBOLS: Final[Mapping[str, Callable[[datetime], str]]] = {
     "yyyy": lambda when: f"{when.year:04d}",
     "yy": lambda when: f"{when.year % 100:02d}",
@@ -277,7 +276,6 @@ class PathTemplate:
         if shadowed is not None:
             raise ValueError(f"atom '{shadowed}' is a built-in")
 
-        # The console's renderer tokenizes with this same expression, so both read one grammar.
         parts: list[str | _Atom] = []
         position = 0
         for match in _TOKEN.finditer(source):

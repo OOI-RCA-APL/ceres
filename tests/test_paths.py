@@ -71,7 +71,6 @@ class TestProj:
         assert result == root
 
 
-# Shared with the console's renderer, `console/tests/path-template.test.ts`.
 VECTORS = json.loads((Path(__file__).parent / "vectors/path-template.json").read_text())
 
 

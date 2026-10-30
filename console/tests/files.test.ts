@@ -7,7 +7,6 @@ import {
   TEXT_PREVIEW_LIMIT,
   childComponentFolders,
   copyFile,
-  datedFolder,
   fileComponentChain,
   fileComponentFolderName,
   fileMountComponent,
@@ -247,25 +246,6 @@ describe('findFileMount', () => {
     expect(findFileMount([mount], 'project')).toBe(mount)
     expect(findFileMount([mount], 'abc')).toBeNull()
     expect(findFileMount(undefined, 'project')).toBeNull()
-  })
-})
-
-describe('datedFolder', () => {
-  it('renders the layout in the mount zone with its names', () => {
-    const mount = mountOf(null, {
-      layout: '{mount}/{yyyy}/{MM}/{dd}',
-      zone: 'America/Los_Angeles',
-      names: { mount: 'abc' },
-    })
-    expect(datedFolder(mount, new Date('2026-10-28T03:00:00Z'))).toBe('abc/2026/10/27')
-  })
-
-  it('names no folder for a mount without a layout', () => {
-    expect(datedFolder(mountOf(null), new Date())).toBeNull()
-  })
-
-  it('names no folder for a layout naming a host the server keeps', () => {
-    expect(datedFolder(mountOf(null, { layout: '{host}/{yyyy}' }), new Date())).toBeNull()
   })
 })
 

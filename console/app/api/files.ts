@@ -4,7 +4,6 @@ import * as z from 'zod'
 import { Address } from '@/api/address'
 import { useClient } from '@/api/client'
 import { type ValueHistory, createHistory } from '@/history'
-import { PathTemplate } from '@/path-template'
 import { usePersisted } from '@/persistence'
 import { utc } from '@/time'
 import { type HighlightLanguage, getHttpUrl } from '@/utilities'
@@ -34,20 +33,6 @@ export const FileMountModel = z.object({
   names: z.record(z.string(), z.string()),
   files: z.record(z.string(), z.string()),
 })
-
-/** The folder of `mount` holding `when`, null when the mount has no layout or the console cannot
-render it, as when the layout names the host of a server that keeps its paths. */
-export function datedFolder(mount: FileMount, when: Date) {
-  if (mount.layout == null) {
-    return null
-  }
-
-  try {
-    return new PathTemplate(mount.layout).render(when, mount.zone, mount.names)
-  } catch {
-    return null
-  }
-}
 
 /** The mount in `mounts` with `id`, null when the caller cannot reach it. */
 export function findFileMount(mounts: readonly FileMount[] | undefined, id: string) {
