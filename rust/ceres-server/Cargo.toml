@@ -23,6 +23,8 @@ form_urlencoded = "1"
 futures-util = { version = "0.3.33", default-features = false }
 jsonwebtoken = { version = "11", default-features = false, features = ["rust_crypto"] }
 libc = "0.2"
+log = "0.4"
+percent-encoding = "2"
 pem = "3"
 pkcs8 = { version = "0.10", features = ["encryption", "pem", "std"] }
 # `x509-parser` lets an authority read from disk sign certificates.
@@ -63,6 +65,9 @@ uuid = { version = "1", features = ["v4"] }
 # Reads the validity, names, and issuer out of the HTTPS certificate, which rustls has no
 # public accessor for. `verify` checks a managed certificate's signature against its authority.
 x509-parser = { version = "0.18", default-features = false, features = ["verify"] }
+# A directory downloads stored, never compressed, so no compression feature. `chrono` dates
+# each member by its modification time.
+zip = { version = "9", default-features = false, features = ["chrono"] }
 
 [dev-dependencies]
 ceres-media = { path = "../ceres-media", features = ["server"] }

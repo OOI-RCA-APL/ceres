@@ -15,9 +15,10 @@ from dataclasses import InitVar, dataclass, field
 from datetime import timedelta
 from functools import cached_property
 from inspect import Parameter
+from os import PathLike
 from pathlib import Path
 from string import ascii_lowercase
-from types import MappingProxyType, UnionType
+from types import EllipsisType, MappingProxyType, NoneType, UnionType
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -28,6 +29,7 @@ from typing import (
     Self,
     TypeAlias,
     TypedDict,
+    Union,
     Unpack,
     cast,
     final,
@@ -39,8 +41,10 @@ from typing import (
 )
 
 from pydantic import (
+    AfterValidator,
     AliasChoices,
     AliasPath,
+    BeforeValidator,
     ByteSize,
     ConfigDict,
     Field,
@@ -49,6 +53,7 @@ from pydantic import (
     ValidationError,
 )
 from pydantic.fields import Deprecated, FieldInfo
+from pydantic_core import PydanticUndefined
 
 from ceres.__internal__.filter import BaseFilter, BaseFilterArgs
 from ceres.__internal__.lazy import __lazy_imports__
@@ -130,13 +135,13 @@ from ceres.event import (
     WillDetachEvent,
 )
 from ceres.message import Message, MessageData, MessageDirectionInput, MessageFilter
+from ceres.mount import Mount, MountAccess, MountAccessInput, MountPath, StrPath
 from ceres.node import Node
+from ceres.paths import PathLayout, PathTemplate, resolve_zone
 from ceres.timing import delta
 from ceres.variable import InternalVariableName, Variable
 
 if TYPE_CHECKING:
-    from os import PathLike
-
     from pydantic.config import JsonDict
     from pydantic.types import Discriminator
 
@@ -454,11 +459,14 @@ def get_connection_bindings(cls: type, /) -> Mapping[Name, ConnectionBinding]:
         if get_marker(metadata, BoundField.Marker) is None:
             continue
 
-        exact = []
-        connection = get_marker(metadata, ConnectionField.Marker)
-        if connection is not None:
-            exact.append(connection)
-
+        exact: list[BoundField.Marker] = [
+            marker
+            for marker in (
+                get_marker(metadata, ConnectionField.Marker),
+                get_marker(metadata, MountField.Marker),
+            )
+            if marker is not None
+        ]
         if not exact:
             raise TypeError(
                 f"Field '{field}' in component '{cls}' is marked as bound but does not have a "
@@ -471,19 +479,104 @@ def get_connection_bindings(cls: type, /) -> Mapping[Name, ConnectionBinding]:
             )
 
         marker = exact[0]
-        name: str | None = None
-        if marker is not None:
-            name = marker.name
-        if name is None:
-            name = field
-
         if isinstance(marker, ConnectionField.Marker):
+            name = marker.name if marker.name is not None else field
             bindings[name] = ConnectionBinding(name=name, field=field)
-        else:
+
+    return MappingProxyType(bindings)
+
+
+class MountBinding(DataObject.Frozen):
+    """A component field declared with `Mount.Field`, which the files API serves."""
+
+    name: Name
+    """Name the mount is listed under, the field name unless the field sets one."""
+
+    field: Name
+    """Attribute name on the component class that holds the mount."""
+
+    label: str
+    """Name the console shows for the mount, the field's title when it has one."""
+
+    writable: bool
+    """Whether the component's own code may change files through the mount."""
+
+    access: MountAccess | None
+    """Most the files API may do with the mount, `None` to follow `writable`."""
+
+    layout: PathLayout | None
+    """Dated folders the field declares, which configuration may replace."""
+
+    zone: str
+    """Time zone the field declares for its layout and file names."""
+
+    files: Mapping[str, PathTemplate]
+    """File name templates by kind the field declares, which configuration may replace."""
+
+
+@cached(weak=True)
+def get_mount_bindings(cls: type, /) -> Mapping[Name, MountBinding]:
+    """Discover every field on `cls` declared with `Mount.Field` and return their bindings.
+
+    Args:
+        cls: A component class to inspect.
+
+    Returns:
+        A mapping of mount name to `MountBinding`, in field order.
+
+    Raises:
+        TypeError: If a mount field is not typed `Mount` or `Mount | None`, if its name is not a
+            valid name, or if two fields share a name.
+    """
+    __pydantic_fields__: dict[str, FieldInfo] = getattr(cls, "__pydantic_fields__", {})
+
+    bindings: dict[Name, MountBinding] = {}
+    for field, info in __pydantic_fields__.items():
+        annotation = extract_annotation(info)
+        marker = next(
+            (current for current in annotation.metadata if isinstance(current, MountField.Marker)),
+            None,
+        )
+        if marker is None:
+            continue
+
+        members = (
+            set(annotation.generic_args)
+            if annotation.type in (Union, UnionType)
+            else {annotation.type}
+        )
+        mounts = [
+            member for member in members if isinstance(member, type) and issubclass(member, Mount)
+        ]
+        if len(mounts) != 1 or not members - set(mounts) <= {NoneType}:
             raise TypeError(
-                f"Field '{field}' in component '{cls}' is marked as bound but is not of a "
-                "known object type."
+                f"Field '{field}' in component '{cls}' is declared with `Mount.Field` but is "
+                "not typed `Mount` or `Mount | None`. Async code calls `aio()` on the mount."
             )
+
+        name = marker.name if marker.name is not None else field
+        if name in bindings:
+            raise TypeError(
+                f"Fields '{bindings[name].field}' and '{field}' in component '{cls}' both "
+                f"declare the mount '{name}'."
+            )
+
+        try:
+            bindings[name] = MountBinding(
+                name=name,
+                field=field,
+                label=info.title or name,
+                writable=marker.writable,
+                access=marker.access,
+                layout=marker.layout,
+                zone=marker.zone,
+                files=marker.files,
+            )
+        except ValidationError as error:
+            raise TypeError(
+                f"Field '{field}' in component '{cls}' declares the mount name '{name}', which "
+                "is not a valid name."
+            ) from error
 
     return MappingProxyType(bindings)
 
@@ -1564,6 +1657,10 @@ class ComponentSystem(Node, ComponentSource):
 
         self.sync_references()
 
+        # A malformed mount declaration raises while the component is built, never at the
+        # first request to the files API.
+        self.__name_mounts()
+
         # Add connections from bindings, static connections, then configuration.
         connections: dict[str, Connection] = {}
 
@@ -1864,6 +1961,7 @@ class ComponentSystem(Node, ComponentSource):
         """
         if self.parent is None:
             self._name = name
+            self.__name_mounts()
             return
 
         if name == self._name:
@@ -1878,6 +1976,7 @@ class ComponentSystem(Node, ComponentSource):
         self._name = name
         self.parent._children.pop(old_name, None)
         self.parent._children[name] = self
+        self.__name_mounts()
         self.__propagate_tree_change()
 
     @property
@@ -1972,6 +2071,41 @@ class ComponentSystem(Node, ComponentSource):
     def get_connection_bindings(self) -> Mapping[Name, ConnectionBinding]:
         """Return a mapping of connection names to connection bindings on the underlying class."""
         return get_connection_bindings(type(self.component))
+
+    def get_mount_bindings(self) -> Mapping[Name, MountBinding]:
+        """Return a mapping of mount names to mount bindings on the underlying class."""
+        return get_mount_bindings(type(self.component))
+
+    def get_mount(self, name: Name, /) -> Mount | None:
+        """Return the mount the component lists under `name`.
+
+        Returns:
+            The field's `Mount`, or `None` when no field declares `name` or the field holds
+            `None`.
+        """
+        binding = self.get_mount_bindings().get(name)
+        if binding is None:
+            return None
+
+        mount = getattr(self.component, binding.field, None)
+        return mount if isinstance(mount, Mount) else None
+
+    def __name_mounts(self) -> None:
+        # Gives each mount field the names its layout and file names render. The field takes a
+        # copy, since a mount passed in from code may be shared, and the assignment bypasses
+        # `__setattr__` so the field does not read as set by the user.
+        engine = self.engine
+        project = None if engine is None or engine.project is None else engine.project
+        for binding in self.get_mount_bindings().values():
+            mount = getattr(self.component, binding.field, None)
+            if not isinstance(mount, Mount):
+                continue
+
+            names = {"component": str(self.name), "mount": str(binding.name)}
+            if project is not None:
+                names["project"] = project.directory.name
+
+            object.__setattr__(self.component, binding.field, mount._named(names))
 
     def __propagate_tree_change(self) -> None:
         # Notify every component that the structure changed so they can recompute cached child
@@ -2822,7 +2956,7 @@ class BoundField[T](_FieldInfo, Bound[T] if TYPE_CHECKING else _Empty):
 
     def __init__(
         self,
-        default: Any = Undefined,
+        default: Any = PydanticUndefined,
         **kwargs: Unpack[BoundFieldArgs],
     ) -> None:
         name = kwargs.pop("name", None)
@@ -2849,3 +2983,143 @@ class BoundField[T](_FieldInfo, Bound[T] if TYPE_CHECKING else _Empty):
     def name(self) -> str | None:
         """Name the bound object is registered under, or `None` if not yet set."""
         return self.marker.name
+
+
+class MountFieldArgs(BoundFieldArgs, total=False):
+    """`TypedDict` of keyword arguments accepted by `MountField`."""
+
+    writable: bool
+    """Whether the component's own code may change files through the mount, `True` when
+    omitted. Configuration cannot widen it."""
+
+    access: MountAccessInput | None
+    """Most the files API may do with the mount, see `MountPath.access`. Configuration may
+    lower it further."""
+
+    layout: str | None
+    """Dated folders the mount writes into, see `PathLayout`. Configuration may replace it, or
+    clear it with `null`. A `Mount` given in code keeps its own layout."""
+
+    zone: str
+    """Time zone the layout and file names render in, `utc` when omitted. Configuration may
+    replace it."""
+
+    files: Mapping[str, str]
+    """File name templates by kind, see `MountPath.files`. Configuration may replace any kind
+    the field declares, and declares no other."""
+
+    atoms: Sequence[str]
+    """Atoms beyond the built-in ones that the component passes to every file template."""
+
+
+class MountField[M: Mount](BoundField[M]):
+    """Pydantic field that declares a component directory the files API serves.
+
+    Reached as `Mount.Field`, `stills: Bound[Mount] = Mount.Field("./stills")`, and async code
+    calls `aio()` on the value for coroutine methods. A path default stays a string until
+    validation, so a relative one resolves beside the configuration file the same way a
+    configured path does. With no path the field holds a temporary mount, `Mount.Field(...)`
+    makes the field required, and `Mount.Field(default=None)` makes it optional.
+    """
+
+    __slots__ = ()
+
+    @dataclass(slots=True)
+    class Marker(BoundField.Marker):
+        """Annotation marker identifying a field as a `MountField`."""
+
+        writable: bool = True
+        access: MountAccess | None = None
+        layout: PathLayout | None = None
+        zone: str = "utc"
+        files: Mapping[str, PathTemplate] = field(default_factory=dict)
+        atoms: Sequence[str] = ()
+
+        def settle(self, value: object) -> object:
+            """Fill the field's `layout`, `zone`, and `files` into a configured path or mapping
+            that leaves them out, so a configured key replaces the field's.
+
+            Raises:
+                ValueError: If the configuration names a file kind the field does not declare,
+                    which no code would write.
+            """
+            if isinstance(value, MountPath):
+                # The component's code writes the kinds the field declares, so a mount given in
+                # code gains any it lacks, while its own layout and kinds stand.
+                missing = {
+                    kind: file for kind, file in self.files.items() if kind not in value.files
+                }
+                return {"path": value, "files": missing} if missing else value
+
+            if isinstance(value, str | PathLike):
+                value = {"path": value}
+
+            if not isinstance(value, dict):
+                return value
+
+            setting = cast("dict[str, object]", value)
+            configured = cast("Mapping[str, str]", setting.get("files") or {})
+            for kind in configured:
+                if kind not in self.files:
+                    raise ValueError(f"mount declares no file '{kind}'")
+
+            files = {
+                **self.files,
+                **{kind: PathTemplate(file, atoms=self.atoms) for kind, file in configured.items()},
+            }
+            return {
+                "layout": None if self.layout is None else self.layout.source,
+                "zone": self.zone,
+                **setting,
+                "files": files,
+            }
+
+        def apply[P: MountPath](self, value: P | None) -> P | None:
+            """Return `value` limited to the field's `writable` and `access`."""
+            if value is None:
+                return None
+
+            writable = value.writable and self.writable
+            limits = [limit for limit in (value.access, self.access) if limit is not None]
+            access = min(limits, default=None)
+            if writable == value.writable and access == value.access:
+                return value
+
+            return value._replace(writable=writable, access=access)
+
+    def __init__(
+        self,
+        path: StrPath | EllipsisType | None = None,
+        *,
+        default: Any = PydanticUndefined,
+        **kwargs: Unpack[MountFieldArgs],
+    ):
+        writable = kwargs.pop("writable", True)
+        access = kwargs.pop("access", None)
+        layout = kwargs.pop("layout", None)
+        zone = kwargs.pop("zone", "utc")
+        atoms = tuple(kwargs.pop("atoms", ()))
+
+        # Parsed here, so a bad layout, file, or zone fails when the class is created.
+        parsed = None if not layout else PathLayout(layout)
+        files = {
+            kind: PathTemplate(file, atoms=atoms) for kind, file in kwargs.pop("files", {}).items()
+        }
+        resolve_zone(zone)
+        if path is None and default is PydanticUndefined and "default_factory" not in kwargs:
+            kwargs["default_factory"] = lambda: Mount(layout=parsed, zone=zone, files=files)
+
+        # The default passes the same validator a configured value does, which applies the
+        # field's `writable` and resolves a relative path against the project.
+        kwargs.setdefault("validate_default", True)
+        super().__init__(default if path is None else path, **kwargs)
+
+        marker = cast("MountField.Marker", self.marker)
+        marker.writable = writable
+        marker.access = None if access is None else MountAccess(access)
+        marker.layout = parsed
+        marker.zone = zone
+        marker.files = files
+        marker.atoms = atoms
+        self.metadata.append(BeforeValidator(marker.settle))
+        self.metadata.append(AfterValidator(marker.apply))

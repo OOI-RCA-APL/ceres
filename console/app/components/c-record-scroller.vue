@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { useResizeObserver } from '@vueuse/core'
-import { nextTick, onMounted, watchEffect } from 'vue'
+import { nextTick, onMounted, watch, watchEffect } from 'vue'
 
 /** A virtual scroller for rows that are all the same known height.
 
@@ -139,6 +139,47 @@ function scrollTo(index: number) {
 /** Nothing is measured so there is nothing to measure again. Kept for the callers that ask. */
 function refresh() {}
 
+// The lane's own bar sits under the last row, a whole list away, so a bar pinned to the bottom of
+// the view stands in for it and the two follow each other.
+let tableElement = $ref<HTMLElement | null>(null)
+let barElement = $ref<HTMLElement | null>(null)
+let tableWidth = $ref(0)
+let laneWidth = $ref(0)
+
+useResizeObserver(
+  () => tableElement,
+  (entries) => {
+    for (const entry of entries) {
+      tableWidth = entry.borderBoxSize[0]?.inlineSize ?? entry.contentRect.width
+    }
+  },
+)
+useResizeObserver(
+  () => laneElement,
+  (entries) => {
+    for (const entry of entries) {
+      laneWidth = entry.contentRect.width
+    }
+  },
+)
+
+const overflowsSideways = $computed(() => tableWidth > laneWidth + 1)
+
+function followLane() {
+  if (barElement != null && laneElement != null) {
+    barElement.scrollLeft = laneElement.scrollLeft
+  }
+}
+
+// A bar that appears with the lane already scrolled starts where the lane is.
+watch(() => barElement, followLane, { flush: 'post' })
+
+function followBar() {
+  if (barElement != null && laneElement != null) {
+    laneElement.scrollLeft = barElement.scrollLeft
+  }
+}
+
 defineExpose({ scrollTo, moveTo, refresh, element: $$(scroller), lane: $$(laneElement) })
 </script>
 
@@ -146,8 +187,8 @@ defineExpose({ scrollTo, moveTo, refresh, element: $$(scroller), lane: $$(laneEl
   <div ref="viewportElement" :class="$style.root" @scroll.passive="onScroll">
     <!-- The columns scroll inside here and the rows scroll outside it, so the box carrying the
     vertical bar never overflows sideways and never gives up its corner to a horizontal one. -->
-    <div ref="laneElement" :class="$style.lane">
-      <table :class="$style.table">
+    <div ref="laneElement" :class="$style.lane" @scroll.passive="followLane">
+      <table ref="tableElement" :class="$style.table">
         <tbody>
           <tr>
             <td :colspan="columns" :style="{ height: `${above}px`, padding: 0 }" />
@@ -164,6 +205,9 @@ defineExpose({ scrollTo, moveTo, refresh, element: $$(scroller), lane: $$(laneEl
           </tr>
         </tbody>
       </table>
+    </div>
+    <div v-if="overflowsSideways" ref="barElement" :class="$style.bar" @scroll.passive="followBar">
+      <div :style="{ width: `${tableWidth}px`, height: '1px' }" />
     </div>
   </div>
 </template>
@@ -183,6 +227,34 @@ Nothing is lost, this box carrying no vertical bar of its own. */
 
 .lane::-webkit-scrollbar {
   display: none;
+}
+
+/* Styled through the WebKit pseudo-elements, which keep the bar drawn in Chrome and Safari even
+where the system hides scroll bars until a scroll. Firefox reads only the standard properties. */
+.bar {
+  position: sticky;
+  bottom: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.bar::-webkit-scrollbar {
+  height: 8px;
+}
+
+.bar::-webkit-scrollbar-thumb {
+  border-radius: 4px;
+  background-color: #80808080;
+}
+
+.bar::-webkit-scrollbar-thumb:hover {
+  background-color: #808080bf;
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  .bar {
+    scrollbar-width: thin;
+  }
 }
 
 /* At least as wide as the room it has, so the last column reaches the edge, and wider than that

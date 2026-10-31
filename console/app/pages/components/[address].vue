@@ -74,6 +74,7 @@ const persisted = usePersisted({
       workspaces: boolean().default(true),
       connections: boolean().default(false),
       jobs: boolean().default(false),
+      files: boolean().default(true),
       particles: boolean().default(false),
       particleTypes: record(string(), boolean()).default({}),
       queries: boolean().default(false),
@@ -410,6 +411,13 @@ const configHighlighted = $computed(() =>
                     <c-text variant="description">{{ jobLabel(job) }}</c-text>
                   </div>
                 </c-list-item>
+              </c-detail-section>
+              <c-detail-section
+                v-if="component.mounts.length > 0"
+                v-model:expanded="persisted.files"
+                :title="`Files (${component.mounts.length})`"
+              >
+                <c-file-mount v-for="mount in component.mounts" :key="mount.id" :mount />
               </c-detail-section>
             </c-list>
 

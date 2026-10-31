@@ -39,6 +39,17 @@ export function afterMenuCloses(action: () => void) {
   setTimeout(action, 150)
 }
 
+/** Open the context menu around the element handling `event`, below its corner, as a right click
+there would. A row's button calls it so that every row shares the list's one menu. */
+export function openContextMenu(event: MouseEvent) {
+  const element = event.currentTarget
+  if (element instanceof Element) {
+    const { left, bottom } = element.getBoundingClientRect()
+    const press = { bubbles: true, cancelable: true, clientX: left, clientY: bottom }
+    element.dispatchEvent(new MouseEvent('contextmenu', press))
+  }
+}
+
 export function debouncedComputed<T>(factory: () => T, delay: number): ComputedRef<T> {
   const result: Ref<T> = shallowRef(factory())
   watch(
@@ -77,10 +88,49 @@ export function selectFile({
   })
 }
 
-export type HighlightLanguage = 'json' | 'log' | 'yaml'
+export type HighlightLanguage =
+  | 'bash'
+  | 'css'
+  | 'ini'
+  | 'javascript'
+  | 'json'
+  | 'log'
+  | 'markdown'
+  | 'markup'
+  | 'python'
+  | 'rust'
+  | 'sql'
+  | 'toml'
+  | 'typescript'
+  | 'yaml'
 
+// Prism's core holds markup, css and javascript, and the console's own views load json, log and
+// yaml up front, so only a file preview waits on the rest.
+const highlightLoaders: Partial<Record<HighlightLanguage, () => Promise<unknown>>> = {
+  bash: () => import('prismjs/components/prism-bash'),
+  ini: () => import('prismjs/components/prism-ini'),
+  markdown: () => import('prismjs/components/prism-markdown'),
+  python: () => import('prismjs/components/prism-python'),
+  rust: () => import('prismjs/components/prism-rust'),
+  sql: () => import('prismjs/components/prism-sql'),
+  toml: () => import('prismjs/components/prism-toml'),
+  typescript: () => import('prismjs/components/prism-typescript'),
+}
+
+/** Load the grammar `highlight` needs for `language`, at once for one already loaded. */
+export async function loadHighlightLanguage(language: HighlightLanguage): Promise<void> {
+  await highlightLoaders[language]?.()
+}
+
+/** `text` as highlighted HTML, which Prism escapes. Throws for a grammar not yet loaded, so a
+caller with a language outside the eager set awaits `loadHighlightLanguage` first. */
 export function highlight(text: string, language: HighlightLanguage): string {
-  return Prism.highlight(text, Prism.languages[language]!, language)
+  const grammar = Prism.languages[language]
+  if (grammar == null) {
+    throw new Error(`The ${language} grammar is not loaded.`)
+  }
+
+  return Prism.highlight(text, grammar, language)
 }
 
 /** An array schema that drops unparsable elements with an error log instead of failing whole. */
@@ -207,8 +257,39 @@ export function toTitle(text: string): string {
   return titleCase(text.replace(/[-_ \t\n\r]+/g, ' '))
 }
 
+/** Put `text` on the clipboard. Call it inside the click that asked, before any `await`, since a
+page served over plain HTTP has no clipboard API and the fallback copies only within that click. */
 export async function copyText(text: string) {
-  await navigator.clipboard.writeText(text)
+  const clipboard: Clipboard | undefined = navigator.clipboard
+  if (clipboard == null) {
+    copyTextBySelection(text)
+    return
+  }
+
+  await clipboard.writeText(text)
+}
+
+/** Copy `text` through a hidden field's selection, the one copy a page outside a secure context
+may make. */
+function copyTextBySelection(text: string) {
+  const focused = document.activeElement
+  const field = document.createElement('textarea')
+  field.value = text
+  field.readOnly = true
+  field.style.position = 'fixed'
+  field.style.opacity = '0'
+  document.body.append(field)
+  field.select()
+  try {
+    if (!document.execCommand('copy')) {
+      throw new Error('The browser refused to copy.')
+    }
+  } finally {
+    field.remove()
+    if (focused instanceof HTMLElement) {
+      focused.focus()
+    }
+  }
 }
 
 /** Menu `content` props that keep a closing menu's focus restore from interrupting an edit.
@@ -226,12 +307,18 @@ export function keepFocusWhile(editing: () => boolean) {
   }
 }
 
-/** Save `content` as a file download named `name`. */
-export function downloadFile(name: string, content: string, type = 'application/json') {
-  const url = URL.createObjectURL(new Blob([content], { type }))
+/** Save what the same-origin `url` answers as a download named `name`, or by the name the
+response gives when `name` is empty. */
+export function downloadFrom(url: string, name = '') {
   const anchor = document.createElement('a')
   anchor.href = url
   anchor.download = name
   anchor.click()
+}
+
+/** Save `content` as a file download named `name`. */
+export function downloadFile(name: string, content: string, type = 'application/json') {
+  const url = URL.createObjectURL(new Blob([content], { type }))
+  downloadFrom(url, name)
   URL.revokeObjectURL(url)
 }

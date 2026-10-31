@@ -181,6 +181,20 @@ export const VideoWidgetModel = BaseWidgetModel.extend({
   transport: z.enum(['auto', 'webrtc', 'http']).default('auto').catch('auto'),
 })
 
+export type FilesWidget = z.infer<typeof FilesWidgetModel>
+export const FilesWidgetModel = BaseWidgetModel.extend({
+  type: z.literal('files'),
+  name: z.string().catch('Files'),
+  /** The component whose mounts, its descendants' included, the widget lists, in the form
+  `resolveWidgetAddress` reads. The engine root lists every mount. */
+  component: z.string().nullish(),
+  /** The mount the widget opens on, its ID as the engine lists it, or the list of mounts when
+  unset. Where each browser goes from there is its own. */
+  mount: z.string().nullish(),
+  /** The directory under `mount` the widget opens on. */
+  path: z.array(z.string()).catch([]),
+})
+
 /** A stored control color, in the vocabulary the old console wrote and the engine still holds. */
 export type Color = z.infer<typeof ColorModel>
 export const ColorModel = z.enum(['primary', 'positive', 'warning', 'negative', 'white', 'black'])
@@ -374,6 +388,7 @@ export type Widget =
   | ChartWidget
   | MeterWidget
   | VideoWidget
+  | FilesWidget
   | ControlsWidget
   | CarouselWidget
   | TabsWidget
@@ -411,6 +426,7 @@ export const widgetModels = {
   chart: ChartWidgetModel,
   meter: MeterWidgetModel,
   video: VideoWidgetModel,
+  files: FilesWidgetModel,
   controls: ControlsWidgetModel,
   carousel: CarouselWidgetModel,
   tabs: TabsWidgetModel,
@@ -445,6 +461,7 @@ export const WidgetModel = z.preprocess(
       ChartWidgetModel,
       MeterWidgetModel,
       VideoWidgetModel,
+      FilesWidgetModel,
       ControlsWidgetModel,
       // The controls widget's legacy stored kind, turned into `controls` by `upgradedWidget` on
       // load.
@@ -721,6 +738,15 @@ export function resolveWidgetAddress(
   }
 
   return AddressSelector.parse(value).asAbsolute(scope)
+}
+
+/** The address whose mounts a files widget lists, or null for every mount. */
+export function filesWidgetRoot(
+  value: string | null | undefined,
+  scope: Address | null,
+): string | null {
+  const resolved = resolveWidgetAddress(value, scope)?.toString() ?? null
+  return resolved === engineRoot ? null : resolved
 }
 
 /** The one component a widget is pointed at, or null when it is pointed at none.

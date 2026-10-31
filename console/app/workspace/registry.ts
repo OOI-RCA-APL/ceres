@@ -127,6 +127,20 @@ export const widgetInfos = {
       paddingClass: [],
     }),
   },
+  files: {
+    type: 'files',
+    name: 'Files View',
+    model: widgetModels.files,
+    component: defineAsyncComponent(() => import('@/components/c-workspace-widget-files.vue')),
+    settingsComponent: defineAsyncComponent(
+      () => import('@/components/c-workspace-widget-files-settings.vue'),
+    ),
+    options: widgetOptions({
+      minHeight: 200,
+      initialHeight: 320,
+      paddingClass: [],
+    }),
+  },
   section: {
     type: 'section',
     name: 'Section',

@@ -33,6 +33,8 @@ dependencies = [
     "rich>=14.3.2,<15",
     "setproctitle>=1.3.7,<2",
     "typing-extensions>=4.15.0",
+    "tzdata>=2025.2; sys_platform == 'win32'",
+    "tzlocal>=5.3,<6",
     "uuid-utils>=1.0.0",
     "uvloop>=0.22.1; platform_system == 'Linux' or platform_system == 'Darwin'",
 ]

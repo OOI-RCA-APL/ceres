@@ -7,6 +7,7 @@ import { useAuth } from '@/api/auth'
 import { useClient } from '@/api/client'
 import { useComponents } from '@/api/components'
 import { type Config, ConfigModel, useConfig } from '@/api/config'
+import { useFiles } from '@/api/files'
 import { useGroups } from '@/api/groups'
 import { useLogs } from '@/api/logs'
 import { useMessages } from '@/api/messages'
@@ -25,6 +26,7 @@ export const useEngine = defineStore('engine', () => {
   const auth = useAuth()
   const components = useComponents()
   const config = useConfig()
+  const files = useFiles()
   const groups = useGroups()
   const messages = useMessages()
   const particles = useParticles()
@@ -90,6 +92,7 @@ export const useEngine = defineStore('engine', () => {
     auth,
     components,
     config,
+    files,
     groups,
     logs,
     messages,

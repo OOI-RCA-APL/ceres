@@ -1,6 +1,6 @@
 from abc import abstractmethod
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Literal, Self, TypeAlias, override
 
@@ -29,6 +29,7 @@ from ceres.__internal__.core import ServerAuthenticationConfig as _CoreServerAut
 from ceres.__internal__.core import ServerCompressionConfig as _CoreServerCompressionConfig
 from ceres.__internal__.core import ServerConfig as _CoreServerConfig
 from ceres.__internal__.core import ServerCORSConfig as _CoreServerCORSConfig
+from ceres.__internal__.core import ServerFilesConfig as _CoreServerFilesConfig
 from ceres.__internal__.core import ServerHTTPConfig as _CoreServerHTTPConfig
 from ceres.__internal__.core import ServerHTTPSConfig as _CoreServerHTTPSConfig
 from ceres.__internal__.core import ServerWebRTCConfig as _CoreServerWebRTCConfig
@@ -78,9 +79,13 @@ from ceres.level import Level
 from ceres.logs import LogEntryFilter
 from ceres.message import MessageFilter
 from ceres.particle import ParticleFilter
+from ceres.paths import PathLayout, resolve_zone
+from ceres.project import Project
 from ceres.schedule import ScheduleExpr
 
 if TYPE_CHECKING:
+    import dataclasses
+
     from ceres.component import Component, ComponentSystem
     from ceres.connection import Connection, ConnectionField
     from ceres.engine import Engine
@@ -530,6 +535,14 @@ class ComponentConfig(DataObject):
     components: list[ComponentConfig] = Field(default_factory=list)
     """Nested child component configurations."""
 
+    # The project of the file this configuration was read from, passed again to validation
+    # when the component is created. No field holds it, so it never serializes and reload
+    # never compares it. `copy.copy`, `copy.deepcopy`, and `dataclasses.replace` drop it.
+    if TYPE_CHECKING:
+        _project: Project | None = dataclasses.field(init=False, repr=False, compare=False)
+    else:
+        _project = None
+
     @field_validator("cls")
     def _validate_cls(cls, value: ImportString[type]) -> ImportString[type[Component]]:
         from ceres.component import Component
@@ -540,14 +553,15 @@ class ComponentConfig(DataObject):
         return value
 
     @model_validator(mode="after")
-    def _validate_arguments(self) -> Self:
+    def _validate_arguments(self, info: ValidationInfo) -> Self:
         # Reserve the `__with` prefix for internal injection of name, config, and container
         # during component construction, user-supplied arguments must not collide.
         for argument in self.arguments:
             if argument.startswith("__with"):
                 raise ValueError(f"arguments starting with '__with' are reserved, got '{argument}'")
 
-        validate(self.cls, self.arguments)
+        self._project = Project.from_context(info.context)
+        validate(self.cls, self.arguments, context=self._validation_context)
         return self
 
     @field_validator("name")
@@ -597,6 +611,10 @@ class ComponentConfig(DataObject):
                 )
 
         return components
+
+    @property
+    def _validation_context(self) -> dict[str, Any] | None:
+        return None if self._project is None else {"project": self._project}
 
     def create(
         self,
@@ -685,6 +703,7 @@ class ComponentConfig(DataObject):
                     "__with_config__": self,
                     "__with_container__": container,
                 },
+                context=self._validation_context,
             )
         except ValidationError as error:
             errors.append(
@@ -809,6 +828,15 @@ class ServerWebRTCConfig(RustConfigModel, _CoreServerWebRTCConfig):
 
     The fields and their validation live in the native
     `ceres.__internal__.core.ServerWebRTCConfig`, this subclass only wires the class into
+    Pydantic.
+    """
+
+
+class ServerFilesConfig(RustConfigModel, _CoreServerFilesConfig):
+    """What the console's file browser serves.
+
+    The fields and their validation live in the native
+    `ceres.__internal__.core.ServerFilesConfig`, this subclass only wires the class into
     Pydantic.
     """
 
@@ -1023,9 +1051,31 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
     ] = Field(default_factory=SQLiteDatabaseConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
+    @field_validator("server")
+    def _validate_mount_layouts(cls, server: ServerConfig) -> ServerConfig:
+        # The native section stores each engine mount's layout and zone as text, and the
+        # grammar lives in Python, so a bad one fails here at load rather than at a request.
+        # The probe render refuses a name no engine mount has, such as `{component}`.
+        names = {"project": "x", "host": "x"}
+        for name, setting in server.files.mounts.items():
+            layout, zone = setting.get("layout"), setting.get("zone")
+            try:
+                if layout:
+                    PathLayout(layout).render(datetime.now(UTC), values={**names, "mount": name})
+
+                if zone:
+                    resolve_zone(zone)
+            except ValueError as error:
+                raise ValueError(f"engine mount '{name}': {error}") from error
+
+        return server
+
     @classmethod
     def read(cls, source: ConfigSource[Self]) -> Self:
         """Read and validate a configuration from a path, mapping, or existing instance.
+
+        A relative `Mount` path in a file resolves against the file's directory, and one in a
+        mapping against the current directory.
 
         Args:
             source: A path to a YAML file, an in-memory mapping, or an already-validated
@@ -1047,6 +1097,7 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
         if isinstance(source, cls):
             return source
 
+        context: dict[str, Any] | None = None
         if isinstance(source, Mapping):
             data = source
         elif isinstance(source, Path):
@@ -1074,11 +1125,13 @@ class ConfigMeta(DataObject, config=ConfigDict(extra="allow")):
                         )
 
                 raise ConfigParseError(message=message, location=location)
+
+            context = {"project": Project(source)}
         else:
             raise ConfigInvalidSourceError(message=f"invalid source type: {type(source)}")
 
         try:
-            instance = validate(cls, data)
+            instance = validate(cls, data, context=context)
         except ValidationError as error:
             raise ConfigValidationError(problems=ValidationProblem.extract(error, data))
 

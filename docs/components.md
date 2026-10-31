@@ -64,6 +64,105 @@ components:
       interval: 1s
 ```
 
+## Mounts
+
+A `Mount` is a directory a component reads or writes. Each of its methods mirrors its `pathlib.Path` namesake, joining with `/` never leaves the directory, and `parent` stops at it. `mount.aio()` returns the same place as an `AsyncMount`, whose methods are coroutines that run the filesystem call off the event loop, so async code reaches files through it. `Mount(async_mount)` converts back.
+
+A component declares a mount with `Mount.Field`, and the console's "Files" page then lists it for anyone who may view the component (see [Files](deployment.md#files)). A mount field is always typed `Mount`, or `Mount | None`, whether the code using it is sync or async.
+
+```python
+from ceres import Bound, Component, Mount
+
+
+class Recorder(Component):
+    output: Bound[Mount] = Mount.Field(..., title="Recordings")
+    calibration: Bound[Mount] = Mount.Field("./calibration", writable=False)
+    scratch: Bound[Mount] = Mount.Field()
+
+    async def save(self, name: str, data: bytes) -> None:
+        await (self.output.aio() / name).write_bytes(data)
+```
+
+```yaml
+components:
+  - name: recorder
+    class: recorder.Recorder
+    arguments:
+      output: ./data
+```
+
+- `Mount.Field(...)` makes the field required. A path default, such as `"./calibration"`, resolves the same way a configured path does, and `Mount.Field()` with no path gives the component a temporary directory, removed once nothing refers to it. `Mount.Field(default=None)` makes the mount optional, its annotation `Bound[Mount | None]`.
+- A relative path in `ceres.yaml` resolves against the directory holding that file, wherever the engine runs from. One given in code, such as `Mount("./data")`, resolves against the current directory, as `Path` does.
+- `title` names the mount in the console, the field name in title case otherwise, and `name` lists it under another name than the field's. Two fields of one component never share a name.
+- `writable=False` makes the component's own writes raise `PermissionError`, and the console offers the mount for viewing only. Configuration cannot make such a field writable.
+- `access` lowers what the console may do with the mount, `"view"` to browse and download only, `"none"` to hide it. Configuration may lower it further with a mapping, `output: {path: ./data, access: view}`. The console grants the least of this, `server.files.access`, and the caller's permission on the component.
+
+### Layouts
+
+A mount with a `layout` keeps its files in dated folders below its root, and its `files` name each kind of file the component writes there. `file(kind, when, values)` returns the path a new file of that kind takes, creating its folders, and `periods(after, before)` walks the folders that exist for a span, oldest first. Without a layout, files land at the mount's root and `periods` yields the mount itself.
+
+```python
+from datetime import UTC, datetime
+
+from ceres import Bound, Component, Mount
+
+
+class Photographer(Component):
+    stills: Bound[Mount] = Mount.Field(
+        ...,
+        layout="{yyyy}/{MM}/{dd}",
+        zone="local",
+        files={
+            "still": "still_{HH}{mm}{ss}.{SSS}_{sequence}.jpg",
+            "thumb": "thumbs/{HH}{mm}{ss}.{SSS}.jpg",
+        },
+        atoms=["sequence"],
+    )
+
+    def keep(self, image: bytes, sequence: int) -> None:
+        self.stills.file("still", datetime.now(UTC), {"sequence": sequence}).write_bytes(image)
+```
+
+```yaml
+components:
+  - name: photographer
+    class: photographer.Photographer
+    arguments:
+      stills:
+        path: ./stills
+        layout: "{yyyy}/{MM}"
+        zone: utc
+        files: {still: "{yyyy}{MM}{dd}T{HH}{mm}{ss}_{sequence}.jpg"}
+```
+
+- A layout names time from the year down: `{yyyy}` or `{yy}`, then `{MM}`, `{M}`, `{MMM}`, `{MMMM}`, or `{DDD}`, then `{dd}` or `{d}`, `{HH}`, `{H}`, or `{hh}` with `{a}` in the same folder, `{mm}`, and `{ss}`. It may also use `{component}`, `{mount}`, `{project}`, and `{host}`. The engine refuses any other atom, since `periods` could not read the time back from the folder name.
+- `zone` decides which day a time falls on, `utc` when omitted, `local` for the server's time zone, or an IANA name such as `America/Los_Angeles`.
+- Configuration replaces each key it gives, and `layout: null` turns the layout off. A key left out keeps the field's. Under `files` it replaces each kind it names and keeps the rest, and the engine refuses a kind the field does not declare.
+- A file template may hold folders of its own, so kinds sharing a mount stay apart. `file` also takes a `PathTemplate` for a one-off file.
+
+### File Name Templates
+
+A layout and a mount's `files` share one grammar, `PathTemplate`. The engine refuses a bad template when the class is created or the configuration loads. `atoms` names the atoms the component supplies itself, and `file` fills the time in the mount's zone, the mount's names, and the dictionary for the rest. `PathTemplate.Field` declares a template outside any mount, which `mount.render(template, when, values)` renders the same way.
+
+Time atoms are [Unicode LDML date symbols](https://unicode.org/reports/tr35/tr35-dates.html#Date_Field_Symbol_Table), one spelling for each meaning.
+
+| Atoms | Render 2026-10-27 13:45:09.123456 UTC as |
+| --- | --- |
+| `{yyyy}` `{yy}` | `2026` `26` |
+| `{MM}` `{M}` `{MMM}` `{MMMM}` | `10` `10` `Oct` `October` |
+| `{dd}` `{d}` `{DDD}` | `27` `27` `300`, the day of the year |
+| `{HH}` `{H}` `{hh}` `{h}` `{a}` | `13` `13` `01` `1` `PM` |
+| `{mm}` `{ss}` | `45` `09` |
+| `{S}` to `{SSSSSS}` | `1` to `123456`, the fraction of the second, cut rather than rounded |
+| `{EEE}` `{EEEE}` | `Tue` `Tuesday` |
+| `{Z}` `{XX}` | `+0000` `Z`, and `-0700` for both in Los Angeles summer time |
+| `{epoch}` `{epoch:ms}` `{epoch:us}` | `1793108709` `1793108709123` `1793108709123456`, Unix time |
+| `{component}` `{mount}` `{connection}` `{project}` `{host}` | Names the component supplies, `{host}` this machine's name by default |
+
+- Two letters pad to a fixed width, so names sort by time, and one letter does not. Names render in English on every platform.
+- `{hh}` and `{h}` need `{a}`, `{mm}` needs an hour, and `{ss}` needs `{mm}`, so `{yyyy}-{mm}-{dd}` fails rather than writing the minute where the month belongs. The engine names the symbol meant for other LDML spellings, such as `{YYYY}`, the week-based year, or `{year}`.
+- `{{` and `}}` write a brace. A template renders a relative path. The engine refuses an unknown atom, an absolute path, an empty, `.`, or `..` segment, a character Windows cannot hold in a file name, and a name Windows reserves, such as `CON`. A name atom rendering a separator fails when it renders.
+
 ## Component Trees
 
 Components can be organized into hierarchies called _component trees_. Each component is a node with an arbitrary number of children and at most one parent. Component names must be unique within their parent.

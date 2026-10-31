@@ -158,7 +158,7 @@ function toggleExpanded() {
   <template v-if="isShown">
     <nuxt-link
       class="hover:bg-primary/14 group relative flex items-center overflow-hidden py-1 text-[13px]"
-      :class="[isOpen && 'bg-primary/16 text-primary', !isOpen && isOnPath && 'text-toned']"
+      :class="isOpen ? 'bg-primary/16 text-primary' : 'text-toned hover:text-default'"
       :data-workspace-drop-placement="address.toString()"
       :to="`/components/${address}`"
     >

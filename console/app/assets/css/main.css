@@ -83,6 +83,8 @@ carries, so the cursor is held everywhere rather than on the item alone. */
      read as the same line. */
   --console-border-strength: 12%;
   --ui-border: --alpha(var(--ui-text) / var(--console-border-strength));
+  /* A hairline that stands out from the ones around it, half again their strength. */
+  --console-border-strong: --alpha(var(--ui-text) / calc(var(--console-border-strength) * 1.5));
 
   /* The colors a chart's series cycle through, led by the brand so a lone series is the app's
      own and then ordered to put the widest hue gap between neighbours, which is the pair a
@@ -120,16 +122,17 @@ carries, so the cursor is held everywhere rather than on the item alone. */
 .token.operator,
 .token.entity,
 .token.url {
-  color: #676f7d;
+  color: var(--ui-text-muted);
 }
 
+/* Each kind takes a semantic hue, darker on light and lighter on dark so it reads on either. */
 .token.tag,
 .token.boolean,
 .token.number,
 .token.constant,
 .token.symbol,
 .token.deleted {
-  color: #00455f;
+  color: var(--ui-color-primary-700);
 }
 
 .dark .token.tag,
@@ -138,7 +141,7 @@ carries, so the cursor is held everywhere rather than on the item alone. */
 .dark .token.constant,
 .dark .token.symbol,
 .dark .token.deleted {
-  color: #4299cf;
+  color: var(--ui-color-primary-400);
 }
 
 .token.selector,
@@ -148,7 +151,7 @@ carries, so the cursor is held everywhere rather than on the item alone. */
 .token.builtin,
 .token.inserted,
 .token.function {
-  color: #008a7c;
+  color: var(--ui-color-success-700);
 }
 
 .dark .token.selector,
@@ -158,19 +161,31 @@ carries, so the cursor is held everywhere rather than on the item alone. */
 .dark .token.builtin,
 .dark .token.inserted,
 .dark .token.function {
-  color: #00bba8;
+  color: var(--ui-color-success-400);
 }
 
 .token.atrule,
 .token.attr-value,
 .token.keyword {
-  color: #56b6c2;
+  color: var(--ui-color-info-700);
+}
+
+.dark .token.atrule,
+.dark .token.attr-value,
+.dark .token.keyword {
+  color: var(--ui-color-info-400);
 }
 
 .token.regex,
 .token.important,
 .token.variable {
-  color: #61afef;
+  color: var(--ui-color-warning-700);
+}
+
+.dark .token.regex,
+.dark .token.important,
+.dark .token.variable {
+  color: var(--ui-color-warning-400);
 }
 
 .token.important,

@@ -68,13 +68,17 @@ jobs:
       # No explicit Rust install. The preinstalled rustup resolves rust-toolchain.toml on
       # the first cargo command, fetching the pinned nightly and its components, so the
       # pin lives in exactly one place.
+      # A build links the runner image's libpython, so a cache saved on one image fails to
+      # link on the next. The hosted runner names its image in `ImageOS`, such as `ubuntu26`.
+      - name: Name Runner Image
+        run: echo "RUNNER_IMAGE=$ImageOS" >> "$GITHUB_ENV"
       - name: Cache Rust
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
           # The action keys on the lockfile and the toolchain, so a profile or flag change
           # reuses a key that already exists, and a cache entry cannot be overwritten.
-          key: ${{ hashFiles('rust/Cargo.toml', '.cargo/config.toml') }}
+          key: ${{ env.RUNNER_IMAGE }}-${{ hashFiles('rust/Cargo.toml', '.cargo/config.toml') }}
           # A tag is released once and never built again, and a cache is readable only from
           # the ref that saved it and from the default branch, so an entry saved here would
           # be read by nobody while holding several gigabytes of the repository's ten.

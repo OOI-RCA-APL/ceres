@@ -1106,6 +1106,181 @@
         ]
       }
     },
+    "/api/files": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List the mounts the caller may view.",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/files/{mount}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mount",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List the top directory of an engine mount.",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/files/{mount}/{*path}": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mount",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Delete a file, or a directory with `?recursive` when it is not empty.",
+        "tags": [
+          "files"
+        ]
+      },
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mount",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "List a directory, serve a file, or describe an entry under a mount. A component mount's path starts with its name, after its address in `mount`.",
+        "tags": [
+          "files"
+        ]
+      },
+      "patch": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mount",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Rename or move an entry to another path under the same mount.",
+        "tags": [
+          "files"
+        ]
+      },
+      "put": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mount",
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The request succeeded."
+          },
+          "default": {
+            "description": "The request failed, carrying an error."
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Upload a file, or create a directory with `?directory`, under a mount.",
+        "tags": [
+          "files"
+        ]
+      }
+    },
     "/api/groups": {
       "get": {
         "responses": {
@@ -2520,6 +2695,9 @@
     },
     {
       "name": "procedures"
+    },
+    {
+      "name": "files"
     },
     {
       "name": "messages"

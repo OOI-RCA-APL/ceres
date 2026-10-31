@@ -1,6 +1,15 @@
+import json
+import re
+import socket
+from datetime import datetime
 from pathlib import Path, PurePosixPath
+from typing import Any
 
-from ceres.paths import proj, rel
+import pytest
+import tzlocal
+from pydantic import BaseModel, ValidationError
+
+from ceres.paths import PathTemplate, proj, rel, zone_name
 
 
 class TestRel:
@@ -60,3 +69,97 @@ class TestProj:
         result = proj(None)
         root = proj()
         assert result == root
+
+
+VECTORS = json.loads((Path(__file__).parent / "vectors/path-template.json").read_text())
+
+
+def at(when: str) -> datetime:
+    return datetime.fromisoformat(when)
+
+
+class TestPathTemplate:
+    @pytest.mark.parametrize("case", VECTORS["render"], ids=lambda case: case["template"])
+    def test_renders(self, case: dict[str, Any]) -> None:
+        template = PathTemplate(case["template"], atoms=case.get("atoms", ()))
+        rendered = template.render(at(case["when"]), case.get("zone", "utc"), case.get("values"))
+        assert rendered == case["expected"]
+
+    @pytest.mark.parametrize("case", VECTORS["invalid"], ids=lambda case: case["template"])
+    def test_refuses(self, case: dict[str, Any]) -> None:
+        with pytest.raises(ValueError):
+            PathTemplate(case["template"], atoms=case.get("atoms", ()))
+
+    @pytest.mark.parametrize("case", VECTORS["unrenderable"], ids=lambda case: str(case["values"]))
+    def test_refuses_to_render(self, case: dict[str, Any]) -> None:
+        with pytest.raises(ValueError):
+            PathTemplate(case["template"]).render(at("2026-10-27T13:45:09Z"), values=case["values"])
+
+    @pytest.mark.parametrize(
+        ("template", "meant"),
+        [
+            ("{YYYY}", "'{yyyy}' for the year"),
+            ("{DD}", "'{dd}' for the day of the month"),
+            ("{yyyy}-{mm}-{dd}", "'{MM}' the month"),
+            ("{hh}{mm}", "the 24-hour hour is '{HH}'"),
+            ("{zzzz}", "use '{Z}' or '{XX}'"),
+            ("{SSSSSSS}", "'{SSSSSS}', the microsecond"),
+        ],
+    )
+    def test_names_the_symbol_meant(self, template: str, meant: str) -> None:
+        with pytest.raises(ValueError, match=re.escape(meant)):
+            PathTemplate(template)
+
+    def test_refuses_naive_time(self) -> None:
+        with pytest.raises(ValueError, match="timezone-aware"):
+            PathTemplate("{yyyy}").render(datetime(2026, 10, 27))  # noqa: DTZ001
+
+    def test_renders_local_zone(self) -> None:
+        when = at("2026-10-27T13:45:09Z")
+        assert PathTemplate("{HH}").render(when, "local") == f"{when.astimezone().hour:02d}"
+
+    def test_renders_host_by_default(self) -> None:
+        host = socket.gethostname().partition(".")[0]
+        assert PathTemplate("{host}").render(at("2026-10-27T13:45:09Z")) == host
+
+    def test_refuses_unknown_zone(self) -> None:
+        with pytest.raises(ValueError, match="not a time zone"):
+            PathTemplate("{yyyy}").render(at("2026-10-27T13:45:09Z"), "abc")
+
+    def test_compares_by_source(self) -> None:
+        assert PathTemplate("{yyyy}") == PathTemplate("{yyyy}")
+        assert len({PathTemplate("{yyyy}"), PathTemplate("{yyyy}")}) == 1
+        assert str(PathTemplate("{yyyy}")) == "{yyyy}"
+
+
+class TestZoneName:
+    def test_names_each_zone_by_its_iana_name(self) -> None:
+        assert zone_name("utc") == "UTC"
+        assert zone_name("America/Los_Angeles") == "America/Los_Angeles"
+        assert zone_name("local") == tzlocal.get_localzone_name()
+
+    def test_refuses_unknown_zone(self) -> None:
+        with pytest.raises(ValueError, match="not a time zone"):
+            zone_name("abc")
+
+
+class Producer(BaseModel):
+    name: PathTemplate = PathTemplate.Field("{yyyy}{MM}{dd}_{sequence}", atoms=["sequence"])
+    folder: PathTemplate = PathTemplate("{yyyy}")
+
+
+class TestPathTemplateField:
+    def test_accepts_declared_atoms(self) -> None:
+        assert Producer().name == PathTemplate("{yyyy}{MM}{dd}_{sequence}", atoms=["sequence"])
+        assert Producer(name="{sequence}").name.atoms == {"sequence"}  # type: ignore[arg-type]
+
+    def test_refuses_undeclared_atom(self) -> None:
+        with pytest.raises(ValidationError, match="not an atom"):
+            Producer(folder="{sequence}")  # type: ignore[arg-type]
+
+    def test_refuses_bad_default_when_declared(self) -> None:
+        with pytest.raises(ValueError, match="not an atom"):
+            PathTemplate.Field("{abc}")
+
+    def test_serializes_source(self) -> None:
+        assert Producer().model_dump() == {"name": "{yyyy}{MM}{dd}_{sequence}", "folder": "{yyyy}"}

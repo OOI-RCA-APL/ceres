@@ -5,6 +5,7 @@ import * as z from 'zod'
 import { type Address, AddressModel } from '@/api/address'
 import { useAuth } from '@/api/auth'
 import { useClient, useQuery } from '@/api/client'
+import { type FileMount, FileMountModel } from '@/api/files'
 import { MessageModel } from '@/api/messages'
 import type { ComponentAccessLevel } from '@/api/permissions'
 import { AnyResultModel, ConnectivityModel } from '@/api/shared'
@@ -170,6 +171,7 @@ export type ComponentInfo = {
   connections: ConnectionInfo[]
   components: ComponentInfo[]
   particles: ParticleTypeInfo[]
+  mounts: FileMount[]
 }
 
 export const ComponentInfoModel: z.ZodType<ComponentInfo> = z.object({
@@ -182,6 +184,7 @@ export const ComponentInfoModel: z.ZodType<ComponentInfo> = z.object({
     return z.array(ComponentInfoModel)
   },
   particles: z.array(ParticleTypeInfoModel),
+  mounts: z.array(FileMountModel).default([]),
 }) as z.ZodType<ComponentInfo>
 
 export const useComponents = defineStore('components', () => {

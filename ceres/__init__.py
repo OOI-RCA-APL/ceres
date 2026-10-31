@@ -19,6 +19,7 @@ __all__ = [
     "Component",
     "ComponentAccessLevel",
     "ComponentSystem",
+    "MountField",
     "Output",
     "FileOutput",
     "ProcedureType",
@@ -87,6 +88,10 @@ __all__ = [
     "Message",
     "MessageData",
     "MessageDirection",
+    # .mount
+    "AsyncMount",
+    "Mount",
+    "MountAccess",
     # .notifier
     "Notification",
     "Notifier",
@@ -101,10 +106,14 @@ __all__ = [
     "ParticleData",
     "RegexParticle",
     "GroupedRegexParticle",
+    # .paths
+    "PathTemplate",
     # .permission
     "GroupPermission",
     "PermissionTargetType",
     "UserPermission",
+    # .project
+    "Project",
     # .record
     "Record",
     "RecordType",
@@ -153,6 +162,7 @@ with __lazy_imports__(__name__, export=True):
         ComponentAccessLevel,
         ComponentSystem,
         FileOutput,
+        MountField,
         Output,
         ProcedureType,
         StreamingOutput,
@@ -195,6 +205,7 @@ with __lazy_imports__(__name__, export=True):
     from ceres.loaded import Loaded, Loader
     from ceres.logs import LogEntry
     from ceres.message import Message, MessageData, MessageDirection
+    from ceres.mount import AsyncMount, Mount, MountAccess
     from ceres.notifier import Notification, Notifier, SMTPNotifier
     from ceres.particle import (
         BinaryParticle,
@@ -207,7 +218,9 @@ with __lazy_imports__(__name__, export=True):
         ParticleData,
         RegexParticle,
     )
+    from ceres.paths import PathTemplate
     from ceres.permission import GroupPermission, PermissionTargetType, UserPermission
+    from ceres.project import Project
     from ceres.record import Record, RecordType
     from ceres.reference import Ref, Reference, unref
     from ceres.schedule import Schedule, ScheduleType

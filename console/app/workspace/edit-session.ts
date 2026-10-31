@@ -22,6 +22,7 @@ import { AddressSelector, engineRoot } from '@/api/address'
 import { useAuth } from '@/api/auth'
 import { useClient, useQuery } from '@/api/client'
 import { Failure } from '@/errors'
+import { createHistory } from '@/history'
 import { useNavigation } from '@/navigation'
 import { useNotify } from '@/notify'
 import { workspaceInjectionKey } from '@/symbols'
@@ -197,49 +198,30 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
   // Undo history for the working copy, capped so a long editing session cannot grow without
   // bound. Snapshots are recorded on the same debounce as the autosave, which groups a burst of
   // drags or keystrokes into one undo step rather than one per frame.
-  const historyLimit = 50
-  let history = $ref<WorkspaceData[]>([])
-  let historyIndex = $ref(-1)
-
-  const canUndo = $computed(() => historyIndex > 0)
-  const canRedo = $computed(() => historyIndex >= 0 && historyIndex < history.length - 1)
+  const history = createHistory<WorkspaceData>({
+    limit: 50,
+    equal: isStructurallyEqual,
+    clone: (value) => deepClone(value) as WorkspaceData,
+  })
 
   function recordHistory() {
-    if (data == null) {
-      return
+    if (data != null) {
+      history.record(data)
     }
-
-    // An undo or redo assigns a state already in the history, which must not be recorded again
-    // or it would erase the redo tail it just moved through.
-    if (historyIndex >= 0 && isStructurallyEqual(data, history[historyIndex])) {
-      return
-    }
-
-    const snapshot = deepClone(data) as WorkspaceData
-    const kept = [
-      ...history.slice(Math.max(0, history.length - historyLimit + 1), historyIndex + 1),
-      snapshot,
-    ]
-    history = kept
-    historyIndex = kept.length - 1
   }
 
   function undo() {
-    if (!canUndo) {
-      return
+    const previous = history.back()
+    if (previous != null) {
+      data = previous
     }
-
-    historyIndex--
-    data = deepClone(history[historyIndex]) as WorkspaceData
   }
 
   function redo() {
-    if (!canRedo) {
-      return
+    const next = history.forward()
+    if (next != null) {
+      data = next
     }
-
-    historyIndex++
-    data = deepClone(history[historyIndex]) as WorkspaceData
   }
 
   const draft = new DraftSync()
@@ -283,8 +265,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
       // A draft another tab wrote is where this tab starts over, not an edit of its own. Kept in
       // the undo history, an undo would bring back the older copy and write it over the draft.
       draft.agree(next)
-      history = [deepClone(next) as WorkspaceData]
-      historyIndex = 0
+      history.reset(next)
       data = next
     }
   }
@@ -934,8 +915,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
 
       // Seed the history with the loaded state so the first edit has something to undo back to.
       if (data != null) {
-        history = [deepClone(data) as WorkspaceData]
-        historyIndex = 0
+        history.reset(data)
       }
     }
   }
@@ -965,8 +945,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
       data = null
       dataId = null
       draft.agree(null)
-      history = []
-      historyIndex = -1
+      history.clear()
       await query.promise.value
       await afterFetch()
       if (data != null) {
@@ -1003,8 +982,8 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     originalData: computed(() => workspace?.data ?? null),
     data: computed(() => data),
     edited: computed(() => edited),
-    canUndo: computed(() => canUndo),
-    canRedo: computed(() => canRedo),
+    canUndo: computed(() => history.canBack),
+    canRedo: computed(() => history.canForward),
     undo,
     redo,
     delete: del,
@@ -1172,9 +1151,7 @@ export const useWorkspaces = defineStore('workspaces', () => {
   */
   async function copyLink(placement: string, ids: string[]) {
     const path = placement === engineRoot ? '/' : `/components/${placement}`
-    const { href } = navigation.resolve({ path, query: { [workspaceQueryKey]: ids } })
-
-    await copyText(window.location.origin + href)
+    await copyText(navigation.link({ path, query: { [workspaceQueryKey]: ids } }))
     notify.success(ids.length > 1 ? 'Links copied to clipboard.' : 'Link copied to clipboard.')
   }
 

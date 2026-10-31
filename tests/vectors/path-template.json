@@ -1,0 +1,197 @@
+{
+  "render": [
+    {
+      "template": "{yyyy}/{MM}/{dd}",
+      "when": "2026-10-27T13:45:09Z",
+      "expected": "2026/10/27"
+    },
+    {
+      "template": "TimeLapse_{yyyy}{MM}{dd}T{HH}{mm}{ss}_UTC.jpg",
+      "when": "2026-10-27T13:45:09Z",
+      "expected": "TimeLapse_20261027T134509_UTC.jpg"
+    },
+    {
+      "template": "{yy}-{M}-{d}-{H}",
+      "when": "2026-01-05T08:03:04Z",
+      "expected": "26-1-5-8"
+    },
+    {
+      "template": "{MMM} {MMMM} {EEE} {EEEE} {DDD}",
+      "when": "2026-10-27T13:45:09Z",
+      "expected": "Oct October Tue Tuesday 300"
+    },
+    {
+      "template": "{DDD}",
+      "when": "2026-01-05T08:03:04Z",
+      "expected": "005"
+    },
+    {
+      "template": "{hh}{mm} {h} {a}",
+      "when": "2026-01-05T00:03:04Z",
+      "expected": "1203 12 AM"
+    },
+    {
+      "template": "{hh}{mm} {h} {a}",
+      "when": "2026-01-05T12:03:04Z",
+      "expected": "1203 12 PM"
+    },
+    {
+      "template": "{hh}{mm} {h} {a}",
+      "when": "2026-10-27T13:45:09Z",
+      "expected": "0145 1 PM"
+    },
+    {
+      "template": "{S}_{SS}_{SSS}_{SSSS}_{SSSSS}_{SSSSSS}",
+      "when": "2026-10-27T13:45:09.000123Z",
+      "expected": "0_00_000_0001_00012_000123"
+    },
+    {
+      "template": "{S}_{SSS}_{SSSSSS}",
+      "when": "2026-10-27T13:45:09.987654Z",
+      "expected": "9_987_987654"
+    },
+    {
+      "template": "{epoch} {epoch:ms} {epoch:us}",
+      "when": "2026-10-27T13:45:09.987654Z",
+      "expected": "1793108709 1793108709987 1793108709987654"
+    },
+    {
+      "template": "{epoch}",
+      "when": "2026-01-05T08:03:04Z",
+      "expected": "1767600184"
+    },
+    {
+      "template": "{Z} {XX}",
+      "when": "2026-10-27T13:45:09Z",
+      "expected": "+0000 Z"
+    },
+    {
+      "template": "{yyyy}/{MM}/{dd}/{HH} {Z} {XX}",
+      "when": "2026-10-27T13:45:09Z",
+      "zone": "America/Los_Angeles",
+      "expected": "2026/10/27/06 -0700 -0700"
+    },
+    {
+      "template": "{yyyy}/{MM}/{dd} {Z}",
+      "when": "2026-01-05T08:03:04Z",
+      "zone": "America/Los_Angeles",
+      "expected": "2026/01/05 -0800"
+    },
+    {
+      "template": "{HH}{mm} {Z} {XX}",
+      "when": "2026-10-27T13:45:09Z",
+      "zone": "Asia/Kolkata",
+      "expected": "1915 +0530 +0530"
+    },
+    {
+      "template": "{HH}{mm} {Z} {XX}",
+      "when": "2026-01-05T08:03:04Z",
+      "zone": "America/St_Johns",
+      "expected": "0433 -0330 -0330"
+    },
+    {
+      "template": "{Z}",
+      "when": "2026-07-01T12:00:00Z",
+      "zone": "Europe/Berlin",
+      "expected": "+0200"
+    },
+    {
+      "template": "{Z}",
+      "when": "2026-07-01T12:00:00Z",
+      "zone": "America/Sao_Paulo",
+      "expected": "-0300"
+    },
+    {
+      "template": "{Z}",
+      "when": "2026-07-01T12:00:00Z",
+      "zone": "Europe/London",
+      "expected": "+0100"
+    },
+    {
+      "template": "{Z} {XX}",
+      "when": "2026-01-01T12:00:00Z",
+      "zone": "Europe/London",
+      "expected": "+0000 Z"
+    },
+    {
+      "template": "{component}/{mount}/{project}/{host}/{connection}_{sequence}",
+      "when": "2026-10-27T13:45:09Z",
+      "atoms": ["sequence"],
+      "values": {
+        "component": "abc",
+        "mount": "abcd",
+        "project": "ab",
+        "host": "a",
+        "connection": "b",
+        "sequence": "7777"
+      },
+      "expected": "abc/abcd/ab/a/b_7777"
+    },
+    {
+      "template": "{year}",
+      "when": "2026-10-27T13:45:09Z",
+      "atoms": ["year"],
+      "values": { "year": "abc" },
+      "expected": "abc"
+    },
+    {
+      "template": "{{a}}_{yyyy}",
+      "when": "2026-10-27T13:45:09Z",
+      "expected": "{a}_2026"
+    }
+  ],
+  "invalid": [
+    { "template": "" },
+    { "template": "{abc}" },
+    { "template": "{sequence}" },
+    { "template": "{year}" },
+    { "template": "{date}" },
+    { "template": "{datetime}" },
+    { "template": "{YYYY}" },
+    { "template": "{y}" },
+    { "template": "{DD}" },
+    { "template": "{m}" },
+    { "template": "{ww}" },
+    { "template": "{zzzz}" },
+    { "template": "{XXX}" },
+    { "template": "{G}" },
+    { "template": "{SSSSSSS}" },
+    { "template": "{yyyy:}" },
+    { "template": "{epoch:}" },
+    { "template": "{yyyy[0]}" },
+    { "template": "{yyyy.year}" },
+    { "template": "{yyyy!r}" },
+    { "template": "{yyyy:{MM}}" },
+    { "template": "{yyyy}", "atoms": ["yyyy"] },
+    { "template": "{mount}", "atoms": ["mount"] },
+    { "template": "{epoch}", "atoms": ["epoch"] },
+    { "template": "{hh}{mm}" },
+    { "template": "{yyyy}-{mm}-{dd}" },
+    { "template": "{HH}{ss}" },
+    { "template": "{MM:ms}" },
+    { "template": "{epoch:ns}" },
+    { "template": "{yyyy!r}" },
+    { "template": "/abc" },
+    { "template": "abc/../abcd" },
+    { "template": "abc/./abcd" },
+    { "template": "abc//abcd" },
+    { "template": "abc/" },
+    { "template": "abc:d" },
+    { "template": "abc\\d" },
+    { "template": "abc?" },
+    { "template": "CON" },
+    { "template": "con.txt" },
+    { "template": "{yyyy}/lpt1" },
+    { "template": "abc." },
+    { "template": "{" },
+    { "template": "}" },
+    { "template": "{yyyy}{" }
+  ],
+  "unrenderable": [
+    { "template": "{component}", "values": { "component": "a/b" } },
+    { "template": "{component}", "values": {} },
+    { "template": "{yyyy}_{component}", "values": { "component": "a\\b" } },
+    { "template": "{component}", "values": { "component": ".." } },
+    { "template": "{component}", "values": { "component": "nul" } }
+  ]
+}

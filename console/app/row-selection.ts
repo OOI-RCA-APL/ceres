@@ -1,4 +1,4 @@
-import { onClickOutside } from '@vueuse/core'
+import { type MaybeElementRef, onClickOutside } from '@vueuse/core'
 import type { MaybeRefOrGetter } from 'vue'
 
 import type { SelectMode } from '@/workspace'
@@ -6,13 +6,15 @@ import type { SelectMode } from '@/workspace'
 /** Drop the selection when a press lands away from `container`.
 
 A menu or dialog is drawn at the far end of the page while acting on the selection it was opened
-over, so a press inside one is left alone.
+over, so a press inside one is left alone, as is one on any of `ignore`, such as a toolbar whose
+buttons act on the selection.
 */
 export function clearOnOutsidePress(
   container: MaybeRefOrGetter<HTMLElement | null | undefined>,
   clear: () => void,
+  { ignore = [] }: { ignore?: MaybeElementRef[] } = {},
 ) {
-  onClickOutside(container, clear, { ignore: ['[role="menu"]', '[role="dialog"]'] })
+  onClickOutside(container, clear, { ignore: ['[role="menu"]', '[role="dialog"]', ...ignore] })
 }
 
 /** The select mode a click's modifiers ask for, matching the workspace's own vocabulary. */
@@ -43,6 +45,9 @@ export function createRowSelection(options: { ids: () => string[] }) {
   /** The row an extend spans from, whichever was last chosen on its own. */
   let anchor = $ref<string | null>(null)
 
+  /** The row last chosen in any mode, which a keyboard step moves on from. */
+  let cursor = $ref<string | null>(null)
+
   const ids = () => options.ids()
 
   function isSelected(id: string): boolean {
@@ -58,15 +63,18 @@ export function createRowSelection(options: { ids: () => string[] }) {
   function clear() {
     selectedIds = new Set()
     anchor = null
+    cursor = null
   }
 
   /** Take `next` as the whole selection, anchored on its first row. */
   function replace(next: readonly string[]) {
     selectedIds = new Set(next)
     anchor = next[0] ?? null
+    cursor = anchor
   }
 
   function select(id: string, mode: SelectMode = 'replace') {
+    cursor = id
     if (mode === 'replace') {
       replace([id])
       return
@@ -106,6 +114,27 @@ export function createRowSelection(options: { ids: () => string[] }) {
     }
   }
 
+  /** Choose the row `offset` rows on from the one last chosen, the way an arrow key moves, and
+  return its ID, or null for an empty list. With nothing chosen yet, a step forward starts at the
+  first row and a step back at the last. */
+  function step(offset: number, mode: 'replace' | 'extend' = 'replace'): string | null {
+    const order = ids()
+    const from = order.indexOf(cursor ?? '')
+    const index =
+      from === -1
+        ? offset > 0
+          ? 0
+          : order.length - 1
+        : Math.min(Math.max(from + offset, 0), order.length - 1)
+    const id = order[index]
+    if (id == null) {
+      return null
+    }
+
+    select(id, mode)
+    return id
+  }
+
   function onClick(id: string, event: MouseEvent) {
     select(id, selectMode(event))
   }
@@ -131,6 +160,7 @@ export function createRowSelection(options: { ids: () => string[] }) {
     replace,
     ensureSelected,
     clear,
+    step,
     onClick,
     pressTargets,
   }

@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest'
 
+import { Address, engineRoot } from '@/api/address'
 import {
   convertedPagesWidget,
   createWidget,
   defaultWidgetName,
+  filesWidgetRoot,
   pagesOf,
   type Widget,
   widgetInfos,
+  WidgetModel,
   withPages,
 } from '@/workspace'
 
@@ -44,6 +47,20 @@ describe('the widget registry', () => {
 
   it('opens every other kind with no pages at all', () => {
     expect(pagesOf(createWidget('meter'))).toHaveLength(0)
+  })
+
+  it('stores where a files widget lists and opens', () => {
+    expect(createWidget('files')).toMatchObject({ type: 'files', name: 'Files', path: [] })
+    const stored = WidgetModel.parse({ type: 'files', component: 'a', mount: 'abc', path: ['b'] })
+    expect(stored).toMatchObject({ type: 'files', component: 'a', mount: 'abc', path: ['b'] })
+  })
+
+  it('lists a files widget under its component, or every mount from the engine root', () => {
+    const scope = Address.parse('@a')
+    expect(filesWidgetRoot(null, scope)).toBe('@a')
+    expect(filesWidgetRoot('b', scope)).toBe('@a.b')
+    expect(filesWidgetRoot(engineRoot, scope)).toBeNull()
+    expect(filesWidgetRoot(null, Address.parse(engineRoot))).toBeNull()
   })
 })
 

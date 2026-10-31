@@ -8,6 +8,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Problem, Problems};
+use crate::files::{RawServerFilesConfig, ServerFilesConfig};
 use crate::values::{ByteSize, MaybeSequence, TimeDelta};
 
 /// Where the HTTPS certificate lives when `certificate.path` is omitted, relative to the
@@ -799,6 +800,9 @@ pub struct RawServerConfig {
     /// WebRTC media port, bound beside the web listeners. Live video plays over HTTP when
     /// `webrtc` is not set.
     pub webrtc: Option<RawServerWebrtcConfig>,
+
+    /// What the console's file browser serves.
+    pub files: Option<RawServerFilesConfig>,
 }
 
 /// Validated configuration for the engine's HTTP server.
@@ -811,6 +815,7 @@ pub struct ServerConfig {
     pub cors: Option<ServerCorsConfig>,
     pub compression: Option<ServerCompressionConfig>,
     pub webrtc: Option<ServerWebrtcConfig>,
+    pub files: ServerFilesConfig,
 }
 
 impl Default for ServerConfig {
@@ -823,6 +828,7 @@ impl Default for ServerConfig {
             cors: None,
             compression: None,
             webrtc: None,
+            files: ServerFilesConfig::default(),
         }
     }
 }
@@ -883,6 +889,7 @@ impl TryFrom<RawServerConfig> for ServerConfig {
         let cors = validate_nested(raw.cors, "cors", &mut problems);
         let compression = validate_nested(raw.compression, "compression", &mut problems);
         let webrtc = validate_nested(raw.webrtc, "webrtc", &mut problems);
+        let files = validate_nested(raw.files, "files", &mut problems).unwrap_or_default();
 
         if let Some(http) = &http {
             // A redirect to a plain HTTP origin would loop, so the HTTPS listener must exist.
@@ -909,6 +916,7 @@ impl TryFrom<RawServerConfig> for ServerConfig {
             cors,
             compression,
             webrtc,
+            files,
         })
     }
 }

@@ -27,6 +27,10 @@ from the package, `from ceres import Component`.
     options:
       heading_level: 3
 
+::: ceres.component.MountField
+    options:
+      heading_level: 3
+
 ::: ceres.component.ProcedureType
     options:
       heading_level: 3
@@ -240,6 +244,22 @@ from the package, `from ceres import Component`.
     options:
       heading_level: 3
 
+::: ceres.mount.AsyncMount
+    options:
+      heading_level: 3
+
+::: ceres.mount.Mount
+    options:
+      heading_level: 3
+
+::: ceres.mount.MountAccess
+    options:
+      heading_level: 3
+
+::: ceres.paths.PathTemplate
+    options:
+      heading_level: 3
+
 ::: ceres.directory.Directory
     options:
       heading_level: 3
@@ -388,6 +408,10 @@ from the package, `from ceres import Component`.
       heading_level: 3
 
 ::: ceres.config.ConfigCheckType
+    options:
+      heading_level: 3
+
+::: ceres.project.Project
     options:
       heading_level: 3
 

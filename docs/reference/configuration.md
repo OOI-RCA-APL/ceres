@@ -42,6 +42,7 @@ Configuration for the engine's HTTP server.
 | `cors` | [`ServerCorsConfig`](#servercorsconfig) |  |  |
 | `compression` | [`ServerCompressionConfig`](#servercompressionconfig) |  |  |
 | `webrtc` | [`ServerWebRTCConfig`](#serverwebrtcconfig) |  | WebRTC media port, bound beside the web listeners. Live video plays over HTTP when `webrtc` is not set. |
+| `files` | [`ServerFilesConfig`](#serverfilesconfig) |  | What the console's file browser serves. |
 
 ### `ServerHttpsConfig`
 
@@ -112,6 +113,18 @@ Live video over WebRTC, which a browser plays with less delay than the MP4 strea
 | `hosts` | list of string |  | Addresses browsers are told to reach the media port at, besides those of every interface, such as the public address of a host behind NAT. |
 | `max-sessions` | integer |  | Most WebRTC sessions served at once, 32 when omitted. |
 | `no-ice-timeout` | number or string |  | How long a session waits for its browser to connect before giving up its slot, 10 seconds when omitted. |
+
+### `ServerFilesConfig`
+
+What the console's file browser serves.
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `mounts` | object |  | Directories the file browser serves besides component mounts, keyed by name, each a path or a mapping of `path`, `access`, `layout`, and `zone`. A relative path resolves against the project directory. On a network share each listed entry costs a round trip. |
+| `exclude` | list of string |  | Glob patterns naming entries that are never listed or served, in any mount, such as `.venv` and `node_modules`. A pattern without a `/` matches an entry's name at any depth, and a pattern with one, or starting with one, matches the path from the root. |
+| `max-upload` | integer or string |  | Largest file one upload may write, such as `2GiB`, unlimited when omitted. |
+| `access` | string or string or string |  | Most any caller may do with any mount, `edit` when omitted. `view` makes every mount read-only and `none` turns the file browser off. |
+| `reveal-paths` | boolean |  | Whether the console may show where an entry lives on the server, `true` when omitted. |
 
 ### `ServerCertificateConfig`
 

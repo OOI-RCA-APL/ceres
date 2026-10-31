@@ -85,6 +85,17 @@ caller themselves against the resource they name.
 | `POST` | `/api/stop` | required | Stop matching components. |
 | `POST` | `/api/up` | required | Enable and start matching components. |
 
+## Files
+
+| Method | Path | Token | Description |
+| --- | --- | --- | --- |
+| `GET` | `/api/files` | required | List the mounts the caller may view. |
+| `GET` | `/api/files/{mount}` | required | List the top directory of an engine mount. |
+| `GET` | `/api/files/{mount}/{*path}` | required | List a directory, serve a file, or describe an entry under a mount. A component mount's path starts with its name, after its address in `mount`. |
+| `PUT` | `/api/files/{mount}/{*path}` | required | Upload a file, or create a directory with `?directory`, under a mount. |
+| `DELETE` | `/api/files/{mount}/{*path}` | required | Delete a file, or a directory with `?recursive` when it is not empty. |
+| `PATCH` | `/api/files/{mount}/{*path}` | required | Rename or move an entry to another path under the same mount. |
+
 ## Groups
 
 | Method | Path | Token | Description |

@@ -1,11 +1,12 @@
 <script lang="ts" setup>
 import type { DropdownMenuItem } from '@nuxt/ui'
-import { watch } from 'vue'
+import { useTemplateRef, watch } from 'vue'
 
 import icons from '@/icons'
 import { useNavigation } from '@/navigation'
 import { usePreferences } from '@/preferences'
 import { keepFocusWhile } from '@/utilities'
+import { isOnWidgetFrame } from '@/widget-drop'
 import type { WidgetStatus } from '@/widget-status'
 import {
   createWidget,
@@ -134,26 +135,33 @@ const targetAddress = $computed(() => {
 // only changes what is picked out since a selection is built up one press at a time. Otherwise it
 // takes hold of everything picked out, which is just this widget unless it was already among them.
 function onPress(event: MouseEvent | TouchEvent) {
+  if (pickOut(event)) {
+    workspace.drag = { widget, widgets: [...workspace.selectedWidgets], layout: layoutId }
+  }
+}
+
+/** Pick the widget out for a press, returning whether the press may go on to take hold of it. */
+function pickOut(event: MouseEvent | TouchEvent): boolean {
   // Only the primary button arranges anything. A right press is asking the widget a question, and
   // the menu it opens is the answer.
   if ('button' in event && event.button !== 0) {
-    return
+    return false
   }
 
   if ('metaKey' in event && (event.metaKey || event.ctrlKey)) {
     workspace.selectWidget(widget.id, 'toggle', layoutId)
-    return
+    return false
   }
   if ('shiftKey' in event && event.shiftKey) {
     workspace.selectWidget(widget.id, 'extend', layoutId)
-    return
+    return false
   }
 
   if (!workspace.isSelected(widget.id) || workspace.selectionLayout !== layoutId) {
     workspace.selectWidget(widget.id, 'replace', layoutId)
   }
 
-  workspace.drag = { widget, widgets: [...workspace.selectedWidgets], layout: layoutId }
+  return true
 }
 
 // A restricted stub loads with its address fields redacted so the user could not have set
@@ -265,20 +273,59 @@ const menuItems = $computed<MenuItem[][]>(() => {
     ],
   ]
 })
+
+const card = useTemplateRef<HTMLElement>('card')
+
+/** Keep the widget's menu to its header and frame, since a right click on what the widget shows
+means that thing, which may open its own menu. */
+function keepMenuToFrame(event: MouseEvent) {
+  if (card.value == null || !isOnWidgetFrame(event, card.value)) {
+    event.stopPropagation()
+  }
+}
+
+/** A press on the frame picks the widget out the way one on its header does, without a drag. The
+header's own handler runs for a press on it, which this one would repeat. */
+function onFramePress(event: MouseEvent) {
+  const inHeader =
+    event.target instanceof Element && event.target.closest('[data-widget-header]') != null
+  if (card.value != null && !inHeader && isOnWidgetFrame(event, card.value)) {
+    pickOut(event)
+  }
+}
+
+/** Whether the pointer rests on the header or frame, which outlines a widget not picked out. */
+let isFrameHovered = $ref(false)
+
+function onFrameHover(event: PointerEvent) {
+  isFrameHovered = card.value != null && isOnWidgetFrame(event, card.value)
+}
 </script>
 
 <template>
   <c-context-menu :content="menuContent" :items="menuItems">
     <div
+      ref="card"
       class="relative flex h-full flex-col overflow-hidden rounded-lg"
       :class="[
         !widget.frameless && 'border border-default bg-elevated',
         widget.frameless && 'group/frameless',
         // Outside the card's own border rather than in place of it, so picking a widget out does
         // not nudge everything inside it by a pixel.
-        workspace.isSelected(widget.id) && 'outline-2 outline-offset-[-1px] outline-primary',
+        'outline-offset-[-1px]',
+        // Only the hover outline fades, since a selection should show the moment it lands.
+        workspace.isSelected(widget.id)
+          ? 'outline-primary outline-2'
+          : [
+              'outline-1 transition-[outline-color] duration-150',
+              isFrameHovered ? 'outline-(--console-border-strong)' : 'outline-transparent',
+            ],
       ]"
+      data-widget-frame
       :data-widget-id="widget.id"
+      @mousedown="onFramePress"
+      @pointerleave="isFrameHovered = false"
+      @pointermove="onFrameHover"
     >
       <!-- A widget wearing no frame is still taken hold of and still answers to a menu so what
       the header carried comes up over its own corner while the pointer is on it. -->
@@ -403,6 +450,8 @@ const menuItems = $computed<MenuItem[][]>(() => {
             !widget.frameless && 'bg-default',
             !widget.frameless && info.options.paddingClass,
           ]"
+          data-widget-frame
+          @contextmenu="keepMenuToFrame"
         >
           <c-workspace-widget-restricted v-if="widget.restricted" :widget />
           <component

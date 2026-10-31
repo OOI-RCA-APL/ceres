@@ -7,6 +7,7 @@
 pub(crate) mod auth;
 pub(crate) mod config;
 pub(crate) mod dispatch;
+pub(crate) mod files;
 pub(crate) mod records;
 pub(crate) mod schema;
 pub(crate) mod served;
@@ -66,6 +67,21 @@ pub(crate) fn documented_routes() -> Vec<schema::Documented> {
             "procedures", params("id", "second"), open: true;
         Delete whep::CLOSE => "End a WebRTC session.", "procedures",
             params("id", "second", "session"), open: true;
+        Get "/api/files/{mount}" =>
+            "List the top directory of an engine mount.", "files", params("mount");
+        Get "/api/files/{mount}/{*path}" =>
+            "List a directory, serve a file, or describe an entry under a mount. A component \
+            mount's path starts with its name, after its address in `mount`.", "files",
+            params("mount", "path");
+        Put "/api/files/{mount}/{*path}" =>
+            "Upload a file, or create a directory with `?directory`, under a mount.", "files",
+            params("mount", "path");
+        Patch "/api/files/{mount}/{*path}" =>
+            "Rename or move an entry to another path under the same mount.", "files",
+            params("mount", "path");
+        Delete "/api/files/{mount}/{*path}" =>
+            "Delete a file, or a directory with `?recursive` when it is not empty.", "files",
+            params("mount", "path");
     };
 
     macro_rules! record_tables {

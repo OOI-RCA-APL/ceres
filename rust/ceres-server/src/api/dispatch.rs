@@ -249,6 +249,9 @@ host_routes! {
     StatusesMember: typed_get "/api/statuses/{id}" => Gate::Authenticated, "statuses.get",
         params(id => "address": Raw);
 
+    /// List the mounts the caller may view.
+    FilesCollection: typed_get "/api/files" => Gate::Authenticated, "files.mounts";
+
     /// Describe every component the caller may view.
     ComponentsCollection: typed_get "/api/components" => Gate::Authenticated, "components.list";
     /// Describe one component and its children.
@@ -331,10 +334,27 @@ impl Dispatch {
     /// A bodiless call of `operation` on the procedure `name` of the component at `address`,
     /// open to every actor as the procedure call routes are, since the operation checks access.
     pub(crate) fn procedure(operation: &'static str, address: String, name: String) -> Self {
-        Self {
-            gate: Gate::Open,
+        Self::lookup(
+            Gate::Open,
             operation,
-            parameters: vec![("address", address, Kind::Raw), ("name", name, Kind::Raw)],
+            [("address", address), ("name", name)],
+        )
+    }
+
+    /// A bodiless call of `operation` with text path parameters, for a hand-written route
+    /// that asks the host before serving.
+    pub(crate) fn lookup(
+        gate: Gate,
+        operation: &'static str,
+        parameters: impl IntoIterator<Item = (&'static str, String)>,
+    ) -> Self {
+        Self {
+            gate,
+            operation,
+            parameters: parameters
+                .into_iter()
+                .map(|(name, value)| (name, value, Kind::Raw))
+                .collect(),
             body: None,
             status: 200,
             scrub: false,
