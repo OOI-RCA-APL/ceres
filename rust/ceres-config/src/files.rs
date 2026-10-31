@@ -75,8 +75,7 @@ pub struct RawEngineMountSetting {
     pub path: PathBuf,
     /// Most the files API may do with the mount, `edit` when omitted.
     pub access: Option<MountAccess>,
-    /// Dated folders below the root, such as `{yyyy}/{MM}`, which the console opens at the
-    /// current period. The engine checks it when it starts.
+    /// Dated folders below the root, such as `{yyyy}/{MM}`. The engine checks it when it starts.
     pub layout: Option<String>,
     /// Time zone the layout reads in, `utc`, `local`, or an IANA name, `utc` when omitted.
     pub zone: Option<String>,
