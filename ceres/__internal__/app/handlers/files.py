@@ -1,4 +1,3 @@
-from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
@@ -8,7 +7,7 @@ from ceres.component import Component, ComponentAccessLevel
 from ceres.data import DataObject, Name
 from ceres.error import NotFoundError
 from ceres.mount import MountAccess, MountPath
-from ceres.paths import host_name, zone_name
+from ceres.paths import zone_name
 
 if TYPE_CHECKING:
     from ceres.__internal__.app.shared import Actor
@@ -38,8 +37,6 @@ class MountInfo(DataObject):
     """Dated folders below the root, such as `{yyyy}/{MM}`, `None` for none."""
     zone: str
     """IANA name of the time zone the layout reads in."""
-    names: dict[str, str]
-    """Values of the name atoms the layout may use, `{host}` only where `reveal_paths` is on."""
     files: dict[str, str]
     """File name templates by kind that the component writes into the layout's folders."""
 
@@ -111,21 +108,6 @@ def _engine_mounts(engine: Engine) -> dict[str, _EngineMount]:
     return mounts
 
 
-def _names(engine: Engine, names: Mapping[str, str]) -> dict[str, str]:
-    """Return `names` with the `{project}` and `{host}` values every mount shares.
-
-    The host name says where files live, so it goes out only where `reveal_paths` does.
-    """
-    shared: dict[str, str] = {}
-    if engine.config.server.files.reveal_paths:
-        shared["host"] = host_name()
-
-    if engine.project is not None:
-        shared["project"] = engine.project.directory.name
-
-    return {**shared, **names}
-
-
 def component_mounts(
     engine: Engine, component: Component, level: ComponentAccessLevel
 ) -> list[MountInfo]:
@@ -152,7 +134,6 @@ def component_mounts(
                 reveal_paths=engine.config.server.files.reveal_paths,
                 layout=None if mount.layout is None else mount.layout.source,
                 zone=zone_name(mount.zone),
-                names=_names(engine, mount.names),
                 files={kind: file.source for kind, file in mount.files.items()},
             )
         )
@@ -173,7 +154,6 @@ async def get_mounts(engine: Engine, actor: Actor) -> list[MountInfo]:
             reveal_paths=engine.config.server.files.reveal_paths,
             layout=mount.layout,
             zone=zone_name(mount.zone),
-            names=_names(engine, {"mount": name}),
             files={},
         )
         for name, mount in _engine_mounts(engine).items()

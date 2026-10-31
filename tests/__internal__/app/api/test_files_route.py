@@ -11,7 +11,6 @@ from ceres.component import ComponentAccessLevel, ComponentConfig, get_mount_bin
 from ceres.config import Config, ServerConfig, ServerFilesConfig
 from ceres.error import ConfigValidationError, NotFoundError
 from ceres.mount import MountAccess
-from ceres.paths import host_name
 from ceres.permission import PermissionTargetType, UserPermission
 from ceres.user import User
 
@@ -209,31 +208,14 @@ async def test_engine_mounts_serve_any_signed_in_caller(tmp_path: Path) -> None:
     await engine.database.dispose()
 
 
-async def test_mounts_carry_their_layout_zone_and_names(tmp_path: Path) -> None:
+async def test_mounts_carry_their_layout_and_zone(tmp_path: Path) -> None:
     engine, _ = await _engine(tmp_path)
 
     mounts = {mount.id: mount for mount in await get_mounts(engine, _UNRESTRICTED)}
     logs, scratch = mounts["logs"], mounts["@hoarder/scratch"]
-    assert (logs.layout, logs.zone, logs.names) == (
-        "{yyyy}",
-        "America/Los_Angeles",
-        {"host": host_name(), "mount": "logs"},
-    )
-    assert (scratch.layout, scratch.zone, scratch.names) == (
-        "{mount}/{yyyy}",
-        "UTC",
-        {"host": host_name(), "component": "hoarder", "mount": "scratch"},
-    )
+    assert (logs.layout, logs.zone) == ("{yyyy}", "America/Los_Angeles")
+    assert (scratch.layout, scratch.zone) == ("{mount}/{yyyy}", "UTC")
     assert mounts["project"].layout is None
-
-    await engine.database.dispose()
-
-
-async def test_mounts_keep_the_host_name_where_paths_stay_hidden(tmp_path: Path) -> None:
-    engine, _ = await _engine(tmp_path, reveal_paths=False)
-
-    mounts = await get_mounts(engine, _UNRESTRICTED)
-    assert not any("host" in mount.names for mount in mounts)
 
     await engine.database.dispose()
 

@@ -29,8 +29,6 @@ export const FileMountModel = z.object({
   layout: z.string().nullable(),
   /** IANA name of the time zone the layout reads in. */
   zone: z.string(),
-  /** Values of the name atoms the layout may use. */
-  names: z.record(z.string(), z.string()),
   files: z.record(z.string(), z.string()),
 })
 
