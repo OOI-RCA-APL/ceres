@@ -8,6 +8,8 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+## [0.50.0] - 2026-11-02
+
 **Breaking**
 
 - `Directory` is a deprecated name for `Mount` and warns with a `FutureWarning` when built. It
