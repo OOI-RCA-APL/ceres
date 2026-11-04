@@ -8,7 +8,6 @@ from ceres import Bound, Component, Mount
 from ceres.__internal__ import playback
 from ceres.__internal__.playback import (
     PlaybackLevel,
-    PlaybackRangeError,
     PlaybackRecord,
     PlaybackState,
 )
@@ -17,7 +16,9 @@ from ceres.component import listener, sieve
 from ceres.config import ComponentConfig
 from ceres.data import validate
 from ceres.error import AlreadyExistsError
-from ceres.event import ParticleEvent, PlaybackProgressEvent
+from ceres.event import LogEvent, ParticleEvent, PlaybackProgressEvent
+from ceres.exporter import ExportConflict, ExportConflictError, ExportFileAction, ExportRangeMode
+from ceres.level import Level
 from ceres.message import Message, MessageDirection
 from ceres.particle import Particle, ParticleData
 from ceres.timing import utc
@@ -167,17 +168,40 @@ async def test_playback_refuses_a_sieve_without_a_particle_type(tmp_path: Path) 
         await component.system.playbacks.start(START, at(60))
 
 
-async def test_playback_refuses_a_range_older_than_the_stored_messages(tmp_path: Path) -> None:
+async def test_playback_starts_at_the_oldest_stored_message(tmp_path: Path) -> None:
     component = counter(tmp_path)
-    with pytest.raises(ValueError, match="no stored messages") as refusal:
-        await component.system.playbacks.start(START, at(60))
-    assert not isinstance(refusal.value, PlaybackRangeError)
+    await store(component, message(10, id=1), message(20, id=2), count(5))
 
-    await store(component, message(10, id=1), message(20, id=2))
-    with pytest.raises(
-        PlaybackRangeError, match="only from 2026-01-01T00:10:00\\+00:00 to .*00:20:00"
-    ):
-        await component.system.playbacks.start(START - timedelta(minutes=1), at(60))
+    run = await component.system.playbacks.run(START, at(60))
+
+    assert (run.state, run.after, run.messages, run.deleted) == (
+        PlaybackState.COMPLETED,
+        at(10),
+        2,
+        0,
+    )
+    assert await stored(component) == [
+        ("@counter test/count", at(5)),
+        ("@counter test/count", at(10)),
+        ("@counter test/count", at(20)),
+    ]
+
+
+async def test_playback_of_a_range_with_no_stored_messages_does_nothing(tmp_path: Path) -> None:
+    component = counter(tmp_path)
+    await store(component, message(10), count(5))
+
+    for after, before in [(START, at(1)), (at(30), at(60))]:
+        run = await component.system.playbacks.run(after, before)
+        assert (run.state, run.messages, run.particles, run.deleted, run.export_runs) == (
+            PlaybackState.COMPLETED,
+            0,
+            0,
+            0,
+            [],
+        )
+
+    assert await stored(component) == [("@counter test/count", at(5))]
 
 
 class Faulty(Component):
@@ -312,14 +336,106 @@ async def test_a_full_playback_leaves_listeners_on_the_real_clock(tmp_path: Path
     assert component.heard[0] > START + timedelta(days=1)
 
 
-async def test_playback_rewrites_the_files_of_replayed_exporters(tmp_path: Path) -> None:
-    component = counter(
-        tmp_path, format="jsonl", type=f"{__name__}.Count", period="all", path="counts"
-    )
+async def test_playback_writes_no_file_unless_asked_to_export(tmp_path: Path) -> None:
+    component = counter(tmp_path, format="jsonl", type=f"{__name__}.Count", period="hour")
     await store(component, message(10, b"abc"))
 
     run = await play(component)
 
+    assert (run.state, run.export, run.export_runs) == (PlaybackState.COMPLETED, False, [])
+    assert list(tmp_path.iterdir()) == []
+
+
+async def test_playback_writes_the_files_of_replayed_exporters(tmp_path: Path) -> None:
+    component = counter(tmp_path, format="jsonl", type=f"{__name__}.Count", period="hour")
+    await store(component, message(10, b"abc"), message(70, b"abcd", id=2))
+
+    run = await component.system.playbacks.run(at(30), at(60), export=True)
+
     assert run.state == PlaybackState.COMPLETED, run.exception
+    assert (run.requested_after, run.after, run.before) == (at(30), at(10), at(60))
     assert len(run.export_runs) == 1
-    assert '"value":3' in (tmp_path / "counts.jsonl").read_text()
+    (written,) = [path for path in tmp_path.rglob("*.jsonl")]
+    assert '"value":3' in written.read_text()
+
+
+async def test_an_exact_export_replays_only_the_requested_range(tmp_path: Path) -> None:
+    component = counter(tmp_path, format="jsonl", type=f"{__name__}.Count", period="hour")
+    await store(component, message(10, b"abc"), message(40, b"abcd", id=2))
+
+    run = await component.system.playbacks.run(
+        at(30), at(60), export=True, export_range_mode=ExportRangeMode.EXACT
+    )
+
+    assert (run.after, run.before) == (at(30), at(60))
+    assert run.messages == 1
+
+
+async def test_an_export_conflict_refuses_before_replaying(tmp_path: Path) -> None:
+    component = counter(tmp_path, format="jsonl", type=f"{__name__}.Count", period="hour")
+    await store(component, message(10, b"abc"), count(20))
+    await component.system.playbacks.run(at(10), at(60), export=True)
+
+    with pytest.raises(ExportConflictError):
+        await component.system.playbacks.start(
+            at(10), at(60), export=True, on_export_conflict=ExportConflict.ERROR
+        )
+
+    assert len(component.system.playbacks.get_runs()) == 1
+
+
+class Chatty(Counter):
+    @sieve
+    @override
+    def count(self, message: Message) -> Count:
+        self.system.log.warning(f"parsed {message.data!r}")
+        return Count(
+            type=Count.type, address=message.address, data=CountData(value=len(message.data))
+        )
+
+
+async def test_a_dry_run_counts_what_a_playback_would_do_and_changes_nothing(
+    tmp_path: Path,
+) -> None:
+    config = validate(
+        ComponentConfig,
+        {
+            "name": "counter",
+            "class": Chatty,
+            "arguments": {"output": "."},
+            "exporters": [
+                {
+                    "name": "counts",
+                    "exports": "particle",
+                    "format": "jsonl",
+                    "type": f"{__name__}.Count",
+                    "period": "hour",
+                }
+            ],
+        },
+    )
+    component = Chatty(output=Mount(tmp_path), __with_name__="counter", __with_config__=config)  # type: ignore[reportCallIssue]
+    await store(component, message(10, b"abc"), message(20, b"abcd", id=2), count(15))
+    heard = component.system.events.every(LogEvent)
+
+    with heard.read() as reader:
+        plan = await component.system.playbacks.plan(at(10), at(60), export=True)
+        events: list[Any] = reader.clear()
+
+    assert (plan.after, plan.before, plan.deleted, plan.complete) == (
+        at(10),
+        START + timedelta(hours=1),
+        1,
+        True,
+    )
+    assert [(sieve.name, sieve.messages, sieve.particles) for sieve in plan.sieves] == [
+        ("count", 2, 2)
+    ]
+    ((file,),) = [export.files for export in plan.exports]
+    assert (file.action, file.records) == (ExportFileAction.CREATE, 2)
+    assert [entry.content for entry in plan.logs] == ["parsed b'abc'", "parsed b'abcd'"]
+    assert plan.log_counts == {Level.WARNING: 2}
+    assert events == []
+    assert await stored(component) == [("@counter test/count", at(15))]
+    assert list(tmp_path.iterdir()) == []
+    assert await component.system.log.count() == 0

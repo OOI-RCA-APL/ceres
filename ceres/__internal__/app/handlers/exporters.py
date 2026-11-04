@@ -19,6 +19,7 @@ from ceres.error import (
     ValidationFailedError,
     ValidationProblem,
 )
+from ceres.exporter import ExportConflict, ExportConflictError, ExportPlan, ExportRangeMode
 
 if TYPE_CHECKING:
     from ceres.__internal__.app.shared import Actor
@@ -34,8 +35,12 @@ class ExportRunRequest(DataObject):
     """Inclusive start of the range to export."""
     before: DateTime | None = None
     """Exclusive end of the range to export, now when omitted."""
-    replace: bool = False
-    """Whether to rewrite each period's file from the database alone."""
+    on_conflict: ExportConflict = ExportConflict.OVERWRITE
+    """What the run does with a file it would write that already exists."""
+    range_mode: ExportRangeMode = ExportRangeMode.EXPAND
+    """How the run aligns the range with the exporter's files."""
+    dry_run: bool = False
+    """Whether to answer what the run would do, file by file, instead of starting it."""
 
     @model_validator(mode="after")
     def _validate_range(self) -> Self:
@@ -119,32 +124,48 @@ async def start_exporter_run(
     address: Address,
     name: str,
     request: ExportRunRequest,
-) -> ExportRunStarted:
+) -> ExportRunStarted | ExportPlan:
     """Start a run of the named exporter and return its ID without waiting for it.
+
+    With `dry_run` it returns what the run would do instead, and starts nothing.
 
     Raises:
         NotFoundError: If no component or exporter matches.
         NotPermittedError: If the caller lacks operate access to the component.
         NotRunningError: If the component is not running.
-        ValidationFailedError: If the exporter's format cannot merge and `replace` is false.
+        ValidationFailedError: If `on_conflict` is `error` and files the run would write
+            already exist.
         AlreadyExistsError: If one run of the exporter already waits for another.
     """
     component = await _resolve_exporter(engine, actor, address, name, operate=True)
     if not component.system.running:
         raise NotRunningError()
 
+    exporters = component.system.exporters
     try:
-        run = component.system.exporters.start(
+        if request.dry_run:
+            return await exporters.plan(
+                name,
+                request.after,
+                request.before,
+                on_conflict=request.on_conflict,
+                range_mode=request.range_mode,
+            )
+
+        run = exporters.start(
             name,
             request.after,
             request.before,
-            replace=request.replace,
+            on_conflict=request.on_conflict,
+            range_mode=request.range_mode,
         )
-    except ValueError as error:
-        raise ValidationFailedError(
-            problems=[
-                ValidationProblem(type="value_error", location=["replace"], message=str(error))
-            ]
-        ) from error
+    except ExportConflictError as error:
+        raise _conflict(error, "on_conflict") from error
 
     return ExportRunStarted(id=run.id)
+
+
+def _conflict(error: ExportConflictError, field: str) -> ValidationFailedError:
+    return ValidationFailedError(
+        problems=[ValidationProblem(type="value_error", location=[field], message=str(error))]
+    )

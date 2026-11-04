@@ -10,6 +10,7 @@ from ceres.__internal__.app.handlers.exporters import (
     get_exporter_runs,
     start_exporter_run,
 )
+from ceres.__internal__.app.handlers.playbacks import PlaybackRequest
 from ceres.__internal__.app.shared import Actor
 from ceres.component import ComponentAccessLevel, ComponentConfig
 from ceres.data import validate
@@ -86,13 +87,11 @@ async def test_get_component_exporters_describes_each_exporter(tmp_path: Path) -
 
     now = datetime.now(UTC)
     assert [
-        (info.name, info.format, info.merges, info.mount, info.path, info.file, info.live)
-        for info in result
+        (info.name, info.format, info.mount, info.path, info.file, info.live) for info in result
     ] == [
         (
             "messages",
             "csv",
-            True,
             "output",
             "{exporter}_{yyyy}{MM}{dd}T{HH}",
             f"messages_{now:%Y%m%dT%H}.csv",
@@ -171,3 +170,12 @@ def test_export_run_request_refuses_an_empty_range() -> None:
     """`after` must come before `before`."""
     with pytest.raises(ValueError, match="`after` must precede `before`"):
         validate(ExportRunRequest, {"after": _AFTER, "before": _AFTER})
+
+
+def test_playback_request_refuses_export_modes_without_export() -> None:
+    """A mode that only an export reads needs `export`, so it never silently does nothing."""
+    with pytest.raises(ValueError, match="`on_export_conflict` needs `export`"):
+        validate(PlaybackRequest, {"after": _AFTER, "on_export_conflict": "purge"})
+
+    request = validate(PlaybackRequest, {"after": _AFTER})
+    assert (request.export, request.on_export_conflict) == (False, None)

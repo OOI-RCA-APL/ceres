@@ -208,6 +208,9 @@ def el(*, uvloop: bool = True, eager: bool = True) -> AbstractEventLoop:
 async def spawn[**P, T](function: Callable[P, T], *args: P.args, **kwargs: P.kwargs) -> T:
     """Run a synchronous function in a new thread and await its result.
 
+    The thread runs in a copy of the caller's context, so context variables such as a log
+    capture reach it.
+
     Args:
         function: The function to invoke.
         *args: Positional arguments forwarded to `function`.
@@ -216,11 +219,13 @@ async def spawn[**P, T](function: Callable[P, T], *args: P.args, **kwargs: P.kwa
     Returns:
         The value returned by `function`.
     """
+    from concurrent.futures import ThreadPoolExecutor
+    from contextvars import copy_context
+
+    context = copy_context()
 
     def run() -> T:
-        return function(*args, **kwargs)
-
-    from concurrent.futures import ThreadPoolExecutor
+        return context.run(function, *args, **kwargs)
 
     with ThreadPoolExecutor() as executor:
         return await el().run_in_executor(executor, run)

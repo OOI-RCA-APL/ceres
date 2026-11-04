@@ -401,7 +401,7 @@ class _ExporterConfig[TFilter: MessageFilter | ParticleFilter | AlertFilter | Lo
     """How often live export writes the records stored since its last write."""
 
     schedule: ScheduleExpr | None = None
-    """When to merge the database into the recent periods' files, never when omitted."""
+    """When to write the recent periods' files from the database, never when omitted."""
 
     lookback: PositiveInt | None = None
     """Periods before the current one each scheduled run covers, 1 when omitted."""
@@ -532,9 +532,10 @@ class _ExporterConfig[TFilter: MessageFilter | ParticleFilter | AlertFilter | Lo
         if self.period == ExporterPeriod.ALL and self.lookback is not None:
             raise ValueError("a `period: all` exporter has one file, so it takes no `lookback`")
 
-        if self.schedule is not None and not format.keyed:
+        if self.period == ExporterPeriod.ALL and self.schedule is not None:
             raise ValueError(
-                f"format `{self.format_name}` cannot merge, so it cannot run on a schedule"
+                "a `period: all` file starts before any stored record, so a scheduled run "
+                "would never write it again"
             )
 
         return self

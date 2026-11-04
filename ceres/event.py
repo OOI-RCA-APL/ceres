@@ -694,8 +694,10 @@ class ExportRunStartedEvent(Event, slots=True):
     """Inclusive start of the run's range."""
     before: DateTime
     """Exclusive end of the run's range."""
-    replace: bool
-    """Whether the run rewrites each file from the database alone."""
+    on_conflict: str
+    """What the run does with a file it would write that already exists."""
+    range_mode: str
+    """How the run aligns its range with the exporter's files."""
 
 
 class ExportRunProgressEvent(Event, slots=True):
@@ -730,6 +732,10 @@ class ExportRunCompletedEvent(Event, slots=True):
     """Number of records written over the whole run."""
     files: list[str]
     """Paths of the files written, relative to the exporter's mount."""
+    kept: int
+    """Existing files the run left as they were."""
+    removed: int
+    """Existing files the run removed."""
     after: DateTime
     """Inclusive start of the run's range."""
     before: DateTime

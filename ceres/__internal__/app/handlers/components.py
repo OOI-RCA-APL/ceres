@@ -89,8 +89,6 @@ class ExporterInfo(DataObject):
     """The exported particle type, `None` for every type or another kind."""
     format: str
     """A built-in format's name, or a custom format class's qualified name."""
-    merges: bool
-    """Whether a run can merge stored records into a file, so far only a keyed format."""
     mount: str
     """Name of the component's mount the files live under."""
     period: ExporterPeriod
@@ -123,7 +121,6 @@ def _describe_exporters(component: Component) -> list[ExporterInfo]:
                 exports=exporter.exports,
                 type=_get_cls_particle_type(particle) if particle is not None else None,
                 format=exporter.format_name,
-                merges=exporter.format_class.keyed,
                 mount=exporter.mount,
                 period=exporter.period,
                 path=exporter.path_source,

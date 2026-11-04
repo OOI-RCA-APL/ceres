@@ -5,7 +5,7 @@ from pydantic import model_validator
 
 from ceres.__internal__.app.handlers.components import _resolve_component
 from ceres.__internal__.app.shared import get_component_access
-from ceres.__internal__.playback import PlaybackLevel, PlaybackRangeError
+from ceres.__internal__.playback import PlaybackLevel, PlaybackPlan, PlaybackRangeError
 from ceres.component import ComponentAccessLevel
 from ceres.data import DataObject, DateTime
 from ceres.error import (
@@ -14,6 +14,7 @@ from ceres.error import (
     ValidationFailedError,
     ValidationProblem,
 )
+from ceres.exporter import ExportConflict, ExportConflictError, ExportRangeMode
 
 if TYPE_CHECKING:
     from ceres.__internal__.app.shared import Actor
@@ -31,13 +32,24 @@ class PlaybackRequest(DataObject):
     """Exclusive end of the range to replay, now when omitted."""
     level: PlaybackLevel = PlaybackLevel.PARTICLES
     """What to do with each particle parsed."""
-    export: bool = True
-    """Whether to rewrite the files of the exporters whose particles the playback replaces."""
+    export: bool = False
+    """Whether to write the files of the exporters whose particles the playback replaces."""
+    on_export_conflict: ExportConflict | None = None
+    """What the export runs do with a file that already exists, `overwrite` when omitted."""
+    export_range_mode: ExportRangeMode | None = None
+    """How to align the range with the exporters' files, `expand` when omitted."""
+    dry_run: bool = False
+    """Whether to answer what the playback would do, from a dry run that writes nothing."""
 
     @model_validator(mode="after")
     def _validate_range(self) -> Self:
         if self.before is not None and self.after >= self.before:
             raise ValueError("`after` must precede `before`")
+
+        if not self.export:
+            for field in ("on_export_conflict", "export_range_mode"):
+                if getattr(self, field) is not None:
+                    raise ValueError(f"`{field}` needs `export`")
 
         return self
 
@@ -71,14 +83,17 @@ async def start_playback(
     actor: Actor,
     address: Address,
     request: PlaybackRequest,
-) -> PlaybackStarted:
+) -> PlaybackStarted | PlaybackPlan:
     """Start a playback of the component's stored messages and return its ID without waiting.
+
+    With `dry_run` it returns what the playback would do instead, and changes nothing.
 
     Raises:
         NotFoundError: If no component matches the given address.
         NotPermittedError: If the caller lacks manage access to the component.
         NotRunningError: If the component is not running.
-        ValidationFailedError: If the component cannot replay the range.
+        ValidationFailedError: If the component cannot replay the range, or export files the
+            playback would write already exist and `on_export_conflict` is `error`.
         AlreadyExistsError: If a playback of the component already runs.
     """
     component = await _resolve_component(engine, actor, address)
@@ -91,15 +106,34 @@ async def start_playback(
     if not component.system.running:
         raise NotRunningError()
 
+    playbacks = component.system.playbacks
+    on_conflict = request.on_export_conflict or ExportConflict.OVERWRITE
+    range_mode = request.export_range_mode or ExportRangeMode.EXPAND
     try:
-        run = await component.system.playbacks.start(
+        if request.dry_run:
+            return await playbacks.plan(
+                request.after,
+                request.before,
+                export=request.export,
+                on_export_conflict=on_conflict,
+                export_range_mode=range_mode,
+            )
+
+        run = await playbacks.start(
             request.after,
             request.before,
             level=request.level,
             export=request.export,
+            on_export_conflict=on_conflict,
+            export_range_mode=range_mode,
         )
     except ValueError as error:
-        location: list[str | int] = ["after"] if isinstance(error, PlaybackRangeError) else []
+        location: list[str | int] = []
+        if isinstance(error, PlaybackRangeError):
+            location = ["after"]
+        elif isinstance(error, ExportConflictError):
+            location = ["on_export_conflict"]
+
         raise ValidationFailedError(
             problems=[ValidationProblem(type="value_error", location=location, message=str(error))]
         ) from error

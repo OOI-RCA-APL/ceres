@@ -1,8 +1,10 @@
 """Replay a component's stored messages through its stored sieves."""
 
 from asyncio import Task, create_task
+from bisect import bisect_right
 from collections import deque
 from collections.abc import AsyncIterable, AsyncIterator, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from time import monotonic
@@ -24,6 +26,9 @@ from ceres.event import (
     PlaybackProgressEvent,
     PlaybackStartedEvent,
 )
+from ceres.exporter import ExportConflict, ExportPlan, ExportRangeMode, ExportSpan, span_files
+from ceres.level import Level
+from ceres.logs import LogEntry, capture_logs
 from ceres.particle import Particle, ParticleFilter, _get_cls_particle_type
 from ceres.timing import set_fake_now
 
@@ -36,8 +41,10 @@ if TYPE_CHECKING:
 __all__ = [
     "PlaybackLevel",
     "PlaybackManager",
+    "PlaybackPlan",
     "PlaybackRangeError",
     "PlaybackRecord",
+    "PlaybackSievePlan",
     "PlaybackState",
     "feed",
 ]
@@ -45,6 +52,9 @@ __all__ = [
 _RUN_RING_SIZE = 20
 _PROGRESS_SECONDS = 1.0
 _ORDER = ["timestamp:asc", "id:asc"]
+
+_LOG_LIMIT = 100
+"""Log entries a dry run keeps of those its sieves write, beside its count of all of them."""
 
 
 class PlaybackRangeError(ValueError):
@@ -75,6 +85,12 @@ class PlaybackRecord(DataObject):
     id: UUID
     """Playback ID, returned when the playback starts."""
 
+    requested_after: DateTime
+    """Inclusive start of the range the request named."""
+
+    requested_before: DateTime
+    """Exclusive end of the range the request named, capped at the time the playback started."""
+
     after: DateTime
     """Inclusive start of the replayed range."""
 
@@ -85,7 +101,13 @@ class PlaybackRecord(DataObject):
     """What the playback does with each particle it parses."""
 
     export: bool
-    """Whether the playback rewrites the files of the exporters whose particles it replaced."""
+    """Whether the playback writes the files of the exporters whose particles it replaced."""
+
+    on_export_conflict: ExportConflict
+    """What the playback's export runs do with a file that already exists."""
+
+    export_range_mode: ExportRangeMode
+    """How the playback aligns its range with its exporters' files."""
 
     state: PlaybackState = PlaybackState.RUNNING
     """Where the playback stands."""
@@ -129,6 +151,73 @@ class PlaybackRecord(DataObject):
 
     exception: str | None = None
     """Why the playback failed, `None` unless it failed."""
+
+
+class PlaybackSievePlan(DataObject):
+    """What one sieve parses from the stored messages of a dry run."""
+
+    name: str
+    """Name of the sieve."""
+
+    types: list[str]
+    """Particle types the sieve declares, whose stored particles the playback replaces."""
+
+    messages: int
+    """Stored messages the sieve took."""
+
+    particles: int
+    """Particles the sieve parsed from them."""
+
+    exception: str | None = None
+    """Why the sieve stopped before the end of its messages, `None` unless it did, in which
+    case the counts cover only the messages before."""
+
+
+class PlaybackPlan(DataObject):
+    """What a playback would do, from a dry run that parses stored messages and writes nothing."""
+
+    requested_after: DateTime
+    """Inclusive start of the range the request named."""
+
+    requested_before: DateTime
+    """Exclusive end of the range the request named, capped at now."""
+
+    after: DateTime
+    """Inclusive start of the range the playback would replay."""
+
+    before: DateTime
+    """Exclusive end of the range the playback would replay."""
+
+    export: bool
+    """Whether the playback would write its exporters' files."""
+
+    on_export_conflict: ExportConflict
+    """What the playback's export runs would do with a file that already exists."""
+
+    export_range_mode: ExportRangeMode
+    """How the playback aligns its range with its exporters' files."""
+
+    deleted: int
+    """Stored particles the playback would delete before replaying."""
+
+    sieves: list[PlaybackSievePlan]
+    """Each sieve the playback would replay, in order."""
+
+    exports: list[ExportPlan]
+    """Each export run the playback would start. A file's `records` counts the stored
+    records the replay keeps and the particles the dry run parsed for it."""
+
+    logs: list[LogEntry]
+    """Log entries the sieves wrote, the first `_LOG_LIMIT` of them."""
+
+    log_counts: dict[Level, int]
+    """Log entries the sieves wrote by level, all of them counted."""
+
+    logs_truncated: bool
+    """Whether the sieves wrote more log entries than `logs` holds."""
+
+    complete: bool
+    """Whether every sieve parsed all of its messages, so the counts cover the whole range."""
 
 
 def _progress(run: PlaybackRecord) -> float:
@@ -215,7 +304,9 @@ class PlaybackManager(BaseComponentManager):
         before: datetime | None = None,
         *,
         level: PlaybackLevel = PlaybackLevel.PARTICLES,
-        export: bool = True,
+        export: bool = False,
+        on_export_conflict: ExportConflict = ExportConflict.OVERWRITE,
+        export_range_mode: ExportRangeMode = ExportRangeMode.EXPAND,
     ) -> PlaybackRecord:
         """Start replaying the stored messages in `[after, before)` and return its record.
 
@@ -223,18 +314,31 @@ class PlaybackManager(BaseComponentManager):
         declare in the range, then runs every stored sieve over its stored messages in the
         range. Particles of those types that something other than a sieve stored are lost.
 
+        With `export` the range first widens or narrows to the files of the particle exporters
+        the playback affects, as `export_range_mode` says, and once the replay completes each
+        of those exporters runs over the range with `on_export_conflict`. An exporter covering
+        all time leaves the range alone.
+
+        The range then starts no earlier than the oldest message every replaying sieve has
+        stored, so a particle no stored message can rebuild survives. A sieve with no stored
+        messages sits the playback out, and a playback left with nothing to replay completes
+        at once.
+
         Args:
             after: Inclusive start of the range.
             before: Exclusive end of the range, defaulting to now and capped at now.
             level: What to do with each particle parsed.
-            export: Whether to rewrite, from the database alone, the files of every particle
-                exporter whose type the playback replaced or that exports every type.
+            export: Whether to write, from the database alone, the files of every particle
+                exporter whose type the playback replaces or that exports every type.
+            on_export_conflict: What the export runs do with a file that already exists.
+            export_range_mode: How to align the range with the exporters' files.
 
         Raises:
-            PlaybackRangeError: If `after` does not precede `before`, or the stored messages
-                do not reach back to `after`.
-            ValueError: If the component has no stored sieve, a stored sieve declares no
-                particle type, or a stored sieve has no stored messages.
+            PlaybackRangeError: If `after` does not precede `before`.
+            ValueError: If the component has no stored sieve or a stored sieve declares no
+                particle type.
+            ExportConflictError: If `export` is set, `on_export_conflict` is `error`, and
+                files the export runs would write already exist.
             AlreadyExistsError: If a playback of the component already runs.
         """
         if self.__busy:
@@ -243,26 +347,34 @@ class PlaybackManager(BaseComponentManager):
         self.__busy = True
         try:
             now = datetime.now(UTC)
-            after = after.astimezone(UTC)
-            before = min((before or now).astimezone(UTC), now)
-            if after >= before:
-                raise PlaybackRangeError("`after` must precede `before`")
-
-            sieves = self.__stored_sieves()
-            for config, _ in sieves:
-                await self.__check_retention(config, after)
+            range = await self.__range(after, before, now, export, export_range_mode)
+            if export and on_export_conflict == ExportConflict.ERROR:
+                for name in range.exporters:
+                    self.__system__.exporters.check_conflicts(
+                        name, range.after, range.before, export_range_mode
+                    )
 
             run = PlaybackRecord(
                 id=uuid4(),
-                after=after,
-                before=before,
+                requested_after=range.requested_after,
+                requested_before=range.requested_before,
+                after=range.after,
+                before=range.before,
                 level=level,
                 export=export,
+                on_export_conflict=on_export_conflict,
+                export_range_mode=export_range_mode,
                 started=now,
-                sieves=len(sieves),
+                sieves=len(range.sieves),
             )
+            if range.after >= range.before:
+                run = replace(run, state=PlaybackState.COMPLETED, ended=now, progress=1.0)
+                self.__runs.append(run)
+                self.__busy = False
+                return run
+
             self.__runs.append(run)
-            self.__task = create_task(self.__play(run, sieves))
+            self.__task = create_task(self.__play(run, range))
         except BaseException:
             self.__busy = False
             raise
@@ -282,15 +394,163 @@ class PlaybackManager(BaseComponentManager):
         before: datetime | None = None,
         *,
         level: PlaybackLevel = PlaybackLevel.PARTICLES,
-        export: bool = True,
+        export: bool = False,
+        on_export_conflict: ExportConflict = ExportConflict.OVERWRITE,
+        export_range_mode: ExportRangeMode = ExportRangeMode.EXPAND,
     ) -> PlaybackRecord:
         """Run like `start` and return the playback's record once it completes or fails."""
-        run = await self.start(after, before, level=level, export=export)
+        run = await self.start(
+            after,
+            before,
+            level=level,
+            export=export,
+            on_export_conflict=on_export_conflict,
+            export_range_mode=export_range_mode,
+        )
         task = self.__task
         if task is not None:
             await task
 
         return next(current for current in self.__runs if current.id == run.id)
+
+    async def plan(
+        self,
+        after: datetime,
+        before: datetime | None = None,
+        *,
+        export: bool = False,
+        on_export_conflict: ExportConflict = ExportConflict.OVERWRITE,
+        export_range_mode: ExportRangeMode = ExportRangeMode.EXPAND,
+    ) -> PlaybackPlan:
+        """Return what a playback like `start` would do, from a dry run that writes nothing.
+
+        Fresh instances of the stored sieves parse the stored messages in the range, so the
+        counts are the particles they parse now. The dry run stores no particle, deletes
+        nothing, writes no file and emits no event. The log entries the sieves write go into
+        the plan instead of the log. A sieve that keeps state outside itself may parse
+        otherwise in a later playback.
+
+        Raises:
+            PlaybackRangeError: If `after` does not precede `before`.
+            ValueError: If the component has no stored sieve or a stored sieve declares no
+                particle type.
+            ExportConflictError: If `export` is set, `on_export_conflict` is `error`, and
+                files the export runs would write already exist.
+        """
+        now = datetime.now(UTC)
+        range = await self.__range(after, before, now, export, export_range_mode)
+        system = self.__system__
+        types = sorted({name for _, names in range.sieves for name in names})
+        replaying = range.after < range.before
+        deleted = 0
+        if replaying:
+            deleted = await system.particles.where(
+                ParticleFilter(type=types, after=range.after, before=range.before),
+                address=system.address,
+            ).count()
+
+        exporters = system.exporters
+        # One count per exporter and file, so the state grows with the files and not with
+        # the particles parsed.
+        files: dict[str, list[ExportSpan]] = {}
+        parsed: dict[str, list[int]] = {}
+        if export and replaying:
+            for name in range.exporters:
+                span = exporters.span(name, range.after, range.before, export_range_mode)
+                period = exporters.get(name).period  # type: ignore[union-attr]
+                files[name] = [] if span is None else [s for _, s in span_files(period, span)]
+                parsed[name] = [0] * len(files[name])
+
+        sieves: list[PlaybackSievePlan] = []
+        with capture_logs(_LOG_LIMIT) as logs:
+            for config, names in range.sieves:
+                sieves.append(await self.__dry_run(config, names, range, files, parsed))
+
+        plans: list[ExportPlan] = []
+        if export and replaying:
+            replayed = ParticleFilter(type=types, address=system.address)
+            for name in range.exporters:
+
+                async def adjust(selected: ExportSpan, count: int, name: str = name) -> int:
+                    start = max(selected.after or range.after, range.after)
+                    end = min(selected.before or range.before, range.before)
+                    if start >= end:
+                        return count
+
+                    lost = await exporters.count_records(name, start, end, replayed)
+                    index = _file_index(files[name], start)
+                    return count - lost + (parsed[name][index] if index is not None else 0)
+
+                plans.append(
+                    await exporters.plan(
+                        name,
+                        range.after,
+                        range.before,
+                        on_conflict=on_export_conflict,
+                        range_mode=export_range_mode,
+                        adjust=adjust,
+                    )
+                )
+
+        return PlaybackPlan(
+            requested_after=range.requested_after,
+            requested_before=range.requested_before,
+            after=range.after,
+            before=range.before,
+            export=export,
+            on_export_conflict=on_export_conflict,
+            export_range_mode=export_range_mode,
+            deleted=deleted,
+            sieves=sieves,
+            exports=plans,
+            logs=logs.entries,
+            log_counts=logs.counts,
+            logs_truncated=logs.truncated,
+            complete=all(sieve.exception is None for sieve in sieves),
+        )
+
+    async def __dry_run(
+        self,
+        config: SieveConfig,
+        types: list[str],
+        range: _PlaybackRange,
+        files: dict[str, list[ExportSpan]],
+        parsed: dict[str, list[int]],
+    ) -> PlaybackSievePlan:
+        exporters = self.__system__.exporters
+        messages = particles = 0
+        exception: str | None = None
+        if range.after >= range.before:
+            return PlaybackSievePlan(name=config.name, types=types, messages=0, particles=0)
+
+        async def counted(records: AsyncIterable[Message]) -> AsyncIterator[Message]:
+            nonlocal messages
+            async for message in records:
+                messages += 1
+                yield message
+
+        try:
+            async with self.__messages(config, after=range.after, before=range.before) as stored:
+                async for particle in feed(
+                    self.__component__, config, counted(stored), replay=True
+                ):
+                    particles += 1
+                    for name, spans in files.items():
+                        index = _file_index(spans, particle.timestamp)
+                        if index is not None and exporters.selects(name, particle):
+                            parsed[name][index] += 1
+        except Exception as error:
+            exception = str(error) or type(error).__name__
+        finally:
+            set_fake_now(None)
+
+        return PlaybackSievePlan(
+            name=config.name,
+            types=types,
+            messages=messages,
+            particles=particles,
+            exception=exception,
+        )
 
     def __stored_sieves(self) -> list[tuple[SieveConfig, list[str]]]:
         component = self.__component__
@@ -330,17 +590,61 @@ class PlaybackManager(BaseComponentManager):
         filter: Any = range if config.filter is None else range & config.filter
         return self.__system__.messages.where(filter, address=self.__system__.address)
 
-    async def __check_retention(self, config: SieveConfig, after: datetime) -> None:
-        oldest = await self.__messages(config).first()
-        if oldest is None:
-            raise ValueError(f"Sieve '{config.name}' has no stored messages to replay")
+    async def __range(
+        self,
+        after: datetime,
+        before: datetime | None,
+        now: datetime,
+        export: bool,
+        range_mode: ExportRangeMode,
+    ) -> _PlaybackRange:
+        # Aligns the range with the exporters' files, then clamps it to the stored messages.
+        requested_after = after.astimezone(UTC)
+        requested_before = min((before or now).astimezone(UTC), now)
+        if requested_after >= requested_before:
+            raise PlaybackRangeError("`after` must precede `before`")
 
-        if after < oldest.timestamp:
-            newest = await self.__messages(config, ["timestamp:desc", "id:desc"]).first()
-            raise PlaybackRangeError(
-                f"Sieve '{config.name}' has stored messages only from "
-                f"{oldest.timestamp.isoformat()} to {newest.timestamp.isoformat()}"
-            )
+        stored = self.__stored_sieves()
+        types = {name for _, names in stored for name in names}
+        exporters = self.__exporters(types) if export else []
+        after, before = requested_after, requested_before
+        if range_mode == ExportRangeMode.EXPAND:
+            manager = self.__system__.exporters
+            for name in exporters:
+                span = manager.span(name, requested_after, requested_before, range_mode)
+                if span is not None and span.after is not None and span.before is not None:
+                    after, before = min(after, span.after), max(before, span.before)
+
+        before = min(before, now)
+        sieves: list[tuple[SieveConfig, list[str]]] = []
+        for config, names in stored:
+            oldest = await self.__messages(config).first()
+            if oldest is None:
+                continue
+
+            # The latest start among the sieves, so no sieve deletes what it cannot rebuild.
+            sieves.append((config, names))
+            after = max(after, oldest.timestamp.astimezone(UTC))
+
+        if not sieves or after > before:
+            after = before
+
+        return _PlaybackRange(requested_after, requested_before, after, before, sieves, exporters)
+
+    def __exporters(self, types: set[str]) -> list[str]:
+        # The particle exporters whose files hold particles of the replayed types.
+        names: list[str] = []
+        for exporter in self.__system__.exporters.get_all():
+            if exporter.exports != EntityType.PARTICLE:
+                continue
+
+            particle = exporter.particle_class()
+            if particle is not None and _get_cls_particle_type(particle) not in types:
+                continue
+
+            names.append(exporter.name)
+
+        return names
 
     def __update(self, run: PlaybackRecord, **changes: Any) -> PlaybackRecord:
         # Starts from the ring's copy, which holds every earlier update.
@@ -351,10 +655,9 @@ class PlaybackManager(BaseComponentManager):
 
         return run
 
-    async def __play(
-        self, run: PlaybackRecord, sieves: list[tuple[SieveConfig, list[str]]]
-    ) -> None:
+    async def __play(self, run: PlaybackRecord, range: _PlaybackRange) -> None:
         system = self.__system__
+        sieves = range.sieves
         events = system.events
         events.emit(
             PlaybackStartedEvent,
@@ -378,7 +681,7 @@ class PlaybackManager(BaseComponentManager):
 
             await system.flush()
             if run.export:
-                run = await self.__export(run, types)
+                run = await self.__export(run, range.exporters)
         except BaseException as exception:
             # A stopping component cancels the playback, which fails it like an error does.
             set_fake_now(None)
@@ -463,28 +766,52 @@ class PlaybackManager(BaseComponentManager):
         report()
         return run
 
-    async def __export(self, run: PlaybackRecord, types: list[str]) -> PlaybackRecord:
+    async def __export(self, run: PlaybackRecord, names: list[str]) -> PlaybackRecord:
         exporters = self.__system__.exporters
-        for exporter in exporters.get_all():
-            if exporter.exports != EntityType.PARTICLE:
-                continue
-
-            particle = exporter.particle_class()
-            if particle is not None and _get_cls_particle_type(particle) not in types:
-                continue
-
+        for name in names:
             try:
-                finished = await exporters.run(exporter.name, run.after, run.before, replace=True)
+                finished = await exporters.run(
+                    name,
+                    run.after,
+                    run.before,
+                    on_conflict=run.on_export_conflict,
+                    range_mode=run.export_range_mode,
+                )
             except AlreadyExistsError as error:
                 raise RuntimeError(
-                    f"Exporter '{exporter.name}' already has a run waiting, so rebuild its "
-                    "files by hand"
+                    f"Exporter '{name}' already has a run waiting, so write its files with "
+                    "`ceres export` once it finishes"
                 ) from error
 
             run = self.__update(run, export_runs=[*run.export_runs, finished.id])
             if finished.exception is not None:
                 raise RuntimeError(
-                    f"Exporter '{exporter.name}' failed to rewrite its files: {finished.exception}"
+                    f"Exporter '{name}' failed to write its files: {finished.exception}"
                 )
 
         return run
+
+
+@dataclass(frozen=True, slots=True)
+class _PlaybackRange:
+    """A playback's requested range, the range it replays, and what replays it."""
+
+    requested_after: datetime
+    requested_before: datetime
+    after: datetime
+    before: datetime
+    sieves: list[tuple[SieveConfig, list[str]]]
+    exporters: list[str]
+
+
+def _file_index(spans: list[ExportSpan], moment: datetime) -> int | None:
+    # Spans are sorted and disjoint, so a bisection finds the one holding `moment`.
+    index = (
+        bisect_right(spans, moment, key=lambda span: span.after or datetime.min.replace(tzinfo=UTC))
+        - 1
+    )
+    if index < 0:
+        return None
+
+    span = spans[index]
+    return index if span.before is None or moment < span.before else None

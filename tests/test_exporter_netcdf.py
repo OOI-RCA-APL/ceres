@@ -13,7 +13,7 @@ from ceres.address import Address
 from ceres.data import Float32, Int16, PackedSequence, UInt16
 from ceres.entity import EntityType
 from ceres.event import LogEvent
-from ceres.exporter import ExportRunState, ExportSchema, NetCDFFormat
+from ceres.exporter import TICK, ExportConflict, ExportRunState, ExportSchema
 from tests.test_exporter import RECENT, START, Exported, Live, refusal
 from tests.testing import wait_for_condition
 
@@ -210,9 +210,9 @@ async def test_keys_survive_the_seconds_time_variable(tmp_path: Path, moment: da
     await exported.store(gauge(0, at=moment))
     await exported.run(after=moment, hours=1)
 
-    keys = [key async for key in NetCDFFormat().keys(tmp_path / "all.nc", SCHEMA)]
+    seconds = read(tmp_path / "all.nc")["variables"]["time"]
 
-    assert keys == [(moment, UUID(int=1))]
+    assert round(seconds[0] * 1e6) == (moment - datetime(1970, 1, 1, tzinfo=UTC)) // TICK
 
 
 async def test_reruns_write_equal_bytes(tmp_path: Path) -> None:
@@ -227,10 +227,10 @@ async def test_reruns_write_equal_bytes(tmp_path: Path) -> None:
     assert list(first) == ["2026/01/01/00.nc", "2026/01/01/01.nc"]
 
 
-async def test_merge_keeps_records_the_database_lost_and_lets_it_win(tmp_path: Path) -> None:
-    exported = Exported.create(tmp_path / "merged", **netcdf())
+async def test_overwrite_writes_the_database_alone(tmp_path: Path) -> None:
+    exported = Exported.create(tmp_path / "rewritten", **netcdf())
     lost = gauge(10, id=1, connection="usb")
-    await exported.store(lost, gauge(20, id=2))
+    await exported.store(gauge(-60, id=9), lost, gauge(20, id=2))
     await exported.run()
 
     await exported.component.system.particles.where(id=lost.id).delete()
@@ -238,17 +238,12 @@ async def test_merge_keeps_records_the_database_lost_and_lets_it_win(tmp_path: P
     await exported.store(gauge(5, id=3), gauge(20, 9.5, id=2))
     await exported.run()
 
-    whole = Exported.create(tmp_path / "whole", **netcdf())
-    await whole.component.system.particles.where().delete()
-    await whole.store(lost, gauge(5, id=3), gauge(20, 9.5, id=2))
-    await whole.run()
-    assert exported.files() == whole.files()
-    variables = read(tmp_path / "merged/2026/01/01/00.nc")["variables"]
-    assert variables["celsius"].tolist() == [1.5, 1.5, 9.5]
-    assert variables["connection_name"].tolist() == [b"serial", b"usb"]
+    variables = read(tmp_path / "rewritten/2026/01/01/00.nc")["variables"]
+    assert variables["celsius"].tolist() == [1.5, 9.5]
+    assert variables["connection_name"].tolist() == [b"serial"]
 
 
-async def test_merge_refuses_a_file_with_other_variables(tmp_path: Path) -> None:
+async def test_overwrite_keeps_a_file_with_other_variables_unread(tmp_path: Path) -> None:
     exported = Exported.create(tmp_path, **netcdf())
     await exported.store(gauge(10))
     (tmp_path / "2026/01/01").mkdir(parents=True)
@@ -256,10 +251,10 @@ async def test_merge_refuses_a_file_with_other_variables(tmp_path: Path) -> None
         file.dimensions = {"time": 1}
         file.create_variable("other", ("time",), "f8")[:] = numpy.array([1.0])
 
-    run = await exported.run()
+    run = await exported.run(on_conflict=ExportConflict.PURGE)
 
-    assert run.state == ExportRunState.FAILED
-    assert run.exception is not None and "has other variables" in run.exception
+    assert run.state == ExportRunState.COMPLETED
+    assert "celsius" in read(tmp_path / "2026/01/01/00.nc")["variables"]
 
 
 async def test_live_export_equals_a_rerun(tmp_path: Path) -> None:
@@ -277,24 +272,6 @@ async def test_live_export_equals_a_rerun(tmp_path: Path) -> None:
     await rerun.run(after=RECENT)
 
     await wait_for_condition("both files match", lambda: live.files() == rerun.files(), 30)
-    await live.component.system.stop()
-
-
-async def test_a_live_tick_never_reads_the_file_keys(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def refuse(*_: Any) -> Any:
-        raise AssertionError("a whole-file format read its keys on a live tick")
-
-    live = await Live.started(tmp_path, **netcdf(live=True))
-    monkeypatch.setattr(NetCDFFormat, "keys", refuse)
-    path = tmp_path / f"{RECENT:%Y/%m/%d/%H}.nc"
-
-    await live.write(gauge(10, id=1, at=RECENT))
-    await wait_for_rows(path, 1)
-    await live.write(gauge(20, id=2, at=RECENT))
-
-    await wait_for_rows(path, 2)
     await live.component.system.stop()
 
 

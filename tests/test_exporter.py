@@ -20,7 +20,7 @@ from ceres.__internal__.pending_exports import (
 )
 from ceres.address import Address
 from ceres.alert import Alert
-from ceres.config import ComponentConfig, ExporterConfig, MessagePrunerConfig
+from ceres.config import ComponentConfig, ExporterConfig, ExporterPeriod, MessagePrunerConfig
 from ceres.data import from_json, replace, to_json, validate
 from ceres.entity import EntityType
 from ceres.error import AlreadyExistsError, DatabaseUnreachableError
@@ -32,14 +32,22 @@ from ceres.event import (
 )
 from ceres.exporter import (
     CsvFormat,
+    ExportConflict,
+    ExportConflictError,
+    ExportFileAction,
+    ExportKeepReason,
     ExportKey,
+    ExportPlan,
+    ExportRangeMode,
     ExportRecord,
     ExportRunRecord,
     ExportRunState,
     ExportSchema,
+    ExportSpan,
     JsonLinesFormat,
     LineFormat,
     _Live,
+    effective_span,
 )
 from ceres.level import Level
 from ceres.logs import LogEntry
@@ -133,11 +141,35 @@ class Exported:
         await self.component.system.messages.where(id=[record.id for record in records]).delete()
 
     async def run(
-        self, hours: int = 3, replace: bool = False, after: datetime = START
+        self,
+        hours: int = 3,
+        after: datetime = START,
+        on_conflict: ExportConflict = ExportConflict.OVERWRITE,
+        range_mode: ExportRangeMode = ExportRangeMode.EXPAND,
     ) -> ExportRunRecord:
         exporters = self.component.system.exporters
         return await exporters.run(
-            self.exporter.name, after, after + timedelta(hours=hours), replace=replace
+            self.exporter.name,
+            after,
+            after + timedelta(hours=hours),
+            on_conflict=on_conflict,
+            range_mode=range_mode,
+        )
+
+    async def plan(
+        self,
+        hours: int = 3,
+        after: datetime = START,
+        on_conflict: ExportConflict = ExportConflict.OVERWRITE,
+        range_mode: ExportRangeMode = ExportRangeMode.EXPAND,
+    ) -> ExportPlan:
+        exporters = self.component.system.exporters
+        return await exporters.plan(
+            self.exporter.name,
+            after,
+            after + timedelta(hours=hours),
+            on_conflict=on_conflict,
+            range_mode=range_mode,
         )
 
     @property
@@ -208,79 +240,170 @@ async def test_jsonl_writes_one_object_per_record(tmp_path: Path) -> None:
     )
 
 
-@pytest.mark.parametrize("format", ["csv", "jsonl"])
-async def test_merge_keeps_records_the_database_lost(tmp_path: Path, format: str) -> None:
-    exported = Exported.create(tmp_path / "merged", format=format)
-    lost = message(10, b"x\ny", id=1)
-    await exported.store(lost, message(20, id=2))
+def oldest(minutes: float = 0) -> Message:
+    """A message older than every test period, so the database's history covers each file."""
+    return message(minutes - 60, id=99)
+
+
+async def test_overwrite_writes_each_file_from_the_database_alone(tmp_path: Path) -> None:
+    exported = Exported.create(tmp_path)
+    lost = message(10, id=1)
+    await exported.store(oldest(), lost, message(20, id=2), message(70, id=3))
     await exported.run()
 
     await exported.delete(lost)
-    await exported.store(message(5, id=3), message(30, id=4))
-    await exported.run()
+    await exported.component.system.messages.where(id=UUID(int=2)).update({"data": b"new"})
+    run = await exported.run()
 
-    whole = Exported.create(tmp_path / "whole", format=format)
-    await whole.delete(message(5, id=3), message(30, id=4), message(20, id=2))
-    await whole.store(lost, message(5, id=3), message(20, id=2), message(30, id=4))
-    await whole.run()
-    assert exported.files() == whole.files()
+    lines = exported.files()["2026/01/01/00.csv"].splitlines()
+    assert len(lines) == 2 and lines[1].endswith(b",receive,new")
+    assert (run.count, run.kept, run.removed) == (2, 0, 0)
 
 
-async def test_merge_lets_the_database_win_on_a_key(tmp_path: Path) -> None:
+async def test_overwrite_keeps_a_file_older_than_the_database(tmp_path: Path) -> None:
     exported = Exported.create(tmp_path)
-    await exported.store(message(10, b"old"))
+    archived = message(10, id=1)
+    await exported.store(archived, message(70, id=2))
     await exported.run()
 
-    await exported.component.system.messages.where(id=UUID(int=1)).update({"data": b"new"})
-    await exported.run()
+    await exported.delete(archived)
+    plan = await exported.plan()
+    run = await exported.run()
 
-    assert exported.files()["2026/01/01/00.csv"].endswith(b",receive,new\n")
+    assert [(file.path, file.action, file.reason) for file in plan.files] == [
+        ("2026/01/01/00.csv", ExportFileAction.KEEP, ExportKeepReason.EMPTY),
+        ("2026/01/01/01.csv", ExportFileAction.KEEP, ExportKeepReason.HISTORY),
+    ]
+    assert exported.files()["2026/01/01/00.csv"].count(b"\n") == 2
+    assert (run.count, run.kept) == (0, 2)
 
 
-async def test_merge_keeps_the_file_of_a_period_with_no_records(tmp_path: Path) -> None:
+async def test_overwrite_keeps_a_file_the_range_covers_only_part_of(tmp_path: Path) -> None:
     exported = Exported.create(tmp_path)
-    kept = message(10)
-    await exported.store(kept)
+    await exported.store(oldest(), message(10, id=1), message(40, id=2))
     await exported.run()
     archived = exported.files()
 
-    await exported.delete(kept)
-    run = await exported.run()
+    await exported.delete(message(10, id=1))
+    half = START + timedelta(minutes=30)
+    run = await exported.run(hours=1, after=half, range_mode=ExportRangeMode.EXACT)
 
     assert exported.files() == archived
-    assert (run.count, run.files) == (0, [])
+    assert (run.effective_after, run.effective_before) == (half, half + timedelta(hours=1))
+    assert (run.periods, run.kept) == (2, 1)
 
 
-async def test_replace_drops_lost_records_and_removes_empty_files(tmp_path: Path) -> None:
+async def test_purge_drops_records_the_database_lost_and_removes_empty_files(
+    tmp_path: Path,
+) -> None:
     exported = Exported.create(tmp_path)
     lost = message(10, id=1)
     await exported.store(lost, message(20, id=2), message(70, id=3))
     await exported.run()
 
     await exported.delete(lost, message(70, id=3))
-    run = await exported.run(replace=True)
+    run = await exported.run(on_conflict=ExportConflict.PURGE)
 
     assert list(exported.files()) == ["2026/01/01/00.csv"]
     assert exported.files()["2026/01/01/00.csv"].count(b"\n") == 2
-    assert (run.count, run.files) == (1, ["2026/01/01/00.csv"])
+    assert (run.count, run.files, run.removed) == (1, ["2026/01/01/00.csv"], 1)
 
 
-async def test_merge_refuses_a_file_with_another_header(tmp_path: Path) -> None:
+async def test_purge_leaves_files_outside_the_range(tmp_path: Path) -> None:
+    exported = Exported.create(tmp_path)
+    await exported.store(message(10, id=1), message(70, id=2))
+    await exported.run()
+
+    await exported.delete(message(10, id=1), message(70, id=2))
+    await exported.run(hours=1, on_conflict=ExportConflict.PURGE)
+
+    assert list(exported.files()) == ["2026/01/01/01.csv"]
+
+
+async def test_skip_leaves_existing_files_and_writes_missing_ones(tmp_path: Path) -> None:
+    exported = Exported.create(tmp_path)
+    await exported.store(oldest(), message(10, b"old", id=1))
+    await exported.run()
+
+    await exported.component.system.messages.where(id=UUID(int=1)).update({"data": b"new"})
+    await exported.store(message(70, id=2))
+    run = await exported.run(on_conflict=ExportConflict.SKIP)
+
+    assert exported.files()["2026/01/01/00.csv"].endswith(b",receive,old\n")
+    assert "2026/01/01/01.csv" in exported.files()
+    assert (run.files, run.kept) == (["2026/01/01/01.csv"], 1)
+
+
+async def test_error_refuses_before_writing_and_names_every_existing_file(
+    tmp_path: Path,
+) -> None:
+    exported = Exported.create(tmp_path)
+    await exported.store(message(10, id=1), message(70, id=2))
+    await exported.run()
+    await exported.store(message(130, id=3))
+
+    with pytest.raises(ExportConflictError) as error:
+        await exported.run(on_conflict=ExportConflict.ERROR)
+
+    assert error.value.paths == ["2026/01/01/00.csv", "2026/01/01/01.csv"]
+    assert "2026/01/01/02.csv" not in exported.files()
+
+
+@pytest.mark.parametrize(
+    ("mode", "bounds", "periods"),
+    [
+        (ExportRangeMode.EXPAND, ("00:00", "02:00"), 2),
+        (ExportRangeMode.EXACT, ("00:30", "01:30"), 2),
+        (ExportRangeMode.SHRINK, None, 0),
+    ],
+)
+async def test_range_modes_align_with_the_files(
+    tmp_path: Path,
+    mode: ExportRangeMode,
+    bounds: tuple[str, str] | None,
+    periods: int,
+) -> None:
     exported = Exported.create(tmp_path)
     await exported.store(message(10))
-    (tmp_path / "2026/01/01").mkdir(parents=True)
-    (tmp_path / "2026/01/01/00.csv").write_bytes(b"a,b\n")
 
-    run = await exported.run()
+    run = await exported.run(hours=1, after=START + timedelta(minutes=30), range_mode=mode)
 
-    assert run.state == ExportRunState.FAILED
-    assert run.exception is not None and "another header" in run.exception
-    assert exported.files()["2026/01/01/00.csv"] == b"a,b\n"
+    def at(clock: str) -> datetime:
+        return datetime.fromisoformat(f"2026-01-01T{clock}+00:00")
+
+    effective = None if bounds is None else (at(bounds[0]), at(bounds[1]))
+    assert (run.effective_after, run.effective_before) == (effective or (None, None))
+    assert run.periods == periods
 
 
-async def test_merge_skips_a_torn_final_line(tmp_path: Path) -> None:
+def test_effective_span_leaves_aligned_bounds_alone() -> None:
+    hour = ExporterPeriod.HOUR
+    end = START + timedelta(hours=2)
+    for mode in ExportRangeMode:
+        assert effective_span(hour, mode, START, end) == ExportSpan(START, end)
+
+    all = ExporterPeriod.ALL
+    assert effective_span(all, ExportRangeMode.EXPAND, START, end) == ExportSpan(None, None)
+    assert effective_span(all, ExportRangeMode.SHRINK, START, end) is None
+
+
+async def test_a_plan_writes_nothing(tmp_path: Path) -> None:
     exported = Exported.create(tmp_path)
-    await exported.store(message(10))
+    await exported.store(message(10, id=1), message(70, id=2), message(71, id=3))
+
+    plan = await exported.plan()
+
+    assert exported.files() == {}
+    assert [(file.path, file.action, file.records) for file in plan.files] == [
+        ("2026/01/01/00.csv", ExportFileAction.CREATE, 1),
+        ("2026/01/01/01.csv", ExportFileAction.CREATE, 2),
+    ]
+    assert plan.count == 3
+
+
+async def test_a_rerun_rewrites_a_torn_final_line(tmp_path: Path) -> None:
+    exported = Exported.create(tmp_path)
+    await exported.store(oldest(), message(10))
     await exported.run()
     path = tmp_path / "2026/01/01/00.csv"
     clean = path.read_bytes()
@@ -289,20 +412,6 @@ async def test_merge_skips_a_torn_final_line(tmp_path: Path) -> None:
     await exported.run()
 
     assert path.read_bytes() == clean
-
-
-async def test_merge_refuses_a_file_out_of_key_order(tmp_path: Path) -> None:
-    exported = Exported.create(tmp_path)
-    await exported.store(message(10, id=1), message(20, id=2))
-    await exported.run()
-    path = tmp_path / "2026/01/01/00.csv"
-    header, first, second = path.read_bytes().splitlines(keepends=True)
-    path.write_bytes(header + second + first)
-
-    run = await exported.run()
-
-    assert run.exception is not None and "is not sorted by key" in run.exception
-    assert path.read_bytes() == header + second + first
 
 
 @pytest.mark.parametrize(
@@ -323,16 +432,9 @@ async def test_raw_concatenates_message_data(tmp_path: Path) -> None:
     exported = Exported.create(tmp_path, format="raw")
     await exported.store(message(20, b"\x00\xff", id=2), message(10, b"ab\n"))
 
-    await exported.run(replace=True)
+    await exported.run()
 
     assert exported.files() == {"2026/01/01/00.bin": b"ab\n\x00\xff"}
-
-
-async def test_raw_refuses_a_merge(tmp_path: Path) -> None:
-    exported = Exported.create(tmp_path, format="raw")
-
-    with pytest.raises(ValueError, match="`raw` cannot merge, so the run must replace"):
-        await exported.run()
 
 
 async def test_run_emits_events_and_logs(tmp_path: Path) -> None:
@@ -509,9 +611,11 @@ def test_config_refuses_lookback_without_schedule() -> None:
     assert "`lookback` needs a `schedule`" in refusal(lookback=2)
 
 
-def test_config_refuses_raw_particles_and_schedules() -> None:
+def test_config_refuses_raw_particles_and_a_schedule_of_one_file() -> None:
     assert "cannot export particle records" in refusal(exports="particle", format="raw")
-    assert "cannot run on a schedule" in refusal(format="raw", schedule="0 * * * *")
+    assert "would never write it again" in refusal(
+        period="all", path="{exporter}", schedule="0 * * * *"
+    )
 
 
 def test_config_refuses_csv_particles_without_a_type() -> None:
@@ -631,9 +735,9 @@ def ids(lines: list[bytes]) -> list[int]:
 async def test_live_export_equals_a_rerun(tmp_path: Path, format: str) -> None:
     live = await Live.started(tmp_path / "live", format=format)
     path = f"{RECENT:%Y/%m/%d/%H}.{format}"
-    await live.write(recent(10, id=1), recent(30, id=3))
+    await live.write(recent(10, id=1), recent(20, id=2))
     await live.lines(path, 2)
-    await live.write(recent(20, id=2), recent(70, id=5))
+    await live.write(recent(30, id=3), recent(70, id=5))
     await live.write(recent(40, id=4))
     await live.lines(path, 4)
 
@@ -646,14 +750,28 @@ async def test_live_export_equals_a_rerun(tmp_path: Path, format: str) -> None:
     await live.component.system.stop()
 
 
-async def test_a_late_record_lands_in_key_order_at_the_next_wake(tmp_path: Path) -> None:
+async def test_a_late_record_stays_in_the_database_until_a_run_writes_it(
+    tmp_path: Path,
+) -> None:
     live = await Live.started(tmp_path)
     await live.write(recent(10, id=1), recent(30, id=3))
     await live.lines(RECENT_FILE, 2)
 
-    await live.write(recent(20, id=2))
+    with live.component.system.events.every(LogEvent).read() as reader:
+        await live.write(recent(20, id=2), recent(40, id=4))
+        assert ids(await live.lines(RECENT_FILE, 3)) == [1, 3, 4]
+        logged: list[Any] = reader.clear()
 
-    assert ids(await live.lines(RECENT_FILE, 3)) == [1, 2, 3]
+    held = live.component.system.exporters.get_written_through(EntityType.MESSAGE)
+    assert held is not None and held[1] == recent(20).timestamp
+    assert any("cannot add records" in event.entry.content for event in logged)
+
+    await live.store(oldest())
+    await live.run(after=RECENT, hours=1)
+
+    assert ids(await live.lines(RECENT_FILE, 4)) == [1, 2, 3, 4]
+    held = live.component.system.exporters.get_written_through(EntityType.MESSAGE)
+    assert held is not None and held[1] > recent(20).timestamp
     await live.component.system.stop()
 
 
@@ -818,11 +936,9 @@ class Plain(LineFormat):
         return datetime.fromisoformat(timestamp.decode()), UUID(id.decode())
 
 
-async def test_a_custom_format_class_merges(tmp_path: Path) -> None:
+async def test_a_custom_format_class_writes_its_files(tmp_path: Path) -> None:
     exported = Exported.create(tmp_path, format={"class": f"{__name__}.Plain"}, live=False)
-    await exported.store(message(20, id=2))
-    await exported.run()
-    await exported.store(message(10, id=1))
+    await exported.store(message(20, id=2), message(10, id=1))
 
     await exported.run()
 
@@ -895,7 +1011,8 @@ async def test_a_prune_waits_for_a_flush_in_flight(
     await flushing
     await pruning
 
-    assert ids(await live.lines(RECENT_FILE, 3)) == [1, 2, 3]
+    assert ids(await live.lines(RECENT_FILE, 2)) == [1, 3]
+    assert await live.component.system.messages.where(id=UUID(int=2)).count() == 1
     await live.component.system.stop()
 
 
@@ -921,7 +1038,8 @@ async def test_a_paged_prune_keeps_a_late_record_flushed_between_pages(
     monkeypatch.setattr(DeleteExecutor, "_await", first_page)
     await prune(live, pruner())
 
-    assert ids(await live.lines(RECENT_FILE, 7)) == [7, 1, 2, 3, 4, 5, 6]
+    assert ids(await live.lines(RECENT_FILE, 6)) == [1, 2, 3, 4, 5, 6]
+    assert await system.messages.where(id=late.id).count() == 1
     await live.component.system.stop()
 
 
@@ -947,18 +1065,29 @@ async def test_an_append_heals_a_record_torn_inside_a_quoted_cell(tmp_path: Path
     await live.component.system.stop()
 
 
-async def test_a_raw_exporter_names_the_rerun_for_records_it_missed(tmp_path: Path) -> None:
+async def test_a_raw_exporter_writes_a_missing_file_and_names_the_run_for_one_it_finds(
+    tmp_path: Path,
+) -> None:
     current = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
-    exported = Exported.create(tmp_path, format="raw")
-    await exported.store(replace(message(0), timestamp=current))
-
+    exported = Exported.create(tmp_path / "missing", format="raw")
+    await exported.store(replace(message(0, b"ab"), timestamp=current))
     live = Live(exported.component, exported.root)
-    with exported.component.system.events.every(LogEvent).read() as reader:
+    await live.begin()
+    assert live.files() == {f"{current:%Y/%m/%d/%H}.bin": b"ab"}
+    await live.component.system.stop()
+
+    found = Exported.create(tmp_path / "found", format="raw")
+    await found.store(replace(message(0, b"ab"), timestamp=current))
+    (tmp_path / "found" / f"{current:%Y/%m/%d}").mkdir(parents=True)
+    (tmp_path / "found" / f"{current:%Y/%m/%d/%H}.bin").write_bytes(b"a")
+    live = Live(found.component, found.root)
+    with found.component.system.events.every(LogEvent).read() as reader:
         await live.begin()
         logged: list[Any] = reader.clear()
 
-    warning = f"lacks records stored before it started in '{current:%Y/%m/%d/%H}.bin'"
+    warning = f"cannot add records to '{current:%Y/%m/%d/%H}.bin'"
     assert any(warning in event.entry.content for event in logged)
+    assert live.files() == {f"{current:%Y/%m/%d/%H}.bin": b"a"}
     await live.component.system.stop()
 
 
@@ -1050,6 +1179,25 @@ async def test_a_load_across_addresses_runs_each_exporter_once(tmp_path: Path) -
         "Exported the loaded records of '@archive', '@archive.abc' from "
         "2026-01-01T00:05:00+00:00 to 2026-01-01T01:10:00+00:00 through '@archive' 'messages'"
     ]
+
+
+async def test_a_load_runs_once_per_pair_of_modes_and_names_the_retry_of_a_refusal(
+    tmp_path: Path,
+) -> None:
+    exported = Exported.create(tmp_path)
+    await exported.store(message(5, id=1))
+    await exported.run()
+    engine = Loading(exported.component, [])
+    entry = from_json(pending("message", "@archive", 5, 5))
+    entries = [
+        validate(PendingExport, {**entry, "on_conflict": mode}) for mode in ("error", "skip")
+    ]
+
+    await export_pending(engine, entries)  # type: ignore[reportArgumentType]
+
+    refused, exported_line = engine.lines
+    assert "refused the run" in refused and "`ceres export @archive messages --after" in refused
+    assert "through '@archive' 'messages'" in exported_line
 
 
 async def test_an_export_of_a_load_waits_for_the_engine_to_start_its_components(

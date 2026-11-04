@@ -932,6 +932,16 @@ async def test_an_export_run_starts_and_reports_over_http(tmp_path: Path) -> Non
         assert (ended[0]["state"], ended[0]["files"]) == ("completed", ["messages_20260101T00.csv"])
         assert (tmp_path / "messages_20260101T00.csv").read_text().count("abc") == 1
 
+        hour = {"after": "2026-01-01T00:00:00Z", "before": "2026-01-01T01:00:00Z"}
+        planned = await client.post(runs, json={**hour, "dry_run": True})
+        # The oldest stored record falls after the file's start, so the file may hold older ones.
+        assert [(file["action"], file["reason"]) for file in planned.json()["files"]] == [
+            ("keep", "history")
+        ]
+        refused = await client.post(runs, json={**hour, "on_conflict": "error"})
+        assert refused.status_code == 422
+        assert "messages_20260101T00.csv" in refused.text
+
 
 async def test_loaded_records_export_through_the_pending_route(tmp_path: Path) -> None:
     archive = _archive(tmp_path)

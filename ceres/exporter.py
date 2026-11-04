@@ -1,8 +1,8 @@
 """Exporters write stored records to files, the archive a component produces.
 
 A file is the archive and the product, and the database is the working copy that produces it.
-Automatic writes add and update rows in a file and never remove one, only a run with `replace`
-removes rows.
+A run never merges into a file. It writes a whole file from the database, keeps the file, or
+removes it, as its conflict mode decides.
 """
 
 import csv
@@ -16,10 +16,19 @@ import re
 import tempfile
 import types
 from abc import abstractmethod
-from asyncio import CancelledError, Lock, Task, create_task, wait_for
+from asyncio import CancelledError, Lock, Task, create_task
 from asyncio import Event as AsyncEvent
 from collections import deque
-from collections.abc import AsyncIterable, AsyncIterator, Callable, Iterable, Iterator, Mapping
+from collections.abc import (
+    AsyncIterable,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Iterable,
+    Iterator,
+    Mapping,
+    Sequence,
+)
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -82,14 +91,22 @@ type ExportKey = tuple[datetime, UUID]
 __all__ = [
     "CsvFormat",
     "ExportColumn",
+    "ExportConflict",
+    "ExportConflictError",
+    "ExportFileAction",
     "ExportFileError",
+    "ExportFilePlan",
+    "ExportKeepReason",
     "ExportKey",
     "ExportPath",
+    "ExportPlan",
+    "ExportRangeMode",
     "ExportRecord",
     "ExportRunRecord",
     "ExportRunState",
     "ExportRunSummary",
     "ExportSchema",
+    "ExportSpan",
     "ExporterManager",
     "Format",
     "JsonLinesFormat",
@@ -97,6 +114,7 @@ __all__ = [
     "NetCDFFormat",
     "RawFormat",
     "atomic_write",
+    "effective_span",
 ]
 
 _CHUNK_SIZE = 1 << 20
@@ -121,8 +139,8 @@ TICK = timedelta(microseconds=1)
 _START_CHECKS = 100
 """Periods a live exporter checks at start, newest first, so a long outage starts in bounded time."""
 
-_MERGE_WARNING = 10
-"""Merges into one period after which a live exporter warns that late records cost it."""
+_SHOWN_FILES = 5
+"""Files a run's completion log line names before it counts the rest."""
 
 # Reading the umask means setting it, so the process reads it once while nothing else writes.
 _UMASK = os.umask(0)
@@ -137,7 +155,17 @@ _RECORD_COLUMNS: dict[EntityType, tuple[str, ...]] = {
 
 
 class ExportFileError(Exception):
-    """Raised when an existing export file cannot take part in a merge."""
+    """Raised when a live exporter cannot read where an existing file ends."""
+
+
+class ExportConflictError(ValueError):
+    """Raised when a run with `on_conflict: error` finds files it would write already there."""
+
+    def __init__(self, paths: Sequence[str]) -> None:
+        shown = ", ".join(f"'{path}'" for path in paths[:_SHOWN_FILES])
+        more = f" and {len(paths) - _SHOWN_FILES} more" if len(paths) > _SHOWN_FILES else ""
+        super().__init__(f"Files already exist: {shown}{more}")
+        self.paths = list(paths)
 
 
 @dataclass(frozen=True, slots=True)
@@ -390,9 +418,6 @@ class Format(DataObject, abstract=True):
     schema_bound: ClassVar[bool] = False
     """Whether a particle exporter must name its particle class so the columns are fixed."""
 
-    keyed: ClassVar[bool] = False
-    """Whether files keep records sorted by key, which `merge` and `keys` need."""
-
     exports: ClassVar[frozenset[EntityType] | None] = None
     """Record kinds the format can write, `None` for every kind."""
 
@@ -423,34 +448,17 @@ class Format(DataObject, abstract=True):
         """Add `records` to the end of the file at `path`, creating it when missing."""
         raise NotImplementedError(f"`{type(self).__name__}` cannot append")
 
-    async def merge(
-        self,
-        path: Path,
-        schema: ExportSchema,
-        records: AsyncIterable[ExportRecord],
-        into: Path,
-    ) -> None:
-        """Write the file at `path` merged with `records` to `into`, `records` winning on a key.
-
-        Raises:
-            ExportFileError: If the file at `path` cannot be merged into.
-        """
-        raise NotImplementedError(f"`{type(self).__name__}` cannot merge")
-
-    def keys(self, path: Path, schema: ExportSchema) -> AsyncIterator[ExportKey]:
-        """Yield the key of every record in the file at `path`, in file order."""
-        raise NotImplementedError(f"`{type(self).__name__}` has no keys")
-
 
 class LineFormat(Format, abstract=True):
     """Format whose file is an optional header followed by one encoded line per record.
 
-    Subclasses provide `header`, `encode` and `key`. A merge passes the lines it keeps through
-    as bytes and parses only their keys.
+    Subclasses provide `header` and `encode`, and `key` when lines carry their record's key.
     """
 
     appendable: ClassVar[bool] = True
-    keyed: ClassVar[bool] = True
+
+    resumable: ClassVar[bool] = True
+    """Whether `key` reads a line's key, so a live exporter resumes after a file's last line."""
 
     def header(self, schema: ExportSchema) -> bytes:
         """Return the bytes that open every file, empty for none."""
@@ -484,7 +492,7 @@ class LineFormat(Format, abstract=True):
         if header:
             first = await anext(records, None)
             if first is not None and first != header:
-                raise ExportFileError(f"'{path}' has another header, so a run must replace it")
+                raise ExportFileError(f"'{path}' has another header")
 
         async for line in records:
             yield self.key(line), line
@@ -515,54 +523,6 @@ class LineFormat(Format, abstract=True):
                 await output.write(self.header(schema))
             async for record in records:
                 await output.write(self.encode(schema, record))
-
-    @override
-    async def merge(
-        self,
-        path: Path,
-        schema: ExportSchema,
-        records: AsyncIterable[ExportRecord],
-        into: Path,
-    ) -> None:
-        if not self.keyed:
-            return await super().merge(path, schema, records, into)
-
-        lines = aiter(self.lines(path, schema))
-
-        async def next_line(current: tuple[ExportKey, bytes]) -> tuple[ExportKey, bytes] | None:
-            line = await anext(lines, None)
-            if line is not None and line[0] <= current[0]:
-                raise ExportFileError(f"'{path}' is not sorted by key, so a run must replace it")
-
-            return line
-
-        async with _output(into) as output:
-            await output.write(self.header(schema))
-            kept = await anext(lines, None)
-            previous: ExportKey | None = None
-            async for record in records:
-                key = _record_key(record)
-                if previous is not None and key <= previous:
-                    raise ExportFileError("records arrived out of key order")
-
-                previous = key
-                while kept is not None and kept[0] < key:
-                    await output.write(kept[1])
-                    kept = await next_line(kept)
-
-                if kept is not None and kept[0] == key:
-                    kept = await next_line(kept)
-
-                await output.write(self.encode(schema, record))
-
-            while kept is not None:
-                await output.write(kept[1])
-                kept = await next_line(kept)
-
-    @override
-    async def keys(self, path: Path, schema: ExportSchema) -> AsyncIterator[ExportKey]:
-        async for key, _ in self.lines(path, schema):
-            yield key
 
     async def tail(self, path: Path, schema: ExportSchema) -> tuple[ExportKey | None, int]:
         """Return the last key in the file at `path` and the length of its complete records.
@@ -665,11 +625,12 @@ class JsonLinesFormat(LineFormat):
 class RawFormat(LineFormat):
     """The data bytes of each message, concatenated in key order with nothing between them.
 
-    Records carry no key in the file, so a run must replace the file it rewrites.
+    Records carry no key in the file, so a live exporter cannot tell where a file it finds
+    at start ends.
     """
 
     extension: ClassVar[str] = ".bin"
-    keyed: ClassVar[bool] = False
+    resumable: ClassVar[bool] = False
     exports: ClassVar[frozenset[EntityType] | None] = frozenset({EntityType.MESSAGE})
 
     @override
@@ -688,7 +649,6 @@ class NetCDFFormat(Format):
 
     extension: ClassVar[str] = ".nc"
     schema_bound: ClassVar[bool] = True
-    keyed: ClassVar[bool] = True
     exports: ClassVar[frozenset[EntityType] | None] = frozenset({EntityType.PARTICLE})
 
     attributes: Mapping[str, Mapping[str, str]] = Field(default_factory=dict)
@@ -734,37 +694,6 @@ class NetCDFFormat(Format):
         await spawn(
             write_table, path, table, variables, self.attributes, self.file_attributes(schema)
         )
-
-    @override
-    async def merge(
-        self,
-        path: Path,
-        schema: ExportSchema,
-        records: AsyncIterable[ExportRecord],
-        into: Path,
-    ) -> None:
-        from ceres.__internal__.netcdf import NetCDFFileError, read_table, write_table
-
-        variables = self.variables(schema)
-        try:
-            kept = await spawn(read_table, path, variables)
-        except NetCDFFileError as exception:
-            raise ExportFileError(f"{exception}, so a run must replace it") from exception
-
-        if not kept.sorted():
-            raise ExportFileError(f"'{path}' is not sorted by key, so a run must replace it")
-
-        table = kept.merge(await self.__collect(variables, records))
-        await spawn(
-            write_table, into, table, variables, self.attributes, self.file_attributes(schema)
-        )
-
-    @override
-    async def keys(self, path: Path, schema: ExportSchema) -> AsyncIterator[ExportKey]:
-        from ceres.__internal__.netcdf import decode_key, read_keys
-
-        for key in await spawn(read_keys, path):
-            yield decode_key(key)
 
     @staticmethod
     async def __collect(
@@ -898,6 +827,89 @@ def periods(
         end = period_shift(period, start, 1)
         yield start, end
         start = end
+
+
+class ExportRangeMode(StrEnum):
+    """How a run aligns its requested range with the exporter's file boundaries."""
+
+    EXPAND = "expand"
+    """Widen the range to the whole files it touches."""
+
+    EXACT = "exact"
+    """Keep the requested range, so a file at either end may take part of its records."""
+
+    SHRINK = "shrink"
+    """Narrow the range to the whole files inside it, nothing when none fits."""
+
+
+class ExportConflict(StrEnum):
+    """What a run does with a file it would write that already exists."""
+
+    ERROR = "error"
+    """Refuse the run before it writes anything."""
+
+    SKIP = "skip"
+    """Leave the file as it is."""
+
+    OVERWRITE = "overwrite"
+    """Write the file from the database, unless that could lose records only the file holds."""
+
+    PURGE = "purge"
+    """Write the file from the database, and remove it when the database holds none of its
+    records, losing any records only the file holds."""
+
+
+@dataclass(frozen=True, slots=True)
+class ExportSpan:
+    """A range of time, either bound `None` for open."""
+
+    after: datetime | None
+    """Inclusive start, `None` for the start of time."""
+
+    before: datetime | None
+    """Exclusive end, `None` for the end of time."""
+
+
+def effective_span(
+    period: ExporterPeriod, mode: ExportRangeMode, after: datetime, before: datetime
+) -> ExportSpan | None:
+    """Return the range a run over `[after, before)` covers under `mode`, `None` for nothing.
+
+    A `period: all` file covers all time, so `expand` covers all time and `shrink` nothing.
+    """
+    if period == ExporterPeriod.ALL:
+        match mode:
+            case ExportRangeMode.EXPAND:
+                return ExportSpan(None, None)
+            case ExportRangeMode.EXACT:
+                return ExportSpan(after, before)
+            case ExportRangeMode.SHRINK:
+                return None
+
+    first, last = period_start(period, after), period_start(period, before)
+    match mode:
+        case ExportRangeMode.EXPAND:
+            end = last if last == before else period_shift(period, last, 1)
+            return ExportSpan(first, end)
+        case ExportRangeMode.EXACT:
+            return ExportSpan(after, before)
+        case ExportRangeMode.SHRINK:
+            start = first if first == after else period_shift(period, first, 1)
+            return ExportSpan(start, last) if start < last else None
+
+
+def span_files(period: ExporterPeriod, span: ExportSpan) -> Iterator[tuple[ExportSpan, ExportSpan]]:
+    """Yield each file's whole range and the part of it `span` selects, in time order.
+
+    A `period: all` exporter has one file, whose whole range is open at both ends.
+    """
+    if period == ExporterPeriod.ALL or span.after is None or span.before is None:
+        yield ExportSpan(None, None), span
+        return
+
+    for start, end in periods(period, span.after, span.before):
+        assert start is not None and end is not None
+        yield ExportSpan(start, end), ExportSpan(max(start, span.after), min(end, span.before))
 
 
 _DEFAULT_PATHS: Final[Mapping[ExporterPeriod, str]] = {
@@ -1046,8 +1058,17 @@ class ExportRunRecord(DataObject):
     before: DateTime
     """Exclusive end of the requested range."""
 
-    replace: bool
-    """Whether the run rewrites each period's file from the database alone."""
+    on_conflict: ExportConflict
+    """What the run does with a file it would write that already exists."""
+
+    range_mode: ExportRangeMode
+    """How the run aligns the requested range with the exporter's files."""
+
+    effective_after: DateTime | None
+    """Inclusive start of the range the run covers, `None` for the start of time."""
+
+    effective_before: DateTime | None
+    """Exclusive end of the range the run covers, `None` for the end of time."""
 
     state: ExportRunState = ExportRunState.RUNNING
     """Where the run stands."""
@@ -1064,11 +1085,17 @@ class ExportRunRecord(DataObject):
     files: list[str] = Field(default_factory=list)
     """Files written so far, relative to the exporter's mount."""
 
+    kept: int = 0
+    """Existing files the run left as they were."""
+
+    removed: int = 0
+    """Existing files the run removed, since the database holds none of their records."""
+
     periods: int
-    """Periods the run covers, 1 for an exporter whose one file covers all time."""
+    """Files the run covers, 0 when the range mode leaves none."""
 
     periods_done: int = 0
-    """Periods finished so far, written or found empty."""
+    """Files finished so far, written, kept, removed or found empty."""
 
     exception: str | None = None
     """Why the run failed, `None` unless it failed."""
@@ -1079,12 +1106,17 @@ class ExportRunRecord(DataObject):
             id=self.id,
             after=self.after,
             before=self.before,
-            replace=self.replace,
+            on_conflict=self.on_conflict,
+            range_mode=self.range_mode,
+            effective_after=self.effective_after,
+            effective_before=self.effective_before,
             state=self.state,
             started=self.started,
             ended=self.ended,
             count=self.count,
             file_count=len(self.files),
+            kept=self.kept,
+            removed=self.removed,
             periods=self.periods,
             periods_done=self.periods_done,
             exception=self.exception,
@@ -1103,8 +1135,17 @@ class ExportRunSummary(DataObject):
     before: DateTime
     """Exclusive end of the requested range."""
 
-    replace: bool
-    """Whether the run rewrites each period's file from the database alone."""
+    on_conflict: ExportConflict
+    """What the run does with a file it would write that already exists."""
+
+    range_mode: ExportRangeMode
+    """How the run aligns the requested range with the exporter's files."""
+
+    effective_after: DateTime | None
+    """Inclusive start of the range the run covers, `None` for the start of time."""
+
+    effective_before: DateTime | None
+    """Exclusive end of the range the run covers, `None` for the end of time."""
 
     state: ExportRunState
     """Where the run stands."""
@@ -1121,14 +1162,121 @@ class ExportRunSummary(DataObject):
     file_count: int
     """Files written so far."""
 
+    kept: int
+    """Existing files the run left as they were."""
+
+    removed: int
+    """Existing files the run removed."""
+
     periods: int
-    """Periods the run covers, 1 for an exporter whose one file covers all time."""
+    """Files the run covers."""
 
     periods_done: int
-    """Periods finished so far, written or found empty."""
+    """Files finished so far."""
 
     exception: str | None
     """Why the run failed, `None` unless it failed."""
+
+
+class ExportFileAction(StrEnum):
+    """What a run does with one file."""
+
+    CREATE = "create"
+    """Write a file where none exists."""
+
+    OVERWRITE = "overwrite"
+    """Write an existing file again from the database."""
+
+    KEEP = "keep"
+    """Leave an existing file as it is."""
+
+    REMOVE = "remove"
+    """Remove an existing file the database holds none of the records of."""
+
+    NONE = "none"
+    """Nothing, since no file exists and the database holds no records for one."""
+
+
+class ExportKeepReason(StrEnum):
+    """Why a run leaves an existing file as it is."""
+
+    SKIP = "skip"
+    """The run's conflict mode is `skip`."""
+
+    HISTORY = "history"
+    """The file starts before the oldest record the database holds, so it may hold older
+    records the database no longer does."""
+
+    PARTIAL = "partial"
+    """The run's range covers only part of the file, so writing it would drop the rest."""
+
+    EMPTY = "empty"
+    """The database holds none of the file's records."""
+
+
+class ExportFilePlan(DataObject):
+    """What a run does with one file and why."""
+
+    path: str
+    """File path relative to the exporter's mount."""
+
+    after: DateTime | None
+    """Inclusive start of the time the file covers, `None` for the start of time."""
+
+    before: DateTime | None
+    """Exclusive end of the time the file covers, `None` for the end of time."""
+
+    selected_after: DateTime | None
+    """Inclusive start of the records the run selects for the file."""
+
+    selected_before: DateTime | None
+    """Exclusive end of the records the run selects for the file."""
+
+    exists: bool
+    """Whether the file exists."""
+
+    action: ExportFileAction
+    """What the run does with the file."""
+
+    reason: ExportKeepReason | None = None
+    """Why the run keeps an existing file, `None` unless it keeps one."""
+
+    records: int
+    """Stored records the run selects for the file, written unless it keeps the file."""
+
+
+class ExportPlan(DataObject):
+    """What a run of one exporter would do, file by file, without writing anything."""
+
+    exporter: Name
+    """Name of the exporter."""
+
+    after: DateTime
+    """Inclusive start of the requested range."""
+
+    before: DateTime
+    """Exclusive end of the requested range."""
+
+    on_conflict: ExportConflict
+    """What the run does with a file it would write that already exists."""
+
+    range_mode: ExportRangeMode
+    """How the run aligns the requested range with the exporter's files."""
+
+    effective_after: DateTime | None
+    """Inclusive start of the range the run covers, `None` for the start of time."""
+
+    effective_before: DateTime | None
+    """Exclusive end of the range the run covers, `None` for the end of time."""
+
+    covered: bool
+    """Whether the range mode leaves any range to cover."""
+
+    files: list[ExportFilePlan]
+    """Each file the run covers, in time order."""
+
+    count: int
+    """Records the run would write."""
 
 
 class _Exporter:
@@ -1153,10 +1301,12 @@ class _Live:
     Notified keys wait as one range per period so a late record never widens the query of
     another period. The cursor starts at the start time of the check a live exporter runs
     when it starts, since that check makes every file complete through then and a record
-    flushed afterward with an older key lowers `written_through` through `pending`.
+    flushed afterward with an older key lowers `written_through` through `pending`. A record
+    too late to append stays in the database alone and holds `written_through` through `late`
+    until a run writes its period's file.
     """
 
-    __slots__ = ("cursor", "last", "merges", "pending", "task", "wake", "working")
+    __slots__ = ("cursor", "last", "late", "owned", "pending", "task", "wake", "working")
 
     def __init__(self) -> None:
         self.wake = AsyncEvent()
@@ -1167,7 +1317,12 @@ class _Live:
         # The last key of each period written since the last wake, `None` for an empty file.
         # A period missing here reads its last key from its file.
         self.last: dict[datetime, ExportKey | None] = {}
-        self.merges: dict[datetime, int] = {}
+        # The oldest late record of each period, bounded by the periods holding one, since a
+        # run writing a period's file drops its entry.
+        self.late: dict[datetime, datetime] = {}
+        # Periods whose whole file this exporter wrote from the database, so a whole-file
+        # format may write them again. Kept like `last`, for the periods one interval touches.
+        self.owned: set[datetime] = set()
         self.cursor: datetime | None = None
 
     def notify(self, period: ExporterPeriod, keys: Iterable[ExportKey]) -> None:
@@ -1201,7 +1356,60 @@ class _Live:
             [self.cursor]
             + [first[0] for first, _ in self.pending.values()]
             + [first[0] for first, _ in self.working.values()]
+            + list(self.late.values())
         )
+
+
+def _before_history(whole: ExportSpan, history: datetime | None) -> bool:
+    # A file covering all time starts before any record, and a database holding no record
+    # leaves nothing to compare.
+    if whole.after is None:
+        return True
+
+    return history is not None and whole.after < history
+
+
+def decide(
+    on_conflict: ExportConflict,
+    path: str,
+    *,
+    exists: bool,
+    records: bool,
+    partial: bool,
+    before_history: bool,
+) -> tuple[ExportFileAction, ExportKeepReason | None]:
+    """Return what a run does with one file and why it keeps the file when it does.
+
+    Args:
+        on_conflict: The run's conflict mode.
+        path: The file's path relative to its mount, which an error names.
+        exists: Whether the file exists.
+        records: Whether the database holds records the run selects for the file.
+        partial: Whether the run selects only part of the file's time.
+        before_history: Whether the file starts before the oldest record the database holds.
+
+    Raises:
+        ExportConflictError: If the file exists and `on_conflict` is `error`.
+    """
+    if not exists:
+        return (ExportFileAction.CREATE if records else ExportFileAction.NONE), None
+
+    match on_conflict:
+        case ExportConflict.ERROR:
+            raise ExportConflictError([path])
+        case ExportConflict.SKIP:
+            return ExportFileAction.KEEP, ExportKeepReason.SKIP
+        case ExportConflict.PURGE:
+            return (ExportFileAction.OVERWRITE if records else ExportFileAction.REMOVE), None
+        case ExportConflict.OVERWRITE:
+            if not records:
+                return ExportFileAction.KEEP, ExportKeepReason.EMPTY
+            if partial:
+                return ExportFileAction.KEEP, ExportKeepReason.PARTIAL
+            if before_history:
+                return ExportFileAction.KEEP, ExportKeepReason.HISTORY
+
+            return ExportFileAction.OVERWRITE, None
 
 
 def _exporter_scope(records: BaseDatabaseManager) -> Callable[[Address], bool]:
@@ -1367,15 +1575,15 @@ class ExporterManager(BaseComponentManager):
         after: datetime,
         before: datetime | None = None,
         *,
-        replace: bool = False,
+        on_conflict: ExportConflict = ExportConflict.OVERWRITE,
+        range_mode: ExportRangeMode = ExportRangeMode.EXPAND,
     ) -> ExportRunRecord:
-        """Start a run writing the periods that overlap `[after, before)` and return its record.
+        """Start a run writing the files that cover `[after, before)` and return its record.
 
-        A run merges the database's records into each period's file, the database winning on a
-        shared key, so a period with no stored records keeps its file. With `replace` it
-        rewrites each period's file from the database alone and removes an empty period's file.
-        A `period: all` exporter has one file, so its run writes every stored record whatever
-        the range.
+        `range_mode` aligns the range with the exporter's files first. Each file the aligned
+        range covers is written from the database alone, the records it selects and nothing
+        else, and `on_conflict` decides what happens to a file that already exists. A run
+        removes no database record.
 
         One run of an exporter writes at a time and one more waits for it.
 
@@ -1383,43 +1591,40 @@ class ExporterManager(BaseComponentManager):
             name: Name of the exporter to run.
             after: Inclusive start of the range.
             before: Exclusive end of the range, defaulting to now.
-            replace: Whether to rewrite each file from the database alone.
+            on_conflict: What to do with a file the run would write that already exists.
+            range_mode: How to align the range with the exporter's files.
 
         Raises:
             KeyError: If no exporter is registered under `name`.
-            ValueError: If `after` does not precede `before`, or the format cannot merge and
-                `replace` is false.
+            ValueError: If `after` does not precede `before`.
+            ExportConflictError: If `on_conflict` is `error` and files the run would write
+                already exist. A file appearing after the check still fails the run.
             AlreadyExistsError: If one run of the exporter already waits for another.
         """
-        registered = self.__exporters.get(name)
-        if registered is None:
-            raise KeyError(name)
-
-        after = after.astimezone(UTC)
-        before = (before or datetime.now(UTC)).astimezone(UTC)
-        if after >= before:
-            raise ValueError("`after` must precede `before`")
-
-        if not replace and not registered.format.keyed:
-            raise ValueError(
-                f"`{registered.config.format_name}` cannot merge, so the run must replace"
-            )
-
+        registered, after, before = self.__resolve(name, after, before)
         if self.__pending.get(name, 0) >= _PENDING_RUNS:
             raise AlreadyExistsError(field="exporter", value=name)
+
+        span = effective_span(registered.config.period, range_mode, after, before)
+        files = [] if span is None else list(span_files(registered.config.period, span))
+        if on_conflict == ExportConflict.ERROR:
+            self.check_conflicts(name, after, before, range_mode)
 
         run = ExportRunRecord(
             id=uuid4(),
             exporter=name,
             after=after,
             before=before,
-            replace=replace,
+            on_conflict=on_conflict,
+            range_mode=range_mode,
+            effective_after=span.after if span is not None else None,
+            effective_before=span.before if span is not None else None,
             started=datetime.now(UTC),
-            periods=sum(1 for _ in periods(registered.config.period, after, before)),
+            periods=len(files),
         )
         self.__runs.append(run)
         self.__pending[name] = self.__pending.get(name, 0) + 1
-        task = create_task(self.__export(registered, run))
+        task = create_task(self.__export(registered, run, files))
         self.__tasks[run.id] = task
 
         def finish(_: Task[None]) -> None:
@@ -1435,15 +1640,209 @@ class ExporterManager(BaseComponentManager):
         after: datetime,
         before: datetime | None = None,
         *,
-        replace: bool = False,
+        on_conflict: ExportConflict = ExportConflict.OVERWRITE,
+        range_mode: ExportRangeMode = ExportRangeMode.EXPAND,
     ) -> ExportRunRecord:
         """Run like `start` and return the run's record once it completes or fails."""
-        run = self.start(name, after, before, replace=replace)
+        run = self.start(name, after, before, on_conflict=on_conflict, range_mode=range_mode)
         task = self.__tasks.get(run.id)
         if task is not None:
             await task
 
         return next((current for current in self.__runs if current.id == run.id), run)
+
+    async def plan(
+        self,
+        name: str,
+        after: datetime,
+        before: datetime | None = None,
+        *,
+        on_conflict: ExportConflict = ExportConflict.OVERWRITE,
+        range_mode: ExportRangeMode = ExportRangeMode.EXPAND,
+        adjust: Callable[[ExportSpan, int], Awaitable[int]] | None = None,
+    ) -> ExportPlan:
+        """Return what a run like `start` would do with each file, writing nothing.
+
+        The plan reads the database as it stands, so records a flush stores before a later run
+        can change what that run does.
+
+        Args:
+            name: Name of the exporter.
+            after: Inclusive start of the range.
+            before: Exclusive end of the range, defaulting to now.
+            on_conflict: What the run would do with a file that already exists.
+            range_mode: How the run would align the range with the exporter's files.
+            adjust: Returns the records a file would hold from its selected range and the
+                records the database holds there now, for a caller that would change the
+                database first.
+
+        Raises:
+            KeyError: If no exporter is registered under `name`.
+            ValueError: If `after` does not precede `before`.
+            ExportConflictError: If `on_conflict` is `error` and files the run would write
+                already exist.
+        """
+        registered, after, before = self.__resolve(name, after, before)
+        exporter = registered.config
+        span = effective_span(exporter.period, range_mode, after, before)
+        mount = self.__mount(exporter)
+        history = await self.__history(exporter)
+        files: list[ExportFilePlan] = []
+        existing: list[str] = []
+        for whole, selected in [] if span is None else span_files(exporter.period, span):
+            target = registered.path.file(mount, whole.after)
+            relative = target.relative.as_posix()
+            exists = await anyio.Path(target.path).exists()
+            count = await self.__query(exporter, selected.after, selected.before).count()
+            if adjust is not None:
+                count = await adjust(selected, count)
+            if exists and on_conflict == ExportConflict.ERROR:
+                existing.append(relative)
+                continue
+
+            action, reason = decide(
+                on_conflict,
+                relative,
+                exists=exists,
+                records=count > 0,
+                partial=whole != selected,
+                before_history=_before_history(whole, history),
+            )
+            if action != ExportFileAction.NONE:
+                files.append(
+                    ExportFilePlan(
+                        path=relative,
+                        after=whole.after,
+                        before=whole.before,
+                        selected_after=selected.after,
+                        selected_before=selected.before,
+                        exists=exists,
+                        action=action,
+                        reason=reason,
+                        records=count,
+                    )
+                )
+
+        if existing:
+            raise ExportConflictError(existing)
+
+        written = (ExportFileAction.CREATE, ExportFileAction.OVERWRITE)
+        return ExportPlan(
+            exporter=name,
+            after=after,
+            before=before,
+            on_conflict=on_conflict,
+            range_mode=range_mode,
+            effective_after=span.after if span is not None else None,
+            effective_before=span.before if span is not None else None,
+            covered=span is not None,
+            files=files,
+            count=sum(file.records for file in files if file.action in written),
+        )
+
+    async def count_records(
+        self, name: str, after: datetime | None, before: datetime | None, filter: Any = None
+    ) -> int:
+        """Return the stored records the named exporter selects in `[after, before)`.
+
+        Args:
+            name: Name of the exporter.
+            after: Inclusive start, `None` for the start of time.
+            before: Exclusive end, `None` for the end of time.
+            filter: A filter of the exporter's kind that narrows the records further.
+
+        Raises:
+            KeyError: If no exporter is registered under `name`.
+        """
+        registered = self.__exporters.get(name)
+        if registered is None:
+            raise KeyError(name)
+
+        return await self.__query(registered.config, after, before, extra=filter).count()
+
+    def selects(self, name: str, record: ExportRecord) -> bool:
+        """Return whether the named exporter writes `record` once it is stored.
+
+        Raises:
+            KeyError: If no exporter is registered under `name`.
+        """
+        from ceres.particle import _get_cls_particle_type
+
+        registered = self.__exporters.get(name)
+        if registered is None:
+            raise KeyError(name)
+
+        exporter = registered.config
+        particle = exporter.particle_class()
+        if particle is not None and getattr(record, "type", None) != _get_cls_particle_type(
+            particle
+        ):
+            return False
+
+        filter: Any = exporter.filter
+        return filter is None or filter.matches(record)
+
+    def check_conflicts(
+        self,
+        name: str,
+        after: datetime,
+        before: datetime | None = None,
+        range_mode: ExportRangeMode = ExportRangeMode.EXPAND,
+    ) -> None:
+        """Check that no file a run over `[after, before)` would write already exists.
+
+        Raises:
+            KeyError: If no exporter is registered under `name`.
+            ValueError: If `after` does not precede `before`.
+            ExportConflictError: If any file already exists, naming each one.
+        """
+        registered, after, before = self.__resolve(name, after, before)
+        span = self.span(name, after, before, range_mode)
+        if span is None:
+            return
+
+        mount = self.__mount(registered.config)
+        existing = [
+            target.relative.as_posix()
+            for whole, _ in span_files(registered.config.period, span)
+            if (target := registered.path.file(mount, whole.after)).path.exists()
+        ]
+        if existing:
+            raise ExportConflictError(existing)
+
+    def span(
+        self, name: str, after: datetime, before: datetime, range_mode: ExportRangeMode
+    ) -> ExportSpan | None:
+        """Return the range a run of the named exporter covers, `None` for nothing.
+
+        Raises:
+            KeyError: If no exporter is registered under `name`.
+        """
+        registered = self.__exporters.get(name)
+        if registered is None:
+            raise KeyError(name)
+
+        return effective_span(registered.config.period, range_mode, after, before)
+
+    def __resolve(
+        self, name: str, after: datetime, before: datetime | None
+    ) -> tuple[_Exporter, datetime, datetime]:
+        registered = self.__exporters.get(name)
+        if registered is None:
+            raise KeyError(name)
+
+        after = after.astimezone(UTC)
+        before = (before or datetime.now(UTC)).astimezone(UTC)
+        if after >= before:
+            raise ValueError("`after` must precede `before`")
+
+        return registered, after, before
+
+    async def __history(self, exporter: ExporterConfig) -> datetime | None:
+        # The oldest record the exporter selects, before which the database may have lost
+        # records an existing file still holds.
+        oldest = await self.__query(exporter, None, None).first()
+        return oldest.timestamp if oldest is not None else None
 
     def __sync_schedules(self) -> None:
         from ceres.job import _get_trigger_adapter_class
@@ -1517,25 +1916,13 @@ class ExporterManager(BaseComponentManager):
         return found
 
     async def __live_loop(self, registered: _Exporter, live: _Live) -> None:
-        exporter, format = registered.config, registered.format
+        exporter = registered.config
         interval = exporter.interval
         checked = False
         failing = False
-        # A keyed period's close check runs one interval after the period ends.
-        closing = (
-            period_start(exporter.period, datetime.now(UTC))
-            if format.keyed and exporter.period != ExporterPeriod.ALL
-            else None
-        )
         while True:
-            closes = None if closing is None else period_shift(exporter.period, closing, 1)
-            due = None if closes is None else closes + interval
             if checked and not live.pending:
-                timeout = None if due is None else (due - datetime.now(UTC)).total_seconds()
-                try:
-                    await wait_for(live.wake.wait(), None if timeout is None else max(timeout, 0))
-                except TimeoutError:
-                    pass
+                await live.wake.wait()
 
             live.wake.clear()
             try:
@@ -1545,10 +1932,6 @@ class ExporterManager(BaseComponentManager):
 
                 if live.pending:
                     await self.__write_live(registered, live)
-
-                if closing is not None and due is not None and datetime.now(UTC) >= due:
-                    await self.__check_period(registered, closing)
-                    closing = closes
 
                 failing = False
             except CancelledError:
@@ -1567,107 +1950,120 @@ class ExporterManager(BaseComponentManager):
             await sleep(interval.total_seconds())
 
     async def __check_start(self, registered: _Exporter, live: _Live) -> None:
-        # Heals what the exporter missed while stopped, and a torn append, before live writes.
+        # Writes what the exporter missed while stopped before live writes resume. A missing
+        # file is written whole, and a resumable file takes the records after its last line.
         started = datetime.now(UTC)
-        exporter = registered.config
-        if registered.format.keyed:
-            current = period_start(exporter.period, started)
+        exporter, format = registered.config, registered.format
+        current = period_start(exporter.period, started)
+        first = current
+        if exporter.period != ExporterPeriod.ALL:
             first = period_shift(exporter.period, current, -1)
             newest = await self.__query(exporter, None, None, order=_REVERSE_ORDER).first()
             if newest is not None:
                 first = min(first, period_start(exporter.period, newest.timestamp))
 
-            starts = [
-                start
-                for start, _ in periods(exporter.period, first, started + TICK)
-                if start is not None
-            ] or [period_start(exporter.period, started)]
-            if len(starts) > _START_CHECKS:
-                self.__system__.log.warning(
-                    f"Exporter '{exporter.name}' checks only its newest {_START_CHECKS} periods "
-                    f"at start, so a re-run must write any records before "
-                    f"{starts[-_START_CHECKS].isoformat()}"
-                )
-                starts = starts[-_START_CHECKS:]
+        starts = [
+            start for start, _ in periods(exporter.period, first, started + TICK) if start
+        ] or [current]
+        if len(starts) > _START_CHECKS:
+            self.__system__.log.warning(
+                f"Exporter '{exporter.name}' checks only its newest {_START_CHECKS} periods "
+                f"at start, so a run must write any records before "
+                f"{starts[-_START_CHECKS].isoformat()}"
+            )
+            starts = starts[-_START_CHECKS:]
 
+        mount = self.__mount(exporter)
+        history = await self.__history(exporter)
+        async with self.__locks[exporter.name]:
             for start in starts:
-                await self.__check_period(registered, start)
-        else:
-            # An unkeyed file cannot merge, so only a re-run that replaces it can fill it.
-            start = _bounds(exporter.period, period_start(exporter.period, started))[0]
-            if await self.__query(exporter, start, started).first() is not None:
-                relative = registered.path.render(self.__mount(exporter), start)
-                after = f" --after {start.isoformat()}" if start is not None else ""
-                self.__system__.log.warning(
-                    f"Exporter '{exporter.name}' lacks records stored before it started in "
-                    f"'{relative}', run `ceres export {self.__system__.address} {exporter.name}"
-                    f"{after} --replace`"
-                )
+                bounds = _bounds(exporter.period, start)
+                target = registered.path.file(mount, bounds[0])
+                if not await anyio.Path(target.path).exists():
+                    live.owned.add(start)
+                    await self.__write_whole(registered, target, *bounds, started)
+                elif isinstance(format, LineFormat) and format.resumable:
+                    await self.__resume(registered, live, target, start, started)
+                elif not format.appendable and not _before_history(ExportSpan(*bounds), history):
+                    await self.__write_whole(registered, target, *bounds, started)
+                elif await self.__query(exporter, bounds[0], started).first() is not None:
+                    self.__warn_late(registered, live, start, None)
 
         live.cursor = started
 
-    async def __check_period(self, registered: _Exporter, start: datetime) -> None:
-        # Merges in every stored record the period's file lacks. Keys in the file but not in
-        # the database are pruned records, so they stay.
-        exporter, format, schema = registered.config, registered.format, registered.schema
-        bounds = _bounds(exporter.period, start)
-        mount = self.__mount(exporter)
-        target = registered.path.file(mount, bounds[0])
-        relative = target.relative.as_posix()
-        async with self.__locks[exporter.name]:
-            try:
-                if not await self.__lacks(registered, target.path, *bounds):
-                    return
-
-                count = await self.__export_period(
-                    exporter, format, schema, target, bounds[0], bounds[1], False
-                )
-            except ExportFileError as exception:
-                self.__system__.log.warning(
-                    f"Exporter '{exporter.name}' cannot check '{relative}', so a run must "
-                    f"replace it: {exception}"
-                )
-                return
-
-            self.__forget(exporter.name, start)
-            self.__system__.log.info(
-                f"Exporter '{exporter.name}' merged {count or 0} stored records into '{relative}' "
-                "to fill records it lacked"
-            )
-
-    async def __lacks(
+    async def __write_whole(
         self,
         registered: _Exporter,
-        final: Path,
+        target: Mount,
         start: datetime | None,
         end: datetime | None,
-    ) -> bool:
-        # Merge-joins the file's keys with the database's, both in key order, and falls back
-        # to a set of the file's keys when the file is not sorted.
-        exists = await anyio.Path(final).exists()
-        async with self.__query(registered.config, start, end) as results:
-            if not exists:
-                return await anext(aiter(results), None) is not None
+        through: datetime,
+    ) -> None:
+        # Writes a missing period's file from the records stored before `through`.
+        exporter = registered.config
+        end = through if end is None else min(end, through)
+        async with self.__query(exporter, start, end) as results:
+            stream = _Counted(results)
+            head = await anext(stream, None)
+            if head is None:
+                return
 
-            keys = aiter(registered.format.keys(final, registered.schema))
-            kept = await anext(keys, None)
-            known: set[ExportKey] | None = None
-            async for record in results:
-                key = _record_key(record)
-                if known is None:
-                    while kept is not None and kept < key:
-                        previous, kept = kept, await anext(keys, None)
-                        if kept is not None and kept <= previous:
-                            known = {
-                                key
-                                async for key in registered.format.keys(final, registered.schema)
-                            }
-                            break
+            async with atomic_write(target) as temporary:
+                await registered.format.write(temporary, registered.schema, _prepend(head, stream))
 
-                if (key not in known) if known is not None else (kept != key):
-                    return True
+    async def __resume(
+        self,
+        registered: _Exporter,
+        live: _Live,
+        target: Mount,
+        start: datetime,
+        through: datetime,
+    ) -> None:
+        exporter = registered.config
+        try:
+            last = await self.__last_key(registered, target.path)
+        except ExportFileError as exception:
+            self.__system__.log.warning(
+                f"Exporter '{exporter.name}' cannot read where '{target.relative.as_posix()}' "
+                f"ends, so it leaves the file as it is: {exception}"
+            )
+            return
 
-        return False
+        live.last[start] = last
+        bounds = _bounds(exporter.period, start)
+        after = bounds[0] if last is None else last[0]
+        end = through if bounds[1] is None else min(bounds[1], through)
+        async with self.__query(exporter, after, end) as results:
+            stream = _Counted(_after(results, last))
+            head = await anext(stream, None)
+            if head is None:
+                return
+
+            await registered.format.append(target.path, registered.schema, _prepend(head, stream))
+
+        if stream.last is not None:
+            live.last[start] = _record_key(stream.last)
+
+    def __warn_late(
+        self, registered: _Exporter, live: _Live, start: datetime, oldest: datetime | None
+    ) -> None:
+        # A record the exporter cannot add to its file stays in the database alone, and holds
+        # `written_through` so a pruner keeps it until a run writes the file.
+        exporter = registered.config
+        after = _bounds(exporter.period, start)[0]
+        held = oldest or after or datetime.min.replace(tzinfo=UTC)
+        previous = live.late.get(start)
+        live.late[start] = held if previous is None else min(previous, held)
+        if previous is not None:
+            return
+
+        relative = registered.path.render(self.__mount(exporter), after)
+        range = f" --after {after.isoformat()}" if after is not None else ""
+        self.__system__.log.warning(
+            f"Exporter '{exporter.name}' cannot add records to '{relative}' without rewriting "
+            f"it, so they stay in the database until `ceres export {self.__system__.address} "
+            f"{exporter.name}{range}` writes the file"
+        )
 
     async def __write_live(self, registered: _Exporter, live: _Live) -> None:
         exporter = registered.config
@@ -1682,10 +2078,10 @@ class ExporterManager(BaseComponentManager):
                 live.cursor = last[0] if live.cursor is None else max(live.cursor, last[0])
 
         # Only the periods this wake wrote and the current one keep their last key, which
-        # bounds both maps by the periods one interval touches.
+        # bounds the map by the periods one interval touches.
         kept = {*written, period_start(exporter.period, datetime.now(UTC))}
         live.last = {start: key for start, key in live.last.items() if start in kept}
-        live.merges = {start: count for start, count in live.merges.items() if start in kept}
+        live.owned &= kept
 
     async def __write_period_live(
         self,
@@ -1697,8 +2093,23 @@ class ExporterManager(BaseComponentManager):
         last: ExportKey,
     ) -> None:
         exporter, format, schema = registered.config, registered.format, registered.schema
-        target = registered.path.file(mount, _bounds(exporter.period, start)[0])
-        relative, final = target.relative.as_posix(), target.path
+        bounds = _bounds(exporter.period, start)
+        target = registered.path.file(mount, bounds[0])
+        final = target.path
+        if not format.appendable:
+            # A whole-file format writes the period again, which loses nothing only while the
+            # database holds every record the file does: the file was missing when this
+            # exporter first wrote it, or the database's history reaches back past its start.
+            history = await self.__history(exporter)
+            missing = not await anyio.Path(final).exists()
+            if missing or start in live.owned or not _before_history(ExportSpan(*bounds), history):
+                live.owned.add(start)
+                await self.__write_whole(registered, target, *bounds, last[0] + TICK)
+            else:
+                self.__warn_late(registered, live, start, first[0])
+
+            return
+
         # The upper bound keeps out a record committed after this wake took its keys, whose
         # own notification would otherwise read as late.
         async with self.__query(exporter, first[0], last[0] + TICK) as results:
@@ -1707,53 +2118,36 @@ class ExporterManager(BaseComponentManager):
             if head is None:
                 return
 
-            records = _prepend(head, stream)
-            # Only an append needs the file's last key, and finding it can read the whole file.
+            resumable = isinstance(format, LineFormat) and format.resumable
             previous = None
-            if format.appendable:
+            if resumable:
                 previous = (
                     live.last[start]
                     if start in live.last
                     else await self.__last_key(registered, final)
                 )
 
-            if format.appendable and (
-                not format.keyed or previous is None or _record_key(head) > previous
-            ):
-                await target.parent.aio().mkdir()
-                await format.append(final, schema, records)
-            else:
-                exists = await anyio.Path(final).exists()
-                async with atomic_write(target) as temporary:
-                    if exists:
-                        await format.merge(final, schema, records, temporary)
-                    else:
-                        await format.write(temporary, schema, records)
+            if previous is not None and _record_key(head) <= previous:
+                # Records at or before the file's last line would land out of order. The newer
+                # ones of this wake still append after it.
+                self.__warn_late(registered, live, start, head.timestamp)
+                stream = _Counted(_after(_prepend(head, stream), previous))
+                head = await anext(stream, None)
+                if head is None:
+                    return
 
-                merges = live.merges[start] = live.merges.get(start, 0) + 1
-                if merges == _MERGE_WARNING + 1:
-                    self.__system__.log.warning(
-                        f"Exporter '{exporter.name}' has merged into '{relative}' more than "
-                        f"{_MERGE_WARNING} times, since its records arrive late or its format "
-                        "rewrites whole files, and a longer `interval` merges less often"
-                    )
+            await target.parent.aio().mkdir()
+            await format.append(final, schema, _prepend(head, stream))
 
-        if format.appendable and format.keyed and stream.last is not None:
+        if resumable and stream.last is not None:
             newest = _record_key(stream.last)
             live.last[start] = newest if previous is None else max(previous, newest)
 
     async def __last_key(self, registered: _Exporter, final: Path) -> ExportKey | None:
         # Called under the exporter's lock before an append, which would extend a torn record.
         format = registered.format
-        if not format.keyed or not await anyio.Path(final).exists():
+        if not isinstance(format, LineFormat) or not await anyio.Path(final).exists():
             return None
-
-        if not isinstance(format, LineFormat):
-            last: ExportKey | None = None
-            async for key in format.keys(final, registered.schema):
-                last = key
-
-            return last
 
         last, length = await format.tail(final, registered.schema)
         if (await anyio.Path(final).stat()).st_size > length:
@@ -1762,10 +2156,13 @@ class ExporterManager(BaseComponentManager):
         return last
 
     def __forget(self, name: str, start: datetime | None) -> None:
-        # A run rewrote the period's file, so its last key comes from the file again.
+        # A run wrote the period's file, so its last key comes from the file again and any
+        # late record of the period is in it.
         live = self.__live.get(name)
         if live is not None:
-            live.last.pop(start or datetime.min.replace(tzinfo=UTC), None)
+            key = start or datetime.min.replace(tzinfo=UTC)
+            live.last.pop(key, None)
+            live.late.pop(key, None)
 
     async def __scheduled(self, name: str) -> None:
         exporter = self.get(name)
@@ -1808,12 +2205,15 @@ class ExporterManager(BaseComponentManager):
         start: datetime | None,
         end: datetime | None,
         order: list[str] = _ORDER,
+        extra: Any = None,
     ) -> Any:
         # Range keywords would override the user filter's own bounds, so the range is a
         # filter of its own, joined with `&`.
         Filter: Any = exporter.filter_class()
-        bounds: Any = Filter(after=start, before=end, order=order)
-        filter: Any = bounds if exporter.filter is None else bounds & exporter.filter
+        filter: Any = Filter(after=start, before=end, order=order)
+        for narrower in (exporter.filter, extra):
+            if narrower is not None:
+                filter = filter & narrower
         particle = exporter.particle_class()
         if particle is not None:
             return self.__records(exporter).where(filter, cls=particle)
@@ -1828,13 +2228,13 @@ class ExporterManager(BaseComponentManager):
         # A period starts at a UTC boundary, so its file says which period it holds only in UTC.
         return Mount(mount, zone="utc")
 
-    async def __export(self, registered: _Exporter, run: ExportRunRecord) -> None:
-        exporter, format, schema, path = (
-            registered.config,
-            registered.format,
-            registered.schema,
-            registered.path,
-        )
+    async def __export(
+        self,
+        registered: _Exporter,
+        run: ExportRunRecord,
+        files: list[tuple[ExportSpan, ExportSpan]],
+    ) -> None:
+        exporter, path = registered.config, registered.path
         events = self.__system__.events
         events.emit(
             ExportRunStartedEvent,
@@ -1842,41 +2242,56 @@ class ExporterManager(BaseComponentManager):
             run=run.id,
             after=run.after,
             before=run.before,
-            replace=run.replace,
+            on_conflict=run.on_conflict,
+            range_mode=run.range_mode,
         )
+        # A file left as it was may lack stored records, so the run then vouches for nothing.
+        complete = True
         try:
             mount = self.__mount(exporter)
             lock = self.__locks.setdefault(exporter.name, Lock())
             async with lock:
-                for start, end in periods(exporter.period, run.after, run.before):
-                    target = path.file(mount, start)
+                history = await self.__history(exporter)
+                for whole, selected in files:
+                    target = path.file(mount, whole.after)
                     relative = target.relative.as_posix()
-                    count = await self.__export_period(
-                        exporter, format, schema, target, start, end, run.replace
+                    action, count = await self.__export_file(
+                        registered, run.on_conflict, target, whole, selected, history
                     )
-                    self.__forget(exporter.name, start)
-                    if count is None:
-                        # An empty period emits nothing, since a year of hours would log 8760
-                        # events, but it still counts toward the run's progress.
-                        run = self.__update(run, periods_done=run.periods_done + 1)
-                        continue
+                    if action != ExportFileAction.KEEP:
+                        self.__forget(exporter.name, whole.after)
 
-                    run = self.__update(
-                        run,
-                        count=run.count + count,
-                        files=[*run.files, relative],
-                        periods_done=run.periods_done + 1,
-                    )
-                    events.emit(
-                        ExportRunProgressEvent,
-                        exporter=run.exporter,
-                        run=run.id,
-                        period=start,
-                        count=count,
-                        path=relative,
-                        periods=run.periods,
-                        periods_done=run.periods_done,
-                    )
+                    match action:
+                        case ExportFileAction.CREATE | ExportFileAction.OVERWRITE:
+                            run = self.__update(
+                                run,
+                                count=run.count + count,
+                                files=[*run.files, relative],
+                                periods_done=run.periods_done + 1,
+                            )
+                            events.emit(
+                                ExportRunProgressEvent,
+                                exporter=run.exporter,
+                                run=run.id,
+                                period=whole.after,
+                                count=count,
+                                path=relative,
+                                periods=run.periods,
+                                periods_done=run.periods_done,
+                            )
+                        case ExportFileAction.KEEP:
+                            complete = complete and count == 0
+                            run = self.__update(
+                                run, kept=run.kept + 1, periods_done=run.periods_done + 1
+                            )
+                        case ExportFileAction.REMOVE:
+                            run = self.__update(
+                                run, removed=run.removed + 1, periods_done=run.periods_done + 1
+                            )
+                        case ExportFileAction.NONE:
+                            # An empty period emits nothing, since a year of hours would log
+                            # 8760 events, but it still counts toward the run's progress.
+                            run = self.__update(run, periods_done=run.periods_done + 1)
         except CancelledError:
             self.__fail(run, RuntimeError("component stopped"))
             raise
@@ -1885,28 +2300,38 @@ class ExporterManager(BaseComponentManager):
             return
 
         run = self.__update(run, state=ExportRunState.COMPLETED, ended=datetime.now(UTC))
-        completed = self.__completed.get(run.exporter)
-        self.__completed[run.exporter] = (
-            run.before if completed is None else max(completed, run.before)
-        )
+        if complete and run.effective_before is not None and files:
+            completed = self.__completed.get(run.exporter)
+            through = min(run.effective_before, run.ended or run.effective_before)
+            self.__completed[run.exporter] = (
+                through if completed is None else max(completed, through)
+            )
+
         events.emit(
             ExportRunCompletedEvent,
             exporter=run.exporter,
             run=run.id,
             count=run.count,
             files=run.files,
+            kept=run.kept,
+            removed=run.removed,
             after=run.after,
             before=run.before,
             periods=run.periods,
             periods_done=run.periods_done,
         )
-        shown = ", ".join(run.files[:5]) + (
-            f" and {len(run.files) - 5} more" if len(run.files) > 5 else ""
+        shown = ", ".join(run.files[:_SHOWN_FILES]) + (
+            f" and {len(run.files) - _SHOWN_FILES} more" if len(run.files) > _SHOWN_FILES else ""
         )
+        others = [
+            f"kept {run.kept} existing files" if run.kept else "",
+            f"removed {run.removed} files" if run.removed else "",
+        ]
         self.__system__.log.info(
             f"Exporter '{run.exporter}' wrote {run.count} records over "
             f"[{run.after.isoformat()}, {run.before.isoformat()}) to {len(run.files)} files"
             + (f": {shown}" if shown else "")
+            + "".join(f", {other}" for other in others if other)
         )
 
     def __fail(self, run: ExportRunRecord, exception: BaseException) -> None:
@@ -1923,36 +2348,44 @@ class ExporterManager(BaseComponentManager):
             exception=trace(exception),
         )
 
-    async def __export_period(
+    async def __export_file(
         self,
-        exporter: ExporterConfig,
-        format: Format,
-        schema: ExportSchema,
+        registered: _Exporter,
+        on_conflict: ExportConflict,
         target: Mount,
-        start: datetime | None,
-        end: datetime | None,
-        replace: bool,
-    ) -> int | None:
-        # Returns the records written, or `None` when the period's file stays untouched.
+        whole: ExportSpan,
+        selected: ExportSpan,
+        history: datetime | None,
+    ) -> tuple[ExportFileAction, int]:
+        # Returns what the run did with the file and the records it wrote, or for a kept
+        # file the records it left out.
+        exporter = registered.config
         final = anyio.Path(target.path)
-        async with self.__query(exporter, start, end) as results:
+        async with self.__query(exporter, selected.after, selected.before) as results:
             stream = _Counted(results)
             first = await anext(stream, None)
-            if first is None:
-                if replace:
+            action, _ = decide(
+                on_conflict,
+                target.relative.as_posix(),
+                exists=await final.exists(),
+                records=first is not None,
+                partial=whole != selected,
+                before_history=_before_history(whole, history),
+            )
+            match action:
+                case ExportFileAction.CREATE | ExportFileAction.OVERWRITE:
+                    assert first is not None
+                    async with atomic_write(target) as temporary:
+                        await registered.format.write(
+                            temporary, registered.schema, _prepend(first, stream)
+                        )
+
+                    return action, stream.count
+                case ExportFileAction.REMOVE:
                     await final.unlink(missing_ok=True)
-
-                return None
-
-            records = _prepend(first, stream)
-            exists = await final.exists()
-            async with atomic_write(target) as temporary:
-                if exists and not replace:
-                    await format.merge(Path(final), schema, records, temporary)
-                else:
-                    await format.write(temporary, schema, records)
-
-        return stream.count
+                    return action, 0
+                case ExportFileAction.KEEP | ExportFileAction.NONE:
+                    return action, 0 if first is None else 1
 
 
 class _Counted[T]:
@@ -1979,6 +2412,14 @@ async def _within(
     # The query bounds timestamps only, so records sharing a bound's timestamp need its ID.
     async for record in records:
         if first <= _record_key(record) <= last:
+            yield record
+
+
+async def _after(
+    records: AsyncIterable[ExportRecord], last: ExportKey | None
+) -> AsyncIterator[ExportRecord]:
+    async for record in records:
+        if last is None or _record_key(record) > last:
             yield record
 
 

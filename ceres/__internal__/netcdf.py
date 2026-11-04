@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from types import NoneType, UnionType
 from typing import TYPE_CHECKING, Annotated, Any, TypeAliasType, Union, get_args, get_origin
-from uuid import UUID
 
 import h5netcdf
 import h5py
@@ -19,7 +18,7 @@ from ceres.data.binary import PackedSequence, PackingSchema
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from ceres.exporter import ExportField, ExportKey
+    from ceres.exporter import ExportField
     from ceres.particle import Particle
 
 TIME_UNITS = "seconds since 1970-01-01T00:00:00Z"
@@ -367,29 +366,6 @@ class NetCDFTable:
         later = (time[1:] > time[:-1]) | ((time[1:] == time[:-1]) & (id[1:] > id[:-1]))
         return bool(later.all())
 
-    def merge(self, other: NetCDFTable) -> NetCDFTable:
-        """Return this table's rows merged with `other`'s in key order, `other` winning on a key."""
-        names = sorted({*self.connections, *other.connections})
-        index = {name: position for position, name in enumerate(names)}
-        kept = ~numpy.isin(self.keys, other.keys)
-        keys = numpy.concatenate([self.keys[kept], other.keys])
-        connection = numpy.concatenate(
-            [
-                _reindex(self.connection[kept], self.connections, index),
-                _reindex(other.connection, other.connections, index),
-            ]
-        )
-        order = numpy.argsort(keys, kind="stable")
-        return NetCDFTable(
-            keys[order],
-            connection[order],
-            names,
-            {
-                name: numpy.concatenate([values[kept], other.values[name]])[order]
-                for name, values in self.values.items()
-            },
-        )
-
 
 def _reindex(
     connection: numpy.ndarray[Any, Any], names: list[str], index: Mapping[str, int]
@@ -503,23 +479,9 @@ def encode_time(moment: datetime) -> int:
     return (moment - _EPOCH) // timedelta(microseconds=1)
 
 
-def decode_key(key: Any) -> ExportKey:
-    """Return the `(timestamp, id)` key one `KEY_DTYPE` element holds."""
-    return _EPOCH + timedelta(microseconds=int(key["time"])), UUID(bytes(key["id"]).decode())
-
-
 def seconds(microseconds: numpy.ndarray[Any, Any]) -> numpy.ndarray[Any, Any]:
     """Return microsecond times as the `time` variable's seconds since the epoch."""
     return microseconds / 1e6
-
-
-def microseconds(seconds: numpy.ndarray[Any, Any]) -> numpy.ndarray[Any, Any]:
-    """Return the `time` variable's seconds as whole microseconds.
-
-    A double's spacing near the epoch seconds of 2038 to 2106 is 2**-21 s, under half a
-    microsecond, so rounding recovers every microsecond a write stored through 2106.
-    """
-    return numpy.rint(seconds * 1e6).astype("<i8")
 
 
 __all__ = [
@@ -529,19 +491,11 @@ __all__ = [
     "NetCDFRows",
     "NetCDFTable",
     "NetCDFVariable",
-    "decode_key",
     "encode_time",
-    "microseconds",
     "netcdf_variables",
-    "read_keys",
-    "read_table",
     "seconds",
     "write_table",
 ]
-
-
-class NetCDFFileError(Exception):
-    """Raised when an existing file's variables differ from the ones a format writes."""
 
 
 def write_table(
@@ -602,70 +556,6 @@ def write_table(
             created.attrs.update(attributes.get(variable.name, {}))
             if table.rows:
                 created[:] = table.values[variable.name]
-
-
-def read_table(path: Path, variables: Sequence[NetCDFVariable]) -> NetCDFTable:
-    """Read every row of the NetCDF file at `path` into a table.
-
-    Raises:
-        NetCDFFileError: If the file's data variables differ from `variables`.
-    """
-    with h5netcdf.File(path, "r") as file:
-        expected = {variable.name: variable for variable in variables}
-        found = set(file.variables) - {"time", "id", "connection_name", "connection"}
-        if found != set(expected):
-            raise NetCDFFileError(f"'{path}' has other variables")
-
-        for name, variable in expected.items():
-            stored = file.variables[name]
-            if stored.dimensions != variable.dimensions or not _same_dtype(stored, variable):
-                raise NetCDFFileError(f"'{path}' stores '{name}' with another type or shape")
-
-        keys = _read_keys(file)
-        connections = _text(file.variables["connection_name"][:])
-        return NetCDFTable(
-            keys,
-            numpy.asarray(file.variables["connection"][:], "i2"),
-            connections,
-            {
-                name: _read_values(file.variables[name], variable)
-                for name, variable in expected.items()
-            },
-        )
-
-
-def read_keys(path: Path) -> numpy.ndarray[Any, Any]:
-    """Read the key of every row of the NetCDF file at `path`, in file order."""
-    with h5netcdf.File(path, "r") as file:
-        return _read_keys(file)
-
-
-def _read_keys(file: Any) -> numpy.ndarray[Any, Any]:
-    keys = _keys(file.dimensions["time"].size)
-    if len(keys):
-        keys["time"] = microseconds(numpy.asarray(file.variables["time"][:]))
-        keys["id"] = numpy.ascontiguousarray(file.variables["id"][:]).view(KEY_DTYPE["id"])[:, 0]
-
-    return keys
-
-
-def _read_values(stored: Any, variable: NetCDFVariable) -> numpy.ndarray[Any, Any]:
-    if variable.dtype == "str":
-        return numpy.array(_text(stored[:]), dtype=object).reshape(stored.shape)
-
-    return numpy.asarray(stored[:], variable.dtype)
-
-
-def _text(values: Any) -> list[str]:
-    # h5py reads variable-length strings back as UTF-8 bytes.
-    return [value.decode() if isinstance(value, bytes) else str(value) for value in values]
-
-
-def _same_dtype(stored: Any, variable: NetCDFVariable) -> bool:
-    if variable.dtype == "str":
-        return stored.dtype == str or stored.dtype.kind in "OU"
-
-    return numpy.dtype(stored.dtype) == numpy.dtype(variable.dtype)
 
 
 def _characters(ids: numpy.ndarray[Any, Any]) -> numpy.ndarray[Any, Any]:
