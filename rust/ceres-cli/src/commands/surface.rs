@@ -17,8 +17,10 @@ use ceres_database::{
     Table as DynamicTable, Window,
 };
 use ceres_entities::FieldFamily;
-use clap::builder::PossibleValuesParser;
+use clap::builder::{EnumValueParser, PossibleValuesParser};
 use clap::{Arg, ArgAction, Command, CommandFactory as _};
+
+use crate::cli::{ExportConflict, ExportRangeMode};
 
 /// The verbs a table command takes.
 ///
@@ -288,22 +290,43 @@ impl Table {
                         .default_value("error")
                         .help("What to do about a row whose key already exists."),
                 )
-                .args(self.export_argument()),
+                .args(self.export_arguments()),
             _ => unreachable!("every declared verb is built above"),
         }
     }
 
-    /// The `--export` flag a record load takes, which an entity load has no exporter for.
-    fn export_argument(self) -> Option<Arg> {
-        matches!(self, Self::Record(_)).then(|| {
+    /// The `--export` flags a record load takes, which an entity load has no exporter for.
+    fn export_arguments(self) -> Vec<Arg> {
+        if !matches!(self, Self::Record(_)) {
+            return Vec::new();
+        }
+
+        vec![
             Arg::new("export")
                 .long("export")
                 .action(ArgAction::SetTrue)
                 .help(
                     "Run the exporters that take these records over the times loaded, now \
                      in the running engine or when it next starts.",
-                )
-        })
+                ),
+            Arg::new("on_export_conflict")
+                .long("on-export-conflict")
+                .value_name("MODE")
+                .value_parser(EnumValueParser::<ExportConflict>::new())
+                .requires("export")
+                .help(
+                    "What the export does with a file that already exists. Overwrite when unset.",
+                ),
+            Arg::new("export_range_mode")
+                .long("export-range-mode")
+                .value_name("MODE")
+                .value_parser(EnumValueParser::<ExportRangeMode>::new())
+                .requires("export")
+                .help(
+                    "How the times loaded meet the exporters' files that partly overlap them. \
+                     Expand when unset.",
+                ),
+        ]
     }
 
     /// The filter arguments this table's verbs take.
@@ -410,8 +433,8 @@ impl Table {
             ]
             .into_iter()
             .chain(
-                self.export_argument()
-                    .map(|_| format!("ceres {plural} load rows.jsonl --export")),
+                matches!(self, Self::Record(_))
+                    .then(|| format!("ceres {plural} load rows.jsonl --export")),
             )
             .collect(),
             _ => return None,

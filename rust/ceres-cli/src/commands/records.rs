@@ -114,7 +114,9 @@ mod tests {
     use ceres_database::RecordFilter;
 
     use super::*;
+    use crate::cli::{ExportConflict, ExportRangeMode};
     use crate::commands::dump::Verb;
+    use crate::commands::exports::LoadExport;
 
     /// Parse one invocation the way the binary does.
     fn read(table: RecordTable, arguments: &[&str]) -> Invocation {
@@ -168,8 +170,14 @@ mod tests {
 
     #[test]
     fn only_a_record_load_takes_export() {
-        assert!(!read(RecordTable::Alerts, &["load", "rows.jsonl"]).export);
-        assert!(read(RecordTable::Alerts, &["load", "rows.jsonl", "--export"]).export);
+        assert_eq!(
+            read(RecordTable::Alerts, &["load", "rows.jsonl"]).export,
+            None
+        );
+        assert_eq!(
+            read(RecordTable::Alerts, &["load", "rows.jsonl", "--export"]).export,
+            Some(LoadExport::default())
+        );
 
         let users = Table::Entity(ceres_database::EntityTable::Users);
         let refused = users
@@ -177,6 +185,43 @@ mod tests {
             .try_get_matches_from(["users", "load", "rows.jsonl", "--export"])
             .unwrap_err();
         assert_eq!(refused.kind(), clap::error::ErrorKind::UnknownArgument);
+    }
+
+    #[test]
+    fn a_load_reads_its_export_modes() {
+        let load = [
+            "load",
+            "rows.jsonl",
+            "--export",
+            "--on-export-conflict",
+            "skip",
+        ];
+        let modes = [&load[..], &["--export-range-mode", "exact"]].concat();
+        assert_eq!(
+            read(RecordTable::Alerts, &modes).export,
+            Some(LoadExport {
+                on_conflict: Some(ExportConflict::Skip),
+                range_mode: Some(ExportRangeMode::Exact),
+            })
+        );
+    }
+
+    #[test]
+    fn an_export_mode_needs_export() {
+        let refused = Table::Record(RecordTable::Alerts)
+            .command()
+            .try_get_matches_from([
+                "alerts",
+                "load",
+                "rows.jsonl",
+                "--on-export-conflict",
+                "skip",
+            ])
+            .unwrap_err();
+        assert_eq!(
+            refused.kind(),
+            clap::error::ErrorKind::MissingRequiredArgument
+        );
     }
 
     #[test]

@@ -21,7 +21,7 @@ use ceres_database::{
 use ceres_entities::RenderRows;
 use clap::ArgMatches;
 
-use crate::commands::exports::{LoadedSpans, export_loaded};
+use crate::commands::exports::{LoadExport, LoadedSpans, export_loaded};
 use crate::commands::surface::{self, Table};
 use crate::error::Result;
 use crate::output::Output;
@@ -144,8 +144,8 @@ pub(crate) struct Invocation {
     pub(crate) on_conflict: Option<String>,
     /// The file a load reads.
     pub(crate) path: Option<PathBuf>,
-    /// Whether `--export` asked a record load to run the exporters over what it wrote.
-    pub(crate) export: bool,
+    /// The export `--export` asked a record load to run over what it wrote, `None` without it.
+    pub(crate) export: Option<LoadExport>,
     /// The output projection as ordered `(field, alias)` pairs, empty for every field.
     pub(crate) projection: Vec<(String, String)>,
 }
@@ -181,7 +181,18 @@ impl Invocation {
             set: text("set"),
             on_conflict: text("on_conflict"),
             path: text("path").map(PathBuf::from),
-            export: flag("export").unwrap_or(false),
+            export: flag("export").unwrap_or(false).then(|| LoadExport {
+                on_conflict: matches
+                    .try_get_one("on_export_conflict")
+                    .ok()
+                    .flatten()
+                    .copied(),
+                range_mode: matches
+                    .try_get_one("export_range_mode")
+                    .ok()
+                    .flatten()
+                    .copied(),
+            }),
             projection: projection(matches),
         }
     }
@@ -1243,8 +1254,8 @@ where
     };
 
     // Only a committed load reaches here, so its records are there for an exporter to read.
-    if invocation.export {
-        export_loaded(&project, &Output::new(color), &spans)?;
+    if let Some(export) = &invocation.export {
+        export_loaded(&project, &Output::new(color), &spans, export)?;
     }
 
     deliver(&invocation, rendered, colored)

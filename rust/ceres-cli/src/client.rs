@@ -144,10 +144,49 @@ impl Client {
                 fail!("Request failed with status {status}.");
             }
 
-            fail!("{body}");
+            fail!("{}", error_message(&body));
         }
 
         Ok(body)
+    }
+}
+
+/// The sentences an engine's error envelope carries, or the body as it came when it carries
+/// none, so a refusal reads as text rather than JSON.
+fn error_message(body: &str) -> String {
+    let Ok(envelope) = serde_json::from_str::<serde_json::Value>(body) else {
+        return body.to_string();
+    };
+
+    let problems: Vec<String> = envelope["problems"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|problem| {
+            let message = problem["message"].as_str()?;
+            let location: Vec<String> = problem["location"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|part| {
+                    part.as_str()
+                        .map_or_else(|| part.to_string(), str::to_string)
+                })
+                .collect();
+            Some(if location.is_empty() {
+                message.to_string()
+            } else {
+                format!("{}: {message}", location.join("."))
+            })
+        })
+        .collect();
+    if !problems.is_empty() {
+        return problems.join(" ");
+    }
+
+    match envelope["message"].as_str() {
+        Some(message) => message.to_string(),
+        None => body.to_string(),
     }
 }
 
@@ -187,6 +226,15 @@ mod tests {
     fn query_values_are_percent_encoded() {
         assert_eq!(encode("@sensor:all|~"), "%40sensor%3Aall%7C~");
         assert_eq!(encode("plain-value_1.0~"), "plain-value_1.0~");
+    }
+
+    #[test]
+    fn an_error_envelope_reads_as_its_sentences() {
+        let refused = r#"{"__error__":true,"type":"validation-failed-error","problems":[
+            {"type":"value_error","location":["after"],"message":"Abc."},
+            {"type":"value_error","location":[],"message":"Abcd."}]}"#;
+        assert_eq!(error_message(refused), "after: Abc. Abcd.");
+        assert_eq!(error_message("abc"), "abc");
     }
 
     // The engine is faked with one loopback listener because what matters is where the

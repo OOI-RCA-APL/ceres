@@ -304,29 +304,11 @@ fn run(cli: Cli, arguments: Vec<OsString>, output: &Output) -> Result<()> {
 
         Command::Export(args) => {
             let project = Project::discover(config)?;
-            commands::exports::export(
-                &project,
-                output,
-                &args.address,
-                args.exporter.as_deref(),
-                &args.range,
-                args.replace,
-            )
+            commands::exports::export(&project, output, &args)
         }
         Command::Playback(args) => {
             let project = Project::discover(config)?;
-            let level = match args.level {
-                cli::PlaybackLevel::Particles => "particles",
-                cli::PlaybackLevel::Full => "full",
-            };
-            commands::exports::playback(
-                &project,
-                output,
-                &args.address,
-                &args.range,
-                level,
-                !args.no_export,
-            )
+            commands::exports::playback(&project, output, &args)
         }
 
         Command::Console(args) => {

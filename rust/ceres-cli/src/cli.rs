@@ -149,14 +149,49 @@ pub struct ExportArgs {
     #[command(flatten)]
     pub range: RangeArgs,
 
-    /// Rewrite each period's file from the database alone, removing the file of a period
-    /// with no records.
+    /// What to do with a file that already exists.
+    #[arg(long, value_enum, value_name = "MODE", default_value_t = ExportConflict::Overwrite)]
+    pub on_conflict: ExportConflict,
+
+    /// How the range meets the files that partly overlap it.
+    #[arg(long, value_enum, value_name = "MODE", default_value_t = ExportRangeMode::Expand)]
+    pub range_mode: ExportRangeMode,
+
+    /// Report what each run would write, changing nothing.
     #[arg(long)]
-    pub replace: bool,
+    pub dry_run: bool,
+}
+
+/// What an export does with a file that already exists.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ExportConflict {
+    /// Refuse the whole run before writing anything.
+    Error,
+    /// Leave the file as it is.
+    Skip,
+    /// Write the file from the database, unless that could lose records only the file holds.
+    Overwrite,
+    /// Write the file from the database, and remove it when the database holds none of its
+    /// records, losing any records only the file holds.
+    Purge,
+}
+
+/// How an export range meets the files that partly overlap it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ExportRangeMode {
+    /// Widen the range to the whole files it touches.
+    Expand,
+    /// Keep the range as given, so a file at either end may take part of its records.
+    Exact,
+    /// Narrow the range to the whole files inside it, nothing when none fits.
+    Shrink,
 }
 
 /// What a playback does with each particle it parses.
-#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+#[derive(Clone, Copy, Debug, clap::ValueEnum, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum PlaybackLevel {
     /// Store the particle and emit nothing.
     Particles,
@@ -177,9 +212,22 @@ pub struct PlaybackArgs {
     #[arg(long, value_enum, default_value_t = PlaybackLevel::Particles)]
     pub level: PlaybackLevel,
 
-    /// Leave the exporters' files as they are.
+    /// Rewrite the files of the exporters of the particle types the sieves parse, over the
+    /// range their files align to.
     #[arg(long)]
-    pub no_export: bool,
+    pub export: bool,
+
+    /// What the export does with a file that already exists. Needs --export.
+    #[arg(long, value_enum, value_name = "MODE", requires = "export")]
+    pub on_export_conflict: Option<ExportConflict>,
+
+    /// How the range meets the exporters' files that partly overlap it. Needs --export.
+    #[arg(long, value_enum, value_name = "MODE", requires = "export")]
+    pub export_range_mode: Option<ExportRangeMode>,
+
+    /// Report what the playback would replay and write, changing nothing.
+    #[arg(long)]
+    pub dry_run: bool,
 }
 
 #[derive(Debug, Args)]
@@ -235,15 +283,15 @@ pub enum Command {
 
     /// Write a component's records to its exporters' files over a range of time.
     ///
-    /// Each run merges the database into the files of every period the range overlaps, or
-    /// rewrites them from the database alone with --replace. Waits for every run to end.
+    /// Each run writes the file of every period the range touches from the database, widened
+    /// to whole files unless --range-mode says otherwise. Waits for every run to end.
     Export(ExportArgs),
 
     /// Replay a component's stored messages through its sieves over a range of time.
     ///
-    /// Replaces the component's stored particles of the types its sieves parse, then
-    /// rewrites the files of the exporters of those types unless --no-export. Waits for the
-    /// playback to end.
+    /// Replaces the component's stored particles of the types its sieves parse, and with
+    /// --export rewrites the files of the exporters of those types. Waits for the playback
+    /// to end.
     Playback(PlaybackArgs),
 
     /// Commands for interacting with a project's web console.

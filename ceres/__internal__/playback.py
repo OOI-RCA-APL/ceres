@@ -685,11 +685,16 @@ class PlaybackManager(BaseComponentManager):
         except BaseException as exception:
             # A stopping component cancels the playback, which fails it like an error does.
             set_fake_now(None)
+            cause = exception
+            # A flush raises through a task group, whose own message names no cause.
+            while isinstance(cause, BaseExceptionGroup) and len(cause.exceptions) == 1:
+                cause = cause.exceptions[0]
+
             self.__update(
                 run,
                 state=PlaybackState.FAILED,
                 ended=datetime.now(UTC),
-                exception=str(exception) or type(exception).__name__,
+                exception=str(cause) or type(cause).__name__,
             )
             events.emit(PlaybackFailedEvent, playback=run.id, exception=trace(exception))
             if not isinstance(exception, Exception):

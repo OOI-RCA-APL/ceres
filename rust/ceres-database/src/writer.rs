@@ -18,6 +18,7 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 
 use crate::backend::{DatabaseBackend, PostgresBackend, SqliteBackend, Writing};
 use crate::filter::SqlDialect;
+use crate::load::BATCH;
 use crate::records::RecordTable;
 use crate::set::json_text;
 use crate::store::{Error, Parameter};
@@ -120,12 +121,13 @@ impl RecordWriter {
     /// [`RecordStore::overlaps_writers`](crate::RecordStore::overlaps_writers) reports.
     pub async fn upsert(&self, batches: Vec<Records>) -> Result<(), Error> {
         let dialect = self.backend.dialect();
-        let mut statements = batches.iter().filter_map(|batch| {
-            upsert_statement(batch, dialect).map(|statement| Ok((statement, batch.len())))
-        });
+        let mut statements = batches
+            .iter()
+            .flat_map(|batch| upsert_statements(batch, dialect))
+            .map(Ok);
 
         // The returned count is dropped. It counts what was handed in rather than what
-        // landed because `upsert_statement` keeps only the last of any repeated ID,
+        // landed because `upsert_statements` keeps only the last of any repeated ID,
         // and a flush is not asked how much of its input was new.
         self.backend
             .insert_all(Writing::Concurrent, &mut statements)
@@ -134,8 +136,12 @@ impl RecordWriter {
     }
 }
 
-/// Build the multi-row upsert for one batch, or `None` when the batch is empty.
-fn upsert_statement(records: &Records, dialect: SqlDialect) -> Option<InsertStatement> {
+/// Build the multi-row upserts for one batch, one per `BATCH` rows, so a flush that buffered
+/// many records stays under the backend's cap on bound values.
+fn upsert_statements(
+    records: &Records,
+    dialect: SqlDialect,
+) -> impl Iterator<Item = (InsertStatement, usize)> + use<> {
     let rows = match records {
         Records::Messages(messages) => deduped_rows(messages, |message| message.id, dialect),
         Records::Particles(particles) => deduped_rows(particles, |particle| particle.id, dialect),
@@ -144,6 +150,17 @@ fn upsert_statement(records: &Records, dialect: SqlDialect) -> Option<InsertStat
     };
 
     let table = crate::records::table_of(records);
+    let mut rows = rows.into_iter().peekable();
+    std::iter::from_fn(move || {
+        rows.peek()?;
+        let chunk: Vec<_> = rows.by_ref().take(BATCH).collect();
+        let count = chunk.len();
+        upsert_statement(table, chunk).map(|statement| (statement, count))
+    })
+}
+
+/// Build the multi-row upsert for some rows of one table, or `None` when there are none.
+fn upsert_statement(table: RecordTable, rows: Vec<Vec<SimpleExpr>>) -> Option<InsertStatement> {
     let mut statement = table.insert_into(rows)?;
 
     // Every non-key column updates from the excluded row, mirroring the query layer's
@@ -509,11 +526,17 @@ mod tests {
         }
     }
 
+    /// The one statement an upsert of `records` builds.
+    fn single(records: &Records) -> String {
+        let mut statements = upsert_statements(records, SqlDialect::SqliteText);
+        let (statement, _) = statements.next().unwrap();
+        assert!(statements.next().is_none());
+        statement.to_string(SqliteQueryBuilder)
+    }
+
     #[test]
     fn upserts_update_every_non_key_column() {
-        let records = Records::LogEntries(vec![entry(1, "first")]);
-        let statement = upsert_statement(&records, SqlDialect::SqliteText).unwrap();
-        let sql = statement.to_string(SqliteQueryBuilder);
+        let sql = single(&Records::LogEntries(vec![entry(1, "first")]));
         assert!(sql.starts_with("INSERT INTO \"logs\""));
         assert!(sql.contains("ON CONFLICT (\"id\") DO UPDATE SET"));
         assert!(sql.contains("\"content\" = \"excluded\".\"content\""));
@@ -522,15 +545,30 @@ mod tests {
 
     #[test]
     fn duplicate_ids_collapse_to_the_last_occurrence() {
-        let records = Records::LogEntries(vec![entry(1, "first"), entry(1, "second")]);
-        let statement = upsert_statement(&records, SqlDialect::SqliteText).unwrap();
-        let sql = statement.to_string(SqliteQueryBuilder);
+        let sql = single(&Records::LogEntries(vec![
+            entry(1, "first"),
+            entry(1, "second"),
+        ]));
         assert!(sql.contains("second"));
         assert!(!sql.contains("first"));
     }
 
     #[test]
+    fn a_large_batch_splits_into_statements_of_at_most_a_batch_of_rows() {
+        let entries = (0..BATCH as u128 * 2 + 1)
+            .map(|id| entry(id, "abc"))
+            .collect();
+        let counts: Vec<usize> =
+            upsert_statements(&Records::LogEntries(entries), SqlDialect::SqliteText)
+                .map(|(_, count)| count)
+                .collect();
+        assert_eq!(counts, [BATCH, BATCH, 1]);
+    }
+
+    #[test]
     fn empty_batches_build_no_statement() {
-        assert!(upsert_statement(&Records::Messages(Vec::new()), SqlDialect::SqliteText).is_none());
+        let mut statements =
+            upsert_statements(&Records::Messages(Vec::new()), SqlDialect::SqliteText);
+        assert!(statements.next().is_none());
     }
 }

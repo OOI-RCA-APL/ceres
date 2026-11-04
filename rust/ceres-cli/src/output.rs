@@ -14,6 +14,8 @@ use std::io::{IsTerminal, Write as _};
 pub struct Output {
     color: bool,
     result_color: bool,
+    /// Whether stderr is a terminal, where a progress line redraws in place.
+    live: bool,
 }
 
 impl Output {
@@ -24,10 +26,20 @@ impl Output {
     /// differs, so an explicit flag or `NO_COLOR` still answers for both at once.
     pub fn new(color: Option<bool>) -> Self {
         let resolved = color.or_else(color_from_environment);
+        let live = std::io::stderr().is_terminal();
 
         Self {
-            color: resolved.unwrap_or_else(|| std::io::stderr().is_terminal()),
+            color: resolved.unwrap_or(live),
             result_color: resolved.unwrap_or_else(|| std::io::stdout().is_terminal()),
+            live,
+        }
+    }
+
+    /// Start a progress line on stderr, cleared when it drops.
+    pub fn progress(&self) -> Progress {
+        Progress {
+            live: self.live,
+            shown: String::new(),
         }
     }
 
@@ -84,6 +96,51 @@ fn color_from_environment() -> Option<bool> {
     }
 
     None
+}
+
+/// One line of progress on stderr. A terminal redraws it in place, anything else takes a
+/// new line each time it changes so a log still records it.
+#[derive(Debug)]
+pub struct Progress {
+    live: bool,
+    shown: String,
+}
+
+/// Return to the start of the line and erase it.
+const ERASE_LINE: &str = "\r\x1b[2K";
+
+impl Progress {
+    /// Show `line` in place of the last one, writing nothing when it has not changed.
+    pub fn show(&mut self, line: impl Into<String>) {
+        let line = line.into();
+        if line == self.shown {
+            return;
+        }
+
+        let mut stderr = std::io::stderr().lock();
+        let _ = if self.live {
+            write!(stderr, "{ERASE_LINE}{line}").and_then(|()| stderr.flush())
+        } else {
+            writeln!(stderr, "{line}")
+        };
+        self.shown = line;
+    }
+
+    /// Erase the line on a terminal, so the next message starts on a clean one.
+    pub fn clear(&mut self) {
+        if self.live && !self.shown.is_empty() {
+            let mut stderr = std::io::stderr().lock();
+            let _ = write!(stderr, "{ERASE_LINE}").and_then(|()| stderr.flush());
+        }
+
+        self.shown.clear();
+    }
+}
+
+impl Drop for Progress {
+    fn drop(&mut self) {
+        self.clear();
+    }
 }
 
 /// One cell's text, and the color it takes when the table is drawn in color.
