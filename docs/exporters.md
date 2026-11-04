@@ -249,6 +249,9 @@ passes `--export`:
 ceres messages load rows.jsonl --export --on-export-conflict skip
 ```
 
+`--on-conflict` still decides what the load does with a row whose key the database already holds,
+and `--on-export-conflict` what its exports do with a file that already exists.
+
 The load then runs every exporter of the kind it loaded on each component holding a loaded address,
 over the time from the first loaded record it takes to the last, with `--on-export-conflict` and
 `--export-range-mode` as its modes, `overwrite` and `expand` when unset. With no engine running,
@@ -260,8 +263,9 @@ logs the `ceres export` command that retries it.
 A run keeps going when the page or command that started it closes. Its record counts the files its
 range covers in `periods` and the ones it has finished in `periods_done`, a file it keeps or finds
 empty included, which the console shows as a progress bar and `ceres export` as its progress line,
-redrawn in place on a terminal and one line per change elsewhere. Each run emits `ExportRunStartedEvent`, one `ExportRunProgressEvent` per file it
-writes, and then `ExportRunCompletedEvent` or `ExportRunFailedEvent`. A completed run also writes
+redrawn in place on a terminal and one line per change elsewhere. Each run emits
+`ExportRunStartedEvent`, one `ExportRunProgressEvent` per file it writes, and then
+`ExportRunCompletedEvent` or `ExportRunFailedEvent`. A completed run also writes
 one log entry naming its range, its record count and its files. With `logging.events` on, every
 event becomes a log entry too, so a year of hourly files logs 8760 progress entries. The engine
 keeps runs in memory, so a restart stops every running run and forgets them all.

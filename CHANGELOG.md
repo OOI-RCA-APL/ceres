@@ -14,31 +14,46 @@ written, and the release workflow refuses a version that has no entry here.
   `csv`, `jsonl`, `netcdf`, `raw`, or a format class of your own, one file per `hour`, `day`, or
   `month`, or one file for `all`. The files go under one of the component's mounts, in its
   layout's dated folders, named by a `path` template rendered in UTC. An exporter writes records
-  live within seconds of storing them, merges the database into its files on a `schedule`, and
-  never removes a record from a file unless a run asks to replace it.
-- An export run rewrites every period overlapping a range, `POST
+  live within seconds of storing them, rewrites its files from the database on a `schedule`, and
+  never removes a record from a file unless a run asks to purge it.
+- An export run rewrites the files a range touches from the database, `POST
   /api/components/{address}/exporters/{name}/runs`, and `GET` on the same path lists the last 20.
-  Each run counts `periods` and `periods_done`, and emits `ExportRunStartedEvent`,
-  `ExportRunProgressEvent` per file, and `ExportRunCompletedEvent` or `ExportRunFailedEvent`.
+  `range_mode` widens the range to whole files (`expand`), keeps it (`exact`), or narrows it
+  (`shrink`). `on_conflict` overwrites an existing file unless it may hold records the database no
+  longer does (`overwrite`), leaves it (`skip`), refuses the run (`error`), or rewrites or removes
+  it regardless (`purge`). `dry_run` answers with each file the run would write, keep, or remove,
+  and writes nothing. Each run counts `periods` and `periods_done`, and emits
+  `ExportRunStartedEvent`, `ExportRunProgressEvent` per file, and `ExportRunCompletedEvent` or
+  `ExportRunFailedEvent`.
 - A playback parses a component's stored messages again over a range, replacing the particles
-  its sieves stored and then re-running their exporters, `POST
-  /api/components/{address}/playbacks`. `level: full` also emits each particle's event. Its
-  record reads `progress` from 0 to 1, and `PlaybackProgressEvent` fires about once a second.
+  its sieves stored and, with `export`, rewriting their exporters' files, `POST
+  /api/components/{address}/playbacks`. `level: full` also emits each particle's event. A range
+  before the oldest stored message starts at that message. `dry_run` runs fresh sieves over the
+  stored messages and answers with the particles it would delete and parse, each export's plan,
+  and the sieves' first 100 log entries, changing nothing. Its record reads `progress` from 0 to
+  1, and `PlaybackProgressEvent` fires about once a second.
 - A pruner of an exported kind waits for the exporters to write a record before deleting it,
   unless `wait_for_exports: false`.
 - `Mount.place` names the file `file` returns without creating its folder.
+- A flush of many buffered records writes them in statements of at most 1000 rows, so a SQLite
+  database no longer refuses it for too many SQL variables.
 
 **CLI**
 
 - `ceres export` and `ceres playback` start a run or a playback in the running engine and wait
-  for it to end.
+  for it to end, showing its progress on one line. `ceres export` takes `--on-conflict`,
+  `--range-mode`, and `--dry-run`, and `ceres playback` takes `--export`,
+  `--on-export-conflict`, `--export-range-mode`, and `--dry-run`.
 - `ceres messages load --export`, and the same flag on the other record loads, exports what the
-  load wrote, now in the running engine or when the engine next starts.
+  load wrote, now in the running engine or when the engine next starts, with
+  `--on-export-conflict` and `--export-range-mode`.
+- A refusal from the engine prints its message rather than its JSON.
 
 **Web Console**
 
 - A component's page lists its exporters with each one's last run. "Rebuild" starts a run over
-  a range, "Play Back" starts a playback, and "Files" opens the folder of the current file.
+  a range with its conflict and range modes, "Play Back" starts a playback, and "Files" opens the
+  folder of the current file.
 
 ## [0.50.0] - 2026-11-02
 
