@@ -31,15 +31,15 @@ const form = useSchemaForm({
   onUpdate: (value: unknown) => {
     values = value
   },
-  schema: () => exportRunSchema(exporter.merges),
+  schema: exportRunSchema,
   showTypes: false,
   // A refusal leaves the dialog open with the range as typed, so it can be corrected and sent.
-  async onSubmit(submitted: { after: string; before?: string | null; replace?: boolean }) {
+  async onSubmit(submitted: Parameters<typeof exportRunRequest>[0]) {
     try {
       const id = await engine.components.startExportRun(
         address,
         exporter.name,
-        exportRunRequest(submitted, exporter.merges),
+        exportRunRequest(submitted),
       )
       emit('close', id)
     } catch (error) {

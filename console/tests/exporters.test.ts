@@ -26,7 +26,6 @@ function exporter(overrides: Partial<ExporterInfo> = {}): ExporterInfo {
     exports: 'message',
     type: null,
     format: 'csv',
-    merges: true,
     mount: 'output',
     period: 'hour',
     path: '{exporter}_{yyyy}{MM}{dd}T{HH}',
@@ -46,12 +45,17 @@ function run(overrides: Partial<ExportRunSummary> = {}): ExportRunSummary {
     id: '1',
     after: '2026-01-01T00:00:00Z',
     before: '2026-01-01T03:00:00Z',
-    replace: false,
+    on_conflict: 'overwrite',
+    range_mode: 'expand',
+    effective_after: '2026-01-01T00:00:00Z',
+    effective_before: '2026-01-01T03:00:00Z',
     state: 'completed',
     started: '2026-01-02T04:05:06Z',
     ended: '2026-01-02T04:05:07Z',
     count: 12,
     file_count: 2,
+    kept: 0,
+    removed: 0,
     periods: 3,
     periods_done: 3,
     exception: null,
@@ -103,14 +107,20 @@ describe('describeExportRun', () => {
     expect(describeExportRun(null, now)).toBe('Never run.')
   })
 
-  it('counts the periods and records a running run finished so far', () => {
+  it('counts the files and records a running run finished so far', () => {
     const running = run({ state: 'running', count: 1, periods: 48, periods_done: 12 })
-    expect(describeExportRun(running, now)).toBe('12 of 48 periods, 1 record so far, running 3m.')
+    expect(describeExportRun(running, now)).toBe('12 of 48 files, 1 record so far, running 3m.')
     expect(exportRunPercent(running)).toBe(25)
   })
 
   it('says when a completed run started and what it wrote', () => {
     expect(describeExportRun(run(), now)).toBe('2026-01-02 04:05 UTC, 12 records in 2 files.')
+  })
+
+  it('counts the files a completed run kept and removed', () => {
+    expect(describeExportRun(run({ kept: 1, removed: 2 }), now)).toBe(
+      '2026-01-02 04:05 UTC, 12 records in 2 files, kept 1 file, removed 2 files.',
+    )
   })
 
   it('shows a failed run the first line of its exception, truncated', () => {
@@ -135,34 +145,32 @@ describe('isExportRunning', () => {
 })
 
 describe('exportRunSchema', () => {
-  it('asks a merging format for a range and whether to replace', () => {
-    const schema = exportRunSchema(true)
-    expect(Object.keys(schema.properties ?? {})).toEqual(['after', 'before', 'replace'])
+  it('asks for a range and both modes', () => {
+    const schema = exportRunSchema()
+    expect(Object.keys(schema.properties ?? {})).toEqual([
+      'after',
+      'before',
+      'on_conflict',
+      'range_mode',
+    ])
     expect(schema.required).toEqual(['after'])
-  })
-
-  it('offers a format that cannot merge no choice and says why', () => {
-    const schema = exportRunSchema(false)
-    expect(Object.keys(schema.properties ?? {})).toEqual(['after', 'before'])
-    expect(schema.description).toBe('This format rewrites files from the database.')
   })
 })
 
 describe('exportRunRequest', () => {
-  it('sends an empty end as now and replace as chosen', () => {
-    expect(exportRunRequest({ after: 'a', replace: true }, true)).toEqual({
+  it('sends an empty end as now and the default modes', () => {
+    expect(exportRunRequest({ after: 'a' })).toEqual({
       after: 'a',
       before: null,
-      replace: true,
+      on_conflict: 'overwrite',
+      range_mode: 'expand',
     })
   })
 
-  it('always replaces for a format that cannot merge', () => {
-    expect(exportRunRequest({ after: 'a', before: 'b' }, false)).toEqual({
-      after: 'a',
-      before: 'b',
-      replace: true,
-    })
+  it('sends the modes as chosen', () => {
+    expect(
+      exportRunRequest({ after: 'a', before: 'b', on_conflict: 'skip', range_mode: 'exact' }),
+    ).toEqual({ after: 'a', before: 'b', on_conflict: 'skip', range_mode: 'exact' })
   })
 })
 
@@ -188,10 +196,14 @@ describe('describeExportRunFailure', () => {
 function playback(overrides: Partial<PlaybackRecord> = {}): PlaybackRecord {
   return {
     id: '1',
+    requested_after: '2026-01-01T00:00:00Z',
+    requested_before: '2026-01-01T03:00:00Z',
     after: '2026-01-01T00:00:00Z',
     before: '2026-01-01T03:00:00Z',
     level: 'particles',
     export: true,
+    on_export_conflict: 'overwrite',
+    export_range_mode: 'expand',
     state: 'completed',
     started: '2026-01-02T04:05:06Z',
     ended: '2026-01-02T04:05:07Z',
@@ -255,12 +267,23 @@ describe('isPlaybackRunning', () => {
 })
 
 describe('playbackRequest', () => {
-  it('sends now for an empty end and defaults the level and export', () => {
-    expect(playbackRequest({ after: 'a' })).toEqual({
+  it('sends now for an empty end and leaves the files alone by default', () => {
+    expect(playbackRequest({ after: 'a', on_export_conflict: 'purge' })).toEqual({
+      after: 'a',
+      before: null,
+      level: 'particles',
+      export: false,
+    })
+  })
+
+  it('sends the export modes only with export', () => {
+    expect(playbackRequest({ after: 'a', export: true, export_range_mode: 'shrink' })).toEqual({
       after: 'a',
       before: null,
       level: 'particles',
       export: true,
+      on_export_conflict: 'overwrite',
+      export_range_mode: 'shrink',
     })
   })
 })

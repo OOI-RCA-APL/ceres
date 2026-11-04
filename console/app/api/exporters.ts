@@ -8,13 +8,26 @@ import { type Datetime, displayDuration, utc } from '@/time'
 export type ExportRunState = z.infer<typeof ExportRunStateModel>
 export const ExportRunStateModel = z.enum(['running', 'completed', 'failed'])
 
+/** What a run does with a file that already exists. */
+export type ExportConflict = z.infer<typeof ExportConflictModel>
+export const ExportConflictModel = z.enum(['overwrite', 'skip', 'error', 'purge'])
+
+/** How a run aligns its range with the exporter's files. */
+export type ExportRangeMode = z.infer<typeof ExportRangeModeModel>
+export const ExportRangeModeModel = z.enum(['expand', 'exact', 'shrink'])
+
 /** An export run without its file list, which grows with every period it writes. */
 export type ExportRunSummary = z.infer<typeof ExportRunSummaryModel>
 export const ExportRunSummaryModel = z.object({
   id: z.string(),
   after: z.string(),
   before: z.string(),
-  replace: z.boolean(),
+  on_conflict: ExportConflictModel,
+  range_mode: ExportRangeModeModel,
+  /** Start of the range the run covers, null for the start of time. */
+  effective_after: z.string().nullable(),
+  /** End of the range the run covers, null for the end of time. */
+  effective_before: z.string().nullable(),
   state: ExportRunStateModel,
   started: z.string(),
   ended: z.string().nullable(),
@@ -22,9 +35,13 @@ export const ExportRunSummaryModel = z.object({
   count: z.number(),
   /** Files written so far. */
   file_count: z.number(),
-  /** Periods the run covers. */
+  /** Existing files the run left as they were. */
+  kept: z.number(),
+  /** Existing files the run removed. */
+  removed: z.number(),
+  /** Files the run covers. */
   periods: z.number(),
-  /** Periods finished so far, written or found empty. */
+  /** Files finished so far, written, kept, removed or found empty. */
   periods_done: z.number(),
   exception: z.string().nullable(),
 })
@@ -39,8 +56,6 @@ export const ExporterInfoModel = z.object({
   /** The exported particle type, null for every type or another kind. */
   type: z.string().nullable(),
   format: z.string(),
-  /** Whether a run can merge stored records into a file, else every run replaces it. */
-  merges: z.boolean(),
   /** Name of the component's mount the files live under. */
   mount: z.string(),
   period: ExporterPeriodModel,
@@ -61,7 +76,8 @@ export const ExporterInfoModel = z.object({
 export type ExportRunRequest = {
   after: string
   before?: string | null
-  replace: boolean
+  on_conflict: ExportConflict
+  range_mode: ExportRangeMode
 }
 
 function counted(count: number, noun: string): string {
@@ -118,11 +134,17 @@ export function describeExportRun(run: ExportRunSummary | null, now: Datetime): 
   switch (run.state) {
     case 'running':
       return (
-        `${run.periods_done} of ${counted(run.periods, 'period')}, ` +
+        `${run.periods_done} of ${counted(run.periods, 'file')}, ` +
         `${counted(run.count, 'record')} so far, running ${elapsed(run.started, now)}.`
       )
-    case 'completed':
-      return `${minute(run.started)}, ${counted(run.count, 'record')} in ${counted(run.file_count, 'file')}.`
+    case 'completed': {
+      const kept = run.kept > 0 ? `, kept ${counted(run.kept, 'file')}` : ''
+      const removed = run.removed > 0 ? `, removed ${counted(run.removed, 'file')}` : ''
+      return (
+        `${minute(run.started)}, ${counted(run.count, 'record')} in ` +
+        `${counted(run.file_count, 'file')}${kept}${removed}.`
+      )
+    }
     case 'failed': {
       const [first = ''] = (run.exception ?? 'unknown error').split('\n')
       const shown =
@@ -137,46 +159,67 @@ export function isExportRunning(exporters: ExporterInfo[] | undefined): boolean 
   return exporters?.some((exporter) => exporter.last_run?.state === 'running') ?? false
 }
 
-/** The form a rebuild asks for. A format that cannot merge always replaces, so it gets no
-choice. */
-export function exportRunSchema(merges: boolean): SchemaObject {
-  const range: Record<string, SchemaObject> = {
-    after: { type: 'string', format: 'date-time', title: 'After' },
-    before: {
-      type: 'string',
-      format: 'date-time',
-      title: 'Before',
-      description: 'Now when left empty.',
-    },
-  }
-  if (!merges) {
-    return {
-      type: 'object',
-      description: 'This format rewrites files from the database.',
-      properties: range,
-      required: ['after'],
-    }
-  }
+const dateRange: Record<string, SchemaObject> = {
+  after: { type: 'string', format: 'date-time', title: 'After' },
+  before: {
+    type: 'string',
+    format: 'date-time',
+    title: 'Before',
+    description: 'Now when left empty.',
+  },
+}
 
+function conflictSchema(title: string): SchemaObject {
+  return {
+    type: 'string',
+    title,
+    enum: [...ExportConflictModel.options],
+    enumLabels: ['Overwrite', 'Skip', 'Error', 'Purge'],
+    default: 'overwrite',
+    description:
+      'Overwrite keeps a file that may hold records the database no longer does. ' +
+      'Purge rewrites it anyway and can lose them.',
+  }
+}
+
+function rangeModeSchema(title: string): SchemaObject {
+  return {
+    type: 'string',
+    title,
+    enum: [...ExportRangeModeModel.options],
+    enumLabels: ['Expand', 'Exact', 'Shrink'],
+    default: 'expand',
+    description:
+      'Expand widens the range to whole files, exact writes only the range, ' +
+      'shrink keeps only the whole files inside it.',
+  }
+}
+
+/** The form a rebuild asks for. */
+export function exportRunSchema(): SchemaObject {
   return {
     type: 'object',
     properties: {
-      ...range,
-      replace: { type: 'boolean', title: 'Replace File Contents', default: false },
+      ...dateRange,
+      on_conflict: conflictSchema('Existing Files'),
+      range_mode: rangeModeSchema('Range Mode'),
     },
     required: ['after'],
   }
 }
 
 /** The request a rebuild form's values send. */
-export function exportRunRequest(
-  values: { after: string; before?: string | null; replace?: boolean },
-  merges: boolean,
-): ExportRunRequest {
+export function exportRunRequest(values: {
+  after: string
+  before?: string | null
+  on_conflict?: ExportConflict
+  range_mode?: ExportRangeMode
+}): ExportRunRequest {
   return {
     after: values.after,
     before: values.before ?? null,
-    replace: merges ? (values.replace ?? false) : true,
+    on_conflict: values.on_conflict ?? 'overwrite',
+    range_mode: values.range_mode ?? 'expand',
   }
 }
 
@@ -230,10 +273,17 @@ export const PlaybackLevelModel = z.enum(['particles', 'full'])
 export type PlaybackRecord = z.infer<typeof PlaybackRecordModel>
 export const PlaybackRecordModel = z.object({
   id: z.string(),
+  /** Start of the range the request named. */
+  requested_after: z.string(),
+  /** End of the range the request named. */
+  requested_before: z.string(),
+  /** Start of the replayed range, aligned to the exporters' files and the stored messages. */
   after: z.string(),
   before: z.string(),
   level: PlaybackLevelModel,
   export: z.boolean(),
+  on_export_conflict: ExportConflictModel,
+  export_range_mode: ExportRangeModeModel,
   state: ExportRunStateModel,
   started: z.string(),
   ended: z.string().nullable(),
@@ -254,12 +304,15 @@ export const PlaybackRecordModel = z.object({
   exception: z.string().nullable(),
 })
 
-/** Body of a request to start a playback over `[after, before)`, `before` defaulting to now. */
+/** Body of a request to start a playback over `[after, before)`, `before` defaulting to now. The
+export modes go only with `export`, which the server requires of them. */
 export type PlaybackRequest = {
   after: string
   before: string | null
   level: PlaybackLevel
   export: boolean
+  on_export_conflict?: ExportConflict
+  export_range_mode?: ExportRangeMode
 }
 
 /** How far a running playback's replay has got, as a percentage. */
@@ -307,13 +360,7 @@ export function playbackSchema(): SchemaObject {
     description:
       'Replaces the stored particles in the range with ones parsed again from stored messages.',
     properties: {
-      after: { type: 'string', format: 'date-time', title: 'After' },
-      before: {
-        type: 'string',
-        format: 'date-time',
-        title: 'Before',
-        description: 'Now when left empty.',
-      },
+      ...dateRange,
       level: {
         type: 'string',
         title: 'Level',
@@ -324,7 +371,17 @@ export function playbackSchema(): SchemaObject {
       export: {
         type: 'boolean',
         title: 'Rebuild Exporter Files',
-        default: true,
+        default: false,
+      },
+      on_export_conflict: {
+        ...conflictSchema('Existing Files'),
+        description: 'Applies only when rebuilding exporter files.',
+      },
+      export_range_mode: {
+        ...rangeModeSchema('Range Mode'),
+        description:
+          'Applies only when rebuilding exporter files. Expand widens the playback to the ' +
+          'whole files it touches, so the files hold every particle it parses.',
       },
     },
     required: ['after'],
@@ -337,11 +394,19 @@ export function playbackRequest(values: {
   before?: string | null
   level?: PlaybackLevel
   export?: boolean
+  on_export_conflict?: ExportConflict
+  export_range_mode?: ExportRangeMode
 }): PlaybackRequest {
-  return {
+  const request: PlaybackRequest = {
     after: values.after,
     before: values.before ?? null,
     level: values.level ?? 'particles',
-    export: values.export ?? true,
+    export: values.export ?? false,
   }
+  if (request.export) {
+    request.on_export_conflict = values.on_export_conflict ?? 'overwrite'
+    request.export_range_mode = values.export_range_mode ?? 'expand'
+  }
+
+  return request
 }

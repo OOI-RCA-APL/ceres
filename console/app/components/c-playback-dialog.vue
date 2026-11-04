@@ -1,12 +1,7 @@
 <script lang="ts" setup>
 import type { Address } from '@/api/address'
 import { useEngine } from '@/api/engine'
-import {
-  describePlaybackFailure,
-  type PlaybackLevel,
-  playbackRequest,
-  playbackSchema,
-} from '@/api/exporters'
+import { describePlaybackFailure, playbackRequest, playbackSchema } from '@/api/exporters'
 import { useDialogs } from '@/dialogs'
 import { useNotify } from '@/notify'
 import { useSchemaForm } from '@/schema-form'
@@ -35,12 +30,7 @@ const form = useSchemaForm({
   schema: () => playbackSchema(),
   showTypes: false,
   // A refusal leaves the dialog open with the range as typed, so it can be corrected and sent.
-  async onSubmit(submitted: {
-    after: string
-    before?: string | null
-    level?: PlaybackLevel
-    export?: boolean
-  }) {
+  async onSubmit(submitted: Parameters<typeof playbackRequest>[0]) {
     // A full playback runs every particle listener, actions included, for each replayed particle.
     if (submitted.level === 'full') {
       const confirmed = await new Promise<boolean>((resolve) => {
