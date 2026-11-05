@@ -29,7 +29,7 @@ from collections.abc import (
     Mapping,
     Sequence,
 )
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -1450,6 +1450,15 @@ class _Live:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class _Muted:
+    # A range of one address's records that live export leaves to a playback.
+    kind: EntityType
+    address: Address
+    after: datetime
+    before: datetime
+
+
 def _before_history(whole: ExportSpan, history: datetime | None) -> bool:
     # A file covering all time starts before any record, and a database holding no record
     # leaves nothing to compare.
@@ -1529,6 +1538,7 @@ class ExporterManager(BaseComponentManager):
         "__exporters",
         "__live",
         "__locks",
+        "__muted",
         "__pending",
         "__runs",
         "__scope",
@@ -1542,6 +1552,8 @@ class ExporterManager(BaseComponentManager):
         # Keyed by every name ever registered, so a run of a replaced config and a run of its
         # successor share one lock and one bound.
         self.__locks: dict[str, Lock] = {}
+        # One entry per playback in flight, which the playback manager runs one at a time.
+        self.__muted: list[_Muted] = []
         self.__pending: dict[str, int] = {}
         # The latest `before` of a completed run, by exporter, kept as long as the lock.
         self.__completed: dict[str, datetime] = {}
@@ -1973,8 +1985,31 @@ class ExporterManager(BaseComponentManager):
                 if self.__exporters[name].config.exports == kind
             ]
             if targets and scope(address):
+                keys = [key for key in keys if not self.__is_muted(kind, address, key)]
                 for exporter, live in targets:
                     live.notify(exporter.period, keys)
+
+    def __is_muted(self, kind: EntityType, address: Address, key: ExportKey) -> bool:
+        return any(
+            muted.kind == kind and muted.address == address and muted.after <= key[0] < muted.before
+            for muted in self.__muted
+        )
+
+    @contextmanager
+    def mute(
+        self, kind: EntityType, address: Address, after: datetime, before: datetime
+    ) -> Iterator[None]:
+        """Keep live export from writing records of `kind` stored at `address` within a range.
+
+        A playback mutes the range it rebuilds, so only its own export run, under the modes it
+        names, changes the files.
+        """
+        muted = _Muted(kind, address, after, before)
+        self.__muted.append(muted)
+        try:
+            yield
+        finally:
+            self.__muted.remove(muted)
 
     def get_written_through(self, kind: EntityType) -> tuple[str, datetime] | None:
         """Return the exporter of `kind` that has written the least, and how far it has written.
@@ -2087,11 +2122,14 @@ class ExporterManager(BaseComponentManager):
         target: Mount,
         start: datetime | None,
         end: datetime | None,
-        through: datetime,
+        through: datetime | None = None,
     ) -> None:
-        # Writes a missing period's file from the records stored before `through`.
+        # Writes a period's file from the records stored before `through`, every stored record
+        # of the period when `through` is `None`.
         exporter = registered.config
-        end = through if end is None else min(end, through)
+        if through is not None:
+            end = through if end is None else min(end, through)
+
         async with self.__query(exporter, start, end) as results:
             stream = _Counted(results)
             head = await anext(stream, None)
@@ -2194,7 +2232,9 @@ class ExporterManager(BaseComponentManager):
             missing = not await anyio.Path(final).exists()
             if missing or start in live.owned or not _before_history(ExportSpan(*bounds), history):
                 live.owned.add(start)
-                await self.__write_whole(registered, target, *bounds, last[0] + TICK)
+                # The whole period, since a file already holding newer records than this wake's
+                # would otherwise lose them.
+                await self.__write_whole(registered, target, *bounds)
             else:
                 self.__warn_late(registered, live, start, first[0])
 

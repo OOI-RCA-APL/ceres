@@ -299,6 +299,18 @@ async def test_live_export_equals_a_rerun(tmp_path: Path) -> None:
     await live.component.system.stop()
 
 
+async def test_a_late_live_record_keeps_the_newer_rows_of_its_file(tmp_path: Path) -> None:
+    live = await Live.started(tmp_path, **netcdf(live=True))
+    await live.write(gauge(10, id=1, at=RECENT), gauge(30, id=3, at=RECENT))
+    path = tmp_path / f"{RECENT:%Y/%m/%d/%H}.nc"
+    await wait_for_rows(path, 2)
+
+    await live.write(gauge(20, id=2, at=RECENT))
+
+    await wait_for_rows(path, 3)
+    await live.component.system.stop()
+
+
 async def test_the_class_form_passes_netcdf_attributes(tmp_path: Path) -> None:
     arguments = {"attributes": {"celsius": {"long_name": "abc"}}, "global_attributes": {"a": "b"}}
     exported = Exported.create(
