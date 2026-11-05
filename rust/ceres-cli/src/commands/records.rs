@@ -242,18 +242,19 @@ mod tests {
 
     #[test]
     fn a_projection_merges_its_positional_and_flagged_halves() {
-        // The last spelling of a field wins, and a comma-separated spec names several
-        // fields at once so a projection can be typed rather than repeated.
+        // A repeated alias takes the last field, one field may fill two columns, and an
+        // alias splits from its field at the last colon.
         let invocation = read(
             RecordTable::Messages,
-            &["select", "id:first,timestamp", "--field", "id:last"],
+            &["select", "first:id,timestamp", "--field", "first:address", "--field", "time:utc:timestamp"],
         );
 
         assert_eq!(
             invocation.projection,
             vec![
-                ("id".to_string(), "last".to_string()),
+                ("address".to_string(), "first".to_string()),
                 ("timestamp".to_string(), "timestamp".to_string()),
+                ("timestamp".to_string(), "time:utc".to_string()),
             ]
         );
     }

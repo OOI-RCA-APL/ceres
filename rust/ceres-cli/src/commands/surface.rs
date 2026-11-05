@@ -697,7 +697,7 @@ fn row_arguments() -> Vec<Arg> {
         Arg::new("field")
             .long("field")
             .action(ArgAction::Append)
-            .value_name("FIELD[:ALIAS]")
+            .value_name("[ALIAS:]FIELD")
             .help_heading(OUTPUT)
             .help("Output only this field, optionally renamed. Repeatable."),
         Arg::new("header")
@@ -719,7 +719,7 @@ fn field_positional() -> Arg {
     Arg::new("fields")
         .action(ArgAction::Append)
         .value_name("FIELDS")
-        .help("Output only these fields, each optionally renamed as `field:alias`.")
+        .help("Output only these fields, each optionally renamed as `alias:field`.")
 }
 
 /// The confirmation and collection controls a filtered write takes.

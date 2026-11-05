@@ -29,10 +29,10 @@ use crate::project::Project;
 
 /// The output projection a verb asked for, as ordered `(field, alias)` pairs.
 ///
-/// Positional specs come first in argument order, then the `--field` options. Each
-/// splits on its first colon, a repeated field name replaces the alias in place, and a
-/// spec carrying commas names several fields at once, which is how a projection is
-/// written when it is being typed rather than generated.
+/// Positional specs come first in argument order, then the `--field` options. Each is
+/// `alias:field` split on its last colon, so an alias may hold colons, or a bare field under
+/// its own name. A repeated alias replaces its field in place, and a spec carrying commas
+/// names several fields at once.
 fn projection(matches: &ArgMatches) -> Vec<(String, String)> {
     let read = |id| {
         matches
@@ -50,13 +50,9 @@ fn projection(matches: &ArgMatches) -> Vec<(String, String)> {
             .map(str::trim)
             .filter(|spec| !spec.is_empty())
         {
-            let (field, alias) = match spec.split_once(':') {
-                Some((field, alias)) => (field, alias),
-                None => (spec, spec),
-            };
-
-            match projection.iter_mut().find(|(name, _)| name == field) {
-                Some((_, existing)) => *existing = alias.to_string(),
+            let (alias, field) = spec.rsplit_once(':').unwrap_or((spec, spec));
+            match projection.iter_mut().find(|(_, name)| name == alias) {
+                Some((existing, _)) => *existing = field.to_string(),
                 None => projection.push((field.to_string(), alias.to_string())),
             }
         }

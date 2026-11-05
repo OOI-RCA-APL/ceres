@@ -234,7 +234,7 @@ async fn a_projection_selects_and_renames_the_output_fields() {
         "select",
         "--address",
         "@motor",
-        "name:label",
+        "label:name",
         "--format",
         "csv",
     ]));
