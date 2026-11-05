@@ -246,7 +246,14 @@ mod tests {
         // alias splits from its field at the last colon.
         let invocation = read(
             RecordTable::Messages,
-            &["select", "first:id,timestamp", "--field", "first:address", "--field", "time:utc:timestamp"],
+            &[
+                "select",
+                "first:id,timestamp",
+                "--field",
+                "first:address",
+                "--field",
+                "time:utc:timestamp",
+            ],
         );
 
         assert_eq!(

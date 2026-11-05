@@ -41,6 +41,7 @@ database.
 | `filter` | Records to export, in the kind's filter syntax. Every record of the kind at the component when omitted. |
 | `type` | Particle class whose data fields become columns. Particle exporters only, and required for `csv` and `netcdf`. |
 | `format` | `csv`, `jsonl`, `netcdf`, `raw`, or a format class with its arguments as `{class, arguments}`. |
+| `fields` | Columns to write, in order, each optionally renamed, as in [Choosing Columns](#choosing-columns). Every column when omitted. |
 | `mount` | Name of the component's mount the files live under, `output` when omitted. |
 | `period` | Time one file covers: `hour`, `day`, `month`, or `all` for a single file. |
 | `path` | File name of each period, without an extension. A name for the period when omitted. |
@@ -78,8 +79,16 @@ for a day exporter. A `period: all` path takes no time atoms.
 
 ## Formats
 
-`csv` writes a header line and one line per record. `jsonl` writes one JSON object per line with the
-same fields, in the same order. Both start every line with the record's `timestamp` and `id`.
+`csv` writes one line per record. `jsonl` writes one JSON object per line with the same fields, in
+the same order. Both start every line with the record's `timestamp` and `id`, unless `fields` says
+otherwise. A `csv` file has no header line unless the format's `header` argument asks for one:
+
+```yaml
+format:
+  class: csv
+  arguments:
+    header: true
+```
 
 | Records | Columns |
 |---|---|
@@ -95,7 +104,36 @@ writes the whole data object as one `data` column, which `jsonl` allows and `csv
 
 `raw` writes the bytes of every message back to back with nothing between them, which reproduces
 the stream a connection received. It holds no IDs or times, so a live `raw` exporter cannot tell
-where it left off in a file it finds on start.
+where it left off in a file it finds on start. It writes no columns, so it takes no `fields`.
+
+### Choosing Columns
+
+`fields` picks the columns an exporter writes and their order, and can rename each one. It takes the
+same `alias:field` specs as the command line's `--field`: a comma-separated string, a list, or a
+mapping of alias to field.
+
+```yaml
+fields: time:timestamp, temperature:celsius, flow
+fields: [time:timestamp, temperature:celsius, flow]
+fields:
+  time: timestamp
+  temperature: celsius
+  flow: ~
+```
+
+The three forms above are equal. A spec without a colon, or a mapping entry without a field, keeps
+the field's own name. A spec splits at its last colon, so an alias may hold colons. A field naming a
+section selects every column nested in it, each renamed under the alias, so `f:flow` writes
+`f.rate` and `f.flow_speed`. The configuration is invalid when a field names no column or two
+specs give one column name.
+
+`netcdf` applies `fields` to its data variables, joining a renamed section's nested names with `_`
+as it does without `fields`. Its `time`, `id` and `connection` variables stay whatever `fields`
+names.
+
+A live `csv` or `jsonl` exporter finds where it left off in a file from the `timestamp` and `id` of
+its last line. When `fields` does not start with those two under their own names, it treats a file
+it finds on start as `raw` does.
 
 ### NetCDF
 

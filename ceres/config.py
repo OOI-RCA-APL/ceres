@@ -379,6 +379,14 @@ class _ExporterConfig[TFilter: MessageFilter | ParticleFilter | AlertFilter | Lo
     format: Literal["csv", "jsonl", "netcdf", "raw"] | ExporterFormatConfig
     """A built-in format by name, or a custom format class with its arguments."""
 
+    fields: str | Sequence[str] | Mapping[str, str | None] | None = None
+    """Columns to write, in order, each optionally renamed, every column when omitted.
+
+    A comma-separated string or a list of `alias:field` specs, split on the last colon so an
+    alias may hold colons, or a mapping of alias to field. A bare spec or a null field keeps
+    the field's own name. A field holding nested columns selects all of them under its alias.
+    """
+
     mount: NonBlankStr = "output"
     """Name of the component's mount the files live under, a field declared with `Mount.Field`."""
 
@@ -454,7 +462,26 @@ class _ExporterConfig[TFilter: MessageFilter | ParticleFilter | AlertFilter | Lo
         """Return the columns of the exporter's files."""
         from ceres.exporter import ExportSchema
 
-        return ExportSchema.create(self.exports, self.particle_class(), self.name)
+        return ExportSchema.create(self.exports, self.particle_class(), self.name, self.field_specs)
+
+    @property
+    def field_specs(self) -> list[tuple[str, str]]:
+        """The ordered `(alias, field)` pairs `fields` names, empty for every column."""
+        if self.fields is None:
+            return []
+        if isinstance(self.fields, Mapping):
+            return [
+                (alias, alias if field is None else field) for alias, field in self.fields.items()
+            ]
+
+        specs = [self.fields] if isinstance(self.fields, str) else list(self.fields)
+        pairs: list[tuple[str, str]] = []
+        for spec in (part.strip() for text in specs for part in text.split(",")):
+            if spec:
+                alias, _, field = spec.rpartition(":")
+                pairs.append((alias or field, field))
+
+        return pairs
 
     def create_path(self) -> ExportPath:
         """Return the exporter's checked path template."""
@@ -518,6 +545,11 @@ class _ExporterConfig[TFilter: MessageFilter | ParticleFilter | AlertFilter | Lo
                     filters.extend(seq(getattr(filter, nested, None) or ()))
 
         self.create_path()
+        if self.fields is not None and not format.selects:
+            raise ValueError(
+                f"format `{self.format_name}` writes no columns, so it takes no `fields`"
+            )
+
         format.check(self.create_schema())
 
         if self.period == ExporterPeriod.ALL and self.is_live and not format.appendable:

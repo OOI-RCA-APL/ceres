@@ -195,6 +195,30 @@ async def test_a_run_writes_a_variable_per_field(tmp_path: Path) -> None:
     assert file["dimensions"]["id"] == ("time", "string36")
 
 
+async def test_fields_choose_and_rename_the_variables(tmp_path: Path) -> None:
+    exported = Exported.create(tmp_path, **netcdf(fields={"temperature": "celsius", "f": "flow"}))
+    await exported.store(gauge(5, flow=FlowData(rate=3, flow_speed=4)))
+
+    await exported.run()
+
+    variables = read(tmp_path / "2026/01/01/00.nc")["variables"]
+    assert set(variables) == {
+        "time",
+        "id",
+        "connection",
+        "connection_name",
+        "temperature",
+        "f_rate",
+        "f_flow_speed",
+        "f_depth_meters",
+    }
+    assert variables["temperature"].tolist() == [1.5]
+
+
+def test_config_refuses_fields_netcdf_cannot_write() -> None:
+    assert "netcdf can write" in refusal(**netcdf(fields="ragged"))
+
+
 @pytest.mark.parametrize(
     "moment",
     [

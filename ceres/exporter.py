@@ -173,10 +173,13 @@ class ExportColumn:
     """One column of an export file and where its value sits in a record's JSON form."""
 
     name: str
-    """Column name, nested fields joined with `.` and tuple items indexed."""
+    """Column name, the field's own name unless the exporter's `fields` renames it."""
 
     path: tuple[str | int, ...]
     """Keys and indexes leading to the value in the record's JSON form."""
+
+    field: str
+    """Field the column holds, nested fields joined with `.` and tuple items indexed."""
 
     def get(self, data: Any) -> Any:
         """Return this column's value from a record's JSON form, `None` when absent."""
@@ -233,12 +236,16 @@ class ExportSchema:
     address: Address | None = None
     """Address of the component whose exporter writes the files."""
 
+    selection: tuple[tuple[str, str], ...] = ()
+    """The exporter's `fields` as ordered `(alias, field)` pairs, empty for every column."""
+
     @classmethod
     def create(
         cls,
         exports: EntityType,
         particle: type[Particle[Any]] | None = None,
         exporter: str | None = None,
+        fields: Sequence[tuple[str, str]] = (),
     ) -> ExportSchema:
         """Derive the columns for records of `exports`, flattening the particle data class.
 
@@ -247,19 +254,26 @@ class ExportSchema:
             particle: Particle class whose data fields become columns, `None` for one `data`
                 column holding each particle's whole data object.
             exporter: Name of the exporter writing the files.
+            fields: Ordered `(alias, field)` pairs choosing and renaming the columns, every
+                column under its own name when empty. A field that holds nested or tuple
+                columns selects all of them, each renamed under the alias.
 
         Raises:
-            ValueError: If a data field's column name collides with another column.
+            ValueError: If a data field's column name collides with another column, or
+                `fields` names a field the records lack.
         """
-        columns = [ExportColumn(name, (name,)) for name in _RECORD_COLUMNS[exports]]
-        fields: tuple[ExportField, ...] = ()
+        columns = [ExportColumn(name, (name,), name) for name in _RECORD_COLUMNS[exports]]
+        data: tuple[ExportField, ...] = ()
         if exports == EntityType.PARTICLE:
             if particle is None:
-                columns.append(ExportColumn("data", ("data",)))
+                columns.append(ExportColumn("data", ("data",), "data"))
             else:
-                fields = _data_fields(particle.Data)
-                for field in fields:
+                data = _data_fields(particle.Data)
+                for field in data:
                     columns.extend(_data_columns(field, (), ("data",)))
+
+        if fields:
+            columns = _select_columns(columns, fields)
 
         seen: set[str] = set()
         for column in columns:
@@ -268,17 +282,50 @@ class ExportSchema:
 
             seen.add(column.name)
 
-        return cls(exports, tuple(columns), particle, fields, exporter)
+        return cls(exports, tuple(columns), particle, data, exporter, selection=tuple(fields))
 
     @property
     def names(self) -> list[str]:
         """Column names in file order."""
         return [column.name for column in self.columns]
 
+    @property
+    def keyed(self) -> bool:
+        """Whether the first two columns hold each record's `timestamp` and `id` under their own
+        names, where a resuming live exporter reads a line's key."""
+        return [(column.name, column.field) for column in self.columns[:2]] == [
+            ("timestamp", "timestamp"),
+            ("id", "id"),
+        ]
+
     def row(self, record: ExportRecord) -> list[Any]:
         """Return a record's values in column order, in the JSON form the API serves."""
         data = _dump(record, mode="json")
         return [column.get(data) for column in self.columns]
+
+
+def _select_columns(
+    columns: Sequence[ExportColumn], fields: Sequence[tuple[str, str]]
+) -> list[ExportColumn]:
+    selected: list[ExportColumn] = []
+    for alias, field in fields:
+        matches = [
+            column
+            for column in columns
+            if column.field == field or column.field.startswith(f"{field}.")
+        ]
+        if not matches:
+            known = ", ".join(f"`{column.field}`" for column in columns)
+            raise ValueError(f"no field `{field}` to export, the fields are {known}")
+
+        for column in matches:
+            name = alias + column.field[len(field) :]
+            if any(other.name == name for other in selected):
+                raise ValueError(f"two fields export as column `{name}`")
+
+            selected.append(ExportColumn(name, column.path, column.field))
+
+    return selected
 
 
 def _strip_optional(annotation: Any) -> Any:
@@ -332,7 +379,8 @@ def _field_columns(
         for index, argument in enumerate(arguments):
             yield from _field_columns(argument, (*names, str(index)), (*path, index))
     else:
-        yield ExportColumn(".".join(names), path)
+        name = ".".join(names)
+        yield ExportColumn(name, path, name)
 
 
 def _record_key(record: ExportRecord) -> ExportKey:
@@ -421,6 +469,9 @@ class Format(DataObject, abstract=True):
     exports: ClassVar[frozenset[EntityType] | None] = None
     """Record kinds the format can write, `None` for every kind."""
 
+    selects: ClassVar[bool] = True
+    """Whether the format writes columns, which the exporter's `fields` chooses and renames."""
+
     def check(self, schema: ExportSchema) -> tuple[str, ...]:
         """Return the dotted paths of the data fields that files for `schema` leave out.
 
@@ -459,6 +510,11 @@ class LineFormat(Format, abstract=True):
 
     resumable: ClassVar[bool] = True
     """Whether `key` reads a line's key, so a live exporter resumes after a file's last line."""
+
+    def resumes(self, schema: ExportSchema) -> bool:
+        """Return whether a live exporter can resume after the last line of a file for `schema`,
+        which needs the line's key in the columns the exporter's `fields` keep."""
+        return self.resumable and schema.keyed
 
     def header(self, schema: ExportSchema) -> bytes:
         """Return the bytes that open every file, empty for none."""
@@ -546,7 +602,7 @@ class LineFormat(Format, abstract=True):
 
 
 class CsvFormat(LineFormat):
-    """Comma separated values, one column per schema column under a header row.
+    """Comma separated values, one column per schema column.
 
     Nested values are JSON text, an absent value is an empty cell, and a non-finite float is
     `nan`, `inf` or `-inf`.
@@ -554,6 +610,9 @@ class CsvFormat(LineFormat):
 
     extension: ClassVar[str] = ".csv"
     schema_bound: ClassVar[bool] = True
+
+    header_row: bool = Field(default=False, alias="header")
+    """Whether each file opens with a row of the column names."""
 
     @staticmethod
     def __cell(value: Any) -> Any:
@@ -576,7 +635,7 @@ class CsvFormat(LineFormat):
 
     @override
     def header(self, schema: ExportSchema) -> bytes:
-        return self.__line(schema.names)
+        return self.__line(schema.names) if self.header_row else b""
 
     @override
     def encode(self, schema: ExportSchema, record: ExportRecord) -> bytes:
@@ -584,7 +643,7 @@ class CsvFormat(LineFormat):
 
     @override
     def key(self, line: bytes) -> ExportKey:
-        timestamp, id, _ = line.split(b",", 2)
+        timestamp, id = line.rstrip(b"\r\n").split(b",", 2)[:2]
         return _parse_key(timestamp, id)
 
     @override
@@ -631,6 +690,7 @@ class RawFormat(LineFormat):
 
     extension: ClassVar[str] = ".bin"
     resumable: ClassVar[bool] = False
+    selects: ClassVar[bool] = False
     exports: ClassVar[frozenset[EntityType] | None] = frozenset({EntityType.MESSAGE})
 
     @override
@@ -658,12 +718,14 @@ class NetCDFFormat(Format):
     """Attributes of the file, beside the ones it always carries."""
 
     def variables(self, schema: ExportSchema) -> tuple[NetCDFVariable, ...]:
-        """Return the data variables of the files for `schema`."""
-        return _netcdf_layout(schema.particle)[0]
+        """Return the data variables of the files for `schema`, the exporter's `fields` choosing
+        and renaming them. `time`, `id` and `connection` stay whatever `fields` names."""
+        return _netcdf_selected(schema.particle, schema.selection)
 
     @override
     def check(self, schema: ExportSchema) -> tuple[str, ...]:
         """Return the fields the built-in layout leaves out, whatever `variables` returns."""
+        _netcdf_selected(schema.particle, schema.selection)
         return _netcdf_layout(schema.particle)[1]
 
     def file_attributes(self, schema: ExportSchema) -> dict[str, str]:
@@ -730,6 +792,34 @@ def _netcdf_layout(
     from ceres.__internal__.netcdf import netcdf_variables
 
     return netcdf_variables(_data_fields(particle.Data) if particle is not None else ())
+
+
+@functools.cache
+def _netcdf_selected(
+    particle: type[Particle[Any]] | None, selection: tuple[tuple[str, str], ...]
+) -> tuple[NetCDFVariable, ...]:
+    variables = _netcdf_layout(particle)[0]
+    if not selection:
+        return variables
+
+    selected: list[NetCDFVariable] = []
+    for alias, field in selection:
+        if field in _RECORD_COLUMNS[EntityType.PARTICLE]:
+            continue
+
+        segments = tuple(field.split("."))
+        matches = [variable for variable in variables if variable.path[: len(segments)] == segments]
+        if not matches:
+            raise ValueError(f"no data field `{field}` that netcdf can write")
+
+        for variable in matches:
+            name = "_".join((alias, *variable.path[len(segments) :]))
+            if any(other.name == name for other in selected):
+                raise ValueError(f"two fields export as variable `{name}`")
+
+            selected.append(dataclasses.replace(variable, name=name))
+
+    return tuple(selected)
 
 
 def _fsync(path: Path) -> None:
@@ -1982,7 +2072,7 @@ class ExporterManager(BaseComponentManager):
                 if not await anyio.Path(target.path).exists():
                     live.owned.add(start)
                     await self.__write_whole(registered, target, *bounds, started)
-                elif isinstance(format, LineFormat) and format.resumable:
+                elif isinstance(format, LineFormat) and format.resumes(registered.schema):
                     await self.__resume(registered, live, target, start, started)
                 elif not format.appendable and not _before_history(ExportSpan(*bounds), history):
                     await self.__write_whole(registered, target, *bounds, started)
@@ -2118,7 +2208,7 @@ class ExporterManager(BaseComponentManager):
             if head is None:
                 return
 
-            resumable = isinstance(format, LineFormat) and format.resumable
+            resumable = isinstance(format, LineFormat) and format.resumes(schema)
             previous = None
             if resumable:
                 previous = (

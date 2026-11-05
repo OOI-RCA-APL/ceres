@@ -221,11 +221,61 @@ async def test_csv_sorts_records_by_timestamp_then_id(tmp_path: Path) -> None:
     await exported.run()
 
     assert exported.files()["2026/01/01/00.csv"].decode().splitlines() == [
-        "timestamp,id,address,connection,direction,data",
         f"2026-01-01T00:01:00Z,{UUID(int=9)},@archive,,receive,a",
         f"2026-01-01T00:05:00Z,{UUID(int=2)},@archive,,receive,b",
         f"2026-01-01T00:05:00Z,{UUID(int=3)},@archive,,receive,c",
     ]
+
+
+async def test_csv_writes_a_header_only_when_asked(tmp_path: Path) -> None:
+    exported = Exported.create(tmp_path, format={"class": "csv", "arguments": {"header": True}})
+    await exported.store(message(5, b"a", id=1))
+
+    await exported.run()
+
+    assert exported.files()["2026/01/01/00.csv"].decode().splitlines() == [
+        "timestamp,id,address,connection,direction,data",
+        f"2026-01-01T00:05:00Z,{UUID(int=1)},@archive,,receive,a",
+    ]
+
+
+@pytest.mark.parametrize(
+    "fields",
+    ["time:timestamp, data", ["time:timestamp", "data"], {"time": "timestamp", "data": None}],
+)
+async def test_fields_choose_and_rename_the_columns(tmp_path: Path, fields: object) -> None:
+    exported = Exported.create(
+        tmp_path, format={"class": "csv", "arguments": {"header": True}}, fields=fields
+    )
+    await exported.store(message(5, b"a"))
+
+    await exported.run()
+
+    assert exported.files()["2026/01/01/00.csv"].decode().splitlines() == [
+        "time,data",
+        "2026-01-01T00:05:00Z,a",
+    ]
+
+
+async def test_jsonl_takes_fields_too(tmp_path: Path) -> None:
+    exported = Exported.create(tmp_path, format="jsonl", fields="at:timestamp,data")
+    await exported.store(message(5, b"a"))
+
+    await exported.run()
+
+    assert exported.files()["2026/01/01/00.jsonl"] == b'{"at":"2026-01-01T00:05:00Z","data":"a"}\n'
+
+
+@pytest.mark.parametrize(
+    ("format", "fields", "error"),
+    [
+        ("csv", "missing", "no field `missing`"),
+        ("csv", "a:timestamp,a:data", "two fields export as column `a`"),
+        ("raw", "data", "takes no `fields`"),
+    ],
+)
+def test_fields_are_checked_with_the_config(format: str, fields: str, error: str) -> None:
+    assert error in refusal(format=format, fields=fields)
 
 
 async def test_jsonl_writes_one_object_per_record(tmp_path: Path) -> None:
@@ -256,7 +306,7 @@ async def test_overwrite_writes_each_file_from_the_database_alone(tmp_path: Path
     run = await exported.run()
 
     lines = exported.files()["2026/01/01/00.csv"].splitlines()
-    assert len(lines) == 2 and lines[1].endswith(b",receive,new")
+    assert len(lines) == 1 and lines[0].endswith(b",receive,new")
     assert (run.count, run.kept, run.removed) == (2, 0, 0)
 
 
@@ -274,7 +324,7 @@ async def test_overwrite_keeps_a_file_older_than_the_database(tmp_path: Path) ->
         ("2026/01/01/00.csv", ExportFileAction.KEEP, ExportKeepReason.EMPTY),
         ("2026/01/01/01.csv", ExportFileAction.KEEP, ExportKeepReason.HISTORY),
     ]
-    assert exported.files()["2026/01/01/00.csv"].count(b"\n") == 2
+    assert exported.files()["2026/01/01/00.csv"].count(b"\n") == 1
     assert (run.count, run.kept) == (0, 2)
 
 
@@ -305,7 +355,7 @@ async def test_purge_drops_records_the_database_lost_and_removes_empty_files(
     run = await exported.run(on_conflict=ExportConflict.PURGE)
 
     assert list(exported.files()) == ["2026/01/01/00.csv"]
-    assert exported.files()["2026/01/01/00.csv"].count(b"\n") == 2
+    assert exported.files()["2026/01/01/00.csv"].count(b"\n") == 1
     assert (run.count, run.files, run.removed) == (1, ["2026/01/01/00.csv"], 1)
 
 
@@ -407,7 +457,7 @@ async def test_a_rerun_rewrites_a_torn_final_line(tmp_path: Path) -> None:
     await exported.run()
     path = tmp_path / "2026/01/01/00.csv"
     clean = path.read_bytes()
-    path.write_bytes(clean + clean.splitlines(keepends=True)[1][:20])
+    path.write_bytes(clean + clean.splitlines(keepends=True)[-1][:20])
 
     await exported.run()
 
@@ -717,14 +767,12 @@ class Live(Exported):
         await self.component.system.flush()
 
     async def lines(self, path: str, count: int) -> list[bytes]:
-        header = 1 if path.endswith(".csv") else 0
-
         def written() -> bool:
             file = self.root / path
-            return file.exists() and file.read_bytes().count(b"\n") == count + header
+            return file.exists() and file.read_bytes().count(b"\n") == count
 
         await wait_for_condition(f"{path} holds {count} records", written, 30)
-        return (self.root / path).read_bytes().splitlines()[header:]
+        return (self.root / path).read_bytes().splitlines()
 
 
 def ids(lines: list[bytes]) -> list[int]:
@@ -1044,7 +1092,7 @@ async def test_a_paged_prune_keeps_a_late_record_flushed_between_pages(
 
 
 def csv_ids(path: Path) -> list[int]:
-    rows = list(csv.reader(io.StringIO(path.read_text())))[1:]
+    rows = list(csv.reader(io.StringIO(path.read_text())))
     return [UUID(row[1]).int for row in rows]
 
 
@@ -1088,6 +1136,23 @@ async def test_a_raw_exporter_writes_a_missing_file_and_names_the_run_for_one_it
     warning = f"cannot add records to '{current:%Y/%m/%d/%H}.bin'"
     assert any(warning in event.entry.content for event in logged)
     assert live.files() == {f"{current:%Y/%m/%d/%H}.bin": b"a"}
+    await live.component.system.stop()
+
+
+async def test_a_live_file_without_its_key_columns_is_left_to_a_run(tmp_path: Path) -> None:
+    current = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
+    exported = Exported.create(tmp_path, fields="data")
+    await exported.store(replace(message(0, b"ab"), timestamp=current))
+    (tmp_path / f"{current:%Y/%m/%d}").mkdir(parents=True)
+    (tmp_path / f"{current:%Y/%m/%d/%H}.csv").write_bytes(b"a\n")
+    live = Live(exported.component, exported.root)
+    with exported.component.system.events.every(LogEvent).read() as reader:
+        await live.begin()
+        logged: list[Any] = reader.clear()
+
+    warning = f"cannot add records to '{current:%Y/%m/%d/%H}.csv'"
+    assert any(warning in event.entry.content for event in logged)
+    assert live.files() == {f"{current:%Y/%m/%d/%H}.csv": b"a\n"}
     await live.component.system.stop()
 
 

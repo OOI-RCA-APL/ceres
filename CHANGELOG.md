@@ -8,6 +8,11 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+**Breaking**
+
+- A `--field` spec and a positional field spec name the output first, `alias:field`, splitting at
+  the last colon. `--field id:first` becomes `--field first:id`, and a bare field is unchanged.
+
 **Engine**
 
 - A component's `exporters` write its messages, particles, alerts, or log entries to files in
@@ -15,7 +20,9 @@ written, and the release workflow refuses a version that has no entry here.
   `month`, or one file for `all`. The files go under one of the component's mounts, in its
   layout's dated folders, named by a `path` template rendered in UTC. An exporter writes records
   live within seconds of storing them, rewrites its files from the database on a `schedule`, and
-  never removes a record from a file unless a run asks to purge it.
+  never removes a record from a file unless a run asks to purge it. An exporter's `fields` choose,
+  order, and rename its columns with the same `alias:field` specs as `--field`, as a string, a
+  list, or a mapping. A `csv` file has a header line only with the format's `header: true`.
 - An export run rewrites the files a range touches from the database, `POST
   /api/components/{address}/exporters/{name}/runs`, and `GET` on the same path lists the last 20.
   `range_mode` widens the range to whole files (`expand`), keeps it (`exact`), or narrows it

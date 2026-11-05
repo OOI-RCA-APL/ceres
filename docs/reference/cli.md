@@ -221,10 +221,10 @@ Retrieve alerts.
 
 | Option | Required | Description |
 | --- | --- | --- |
-| `<FIELDS>` |  | Output only these fields, each optionally renamed as `field:alias`. |
+| `<FIELDS>` |  | Output only these fields, each optionally renamed as `alias:field`. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--id` `VALUE` |  | Only alerts with this id. Repeat to match any of several. |
 | `--address` `VALUE` |  | Only alerts with this address. Repeat to match any of several. |
@@ -344,7 +344,7 @@ Create a alert.
 | --- | --- | --- |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--id` `VALUE` |  | The alert's id. |
 | `--address` `VALUE` |  | The alert's address. |
@@ -365,7 +365,7 @@ Update alerts, reporting how many changed.
 | `--collect` |  | Output the updated rows rather than how many. Ordering is not preserved. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--id` `VALUE` |  | Only alerts with this id. Repeat to match any of several. |
 | `--address` `VALUE` |  | Only alerts with this address. Repeat to match any of several. |
@@ -410,7 +410,7 @@ Delete alerts, reporting how many were removed.
 | `--collect` |  | Output the deleted rows rather than how many. Ordering is not preserved. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--id` `VALUE` |  | Only alerts with this id. Repeat to match any of several. |
 | `--address` `VALUE` |  | Only alerts with this address. Repeat to match any of several. |
@@ -463,10 +463,10 @@ Follow new alerts as they arrive.
 
 | Option | Required | Description |
 | --- | --- | --- |
-| `<FIELDS>` |  | Output only these fields, each optionally renamed as `field:alias`. |
+| `<FIELDS>` |  | Output only these fields, each optionally renamed as `alias:field`. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--id` `VALUE` |  | Only alerts with this id. Repeat to match any of several. |
 | `--address` `VALUE` |  | Only alerts with this address. Repeat to match any of several. |
@@ -510,10 +510,10 @@ Retrieve logs.
 
 | Option | Required | Description |
 | --- | --- | --- |
-| `<FIELDS>` |  | Output only these fields, each optionally renamed as `field:alias`. |
+| `<FIELDS>` |  | Output only these fields, each optionally renamed as `alias:field`. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--id` `VALUE` |  | Only logs with this id. Repeat to match any of several. |
 | `--address` `VALUE` |  | Only logs with this address. Repeat to match any of several. |
@@ -624,7 +624,7 @@ Create a log entry.
 | --- | --- | --- |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--id` `VALUE` |  | The log entry's id. |
 | `--address` `VALUE` |  | The log entry's address. |
@@ -644,7 +644,7 @@ Update logs, reporting how many changed.
 | `--collect` |  | Output the updated rows rather than how many. Ordering is not preserved. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--id` `VALUE` |  | Only logs with this id. Repeat to match any of several. |
 | `--address` `VALUE` |  | Only logs with this address. Repeat to match any of several. |
@@ -686,7 +686,7 @@ Delete logs, reporting how many were removed.
 | `--collect` |  | Output the deleted rows rather than how many. Ordering is not preserved. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--id` `VALUE` |  | Only logs with this id. Repeat to match any of several. |
 | `--address` `VALUE` |  | Only logs with this address. Repeat to match any of several. |
@@ -736,10 +736,10 @@ Follow new logs as they arrive.
 
 | Option | Required | Description |
 | --- | --- | --- |
-| `<FIELDS>` |  | Output only these fields, each optionally renamed as `field:alias`. |
+| `<FIELDS>` |  | Output only these fields, each optionally renamed as `alias:field`. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--id` `VALUE` |  | Only logs with this id. Repeat to match any of several. |
 | `--address` `VALUE` |  | Only logs with this address. Repeat to match any of several. |
@@ -780,10 +780,10 @@ Retrieve messages.
 
 | Option | Required | Description |
 | --- | --- | --- |
-| `<FIELDS>` |  | Output only these fields, each optionally renamed as `field:alias`. |
+| `<FIELDS>` |  | Output only these fields, each optionally renamed as `alias:field`. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--id` `VALUE` |  | Only messages with this id. Repeat to match any of several. |
 | `--address` `VALUE` |  | Only messages with this address. Repeat to match any of several. |
@@ -900,7 +900,7 @@ Create a message.
 | --- | --- | --- |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--id` `VALUE` |  | The message's id. |
 | `--address` `VALUE` |  | The message's address. |
@@ -921,7 +921,7 @@ Update messages, reporting how many changed.
 | `--collect` |  | Output the updated rows rather than how many. Ordering is not preserved. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--id` `VALUE` |  | Only messages with this id. Repeat to match any of several. |
 | `--address` `VALUE` |  | Only messages with this address. Repeat to match any of several. |
@@ -965,7 +965,7 @@ Delete messages, reporting how many were removed.
 | `--collect` |  | Output the deleted rows rather than how many. Ordering is not preserved. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--id` `VALUE` |  | Only messages with this id. Repeat to match any of several. |
 | `--address` `VALUE` |  | Only messages with this address. Repeat to match any of several. |
@@ -1017,10 +1017,10 @@ Follow new messages as they arrive.
 
 | Option | Required | Description |
 | --- | --- | --- |
-| `<FIELDS>` |  | Output only these fields, each optionally renamed as `field:alias`. |
+| `<FIELDS>` |  | Output only these fields, each optionally renamed as `alias:field`. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--id` `VALUE` |  | Only messages with this id. Repeat to match any of several. |
 | `--address` `VALUE` |  | Only messages with this address. Repeat to match any of several. |
@@ -1063,10 +1063,10 @@ Retrieve particles.
 
 | Option | Required | Description |
 | --- | --- | --- |
-| `<FIELDS>` |  | Output only these fields, each optionally renamed as `field:alias`. |
+| `<FIELDS>` |  | Output only these fields, each optionally renamed as `alias:field`. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--id` `VALUE` |  | Only particles with this id. Repeat to match any of several. |
 | `--address` `VALUE` |  | Only particles with this address. Repeat to match any of several. |
@@ -1189,7 +1189,7 @@ Create a particle.
 | --- | --- | --- |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--id` `VALUE` |  | The particle's id. |
 | `--address` `VALUE` |  | The particle's address. |
@@ -1210,7 +1210,7 @@ Update particles, reporting how many changed.
 | `--collect` |  | Output the updated rows rather than how many. Ordering is not preserved. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--id` `VALUE` |  | Only particles with this id. Repeat to match any of several. |
 | `--address` `VALUE` |  | Only particles with this address. Repeat to match any of several. |
@@ -1256,7 +1256,7 @@ Delete particles, reporting how many were removed.
 | `--collect` |  | Output the deleted rows rather than how many. Ordering is not preserved. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--id` `VALUE` |  | Only particles with this id. Repeat to match any of several. |
 | `--address` `VALUE` |  | Only particles with this address. Repeat to match any of several. |
@@ -1310,10 +1310,10 @@ Follow new particles as they arrive.
 
 | Option | Required | Description |
 | --- | --- | --- |
-| `<FIELDS>` |  | Output only these fields, each optionally renamed as `field:alias`. |
+| `<FIELDS>` |  | Output only these fields, each optionally renamed as `alias:field`. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--id` `VALUE` |  | Only particles with this id. Repeat to match any of several. |
 | `--address` `VALUE` |  | Only particles with this address. Repeat to match any of several. |
@@ -1358,10 +1358,10 @@ Retrieve settings.
 
 | Option | Required | Description |
 | --- | --- | --- |
-| `<FIELDS>` |  | Output only these fields, each optionally renamed as `field:alias`. |
+| `<FIELDS>` |  | Output only these fields, each optionally renamed as `alias:field`. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--user-id` `VALUE` |  | Only settings with this user-id. Repeat to match any of several. |
 | `--name` `VALUE` |  | Only settings with this name. Repeat to match any of several. |
@@ -1418,7 +1418,7 @@ Create a setting.
 | --- | --- | --- |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--user-id` `VALUE` | yes | The setting's user-id. |
 | `--name` `VALUE` | yes | The setting's name. |
@@ -1436,7 +1436,7 @@ Update settings, reporting how many changed.
 | `--collect` |  | Output the updated rows rather than how many. Ordering is not preserved. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--user-id` `VALUE` |  | Only settings with this user-id. Repeat to match any of several. |
 | `--name` `VALUE` |  | Only settings with this name. Repeat to match any of several. |
@@ -1460,7 +1460,7 @@ Delete settings, reporting how many were removed.
 | `--collect` |  | Output the deleted rows rather than how many. Ordering is not preserved. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--user-id` `VALUE` |  | Only settings with this user-id. Repeat to match any of several. |
 | `--name` `VALUE` |  | Only settings with this name. Repeat to match any of several. |
@@ -1493,10 +1493,10 @@ Retrieve users.
 
 | Option | Required | Description |
 | --- | --- | --- |
-| `<FIELDS>` |  | Output only these fields, each optionally renamed as `field:alias`. |
+| `<FIELDS>` |  | Output only these fields, each optionally renamed as `alias:field`. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--id` `VALUE` |  | Only users with this id. Repeat to match any of several. |
 | `--username` `VALUE` |  | Only users with this username. Repeat to match any of several. |
@@ -1571,7 +1571,7 @@ Create a user.
 | --- | --- | --- |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--id` `VALUE` |  | The user's id. |
 | `--username` `VALUE` | yes | The user's username. |
@@ -1592,7 +1592,7 @@ Update users, reporting how many changed.
 | `--collect` |  | Output the updated rows rather than how many. Ordering is not preserved. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--id` `VALUE` |  | Only users with this id. Repeat to match any of several. |
 | `--username` `VALUE` |  | Only users with this username. Repeat to match any of several. |
@@ -1622,7 +1622,7 @@ Delete users, reporting how many were removed.
 | `--collect` |  | Output the deleted rows rather than how many. Ordering is not preserved. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--id` `VALUE` |  | Only users with this id. Repeat to match any of several. |
 | `--username` `VALUE` |  | Only users with this username. Repeat to match any of several. |
@@ -1661,10 +1661,10 @@ Retrieve variables.
 
 | Option | Required | Description |
 | --- | --- | --- |
-| `<FIELDS>` |  | Output only these fields, each optionally renamed as `field:alias`. |
+| `<FIELDS>` |  | Output only these fields, each optionally renamed as `alias:field`. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--address` `VALUE` |  | Only variables with this address. Repeat to match any of several. |
 | `--root` `VALUE` |  | Resolve relative address selectors against this address. |
@@ -1730,7 +1730,7 @@ Create a variable.
 | --- | --- | --- |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--address` `VALUE` | yes | The variable's address. |
 | `--name` `VALUE` | yes | The variable's name. |
@@ -1748,7 +1748,7 @@ Update variables, reporting how many changed.
 | `--collect` |  | Output the updated rows rather than how many. Ordering is not preserved. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--address` `VALUE` |  | Only variables with this address. Repeat to match any of several. |
 | `--root` `VALUE` |  | Resolve relative address selectors against this address. |
@@ -1775,7 +1775,7 @@ Delete variables, reporting how many were removed.
 | `--collect` |  | Output the deleted rows rather than how many. Ordering is not preserved. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--address` `VALUE` |  | Only variables with this address. Repeat to match any of several. |
 | `--root` `VALUE` |  | Resolve relative address selectors against this address. |
@@ -1811,10 +1811,10 @@ Retrieve workspaces.
 
 | Option | Required | Description |
 | --- | --- | --- |
-| `<FIELDS>` |  | Output only these fields, each optionally renamed as `field:alias`. |
+| `<FIELDS>` |  | Output only these fields, each optionally renamed as `alias:field`. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--id` `VALUE` |  | Only workspaces with this id. Repeat to match any of several. |
 | `--name` `VALUE` |  | Only workspaces with this name. Repeat to match any of several. |
@@ -1886,7 +1886,7 @@ Create a workspace.
 | --- | --- | --- |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--id` `VALUE` |  | The workspace's id. |
 | `--name` `VALUE` | yes | The workspace's name. |
@@ -1907,7 +1907,7 @@ Update workspaces, reporting how many changed.
 | `--collect` |  | Output the updated rows rather than how many. Ordering is not preserved. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--id` `VALUE` |  | Only workspaces with this id. Repeat to match any of several. |
 | `--name` `VALUE` |  | Only workspaces with this name. Repeat to match any of several. |
@@ -1936,7 +1936,7 @@ Delete workspaces, reporting how many were removed.
 | `--collect` |  | Output the deleted rows rather than how many. Ordering is not preserved. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--id` `VALUE` |  | Only workspaces with this id. Repeat to match any of several. |
 | `--name` `VALUE` |  | Only workspaces with this name. Repeat to match any of several. |
@@ -1974,10 +1974,10 @@ Retrieve workspace-edits.
 
 | Option | Required | Description |
 | --- | --- | --- |
-| `<FIELDS>` |  | Output only these fields, each optionally renamed as `field:alias`. |
+| `<FIELDS>` |  | Output only these fields, each optionally renamed as `alias:field`. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--user-id` `VALUE` |  | Only workspace-edits with this user-id. Repeat to match any of several. |
 | `--workspace-id` `VALUE` |  | Only workspace-edits with this workspace-id. Repeat to match any of several. |
@@ -2025,7 +2025,7 @@ Create a workspace edit.
 | --- | --- | --- |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--user-id` `VALUE` | yes | The workspace edit's user-id. |
 | `--workspace-id` `VALUE` | yes | The workspace edit's workspace-id. |
@@ -2043,7 +2043,7 @@ Update workspace-edits, reporting how many changed.
 | `--collect` |  | Output the updated rows rather than how many. Ordering is not preserved. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--user-id` `VALUE` |  | Only workspace-edits with this user-id. Repeat to match any of several. |
 | `--workspace-id` `VALUE` |  | Only workspace-edits with this workspace-id. Repeat to match any of several. |
@@ -2064,7 +2064,7 @@ Delete workspace-edits, reporting how many were removed.
 | `--collect` |  | Output the deleted rows rather than how many. Ordering is not preserved. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--user-id` `VALUE` |  | Only workspace-edits with this user-id. Repeat to match any of several. |
 | `--workspace-id` `VALUE` |  | Only workspace-edits with this workspace-id. Repeat to match any of several. |
@@ -2094,10 +2094,10 @@ Retrieve groups.
 
 | Option | Required | Description |
 | --- | --- | --- |
-| `<FIELDS>` |  | Output only these fields, each optionally renamed as `field:alias`. |
+| `<FIELDS>` |  | Output only these fields, each optionally renamed as `alias:field`. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--id` `VALUE` |  | Only groups with this id. Repeat to match any of several. |
 | `--name` `VALUE` |  | Only groups with this name. Repeat to match any of several. |
@@ -2154,7 +2154,7 @@ Create a group.
 | --- | --- | --- |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--id` `VALUE` |  | The group's id. |
 | `--name` `VALUE` | yes | The group's name. |
@@ -2172,7 +2172,7 @@ Update groups, reporting how many changed.
 | `--collect` |  | Output the updated rows rather than how many. Ordering is not preserved. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--id` `VALUE` |  | Only groups with this id. Repeat to match any of several. |
 | `--name` `VALUE` |  | Only groups with this name. Repeat to match any of several. |
@@ -2196,7 +2196,7 @@ Delete groups, reporting how many were removed.
 | `--collect` |  | Output the deleted rows rather than how many. Ordering is not preserved. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--id` `VALUE` |  | Only groups with this id. Repeat to match any of several. |
 | `--name` `VALUE` |  | Only groups with this name. Repeat to match any of several. |
@@ -2229,10 +2229,10 @@ Retrieve group-memberships.
 
 | Option | Required | Description |
 | --- | --- | --- |
-| `<FIELDS>` |  | Output only these fields, each optionally renamed as `field:alias`. |
+| `<FIELDS>` |  | Output only these fields, each optionally renamed as `alias:field`. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--user-id` `VALUE` |  | Only group-memberships with this user-id. Repeat to match any of several. |
 | `--group-id` `VALUE` |  | Only group-memberships with this group-id. Repeat to match any of several. |
@@ -2280,7 +2280,7 @@ Create a group membership.
 | --- | --- | --- |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--user-id` `VALUE` | yes | The group membership's user-id. |
 | `--group-id` `VALUE` | yes | The group membership's group-id. |
@@ -2297,7 +2297,7 @@ Update group-memberships, reporting how many changed.
 | `--collect` |  | Output the updated rows rather than how many. Ordering is not preserved. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--user-id` `VALUE` |  | Only group-memberships with this user-id. Repeat to match any of several. |
 | `--group-id` `VALUE` |  | Only group-memberships with this group-id. Repeat to match any of several. |
@@ -2318,7 +2318,7 @@ Delete group-memberships, reporting how many were removed.
 | `--collect` |  | Output the deleted rows rather than how many. Ordering is not preserved. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--user-id` `VALUE` |  | Only group-memberships with this user-id. Repeat to match any of several. |
 | `--group-id` `VALUE` |  | Only group-memberships with this group-id. Repeat to match any of several. |
@@ -2348,10 +2348,10 @@ Retrieve user-permissions.
 
 | Option | Required | Description |
 | --- | --- | --- |
-| `<FIELDS>` |  | Output only these fields, each optionally renamed as `field:alias`. |
+| `<FIELDS>` |  | Output only these fields, each optionally renamed as `alias:field`. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--user-id` `VALUE` |  | Only user-permissions with this user-id. Repeat to match any of several. |
 | `--target-type` `VALUE` |  | Only user-permissions with this target-type. Repeat to match any of several. |
@@ -2405,7 +2405,7 @@ Create a user permission.
 | --- | --- | --- |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--user-id` `VALUE` | yes | The user permission's user-id. |
 | `--target-type` `VALUE` | yes | The user permission's target-type. |
@@ -2424,7 +2424,7 @@ Update user-permissions, reporting how many changed.
 | `--collect` |  | Output the updated rows rather than how many. Ordering is not preserved. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--user-id` `VALUE` |  | Only user-permissions with this user-id. Repeat to match any of several. |
 | `--target-type` `VALUE` |  | Only user-permissions with this target-type. Repeat to match any of several. |
@@ -2447,7 +2447,7 @@ Delete user-permissions, reporting how many were removed.
 | `--collect` |  | Output the deleted rows rather than how many. Ordering is not preserved. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--user-id` `VALUE` |  | Only user-permissions with this user-id. Repeat to match any of several. |
 | `--target-type` `VALUE` |  | Only user-permissions with this target-type. Repeat to match any of several. |
@@ -2479,10 +2479,10 @@ Retrieve group-permissions.
 
 | Option | Required | Description |
 | --- | --- | --- |
-| `<FIELDS>` |  | Output only these fields, each optionally renamed as `field:alias`. |
+| `<FIELDS>` |  | Output only these fields, each optionally renamed as `alias:field`. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--group-id` `VALUE` |  | Only group-permissions with this group-id. Repeat to match any of several. |
 | `--target-type` `VALUE` |  | Only group-permissions with this target-type. Repeat to match any of several. |
@@ -2536,7 +2536,7 @@ Create a group permission.
 | --- | --- | --- |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--group-id` `VALUE` | yes | The group permission's group-id. |
 | `--target-type` `VALUE` | yes | The group permission's target-type. |
@@ -2555,7 +2555,7 @@ Update group-permissions, reporting how many changed.
 | `--collect` |  | Output the updated rows rather than how many. Ordering is not preserved. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--group-id` `VALUE` |  | Only group-permissions with this group-id. Repeat to match any of several. |
 | `--target-type` `VALUE` |  | Only group-permissions with this target-type. Repeat to match any of several. |
@@ -2578,7 +2578,7 @@ Delete group-permissions, reporting how many were removed.
 | `--collect` |  | Output the deleted rows rather than how many. Ordering is not preserved. |
 | `-o`, `--output` `PATH` |  | Write to this file rather than standard output. |
 | `-f`, `--format` `FORMAT` |  | Render as JSON lines, CSV, or a table. JSON lines unless --output names a file the shape can be read from. |
-| `--field` `FIELD[:ALIAS]` |  | Output only this field, optionally renamed. Repeatable. |
+| `--field` `[ALIAS:]FIELD` |  | Output only this field, optionally renamed. Repeatable. |
 | `--header` |  | Write a CSV header row, which is the default. `--no-header` omits it. |
 | `--group-id` `VALUE` |  | Only group-permissions with this group-id. Repeat to match any of several. |
 | `--target-type` `VALUE` |  | Only group-permissions with this target-type. Repeat to match any of several. |
