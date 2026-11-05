@@ -103,7 +103,9 @@ Write a component's records to its exporters' files over a range of time.
 | `<EXPORTER>` |  | Name of the exporter to run. Every exporter of the component when omitted. |
 | `--after` `TIME` | yes | Inclusive start, an ISO 8601 time such as 2026-01-01T00:00:00Z. UTC when it names no zone. |
 | `--before` `TIME` |  | Exclusive end, in the form of --after. Now when omitted. |
-| `--replace` |  | Rewrite each period's file from the database alone, removing the file of a period with no records. |
+| `--on-conflict` `MODE` |  | What to do with a file that already exists. |
+| `--range-mode` `MODE` |  | How the range meets the files that partly overlap it. |
+| `--dry-run` |  | Report what each run would write, changing nothing. |
 
 ### `ceres playback`
 
@@ -115,7 +117,10 @@ Replay a component's stored messages through its sieves over a range of time.
 | `--after` `TIME` | yes | Inclusive start, an ISO 8601 time such as 2026-01-01T00:00:00Z. UTC when it names no zone. |
 | `--before` `TIME` |  | Exclusive end, in the form of --after. Now when omitted. |
 | `--level` `LEVEL` |  | What to do with each particle parsed. |
-| `--no-export` |  | Leave the exporters' files as they are. |
+| `--export` |  | Rewrite the files of the exporters of the particle types the sieves parse, over the range their files align to. |
+| `--on-export-conflict` `MODE` |  | What the export does with a file that already exists. Needs --export. |
+| `--export-range-mode` `MODE` |  | How the range meets the exporters' files that partly overlap it. Needs --export. |
+| `--dry-run` |  | Report what the playback would replay and write, changing nothing. |
 
 ### `ceres console`
 
@@ -449,6 +454,8 @@ Load alerts from a file, reporting how many.
 | `--format` `FORMAT` |  | The file's shape. Inferred from its extension when unset. |
 | `--on-conflict` `MODE` |  | What to do about a row whose key already exists. |
 | `--export` |  | Run the exporters that take these records over the times loaded, now in the running engine or when it next starts. |
+| `--on-export-conflict` `MODE` |  | What the export does with a file that already exists. Overwrite when unset. |
+| `--export-range-mode` `MODE` |  | How the times loaded meet the exporters' files that partly overlap them. Expand when unset. |
 
 #### `ceres alerts follow`
 
@@ -720,6 +727,8 @@ Load logs from a file, reporting how many.
 | `--format` `FORMAT` |  | The file's shape. Inferred from its extension when unset. |
 | `--on-conflict` `MODE` |  | What to do about a row whose key already exists. |
 | `--export` |  | Run the exporters that take these records over the times loaded, now in the running engine or when it next starts. |
+| `--on-export-conflict` `MODE` |  | What the export does with a file that already exists. Overwrite when unset. |
+| `--export-range-mode` `MODE` |  | How the times loaded meet the exporters' files that partly overlap them. Expand when unset. |
 
 #### `ceres logs follow`
 
@@ -999,6 +1008,8 @@ Load messages from a file, reporting how many.
 | `--format` `FORMAT` |  | The file's shape. Inferred from its extension when unset. |
 | `--on-conflict` `MODE` |  | What to do about a row whose key already exists. |
 | `--export` |  | Run the exporters that take these records over the times loaded, now in the running engine or when it next starts. |
+| `--on-export-conflict` `MODE` |  | What the export does with a file that already exists. Overwrite when unset. |
+| `--export-range-mode` `MODE` |  | How the times loaded meet the exporters' files that partly overlap them. Expand when unset. |
 
 #### `ceres messages follow`
 
@@ -1290,6 +1301,8 @@ Load particles from a file, reporting how many.
 | `--format` `FORMAT` |  | The file's shape. Inferred from its extension when unset. |
 | `--on-conflict` `MODE` |  | What to do about a row whose key already exists. |
 | `--export` |  | Run the exporters that take these records over the times loaded, now in the running engine or when it next starts. |
+| `--on-export-conflict` `MODE` |  | What the export does with a file that already exists. Overwrite when unset. |
+| `--export-range-mode` `MODE` |  | How the times loaded meet the exporters' files that partly overlap them. Expand when unset. |
 
 #### `ceres particles follow`
 
