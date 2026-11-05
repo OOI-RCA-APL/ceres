@@ -349,27 +349,6 @@ async def test_playback_writes_no_file_unless_asked_to_export(tmp_path: Path) ->
     assert list(tmp_path.iterdir()) == []
 
 
-async def test_live_export_leaves_the_range_a_playback_rebuilds(tmp_path: Path) -> None:
-    component = counter(
-        tmp_path, format="jsonl", type=f"{__name__}.Count", period="hour", live=True, interval=1
-    )
-    await store(component, message(10, b"abc"))
-    component.system.start()
-    await wait_for_condition("the component runs", lambda: component.system.running, 30)
-
-    run = await play(component)
-    component.system.store(count(70))
-    await component.system.flush()
-
-    assert run.state == PlaybackState.COMPLETED, run.exception
-    files = lambda: [path.read_text() for path in tmp_path.rglob("*.jsonl")]  # noqa: E731
-    await wait_for_condition("the later record's file", lambda: len(files()) == 1, 30)
-    (written,) = files()
-    assert '"value":9' in written
-    assert '"value":3' not in written
-    await component.system.stop()
-
-
 async def test_playback_writes_the_files_of_replayed_exporters(tmp_path: Path) -> None:
     component = counter(tmp_path, format="jsonl", type=f"{__name__}.Count", period="hour")
     await store(component, message(10, b"abc"), message(70, b"abcd", id=2))

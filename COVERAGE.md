@@ -1,6 +1,6 @@
 # Coverage
 
-<!-- coverage:fingerprint:02a96d0dde1f3291 -->
+<!-- coverage:fingerprint:4e29d4b73b03601e -->
 
 ## Python
 
@@ -99,7 +99,7 @@
 | `ceres/paths.py` | 95% |
 | `ceres/permission.py` | 95% |
 | `ceres/project.py` | 100% |
-| `ceres/pruner.py` | 74% |
+| `ceres/pruner.py` | 58% |
 | `ceres/record.py` | 89% |
 | `ceres/reference.py` | 71% |
 | `ceres/rtsp.py` | 94% |
@@ -134,7 +134,7 @@
 | `rust/ceres-cli/src/commands/follow.rs` | 0% |
 | `rust/ceres-cli/src/commands/generate.rs` | 88% |
 | `rust/ceres-cli/src/commands/offline.rs` | 88% |
-| `rust/ceres-cli/src/commands/records.rs` | 61% |
+| `rust/ceres-cli/src/commands/records.rs` | 62% |
 | `rust/ceres-cli/src/commands/run.rs` | 30% |
 | `rust/ceres-cli/src/commands/service.rs` | 0% |
 | `rust/ceres-cli/src/commands/surface.rs` | 100% |
@@ -244,7 +244,7 @@
 | `rust/ceres-webrtc/src/parameter_sets.rs` | 98% |
 | `rust/ceres-webrtc/src/picture.rs` | 100% |
 | `rust/ceres-webrtc/src/server.rs` | 85% |
-| `rust/ceres-webrtc/src/session.rs` | 88% |
+| `rust/ceres-webrtc/src/session.rs` | 87% |
 | `rust/ceres-webrtc/src/socket.rs` | 96% |
 | **Total** | **77%** |
 <!-- coverage:rust:end -->

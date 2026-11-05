@@ -1,7 +1,7 @@
 import csv
 import io
 import sys
-from asyncio import Event, create_task, sleep
+from asyncio import Event, sleep
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, ClassVar, Self, override
@@ -11,7 +11,6 @@ import pytest
 
 from ceres import Bound, Component, Engine
 from ceres.__internal__.database.writer import FlushSummary, Writer
-from ceres.__internal__.entity import DeleteExecutor
 from ceres.__internal__.pending_exports import (
     PENDING_EXPORTS_FILE,
     PendingExport,
@@ -20,7 +19,7 @@ from ceres.__internal__.pending_exports import (
 )
 from ceres.address import Address
 from ceres.alert import Alert
-from ceres.config import ComponentConfig, ExporterConfig, ExporterPeriod, MessagePrunerConfig
+from ceres.config import ComponentConfig, ExporterConfig, ExporterPeriod
 from ceres.data import from_json, replace, to_json, validate
 from ceres.entity import EntityType
 from ceres.error import AlreadyExistsError, DatabaseUnreachableError
@@ -757,8 +756,9 @@ class Live(Exported):
             await wait_for_condition("the start check ends", self.checked, 30)
 
     def checked(self) -> bool:
-        held = self.component.system.exporters.get_written_through(self.exporter.exports)
-        return held is not None and held[1] > datetime.min.replace(tzinfo=UTC)
+        exporters = self.component.system.exporters
+        live = exporters._ExporterManager__live.get(self.exporter.name)  # type: ignore[attr-defined]
+        return live is not None and live.checked
 
     async def write(self, *records: ExportRecord) -> None:
         for record in records:
@@ -810,16 +810,12 @@ async def test_a_late_record_stays_in_the_database_until_a_run_writes_it(
         assert ids(await live.lines(RECENT_FILE, 3)) == [1, 3, 4]
         logged: list[Any] = reader.clear()
 
-    held = live.component.system.exporters.get_written_through(EntityType.MESSAGE)
-    assert held is not None and held[1] == recent(20).timestamp
     assert any("cannot add records" in event.entry.content for event in logged)
 
     await live.store(oldest())
     await live.run(after=RECENT, hours=1)
 
     assert ids(await live.lines(RECENT_FILE, 4)) == [1, 2, 3, 4]
-    held = live.component.system.exporters.get_written_through(EntityType.MESSAGE)
-    assert held is not None and held[1] > recent(20).timestamp
     await live.component.system.stop()
 
 
@@ -893,37 +889,6 @@ async def test_a_prune_leaves_the_file(tmp_path: Path) -> None:
 
     assert ids(await live.lines(RECENT_FILE, 2)) == [1, 2]
     await live.component.system.stop()
-
-
-def pruner(**fields: Any) -> MessagePrunerConfig:
-    return validate(
-        MessagePrunerConfig, {"name": "old", "schedule": "0 0 * * *", "filter": {}, **fields}
-    )
-
-
-async def prune(exported: Exported, config: MessagePrunerConfig) -> int:
-    await exported.component.system.pruners._PrunerManager__run(config)  # type: ignore[attr-defined]
-    return await exported.component.system.messages.count()
-
-
-async def test_the_pruner_waits_for_the_exporter_to_write(tmp_path: Path) -> None:
-    exported = Exported.create(tmp_path)
-    await exported.store(recent(10, id=1))
-    assert await prune(exported, pruner()) == 1
-
-    live = Live(exported.component, exported.root)
-    await live.begin()
-
-    assert ids(await live.lines(RECENT_FILE, 1)) == [1]
-    assert await prune(exported, pruner()) == 0
-    await live.component.system.stop()
-
-
-async def test_a_pruner_may_skip_waiting_for_exports(tmp_path: Path) -> None:
-    exported = Exported.create(tmp_path)
-    await exported.store(recent(10, id=1))
-
-    assert await prune(exported, pruner(wait_for_exports=False)) == 0
 
 
 async def test_flush_subscribers_hear_keys_by_kind_and_address(tmp_path: Path) -> None:
@@ -1033,62 +998,6 @@ async def test_every_record_kind_exports(
 
     (file,) = exported.files().values()
     assert file.endswith(written)
-
-
-async def test_a_prune_waits_for_a_flush_in_flight(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    live = await Live.started(tmp_path)
-    await live.write(recent(10, id=1), recent(30, id=3))
-    await live.lines(RECENT_FILE, 2)
-    committed, release = Event(), Event()
-    write = Writer._write_natively
-
-    async def stalled(*arguments: Any) -> bool:
-        written = await write(*arguments)
-        committed.set()
-        await release.wait()
-        return written
-
-    monkeypatch.setattr(Writer, "_write_natively", stalled)
-    flushing = create_task(live.write(recent(20, id=2)))
-    await committed.wait()
-    pruning = create_task(prune(live, pruner()))
-    await sleep(0.2)
-    release.set()
-    await flushing
-    await pruning
-
-    assert ids(await live.lines(RECENT_FILE, 2)) == [1, 3]
-    assert await live.component.system.messages.where(id=UUID(int=2)).count() == 1
-    await live.component.system.stop()
-
-
-async def test_a_paged_prune_keeps_a_late_record_flushed_between_pages(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    live = await Live.started(tmp_path)
-    system = live.component.system
-    await live.write(*(recent(minutes, id=minutes) for minutes in range(1, 7)))
-    await live.lines(RECENT_FILE, 6)
-    late = recent(0.5, id=7)
-    delete = DeleteExecutor._await
-
-    async def first_page(self: DeleteExecutor[Any, Any]) -> int:
-        monkeypatch.setattr(DeleteExecutor, "_await", delete)
-        deleted = await delete(self)
-        system.store(late)
-        create_task(system.flush())
-        await sleep(0)
-        return deleted
-
-    monkeypatch.setattr("ceres.pruner._PRUNE_PAGE", 2)
-    monkeypatch.setattr(DeleteExecutor, "_await", first_page)
-    await prune(live, pruner())
-
-    assert ids(await live.lines(RECENT_FILE, 6)) == [1, 2, 3, 4, 5, 6]
-    assert await system.messages.where(id=late.id).count() == 1
-    await live.component.system.stop()
 
 
 def csv_ids(path: Path) -> list[int]:

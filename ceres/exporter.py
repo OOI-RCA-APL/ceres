@@ -29,7 +29,7 @@ from collections.abc import (
     Mapping,
     Sequence,
 )
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -1389,31 +1389,29 @@ class _Live:
     """A live exporter's place in its stream, kept in memory only.
 
     Notified keys wait as one range per period so a late record never widens the query of
-    another period. The cursor starts at the start time of the check a live exporter runs
-    when it starts, since that check makes every file complete through then and a record
-    flushed afterward with an older key lowers `written_through` through `pending`. A record
-    too late to append stays in the database alone and holds `written_through` through `late`
-    until a run writes its period's file.
+    another period. A record too late to append stays in the database alone, and the exporter
+    warns once per period until a run writes that period's file.
     """
 
-    __slots__ = ("cursor", "last", "late", "owned", "pending", "task", "wake", "working")
+    __slots__ = ("checked", "last", "late", "owned", "pending", "task", "wake", "working")
 
     def __init__(self) -> None:
         self.wake = AsyncEvent()
         self.task: Task[None] | None = None
+        # Whether the check a live exporter runs when it starts has written what it missed.
+        self.checked = False
         # Ranges notified and not yet written, and those the current wake is writing.
         self.pending: dict[datetime, _KeyRange] = {}
         self.working: dict[datetime, _KeyRange] = {}
         # The last key of each period written since the last wake, `None` for an empty file.
         # A period missing here reads its last key from its file.
         self.last: dict[datetime, ExportKey | None] = {}
-        # The oldest late record of each period, bounded by the periods holding one, since a
-        # run writing a period's file drops its entry.
-        self.late: dict[datetime, datetime] = {}
+        # The periods already warned about a late record, bounded by the periods holding one,
+        # since a run writing a period's file drops its entry.
+        self.late: set[datetime] = set()
         # Periods whose whole file this exporter wrote from the database, so a whole-file
         # format may write them again. Kept like `last`, for the periods one interval touches.
         self.owned: set[datetime] = set()
-        self.cursor: datetime | None = None
 
     def notify(self, period: ExporterPeriod, keys: Iterable[ExportKey]) -> None:
         """Add the keys a flush wrote to the pending range of each period holding one."""
@@ -1435,28 +1433,6 @@ class _Live:
             )
 
         self.working = {}
-
-    @property
-    def written_through(self) -> datetime:
-        """The time before which every stored record the exporter selects is in its files."""
-        if self.cursor is None:
-            return datetime.min.replace(tzinfo=UTC)
-
-        return min(
-            [self.cursor]
-            + [first[0] for first, _ in self.pending.values()]
-            + [first[0] for first, _ in self.working.values()]
-            + list(self.late.values())
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class _Muted:
-    # A range of one address's records that live export leaves to a playback.
-    kind: EntityType
-    address: Address
-    after: datetime
-    before: datetime
 
 
 def _before_history(whole: ExportSpan, history: datetime | None) -> bool:
@@ -1533,12 +1509,10 @@ class ExporterManager(BaseComponentManager):
     """
 
     __slots__ = (
-        "__completed",
         "__scheduler",
         "__exporters",
         "__live",
         "__locks",
-        "__muted",
         "__pending",
         "__runs",
         "__scope",
@@ -1550,13 +1524,9 @@ class ExporterManager(BaseComponentManager):
         self.__scheduler = self.__create_scheduler()
         self.__exporters: dict[str, _Exporter] = {}
         # Keyed by every name ever registered, so a run of a replaced config and a run of its
-        # successor share one lock and one bound.
+        # successor share one lock.
         self.__locks: dict[str, Lock] = {}
-        # One entry per playback in flight, which the playback manager runs one at a time.
-        self.__muted: list[_Muted] = []
         self.__pending: dict[str, int] = {}
-        # The latest `before` of a completed run, by exporter, kept as long as the lock.
-        self.__completed: dict[str, datetime] = {}
         self.__live: dict[str, _Live] = {}
         self.__runs: deque[ExportRunRecord] = deque(maxlen=_RUN_RING_SIZE)
         self.__scope: Callable[[Address], bool] | None = None
@@ -1985,75 +1955,22 @@ class ExporterManager(BaseComponentManager):
                 if self.__exporters[name].config.exports == kind
             ]
             if targets and scope(address):
-                keys = [key for key in keys if not self.__is_muted(kind, address, key)]
                 for exporter, live in targets:
                     live.notify(exporter.period, keys)
-
-    def __is_muted(self, kind: EntityType, address: Address, key: ExportKey) -> bool:
-        return any(
-            muted.kind == kind and muted.address == address and muted.after <= key[0] < muted.before
-            for muted in self.__muted
-        )
-
-    @contextmanager
-    def mute(
-        self, kind: EntityType, address: Address, after: datetime, before: datetime
-    ) -> Iterator[None]:
-        """Keep live export from writing records of `kind` stored at `address` within a range.
-
-        A playback mutes the range it rebuilds, so only its own export run, under the modes it
-        names, changes the files.
-        """
-        muted = _Muted(kind, address, after, before)
-        self.__muted.append(muted)
-        try:
-            yield
-        finally:
-            self.__muted.remove(muted)
-
-    def get_written_through(self, kind: EntityType) -> tuple[str, datetime] | None:
-        """Return the exporter of `kind` that has written the least, and how far it has written.
-
-        A live exporter has written every stored record it selects before the returned time,
-        and any other exporter every record before the end of its latest completed run. An
-        exporter that has done neither returns the start of time.
-
-        Returns:
-            The exporter's name and time, or `None` when no exporter exports `kind`.
-        """
-        start = datetime.min.replace(tzinfo=UTC)
-        found: tuple[str, datetime] | None = None
-        for name, registered in self.__exporters.items():
-            if registered.config.exports != kind:
-                continue
-
-            live = self.__live.get(name)
-            if live is not None:
-                through = live.written_through
-            elif registered.config.is_live:
-                through = start
-            else:
-                through = self.__completed.get(name, start)
-
-            if found is None or through < found[1]:
-                found = (name, through)
-
-        return found
 
     async def __live_loop(self, registered: _Exporter, live: _Live) -> None:
         exporter = registered.config
         interval = exporter.interval
-        checked = False
         failing = False
         while True:
-            if checked and not live.pending:
+            if live.checked and not live.pending:
                 await live.wake.wait()
 
             live.wake.clear()
             try:
-                if not checked:
+                if not live.checked:
                     await self.__check_start(registered, live)
-                    checked = True
+                    live.checked = True
 
                 if live.pending:
                     await self.__write_live(registered, live)
@@ -2112,9 +2029,7 @@ class ExporterManager(BaseComponentManager):
                 elif not format.appendable and not _before_history(ExportSpan(*bounds), history):
                     await self.__write_whole(registered, target, *bounds, started)
                 elif await self.__query(exporter, bounds[0], started).first() is not None:
-                    self.__warn_late(registered, live, start, None)
-
-        live.cursor = started
+                    self.__warn_late(registered, live, start)
 
     async def __write_whole(
         self,
@@ -2172,19 +2087,15 @@ class ExporterManager(BaseComponentManager):
         if stream.last is not None:
             live.last[start] = _record_key(stream.last)
 
-    def __warn_late(
-        self, registered: _Exporter, live: _Live, start: datetime, oldest: datetime | None
-    ) -> None:
-        # A record the exporter cannot add to its file stays in the database alone, and holds
-        # `written_through` so a pruner keeps it until a run writes the file.
-        exporter = registered.config
-        after = _bounds(exporter.period, start)[0]
-        held = oldest or after or datetime.min.replace(tzinfo=UTC)
-        previous = live.late.get(start)
-        live.late[start] = held if previous is None else min(previous, held)
-        if previous is not None:
+    def __warn_late(self, registered: _Exporter, live: _Live, start: datetime) -> None:
+        # A record the exporter cannot add to its file stays in the database alone, warned
+        # about once per period until a run writes the file.
+        if start in live.late:
             return
 
+        live.late.add(start)
+        exporter = registered.config
+        after = _bounds(exporter.period, start)[0]
         relative = registered.path.render(self.__mount(exporter), after)
         range = f" --after {after.isoformat()}" if after is not None else ""
         self.__system__.log.warning(
@@ -2203,7 +2114,6 @@ class ExporterManager(BaseComponentManager):
                 first, last = live.working[start]
                 await self.__write_period_live(registered, live, mount, start, first, last)
                 del live.working[start]
-                live.cursor = last[0] if live.cursor is None else max(live.cursor, last[0])
 
         # Only the periods this wake wrote and the current one keep their last key, which
         # bounds the map by the periods one interval touches.
@@ -2236,7 +2146,7 @@ class ExporterManager(BaseComponentManager):
                 # would otherwise lose them.
                 await self.__write_whole(registered, target, *bounds)
             else:
-                self.__warn_late(registered, live, start, first[0])
+                self.__warn_late(registered, live, start)
 
             return
 
@@ -2260,7 +2170,7 @@ class ExporterManager(BaseComponentManager):
             if previous is not None and _record_key(head) <= previous:
                 # Records at or before the file's last line would land out of order. The newer
                 # ones of this wake still append after it.
-                self.__warn_late(registered, live, start, head.timestamp)
+                self.__warn_late(registered, live, start)
                 stream = _Counted(_after(_prepend(head, stream), previous))
                 head = await anext(stream, None)
                 if head is None:
@@ -2292,7 +2202,7 @@ class ExporterManager(BaseComponentManager):
         if live is not None:
             key = start or datetime.min.replace(tzinfo=UTC)
             live.last.pop(key, None)
-            live.late.pop(key, None)
+            live.late.discard(key)
 
     async def __scheduled(self, name: str) -> None:
         exporter = self.get(name)
@@ -2375,8 +2285,6 @@ class ExporterManager(BaseComponentManager):
             on_conflict=run.on_conflict,
             range_mode=run.range_mode,
         )
-        # A file left as it was may lack stored records, so the run then vouches for nothing.
-        complete = True
         try:
             mount = self.__mount(exporter)
             lock = self.__locks.setdefault(exporter.name, Lock())
@@ -2410,7 +2318,6 @@ class ExporterManager(BaseComponentManager):
                                 periods_done=run.periods_done,
                             )
                         case ExportFileAction.KEEP:
-                            complete = complete and count == 0
                             run = self.__update(
                                 run, kept=run.kept + 1, periods_done=run.periods_done + 1
                             )
@@ -2430,13 +2337,6 @@ class ExporterManager(BaseComponentManager):
             return
 
         run = self.__update(run, state=ExportRunState.COMPLETED, ended=datetime.now(UTC))
-        if complete and run.effective_before is not None and files:
-            completed = self.__completed.get(run.exporter)
-            through = min(run.effective_before, run.ended or run.effective_before)
-            self.__completed[run.exporter] = (
-                through if completed is None else max(completed, through)
-            )
-
         events.emit(
             ExportRunCompletedEvent,
             exporter=run.exporter,

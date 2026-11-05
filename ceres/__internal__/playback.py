@@ -674,23 +674,18 @@ class PlaybackManager(BaseComponentManager):
             export=run.export,
         )
         types = sorted({name for _, names in sieves for name in names})
-        # Live export leaves the rebuilt range alone, so only the playback's own export run, under
-        # its modes, changes the files.
-        muted = system.exporters.mute(EntityType.PARTICLE, system.address, run.after, run.before)
         try:
             # Every live write for the range commits before the delete, so none outlives it.
             await system.flush()
-            with muted:
-                deleted = await system.particles.where(
-                    ParticleFilter(type=types, after=run.after, before=run.before),
-                    address=system.address,
-                ).delete()
-                run = self.__update(run, deleted=deleted)
-                for config, _ in sieves:
-                    run = await self.__replay(run, config)
+            deleted = await system.particles.where(
+                ParticleFilter(type=types, after=run.after, before=run.before),
+                address=system.address,
+            ).delete()
+            run = self.__update(run, deleted=deleted)
+            for config, _ in sieves:
+                run = await self.__replay(run, config)
 
-                await system.flush()
-
+            await system.flush()
             if run.export:
                 run = await self.__export(run, range.exporters)
         except BaseException as exception:

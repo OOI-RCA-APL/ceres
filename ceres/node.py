@@ -25,7 +25,6 @@ from ceres.tasklet import Tasklet
 from ceres.timing import utc
 
 if TYPE_CHECKING:
-    from asyncio import Lock as AsyncLock
     from datetime import datetime
 
     from ceres.__internal__.database.writer import FlushSubscriber
@@ -251,14 +250,6 @@ class Node(Tasklet, NodeSource):
             return self.__writer.subscribe(subscriber)
 
         return container.__subscribe_flushes__(subscriber)
-
-    def __hold_flushes__(self) -> AsyncLock:
-        """Return the lock that, held, keeps the tree's writer from writing or notifying."""
-        container = self.__container__
-        if container is None:
-            return self.__writer.hold()
-
-        return container.__hold_flushes__()
 
     async def flush(self) -> None:
         """Flush any pending writes on this node and its ancestors to the database."""

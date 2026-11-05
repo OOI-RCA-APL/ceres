@@ -182,8 +182,8 @@ records the library versions that wrote it, so an upgrade changes the bytes of a
 A live exporter writes each batch of records the component stores, at most once per `interval`.
 Records that arrive in order append to the end of their period's file. A record no newer than the
 last one in its file is late. The exporter leaves it in the database alone and logs one warning per
-file naming the `ceres export` command that rewrites the file, and the pruner guard keeps the
-record until a run does. `raw` holds no keys, so it appends a late record where it arrives. A
+file naming the `ceres export` command that rewrites the file. A pruner may delete the record
+before a run writes it. `raw` holds no keys, so it appends a late record where it arrives. A
 failed write logs a warning and retries at every interval.
 
 When it starts, a live exporter checks the files of the current and previous periods, and of every
@@ -203,17 +203,11 @@ through the checks above or a run.
 
 ## Pruning Exported Records
 
-A pruner never deletes a record its component's exporters of that kind have not yet written. It
-deletes only records older than the point every such exporter has written through: a live
-exporter's newest written record, or the end of another exporter's latest completed run. An
-exporter that has written nothing holds every record. A pruner held at one point for two of its
-runs in a row logs a warning naming the exporter.
-
-Such a pruner deletes in pages of 1000 records, oldest first. While a page deletes, the engine
-keeps the records it stores in memory and writes them once the page ends. On PostgreSQL that
-holds a write for under 50 ms. On SQLite it holds one for up to a few seconds, and the prune takes
-longer in total than one unbounded delete would. Set `wait_for_exports: false` on a pruner to let
-it delete regardless, in one statement.
+A pruner deletes on its own filter alone and never waits for an exporter. Keeping the files
+complete is the project's job: give a pruner a retention longer than any delay before records
+reach their files, and run `ceres export` for records an exporter left in the database, such as
+late or offline records it warned about, before the pruner reaches them. A prune never changes
+an exported file.
 
 ## Re-Running An Exporter
 

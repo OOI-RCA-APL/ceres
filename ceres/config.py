@@ -272,8 +272,6 @@ class _PrunerConfig[TFilter](DataObject):
     prunes: EntityType
     schedule: ScheduleExpr
     filter: TFilter
-    wait_for_exports: bool = True
-    """Whether the pruner leaves every record its component's exporters have not yet written."""
 
 
 class MessagePrunerConfig(_PrunerConfig[MessageFilter]):

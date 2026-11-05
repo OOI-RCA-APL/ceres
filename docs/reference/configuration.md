@@ -319,7 +319,6 @@ Pruner configuration that periodically deletes matching `Message` records.
 | `prunes` | string | `'message'` |  |
 | `schedule` | [`CronSchedule`](#cronschedule) or [`IntervalSchedule`](#intervalschedule) or [`OrSchedule`](#orschedule) | required |  |
 | `filter` | [`MessageFilter`](#messagefilter) | required |  |
-| `wait-for-exports` | boolean | `True` |  |
 
 ### `ParticlePrunerConfig`
 
@@ -331,7 +330,6 @@ Pruner configuration that periodically deletes matching `Particle` records.
 | `prunes` | string | `'particle'` |  |
 | `schedule` | [`CronSchedule`](#cronschedule) or [`IntervalSchedule`](#intervalschedule) or [`OrSchedule`](#orschedule) | required |  |
 | `filter` | [`ParticleFilter`](#particlefilter) | required |  |
-| `wait-for-exports` | boolean | `True` |  |
 
 ### `AlertPrunerConfig`
 
@@ -343,7 +341,6 @@ Pruner configuration that periodically deletes matching `Alert` records.
 | `prunes` | string | `'alert'` |  |
 | `schedule` | [`CronSchedule`](#cronschedule) or [`IntervalSchedule`](#intervalschedule) or [`OrSchedule`](#orschedule) | required |  |
 | `filter` | [`AlertFilter`](#alertfilter) | required |  |
-| `wait-for-exports` | boolean | `True` |  |
 
 ### `LogEntryPrunerConfig`
 
@@ -355,7 +352,6 @@ Pruner configuration that periodically deletes matching `LogEntry` records.
 | `prunes` | string | `'log-entry'` |  |
 | `schedule` | [`CronSchedule`](#cronschedule) or [`IntervalSchedule`](#intervalschedule) or [`OrSchedule`](#orschedule) | required |  |
 | `filter` | [`LogEntryFilter`](#logentryfilter) | required |  |
-| `wait-for-exports` | boolean | `True` |  |
 
 ### `MessageExporterConfig`
 

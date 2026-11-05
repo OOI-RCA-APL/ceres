@@ -39,8 +39,6 @@ written, and the release workflow refuses a version that has no entry here.
   stored messages and answers with the particles it would delete and parse, each export's plan,
   and the sieves' first 100 log entries, changing nothing. Its record reads `progress` from 0 to
   1, and `PlaybackProgressEvent` fires about once a second.
-- A pruner of an exported kind waits for the exporters to write a record before deleting it,
-  unless `wait_for_exports: false`.
 - `Mount.place` names the file `file` returns without creating its folder.
 - A flush of many buffered records writes them in statements of at most 1000 rows, so a SQLite
   database no longer refuses it for too many SQL variables.

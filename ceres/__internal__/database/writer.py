@@ -1,5 +1,4 @@
 from asyncio import Event as AsyncEvent
-from asyncio import Lock as AsyncLock
 from collections import defaultdict, deque
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -95,7 +94,6 @@ class Writer:
         "_flushes",
         "_settled",
         "_subscribers",
-        "_gate",
     )
 
     def __init__(self, database: Callable[[], Database], /) -> None:
@@ -110,7 +108,6 @@ class Writer:
         self._settled = AsyncEvent()
         self._settled.set()
         self._subscribers: list[FlushSubscriber] = []
-        self._gate = AsyncLock()
 
     @property
     def empty(self) -> bool:
@@ -162,14 +159,6 @@ class Writer:
 
         return unsubscribe
 
-    def hold(self) -> AsyncLock:
-        """Return the lock every flush holds across its write and its notification.
-
-        Holding it waits out the flush in flight and keeps the next one from writing until it
-        is released. Entities stored meanwhile stay buffered.
-        """
-        return self._gate
-
     async def flush(self) -> None:
         """Flush buffered entities to the database.
 
@@ -202,21 +191,20 @@ class Writer:
             if previous:
                 await previous.event.wait()
 
-            async with self._gate:
-                try:
-                    database = self._database()
-                    if not await self._write_natively(database, flush.entities):
-                        await self._write_entities(database, flush.entities)
-                except write_failures():
-                    if len(self._flushes) > 1:
-                        next = self._flushes[1].entities
-                    else:
-                        next = self._buffer
-
-                    next[0:0] = flush.entities
-                    raise
+            try:
+                database = self._database()
+                if not await self._write_natively(database, flush.entities):
+                    await self._write_entities(database, flush.entities)
+            except write_failures():
+                if len(self._flushes) > 1:
+                    next = self._flushes[1].entities
                 else:
-                    self._notify(flush.entities)
+                    next = self._buffer
+
+                next[0:0] = flush.entities
+                raise
+            else:
+                self._notify(flush.entities)
         finally:
             # Notify the flush attempt is over.
             flush.event.set()
