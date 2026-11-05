@@ -30,12 +30,14 @@ from ceres.event import (
     LogEvent,
 )
 from ceres.exporter import (
-    CsvFormat,
     ExportConflict,
     ExportConflictError,
+    ExportCsvWriter,
     ExportFileAction,
+    ExportJsonLinesWriter,
     ExportKeepReason,
     ExportKey,
+    ExportLineWriter,
     ExportPlan,
     ExportRangeMode,
     ExportRecord,
@@ -43,8 +45,6 @@ from ceres.exporter import (
     ExportRunState,
     ExportSchema,
     ExportSpan,
-    JsonLinesFormat,
-    LineFormat,
     _Live,
     effective_span,
 )
@@ -554,14 +554,32 @@ async def test_re_adding_an_exporter_keeps_its_pending_runs(tmp_path: Path) -> N
     await exported.settled(*runs)
 
 
+def second_exporter(**fields: Any) -> ExporterConfig:
+    return validate(
+        ExporterConfig,
+        {"name": "copy", "exports": "message", "format": "csv", "period": "hour", **fields},
+    )
+
+
+async def test_two_exporters_cannot_write_one_file(tmp_path: Path) -> None:
+    exporters = Exported.create(tmp_path).component.system.exporters
+
+    with pytest.raises(ValueError, match="exporters 'messages' and 'copy' both write"):
+        exporters.add(second_exporter(path="{yyyy}/{MM}/{dd}/{HH}"))
+
+    exporters.add(second_exporter(path="{yyyy}/{MM}/{dd}/{HH}", format="jsonl"))
+    exporters.add(second_exporter(name="other", path="{exporter}_{yyyy}{MM}{dd}{HH}"))
+    assert [exporter.name for exporter in exporters.get_all()] == ["messages", "copy", "other"]
+
+
 async def test_stopping_the_component_fails_its_runs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    async def stall(self: CsvFormat, path: Path, *_: Any) -> None:
+    async def stall(self: ExportCsvWriter, path: Path, *_: Any) -> None:
         path.write_bytes(b"partial")
         await Event().wait()
 
-    monkeypatch.setattr(CsvFormat, "write", stall)
+    monkeypatch.setattr(ExportCsvWriter, "write", stall)
     exported = Exported.create(tmp_path)
     await exported.store(message(10))
     exported.component.system.start()
@@ -673,13 +691,13 @@ def test_config_refuses_csv_particles_without_a_type() -> None:
 
 def test_config_refuses_a_builtin_format_class() -> None:
     assert "name the built-in format as `format: csv`" in refusal(
-        format={"class": "ceres.exporter.CsvFormat"}
+        format={"class": "ceres.exporter.ExportCsvWriter"}
     )
 
 
 def test_config_resolves_a_builtin_format_by_its_short_name() -> None:
     exporter = config(format={"class": "jsonl"}).exporters[0]
-    assert isinstance(exporter.create_format(), JsonLinesFormat)
+    assert isinstance(exporter.create_writer(), ExportJsonLinesWriter)
     assert exporter.format_name == "jsonl"
     assert "unexpected" in refusal(format={"class": "csv", "arguments": {"unexpected": 1}})
 
@@ -936,7 +954,7 @@ def test_a_writer_without_subscribers_skips_summarizing() -> None:
     Writer(lambda: None)._notify(Unreadable())  # type: ignore[arg-type]
 
 
-class Plain(LineFormat):
+class Plain(ExportLineWriter):
     extension: ClassVar[str] = ".txt"
 
     @override

@@ -633,9 +633,9 @@ Filter for selecting `LogEntry` records.
 
 ### `ExporterFormatConfig`
 
-A custom export format, a `ceres.exporter.Format` subclass and its arguments.
+A custom export writer, a `ceres.exporter.ExportWriter` subclass and its arguments.
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
 | `class` | string | required |  |
-| `arguments` | object |  | Keyword arguments the format class is created with. |
+| `arguments` | object |  | Keyword arguments the writer class is created with. |

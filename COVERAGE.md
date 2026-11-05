@@ -1,6 +1,6 @@
 # Coverage
 
-<!-- coverage:fingerprint:4e29d4b73b03601e -->
+<!-- coverage:fingerprint:403a337373c8c21a -->
 
 ## Python
 
@@ -145,7 +145,7 @@
 | `rust/ceres-cli/src/output.rs` | 79% |
 | `rust/ceres-cli/src/project.rs` | 84% |
 | `rust/ceres-cli/src/reference.rs` | 100% |
-| `rust/ceres-cli/src/runtime.rs` | 8% |
+| `rust/ceres-cli/src/runtime.rs` | 10% |
 | `rust/ceres-cli/src/selector.rs` | 100% |
 | `rust/ceres-cli/src/service.rs` | 42% |
 | `rust/ceres-config/src/database.rs` | 89% |
@@ -244,7 +244,7 @@
 | `rust/ceres-webrtc/src/parameter_sets.rs` | 98% |
 | `rust/ceres-webrtc/src/picture.rs` | 100% |
 | `rust/ceres-webrtc/src/server.rs` | 85% |
-| `rust/ceres-webrtc/src/session.rs` | 87% |
+| `rust/ceres-webrtc/src/session.rs` | 88% |
 | `rust/ceres-webrtc/src/socket.rs` | 96% |
 | **Total** | **77%** |
 <!-- coverage:rust:end -->

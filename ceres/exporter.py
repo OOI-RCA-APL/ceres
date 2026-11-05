@@ -51,6 +51,7 @@ import anyio
 from pydantic import Field
 
 from ceres.__internal__.manager import BaseComponentManager
+from ceres.alert import Alert
 from ceres.concurrency import cancel, sleep, spawn
 from ceres.config import ExporterPeriod
 from ceres.data import DataObject, DateTime, Name, StrEnum, replace, uuid4
@@ -63,7 +64,10 @@ from ceres.event import (
     ExportRunProgressEvent,
     ExportRunStartedEvent,
 )
+from ceres.logs import LogEntry
+from ceres.message import Message
 from ceres.mount import Mount
+from ceres.particle import Particle
 from ceres.paths import PathTemplate
 
 if TYPE_CHECKING:
@@ -76,11 +80,7 @@ if TYPE_CHECKING:
     from ceres.__internal__.netcdf import NetCDFTable, NetCDFVariable
     from ceres.__internal__.protocols import ComponentSource
     from ceres.address import Address, AddressSelector
-    from ceres.alert import Alert
     from ceres.config import ExporterConfig
-    from ceres.logs import LogEntry
-    from ceres.message import Message
-    from ceres.particle import Particle
 
 type ExportRecord = Message | Particle[Any] | Alert | LogEntry
 """A stored record of any kind an exporter writes."""
@@ -89,32 +89,30 @@ type ExportKey = tuple[datetime, UUID]
 """The `(timestamp, id)` pair that orders the records of every keyed file."""
 
 __all__ = [
-    "CsvFormat",
     "ExportColumn",
     "ExportConflict",
     "ExportConflictError",
+    "ExportCsvWriter",
+    "ExportField",
     "ExportFileAction",
     "ExportFileError",
     "ExportFilePlan",
+    "ExportJsonLinesWriter",
     "ExportKeepReason",
     "ExportKey",
-    "ExportPath",
+    "ExportLineWriter",
+    "ExportNetCDFWriter",
     "ExportPlan",
     "ExportRangeMode",
+    "ExportRawWriter",
     "ExportRecord",
     "ExportRunRecord",
     "ExportRunState",
     "ExportRunSummary",
     "ExportSchema",
-    "ExportSpan",
+    "ExportWriter",
     "ExporterManager",
-    "Format",
-    "JsonLinesFormat",
-    "LineFormat",
-    "NetCDFFormat",
-    "RawFormat",
     "atomic_write",
-    "effective_span",
 ]
 
 _CHUNK_SIZE = 1 << 20
@@ -231,7 +229,7 @@ class ExportSchema:
     """Fields of the particle class's data, empty without a particle class."""
 
     exporter: str | None = None
-    """Name of the exporter writing the files, which a format may record in them."""
+    """Name of the exporter writing the files, which a writer may record in them."""
 
     address: Address | None = None
     """Address of the component whose exporter writes the files."""
@@ -450,11 +448,15 @@ async def _physical_lines(path: Path) -> AsyncIterator[bytes]:
             pending = pending[start:]
 
 
-class Format(DataObject, abstract=True):
-    """Base class of an export file format.
+class ExportWriter(DataObject, abstract=True):
+    """Base class of an object that writes records to an export file.
 
-    Records reach every method as typed entities sorted by `timestamp` then `id`, and columns
-    come from the exporter's `ExportSchema`, never from the records observed.
+    The config's `format` names a writer and its arguments, which become the writer's fields.
+    Every method receives one file and records sorted by `timestamp` then `id`, with columns
+    from the exporter's `ExportSchema`, never from the records observed. A writer consumes the
+    records once to the end, closes the file before returning, lets exceptions propagate, and
+    touches nothing but that file. Validation constructs writers often, so the constructor and
+    `check` stay cheap and free of side effects.
     """
 
     extension: ClassVar[str]
@@ -467,16 +469,16 @@ class Format(DataObject, abstract=True):
     """Whether a particle exporter must name its particle class so the columns are fixed."""
 
     exports: ClassVar[frozenset[EntityType] | None] = None
-    """Record kinds the format can write, `None` for every kind."""
+    """Record kinds the writer can write, `None` for every kind."""
 
     selects: ClassVar[bool] = True
-    """Whether the format writes columns, which the exporter's `fields` chooses and renames."""
+    """Whether the writer writes columns, which the exporter's `fields` chooses and renames."""
 
     def check(self, schema: ExportSchema) -> tuple[str, ...]:
         """Return the dotted paths of the data fields that files for `schema` leave out.
 
         Raises:
-            ValueError: If the format cannot write files for `schema`.
+            ValueError: If the writer cannot write files for `schema`.
         """
         return ()
 
@@ -500,15 +502,17 @@ class Format(DataObject, abstract=True):
         raise NotImplementedError(f"`{type(self).__name__}` cannot append")
 
 
-class LineFormat(Format, abstract=True):
-    """Format whose file is an optional header followed by one encoded line per record.
+class ExportLineWriter(ExportWriter, abstract=True):
+    """Writer whose file is an optional header followed by one encoded line per record.
 
-    Subclasses provide `header` and `encode`, and `key` when lines carry their record's key.
+    Subclasses provide `encode`, and `header` for a first line. A subclass whose lines carry
+    their record's key sets `resumable` and provides `key`, and `split` when one record spans
+    several physical lines.
     """
 
     appendable: ClassVar[bool] = True
 
-    resumable: ClassVar[bool] = True
+    resumable: ClassVar[bool] = False
     """Whether `key` reads a line's key, so a live exporter resumes after a file's last line."""
 
     def resumes(self, schema: ExportSchema) -> bool:
@@ -601,7 +605,7 @@ class LineFormat(Format, abstract=True):
         return last, length
 
 
-class CsvFormat(LineFormat):
+class ExportCsvWriter(ExportLineWriter):
     """Comma separated values, one column per schema column.
 
     Nested values are JSON text, an absent value is an empty cell, and a non-finite float is
@@ -609,6 +613,7 @@ class CsvFormat(LineFormat):
     """
 
     extension: ClassVar[str] = ".csv"
+    resumable: ClassVar[bool] = True
     schema_bound: ClassVar[bool] = True
 
     header_row: bool = Field(default=False, alias="header")
@@ -657,13 +662,14 @@ class CsvFormat(LineFormat):
                 pending = b""
 
 
-class JsonLinesFormat(LineFormat):
+class ExportJsonLinesWriter(ExportLineWriter):
     """One compact JSON object per line, keyed by the schema's column names in order.
 
     A non-finite float is `null`, since JSON has no form for it.
     """
 
     extension: ClassVar[str] = ".jsonl"
+    resumable: ClassVar[bool] = True
 
     _KEY: ClassVar[re.Pattern[bytes]] = re.compile(rb'^\{"timestamp":"([^"]+)","id":"([^"]+)"')
 
@@ -681,7 +687,7 @@ class JsonLinesFormat(LineFormat):
         return _parse_key(match[1], match[2])
 
 
-class RawFormat(LineFormat):
+class ExportRawWriter(ExportLineWriter):
     """The data bytes of each message, concatenated in key order with nothing between them.
 
     Records carry no key in the file, so a live exporter cannot tell where a file it finds
@@ -689,7 +695,6 @@ class RawFormat(LineFormat):
     """
 
     extension: ClassVar[str] = ".bin"
-    resumable: ClassVar[bool] = False
     selects: ClassVar[bool] = False
     exports: ClassVar[frozenset[EntityType] | None] = frozenset({EntityType.MESSAGE})
 
@@ -698,7 +703,7 @@ class RawFormat(LineFormat):
         return cast("Message", record).data
 
 
-class NetCDFFormat(Format):
+class ExportNetCDFWriter(ExportWriter):
     """NetCDF-4 file of one particle class, a variable per data field over a `time` dimension.
 
     `time` holds seconds since the epoch and `id` each particle's ID as 36 characters.
@@ -774,11 +779,11 @@ class NetCDFFormat(Format):
         return table
 
 
-BUILTIN_FORMATS: dict[str, type[Format]] = {
-    "csv": CsvFormat,
-    "jsonl": JsonLinesFormat,
-    "netcdf": NetCDFFormat,
-    "raw": RawFormat,
+BUILTIN_WRITERS: dict[str, type[ExportWriter]] = {
+    "csv": ExportCsvWriter,
+    "jsonl": ExportJsonLinesWriter,
+    "netcdf": ExportNetCDFWriter,
+    "raw": ExportRawWriter,
 }
 """The formats an exporter names with a bare string, such as `format: csv`."""
 
@@ -1050,7 +1055,7 @@ class ExportPath:
         """
         source = _DEFAULT_PATHS[period] if source is None else source
         for known in sorted(
-            {extension, *(format.extension for format in BUILTIN_FORMATS.values())}
+            {extension, *(writer.extension for writer in BUILTIN_WRITERS.values())}
         ):
             if source.lower().endswith(known):
                 raise ValueError(
@@ -1108,6 +1113,25 @@ class ExportPath:
                     f"path '{self.template}' writes the periods starting {earlier.isoformat()} "
                     f"and {start.isoformat()} to one file '{rendered}'"
                 )
+
+    def shared(self, mount: Mount, other: ExportPath, other_mount: Mount) -> Path | None:
+        """Return a file both this path on `mount` and `other` on `other_mount` would write,
+        or `None` when they write none in common over the periods `check` probes."""
+        files = {self.file(mount, start).path for start in self.__starts()}
+        return next(
+            (
+                file
+                for file in (other.file(other_mount, start).path for start in other.__starts())
+                if file in files
+            ),
+            None,
+        )
+
+    def __starts(self) -> Iterator[datetime | None]:
+        if self.period == ExporterPeriod.ALL:
+            yield None
+        else:
+            yield from self.__probes()
 
     def __probes(self) -> Iterator[datetime]:
         # Each sweep varies one unit of the start, so a template missing that unit renders two
@@ -1372,11 +1396,11 @@ class ExportPlan(DataObject):
 class _Exporter:
     """A registered exporter's config beside the parts of it every run uses."""
 
-    __slots__ = ("config", "format", "path", "schema")
+    __slots__ = ("config", "writer", "path", "schema")
 
     def __init__(self, config: ExporterConfig, address: Address) -> None:
         self.config = config
-        self.format = config.create_format()
+        self.writer = config.create_writer()
         self.schema = dataclasses.replace(config.create_schema(), address=address)
         self.path = config.create_path()
 
@@ -1567,8 +1591,18 @@ class ExporterManager(BaseComponentManager):
         """Register an exporter, replacing any registered under the same name."""
         self.remove(exporter.name)
         registered = _Exporter(exporter, self.__system__.address)
-        registered.path.check(self.__mount(exporter))
-        omitted = registered.format.check(registered.schema)
+        mount = self.__mount(exporter)
+        registered.path.check(mount)
+        for other in self.__exporters.values():
+            # Locks and live state are per exporter, so two exporters writing one file would
+            # overwrite each other's records.
+            shared = registered.path.shared(mount, other.path, self.__mount(other.config))
+            if shared is not None:
+                raise ValueError(
+                    f"exporters '{other.config.name}' and '{exporter.name}' both write '{shared}'"
+                )
+
+        omitted = registered.writer.check(registered.schema)
         if omitted:
             self.__system__.log.warning(
                 f"Exporter '{exporter.name}' leaves out the fields its format cannot store: "
@@ -1995,7 +2029,7 @@ class ExporterManager(BaseComponentManager):
         # Writes what the exporter missed while stopped before live writes resume. A missing
         # file is written whole, and a resumable file takes the records after its last line.
         started = datetime.now(UTC)
-        exporter, format = registered.config, registered.format
+        exporter, writer = registered.config, registered.writer
         current = period_start(exporter.period, started)
         first = current
         if exporter.period != ExporterPeriod.ALL:
@@ -2024,9 +2058,9 @@ class ExporterManager(BaseComponentManager):
                 if not await anyio.Path(target.path).exists():
                     live.owned.add(start)
                     await self.__write_whole(registered, target, *bounds, started)
-                elif isinstance(format, LineFormat) and format.resumes(registered.schema):
+                elif isinstance(writer, ExportLineWriter) and writer.resumes(registered.schema):
                     await self.__resume(registered, live, target, start, started)
-                elif not format.appendable and not _before_history(ExportSpan(*bounds), history):
+                elif not writer.appendable and not _before_history(ExportSpan(*bounds), history):
                     await self.__write_whole(registered, target, *bounds, started)
                 elif await self.__query(exporter, bounds[0], started).first() is not None:
                     self.__warn_late(registered, live, start)
@@ -2052,7 +2086,7 @@ class ExporterManager(BaseComponentManager):
                 return
 
             async with atomic_write(target) as temporary:
-                await registered.format.write(temporary, registered.schema, _prepend(head, stream))
+                await registered.writer.write(temporary, registered.schema, _prepend(head, stream))
 
     async def __resume(
         self,
@@ -2082,7 +2116,7 @@ class ExporterManager(BaseComponentManager):
             if head is None:
                 return
 
-            await registered.format.append(target.path, registered.schema, _prepend(head, stream))
+            await registered.writer.append(target.path, registered.schema, _prepend(head, stream))
 
         if stream.last is not None:
             live.last[start] = _record_key(stream.last)
@@ -2130,11 +2164,11 @@ class ExporterManager(BaseComponentManager):
         first: ExportKey,
         last: ExportKey,
     ) -> None:
-        exporter, format, schema = registered.config, registered.format, registered.schema
+        exporter, writer, schema = registered.config, registered.writer, registered.schema
         bounds = _bounds(exporter.period, start)
         target = registered.path.file(mount, bounds[0])
         final = target.path
-        if not format.appendable:
+        if not writer.appendable:
             # A whole-file format writes the period again, which loses nothing only while the
             # database holds every record the file does: the file was missing when this
             # exporter first wrote it, or the database's history reaches back past its start.
@@ -2158,7 +2192,7 @@ class ExporterManager(BaseComponentManager):
             if head is None:
                 return
 
-            resumable = isinstance(format, LineFormat) and format.resumes(schema)
+            resumable = isinstance(writer, ExportLineWriter) and writer.resumes(schema)
             previous = None
             if resumable:
                 previous = (
@@ -2177,7 +2211,7 @@ class ExporterManager(BaseComponentManager):
                     return
 
             await target.parent.aio().mkdir()
-            await format.append(final, schema, _prepend(head, stream))
+            await writer.append(final, schema, _prepend(head, stream))
 
         if resumable and stream.last is not None:
             newest = _record_key(stream.last)
@@ -2185,11 +2219,11 @@ class ExporterManager(BaseComponentManager):
 
     async def __last_key(self, registered: _Exporter, final: Path) -> ExportKey | None:
         # Called under the exporter's lock before an append, which would extend a torn record.
-        format = registered.format
-        if not isinstance(format, LineFormat) or not await anyio.Path(final).exists():
+        writer = registered.writer
+        if not isinstance(writer, ExportLineWriter) or not await anyio.Path(final).exists():
             return None
 
-        last, length = await format.tail(final, registered.schema)
+        last, length = await writer.tail(final, registered.schema)
         if (await anyio.Path(final).stat()).st_size > length:
             await spawn(os.truncate, final, length)
 
@@ -2406,7 +2440,7 @@ class ExporterManager(BaseComponentManager):
                 case ExportFileAction.CREATE | ExportFileAction.OVERWRITE:
                     assert first is not None
                     async with atomic_write(target) as temporary:
-                        await registered.format.write(
+                        await registered.writer.write(
                             temporary, registered.schema, _prepend(first, stream)
                         )
 

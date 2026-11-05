@@ -401,6 +401,53 @@ from the package, `from ceres import Component`.
       heading_level: 3
 
 
+## Exporters
+
+::: ceres.exporter.ExportColumn
+    options:
+      heading_level: 3
+
+::: ceres.exporter.ExportCsvWriter
+    options:
+      heading_level: 3
+
+::: ceres.exporter.ExportField
+    options:
+      heading_level: 3
+
+::: ceres.exporter.ExportFileError
+    options:
+      heading_level: 3
+
+::: ceres.exporter.ExportJsonLinesWriter
+    options:
+      heading_level: 3
+
+::: ceres.exporter.ExportLineWriter
+    options:
+      heading_level: 3
+
+::: ceres.exporter.ExportNetCDFWriter
+    options:
+      heading_level: 3
+
+::: ceres.exporter.ExportRawWriter
+    options:
+      heading_level: 3
+
+::: ceres.exporter.ExportSchema
+    options:
+      heading_level: 3
+
+::: ceres.exporter.ExportWriter
+    options:
+      heading_level: 3
+
+::: ceres.exporter.atomic_write
+    options:
+      heading_level: 3
+
+
 ## Configuration
 
 ::: ceres.config.Config
@@ -455,6 +502,18 @@ Type alias accepting either a raw JSON object or a typed `ParticleData` instance
 ### `Entity`
 
 `Message`, `Particle`, `Alert`, `LogEntry`, `User`, `Variable`, `Setting`, `Workspace`, `WorkspaceEdit`, `Group`, `GroupMembership`, `UserPermission`, `GroupPermission`
+
+### `ExportKey`
+
+The `(timestamp, id)` pair that orders the records of every keyed file.
+
+`tuple`
+
+### `ExportRecord`
+
+A stored record of any kind an exporter writes.
+
+`Message`, `Particle[Any]`, `Alert`, `LogEntry`
 
 ### `Item`
 

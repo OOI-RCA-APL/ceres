@@ -88,7 +88,7 @@ class ExporterInfo(DataObject):
     type: str | None
     """The exported particle type, `None` for every type or another kind."""
     format: str
-    """A built-in format's name, or a custom format class's qualified name."""
+    """A built-in format's name, or a custom writer class's qualified name."""
     mount: str
     """Name of the component's mount the files live under."""
     period: ExporterPeriod

@@ -16,13 +16,19 @@ written, and the release workflow refuses a version that has no entry here.
 **Engine**
 
 - A component's `exporters` write its messages, particles, alerts, or log entries to files in
-  `csv`, `jsonl`, `netcdf`, `raw`, or a format class of your own, one file per `hour`, `day`, or
-  `month`, or one file for `all`. The files go under one of the component's mounts, in its
+  `csv`, `jsonl`, `netcdf`, `raw`, or an `ExportWriter` class of your own, one file per `hour`,
+  `day`, or `month`, or one file for `all`. The files go under one of the component's mounts, in its
   layout's dated folders, named by a `path` template rendered in UTC. An exporter writes records
   live within seconds of storing them, rewrites its files from the database on a `schedule`, and
   never removes a record from a file unless a run asks to purge it. An exporter's `fields` choose,
   order, and rename its columns with the same `alias:field` specs as `--field`, as a string, a
-  list, or a mapping. A `csv` file has a header line only with the format's `header: true`.
+  list, or a mapping. A `csv` file has a header line only with the format's `header: true`. Two
+  exporters of a component may not write one file.
+- `ExportWriter` and `ExportLineWriter` are the base classes of a custom writer, with
+  `ExportSchema`, `ExportColumn`, `ExportField`, `ExportRecord` and `ExportKey` describing what it
+  writes. The built-in writers are `ExportCsvWriter`, `ExportJsonLinesWriter`, `ExportRawWriter`
+  and `ExportNetCDFWriter`. `atomic_write` replaces a mount's file only once a block completes, for
+  a component writing a file of its own.
 - An export run rewrites the files a range touches from the database, `POST
   /api/components/{address}/exporters/{name}/runs`, and `GET` on the same path lists the last 20.
   `range_mode` widens the range to whole files (`expand`), keeps it (`exact`), or narrows it

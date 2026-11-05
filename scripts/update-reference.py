@@ -67,6 +67,7 @@ _SECTIONS: list[tuple[str, tuple[str, ...]]] = [
     ),
     ("Access Control", ("ceres.user", "ceres.group", "ceres.permission", "ceres.workspace")),
     ("Database", ("ceres.database",)),
+    ("Exporters", ("ceres.exporter",)),
     ("Configuration", ("ceres.config", "ceres.project")),
     ("Concurrency", ("ceres.concurrency",)),
     ("Utilities", ("ceres.timing", "ceres.version")),

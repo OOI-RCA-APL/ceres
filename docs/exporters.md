@@ -40,7 +40,7 @@ database.
 | `exports` | Record kind: `message`, `particle`, `alert` or `log-entry`. |
 | `filter` | Records to export, in the kind's filter syntax. Every record of the kind at the component when omitted. |
 | `type` | Particle class whose data fields become columns. Particle exporters only, and required for `csv` and `netcdf`. |
-| `format` | `csv`, `jsonl`, `netcdf`, `raw`, or a format class with its arguments as `{class, arguments}`. |
+| `format` | `csv`, `jsonl`, `netcdf`, `raw`, or a writer class with its arguments as `{class, arguments}`, as in [Creating A Custom Writer](#creating-a-custom-writer). |
 | `fields` | Columns to write, in order, each optionally renamed, as in [Choosing Columns](#choosing-columns). Every column when omitted. |
 | `mount` | Name of the component's mount the files live under, `output` when omitted. |
 | `period` | Time one file covers: `hour`, `day`, `month`, or `all` for a single file. |
@@ -135,6 +135,10 @@ A live `csv` or `jsonl` exporter finds where it left off in a file from the `tim
 its last line. When `fields` does not start with those two under their own names, it treats a file
 it finds on start as `raw` does.
 
+A file without a header holds nothing to compare columns with, so an exporter whose `fields` or
+particle class changed appends rows of the new shape to an existing file without noticing. Give an
+exporter a new `path` or `name` when its columns change.
+
 ### NetCDF
 
 `netcdf` writes one NetCDF-4 file of one particle class, which the `netCDF4` and `xarray` readers
@@ -176,6 +180,122 @@ every write, so `live` is off unless set. At 10 records a second an hour's file 
 each rewritten on every flush, so a high-rate stream wants a period no longer than `hour`, or a
 schedule in place of `live`. Two runs over the same rows write identical bytes, though a file
 records the library versions that wrote it, so an upgrade changes the bytes of a rewritten file.
+
+## Creating A Custom Writer
+
+A format Ceres lacks is a class the project writes. `format` names it with its arguments, which
+become the writer's fields:
+
+```yaml
+format:
+  class: my_project.exporters.TabWriter
+  arguments:
+    header_line: true
+```
+
+A writer subclasses `ExportLineWriter` for a file of one line per record, or `ExportWriter` for any
+other file. This one writes tab-separated values:
+
+```python
+from datetime import datetime
+from typing import ClassVar, override
+from uuid import UUID
+
+from ceres import ExportKey, ExportLineWriter, ExportRecord, ExportSchema
+
+
+class TabWriter(ExportLineWriter):
+    """Tab separated values, optionally with a header line."""
+
+    extension: ClassVar[str] = ".tsv"
+    resumable: ClassVar[bool] = True
+
+    header_line: bool = False
+
+    @override
+    def header(self, schema: ExportSchema) -> bytes:
+        return ("\t".join(schema.names) + "\n").encode() if self.header_line else b""
+
+    @override
+    def encode(self, schema: ExportSchema, record: ExportRecord) -> bytes:
+        cells = ("" if value is None else str(value) for value in schema.row(record))
+        return ("\t".join(cells) + "\n").encode()
+
+    @override
+    def key(self, line: bytes) -> ExportKey:
+        timestamp, id = line.split(b"\t", 2)[:2]
+        return datetime.fromisoformat(timestamp.decode()), UUID(id.decode())
+```
+
+`schema.names` lists the columns in file order after `fields` chose and renamed them, and
+`schema.row(record)` returns a record's values in that order, in the JSON form the API serves:
+times as text, nested values as lists and objects. `encode` returns one record's bytes with their
+line terminator. A line writer appends records live and leaves an existing file's earlier lines
+alone. With `resumable` set, `key` reads the `timestamp` and `id` back from a line, so a live
+exporter restarting on a file continues after its last line and cuts off a torn last line. Without
+it, the exporter never reads the file, which suits lines that hold no key. A record spanning
+several physical lines needs `split`, which groups the file's lines back into records.
+
+Any other file subclasses `ExportWriter` and writes the whole file at once:
+
+```python
+import json
+from collections.abc import AsyncIterable
+from pathlib import Path
+from typing import ClassVar, override
+
+from ceres import ExportRecord, ExportSchema, ExportWriter
+
+
+class SummaryWriter(ExportWriter):
+    """One JSON document per file holding every record's row."""
+
+    extension: ClassVar[str] = ".json"
+
+    indent: int | None = None
+
+    @override
+    async def write(
+        self, path: Path, schema: ExportSchema, records: AsyncIterable[ExportRecord]
+    ) -> None:
+        rows = [dict(zip(schema.names, schema.row(record), strict=True)) async for record in records]
+        path.write_text(json.dumps({"columns": schema.names, "rows": rows}, indent=self.indent))
+```
+
+A whole-file writer rewrites its file on every run, and on every live write when `live` is set.
+`schema.fields` describes the particle class's data fields, their types and their `Unit()`
+metadata, for a format that records them.
+
+Every writer keeps to these rules:
+
+- It writes only the file at the path it receives. The path is a temporary file beside the final
+  one, which replaces the final file when `write` returns, so a library choosing its behavior from
+  the file's suffix needs it given explicitly. A writer that raises leaves the old file in place.
+- It reads the records to their end, once, in `timestamp` then `id` order, and closes the file
+  before returning.
+- It lets exceptions propagate, which fails the run and names the error.
+- It touches nothing else: no second file, no network. One exporter file is one artifact, so a
+  sidecar file would escape the conflict modes and `purge`.
+- Its constructor and `check` stay cheap and free of side effects, since validating the
+  configuration creates writers often.
+
+`appendable`, `schema_bound` (a particle exporter must name `type`), `exports` (the record kinds it
+writes) and `selects` (whether it takes `fields`) are class variables a writer may set, and `check`
+may refuse a schema or name the data fields its files leave out. A dry run plans files and counts
+records without running the writer, so it cannot show that a write would succeed.
+
+A component can also write a file of particles it computes and never stores, with a writer and
+`atomic_write`, which replaces the file only once the block completes:
+
+```python
+from ceres import EntityType, ExportSchema, atomic_write
+
+schema = ExportSchema.create(EntityType.PARTICLE, Reading, "daily")
+async with atomic_write(self.output / "summary.json") as temporary:
+    await SummaryWriter(indent=2).write(temporary, schema, computed())
+```
+
+Two exporters may not write one file, and the component refuses the second.
 
 ## Live Export
 

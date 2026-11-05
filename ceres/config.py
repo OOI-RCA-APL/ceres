@@ -101,7 +101,7 @@ if TYPE_CHECKING:
     from ceres.component import Component, ComponentSystem
     from ceres.connection import Connection, ConnectionField
     from ceres.engine import Engine
-    from ceres.exporter import ExportPath, ExportSchema, Format
+    from ceres.exporter import ExportPath, ExportSchema, ExportWriter
     from ceres.particle import Particle
     from ceres.reference import Reference
     from ceres.sieves import FunctionSieve, Sieve
@@ -325,10 +325,10 @@ class ExporterPeriod(StrEnum):
 
 
 class ExporterFormatConfig(DataObject):
-    """A custom export format, a `ceres.exporter.Format` subclass and its arguments."""
+    """A custom export writer, a `ceres.exporter.ExportWriter` subclass and its arguments."""
 
     if TYPE_CHECKING:
-        cls: ImportString[type[Format]]
+        cls: ImportString[type[ExportWriter]]
     else:
         cls: ImportString[object] = Field(
             validation_alias="class",
@@ -336,21 +336,21 @@ class ExporterFormatConfig(DataObject):
         )
 
     arguments: Mapping[str, Any] = Field(default_factory=dict)
-    """Keyword arguments the format class is created with."""
+    """Keyword arguments the writer class is created with."""
 
     @field_validator("cls", mode="wrap")
     def _validate_cls(cls, value: object, handler: ValidatorFunctionWrapHandler) -> object:
-        from ceres.exporter import BUILTIN_FORMATS, Format
+        from ceres.exporter import BUILTIN_WRITERS, ExportWriter
 
         # A built-in format's short name passes it arguments, which its bare name cannot.
-        if isinstance(value, str) and value in BUILTIN_FORMATS:
-            return BUILTIN_FORMATS[value]
+        if isinstance(value, str) and value in BUILTIN_WRITERS:
+            return BUILTIN_WRITERS[value]
 
         value = handler(value)
-        if not (isinstance(value, type) and issubclass(value, Format)):
-            raise ValueError("class must be a subclass of `ceres.exporter.Format`")
+        if not (isinstance(value, type) and issubclass(value, ExportWriter)):
+            raise ValueError("class must be a subclass of `ceres.exporter.ExportWriter`")
 
-        for name, builtin in BUILTIN_FORMATS.items():
+        for name, builtin in BUILTIN_WRITERS.items():
             if value is builtin:
                 raise ValueError(f"name the built-in format as `format: {name}`")
 
@@ -375,7 +375,7 @@ class _ExporterConfig[TFilter: MessageFilter | ParticleFilter | AlertFilter | Lo
     """Records to export, every record of the kind at the component when omitted."""
 
     format: Literal["csv", "jsonl", "netcdf", "raw"] | ExporterFormatConfig
-    """A built-in format by name, or a custom format class with its arguments."""
+    """A built-in format by name, or a custom writer class with its arguments."""
 
     fields: str | Sequence[str] | Mapping[str, str | None] | None = None
     """Columns to write, in order, each optionally renamed, every column when omitted.
@@ -428,31 +428,31 @@ class _ExporterConfig[TFilter: MessageFilter | ParticleFilter | AlertFilter | Lo
 
     @property
     def format_name(self) -> str:
-        """The built-in format's name, or the custom format class's qualified name."""
-        from ceres.exporter import BUILTIN_FORMATS
+        """The built-in format's name, or the custom writer class's qualified name."""
+        from ceres.exporter import BUILTIN_WRITERS
 
         if isinstance(self.format, str):
             return self.format
 
-        for name, builtin in BUILTIN_FORMATS.items():
+        for name, builtin in BUILTIN_WRITERS.items():
             if self.format.cls is builtin:
                 return name
 
         return f"{self.format.cls.__module__}.{self.format.cls.__qualname__}"
 
     @property
-    def format_class(self) -> type[Format]:
+    def writer_class(self) -> type[ExportWriter]:
         """The configured format's class."""
-        from ceres.exporter import BUILTIN_FORMATS
+        from ceres.exporter import BUILTIN_WRITERS
 
-        return BUILTIN_FORMATS[self.format] if isinstance(self.format, str) else self.format.cls
+        return BUILTIN_WRITERS[self.format] if isinstance(self.format, str) else self.format.cls
 
-    def create_format(self) -> Format:
+    def create_writer(self) -> ExportWriter:
         """Create the configured format."""
-        from ceres.exporter import BUILTIN_FORMATS
+        from ceres.exporter import BUILTIN_WRITERS
 
         if isinstance(self.format, str):
-            return BUILTIN_FORMATS[self.format]()
+            return BUILTIN_WRITERS[self.format]()
 
         return validate(self.format.cls, self.format.arguments)
 
@@ -490,7 +490,7 @@ class _ExporterConfig[TFilter: MessageFilter | ParticleFilter | AlertFilter | Lo
             self.period,
             self.name,
             self.__pinned_connection(),
-            self.create_format().extension,
+            self.create_writer().extension,
         )
 
     @property
@@ -504,7 +504,7 @@ class _ExporterConfig[TFilter: MessageFilter | ParticleFilter | AlertFilter | Lo
     @property
     def is_live(self) -> bool:
         """Whether new records reach the files as they arrive."""
-        return self.live if self.live is not None else self.create_format().appendable
+        return self.live if self.live is not None else self.create_writer().appendable
 
     def __pinned_connection(self) -> str | None:
         connection = getattr(self.filter, "connection", None)
@@ -517,7 +517,7 @@ class _ExporterConfig[TFilter: MessageFilter | ParticleFilter | AlertFilter | Lo
 
     @model_validator(mode="after")
     def _validate_exporter(self) -> Self:
-        format = self.create_format()
+        format = self.create_writer()
         if format.exports is not None and self.exports not in format.exports:
             raise ValueError(f"format `{self.format_name}` cannot export {self.exports} records")
 
@@ -612,7 +612,7 @@ class ParticleExporterConfig(_ExporterConfig[ParticleFilter]):
     def _validate_particle(self) -> Self:
         if self.filter is not None and self.filter.cls is not None:
             raise ValueError("name the particle class with the exporter's `type`")
-        if self.type is None and self.create_format().schema_bound:
+        if self.type is None and self.create_writer().schema_bound:
             raise ValueError(
                 f"format `{self.format_name}` has fixed columns, so exporter '{self.name}' "
                 "needs a particle `type`"
