@@ -8,6 +8,8 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+## [0.51.0] - 2026-11-06
+
 **Breaking**
 
 - `--field` and positional field specs put the output name first, `alias:field`, and split at the
