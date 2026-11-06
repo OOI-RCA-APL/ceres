@@ -21,16 +21,18 @@ use ceres_database::{
 use ceres_entities::RenderRows;
 use clap::ArgMatches;
 
+use crate::commands::exports::{LoadExport, LoadedSpans, export_loaded};
 use crate::commands::surface::{self, Table};
 use crate::error::Result;
+use crate::output::Output;
 use crate::project::Project;
 
 /// The output projection a verb asked for, as ordered `(field, alias)` pairs.
 ///
-/// Positional specs come first in argument order, then the `--field` options. Each
-/// splits on its first colon, a repeated field name replaces the alias in place, and a
-/// spec carrying commas names several fields at once, which is how a projection is
-/// written when it is being typed rather than generated.
+/// Positional specs come first in argument order, then the `--field` options. Each is
+/// `alias:field` split on its last colon, so an alias may hold colons, or a bare field under
+/// its own name. A repeated alias replaces its field in place, and a spec carrying commas
+/// names several fields at once.
 fn projection(matches: &ArgMatches) -> Vec<(String, String)> {
     let read = |id| {
         matches
@@ -48,13 +50,9 @@ fn projection(matches: &ArgMatches) -> Vec<(String, String)> {
             .map(str::trim)
             .filter(|spec| !spec.is_empty())
         {
-            let (field, alias) = match spec.split_once(':') {
-                Some((field, alias)) => (field, alias),
-                None => (spec, spec),
-            };
-
-            match projection.iter_mut().find(|(name, _)| name == field) {
-                Some((_, existing)) => *existing = alias.to_string(),
+            let (alias, field) = spec.rsplit_once(':').unwrap_or((spec, spec));
+            match projection.iter_mut().find(|(_, name)| name == alias) {
+                Some((existing, _)) => *existing = field.to_string(),
                 None => projection.push((field.to_string(), alias.to_string())),
             }
         }
@@ -142,6 +140,8 @@ pub(crate) struct Invocation {
     pub(crate) on_conflict: Option<String>,
     /// The file a load reads.
     pub(crate) path: Option<PathBuf>,
+    /// The export `--export` asked a record load to run over what it wrote, `None` without it.
+    pub(crate) export: Option<LoadExport>,
     /// The output projection as ordered `(field, alias)` pairs, empty for every field.
     pub(crate) projection: Vec<(String, String)>,
 }
@@ -177,6 +177,18 @@ impl Invocation {
             set: text("set"),
             on_conflict: text("on_conflict"),
             path: text("path").map(PathBuf::from),
+            export: flag("export").unwrap_or(false).then(|| LoadExport {
+                on_conflict: matches
+                    .try_get_one("on_export_conflict")
+                    .ok()
+                    .flatten()
+                    .copied(),
+                range_mode: matches
+                    .try_get_one("export_range_mode")
+                    .ok()
+                    .flatten()
+                    .copied(),
+            }),
             projection: projection(matches),
         }
     }
@@ -904,6 +916,9 @@ where
         credentials: Option<Credentials>,
     ) -> Option<Batches<Self::Batch>>;
 
+    /// Widen a load's spans to cover one batch, which only records have.
+    fn cover(_batch: &Self::Batch, _spans: &mut LoadedSpans) {}
+
     /// Count what the filter matches.
     async fn count(store: &RecordStore, filter: &Filter<Self>) -> StoreResult<u64>;
 
@@ -1128,6 +1143,7 @@ where
     // refuse without having produced partial output.
     let projection = invocation.projection.clone();
     let header = invocation.header;
+    let mut spans = LoadedSpans::default();
     let rendered = runtime.block_on(async {
         let filter = || {
             filter
@@ -1184,6 +1200,11 @@ where
                     .conflict()
                     .expect("a load resolved its conflict mode above");
                 let batches = source.take().expect("a load opened its file above");
+                let batches = batches.inspect(|batch| {
+                    if let Ok(batch) = batch {
+                        T::cover(batch, &mut spans);
+                    }
+                });
                 T::load(&store, batches, conflict)
                     .await
                     .map(|written| Rendered::Text(format!("{written}\n")))
@@ -1227,6 +1248,11 @@ where
         }
         Err(error) => return Err(crate::error::Exit::failed(error.to_string())),
     };
+
+    // Only a committed load reaches here, so its records are there for an exporter to read.
+    if let Some(export) = &invocation.export {
+        export_loaded(&project, &Output::new(color), &spans, export)?;
+    }
 
     deliver(&invocation, rendered, colored)
 }

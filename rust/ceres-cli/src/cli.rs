@@ -123,6 +123,113 @@ address_args! {
     DownArgs { "Addresses of components to stop and disable.", required: true }
 }
 
+/// The range of time an export run or playback covers.
+#[derive(Debug, Args)]
+pub struct RangeArgs {
+    /// Inclusive start, an ISO 8601 time such as 2026-01-01T00:00:00Z. UTC when it names no
+    /// zone.
+    #[arg(long, value_name = "TIME")]
+    pub after: String,
+
+    /// Exclusive end, in the form of --after. Now when omitted.
+    #[arg(long, value_name = "TIME")]
+    pub before: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct ExportArgs {
+    /// Address of the component whose exporters run.
+    #[arg(value_name = "ADDRESS")]
+    pub address: String,
+
+    /// Name of the exporter to run. Every exporter of the component when omitted.
+    #[arg(value_name = "EXPORTER")]
+    pub exporter: Option<String>,
+
+    #[command(flatten)]
+    pub range: RangeArgs,
+
+    /// What to do with a file that already exists.
+    #[arg(long, value_enum, value_name = "MODE", default_value_t = ExportConflict::Overwrite)]
+    pub on_conflict: ExportConflict,
+
+    /// How the range meets the files that partly overlap it.
+    #[arg(long, value_enum, value_name = "MODE", default_value_t = ExportRangeMode::Expand)]
+    pub range_mode: ExportRangeMode,
+
+    /// Report what each run would write, changing nothing.
+    #[arg(long)]
+    pub dry_run: bool,
+}
+
+/// What an export does with a file that already exists.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ExportConflict {
+    /// Refuse the whole run before writing anything.
+    Error,
+    /// Leave the file as it is.
+    Skip,
+    /// Write the file from the database, unless that could lose records only the file holds.
+    Overwrite,
+    /// Write the file from the database, and remove it when the database holds none of its
+    /// records, losing any records only the file holds.
+    Purge,
+}
+
+/// How an export range meets the files that partly overlap it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ExportRangeMode {
+    /// Widen the range to the whole files it touches.
+    Expand,
+    /// Keep the range as given, so a file at either end may take part of its records.
+    Exact,
+    /// Narrow the range to the whole files inside it, nothing when none fits.
+    Shrink,
+}
+
+/// What a playback does with each particle it parses.
+#[derive(Clone, Copy, Debug, clap::ValueEnum, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PlaybackLevel {
+    /// Store the particle and emit nothing.
+    Particles,
+    /// Store the particle and emit its event, so every listener runs as if live.
+    Full,
+}
+
+#[derive(Debug, Args)]
+pub struct PlaybackArgs {
+    /// Address of the component whose stored messages replay.
+    #[arg(value_name = "ADDRESS")]
+    pub address: String,
+
+    #[command(flatten)]
+    pub range: RangeArgs,
+
+    /// What to do with each particle parsed.
+    #[arg(long, value_enum, default_value_t = PlaybackLevel::Particles)]
+    pub level: PlaybackLevel,
+
+    /// Rewrite the files of the exporters of the particle types the sieves parse, over the
+    /// range their files align to.
+    #[arg(long)]
+    pub export: bool,
+
+    /// What the export does with a file that already exists. Needs --export.
+    #[arg(long, value_enum, value_name = "MODE", requires = "export")]
+    pub on_export_conflict: Option<ExportConflict>,
+
+    /// How the range meets the exporters' files that partly overlap it. Needs --export.
+    #[arg(long, value_enum, value_name = "MODE", requires = "export")]
+    pub export_range_mode: Option<ExportRangeMode>,
+
+    /// Report what the playback would replay and write, changing nothing.
+    #[arg(long)]
+    pub dry_run: bool,
+}
+
 #[derive(Debug, Args)]
 pub struct ConsoleArgs {
     #[command(subcommand)]
@@ -173,6 +280,19 @@ pub enum Command {
 
     /// Stop and disable components at the provided addresses.
     Down(DownArgs),
+
+    /// Write a component's records to its exporters' files over a range of time.
+    ///
+    /// Each run writes the file of every period the range touches from the database, widened
+    /// to whole files unless --range-mode says otherwise. Waits for every run to end.
+    Export(ExportArgs),
+
+    /// Replay a component's stored messages through its sieves over a range of time.
+    ///
+    /// Replaces the component's stored particles of the types its sieves parse, and with
+    /// --export rewrites the files of the exporters of those types. Waits for the playback
+    /// to end.
+    Playback(PlaybackArgs),
 
     /// Commands for interacting with a project's web console.
     Console(ConsoleArgs),

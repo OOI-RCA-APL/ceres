@@ -1,5 +1,7 @@
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import (
     TYPE_CHECKING,
     ClassVar,
@@ -181,6 +183,47 @@ class LogManager(
         return await self.where(id=id).first()
 
 
+class LogCapture:
+    """Log entries written inside `capture_logs`, kept up to a limit and counted by level."""
+
+    __slots__ = ("counts", "entries", "limit", "truncated")
+
+    def __init__(self, limit: int) -> None:
+        self.limit = limit
+        self.entries: list[LogEntry] = []
+        self.counts: dict[Level, int] = {}
+        self.truncated = False
+
+    def add(self, entry: LogEntry) -> None:
+        """Count an entry, and keep it while fewer than `limit` are kept."""
+        self.counts[entry.level] = self.counts.get(entry.level, 0) + 1
+        if len(self.entries) < self.limit:
+            self.entries.append(entry)
+        else:
+            self.truncated = True
+
+
+_capture: ContextVar[LogCapture | None] = ContextVar("ceres_log_capture", default=None)
+
+
+@contextmanager
+def capture_logs(limit: int = 100) -> Iterator[LogCapture]:
+    """Capture the log entries the current task writes instead of storing and emitting them.
+
+    The capture reaches the tasks and `spawn` threads the block starts, and no other task, so
+    logging elsewhere goes on as usual.
+
+    Args:
+        limit: Most entries the capture keeps. It counts every entry by level.
+    """
+    capture = LogCapture(limit)
+    token = _capture.set(capture)
+    try:
+        yield capture
+    finally:
+        _capture.reset(token)
+
+
 class BoundLogManager(LogManager, BaseNodeManager):
     """Component-bound log manager that exposes the live log stream and emit helpers.
 
@@ -210,11 +253,17 @@ class BoundLogManager(LogManager, BaseNodeManager):
 
         The entry is forwarded to the Python logger when its level meets the `output` threshold,
         stored when its level meets the `store` threshold, and always emitted as a `LogEvent`.
+        Inside `capture_logs` the capture takes the entry instead, and none of that happens.
 
         Args:
             entry: Pre-constructed log entry to dispatch.
         """
         from ceres.event import LogEvent
+
+        capture = _capture.get()
+        if capture is not None:
+            capture.add(entry)
+            return
 
         config = self.__node__.get_resolved_logging_config()
 

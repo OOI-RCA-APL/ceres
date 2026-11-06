@@ -5,6 +5,14 @@ import * as z from 'zod'
 import { type Address, AddressModel } from '@/api/address'
 import { useAuth } from '@/api/auth'
 import { useClient, useQuery } from '@/api/client'
+import {
+  type ExportRunRequest,
+  type ExporterInfo,
+  ExporterInfoModel,
+  type PlaybackRecord,
+  PlaybackRecordModel,
+  type PlaybackRequest,
+} from '@/api/exporters'
 import { type FileMount, FileMountModel } from '@/api/files'
 import { MessageModel } from '@/api/messages'
 import type { ComponentAccessLevel } from '@/api/permissions'
@@ -209,6 +217,43 @@ export const useComponents = defineStore('components', () => {
     })
   }
 
+  /** Fetch a component's exporters, each with its last run. Rejects for callers with no access to
+  the component. */
+  async function getExporters(address: Address): Promise<ExporterInfo[]> {
+    return await client.get(`/api/components/${address}/exporters`, {
+      parse: z.array(ExporterInfoModel),
+    })
+  }
+
+  /** Start a run of the named exporter, resolving with its ID without waiting for it. */
+  async function startExportRun(
+    address: Address,
+    exporter: string,
+    request: ExportRunRequest,
+  ): Promise<string> {
+    const started = await client.post(`/api/components/${address}/exporters/${exporter}/runs`, {
+      data: request,
+      parse: z.object({ id: z.string() }),
+    })
+    return started.id
+  }
+
+  /** Fetch a component's recent playbacks, newest first. */
+  async function getPlaybacks(address: Address): Promise<PlaybackRecord[]> {
+    return await client.get(`/api/components/${address}/playbacks`, {
+      parse: z.array(PlaybackRecordModel),
+    })
+  }
+
+  /** Start a playback of the component's stored messages, resolving with its ID. */
+  async function startPlayback(address: Address, request: PlaybackRequest): Promise<string> {
+    const started = await client.post(`/api/components/${address}/playbacks`, {
+      data: request,
+      parse: z.object({ id: z.string() }),
+    })
+    return started.id
+  }
+
   /** Fetch a component's connections with their live connectivity states. */
   async function getConnections(address: Address): Promise<ConnectionStateInfo[]> {
     return await client.get(`/api/components/${address}/connections`, {
@@ -341,6 +386,10 @@ export const useComponents = defineStore('components', () => {
     getAction,
     getConfig,
     getJobs,
+    getExporters,
+    startExportRun,
+    getPlaybacks,
+    startPlayback,
     getConnections,
     call,
     send,

@@ -205,20 +205,19 @@ pub(crate) fn to_json_lines<T: Serialize>(records: &[T]) -> serde_json::Result<V
 /// One record's projected wire object, aliased keys in projection order.
 ///
 /// A name the wire object lacks, whether unknown or an omitted `span`, projects as
-/// null. A repeated alias keeps its first position and takes the last field's value,
-/// which is how a Python dict built from the same pairs behaves.
+/// null. One field may fill several aliases.
 fn project<T: Serialize>(
     record: &T,
     fields: &[(String, String)],
 ) -> serde_json::Result<Map<String, Value>> {
-    let mut object = match serde_json::to_value(record)? {
+    let object = match serde_json::to_value(record)? {
         Value::Object(object) => object,
         _ => Map::new(),
     };
 
     let mut projected = Map::new();
     for (field, alias) in fields {
-        let value = object.remove(field).unwrap_or(Value::Null);
+        let value = object.get(field).cloned().unwrap_or(Value::Null);
         projected.insert(alias.clone(), value);
     }
 

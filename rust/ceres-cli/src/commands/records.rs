@@ -13,6 +13,7 @@ use ceres_database::{Conflict, Credentials, Filter, LoadFormat, RecordStore, Rec
 use ceres_entities::Records;
 
 use crate::commands::dump::{Batches, DumpFormat, Dumpable, Invocation, StoreResult};
+use crate::commands::exports::LoadedSpans;
 use crate::commands::surface::Table;
 use crate::error::Result;
 
@@ -51,6 +52,10 @@ impl Dumpable for RecordTable {
     ) -> Option<Batches<Records>> {
         ceres_database::batches(self, file, format)
             .map(|batches| Box::new(batches) as Batches<Records>)
+    }
+
+    fn cover(batch: &Records, spans: &mut LoadedSpans) {
+        spans.cover(batch);
     }
 
     async fn count(store: &RecordStore, filter: &Filter<Self>) -> StoreResult<u64> {
@@ -109,7 +114,9 @@ mod tests {
     use ceres_database::RecordFilter;
 
     use super::*;
+    use crate::cli::{ExportConflict, ExportRangeMode};
     use crate::commands::dump::Verb;
+    use crate::commands::exports::LoadExport;
 
     /// Parse one invocation the way the binary does.
     fn read(table: RecordTable, arguments: &[&str]) -> Invocation {
@@ -162,6 +169,62 @@ mod tests {
     }
 
     #[test]
+    fn only_a_record_load_takes_export() {
+        assert_eq!(
+            read(RecordTable::Alerts, &["load", "rows.jsonl"]).export,
+            None
+        );
+        assert_eq!(
+            read(RecordTable::Alerts, &["load", "rows.jsonl", "--export"]).export,
+            Some(LoadExport::default())
+        );
+
+        let users = Table::Entity(ceres_database::EntityTable::Users);
+        let refused = users
+            .command()
+            .try_get_matches_from(["users", "load", "rows.jsonl", "--export"])
+            .unwrap_err();
+        assert_eq!(refused.kind(), clap::error::ErrorKind::UnknownArgument);
+    }
+
+    #[test]
+    fn a_load_reads_its_export_modes() {
+        let load = [
+            "load",
+            "rows.jsonl",
+            "--export",
+            "--on-export-conflict",
+            "skip",
+        ];
+        let modes = [&load[..], &["--export-range-mode", "exact"]].concat();
+        assert_eq!(
+            read(RecordTable::Alerts, &modes).export,
+            Some(LoadExport {
+                on_conflict: Some(ExportConflict::Skip),
+                range_mode: Some(ExportRangeMode::Exact),
+            })
+        );
+    }
+
+    #[test]
+    fn an_export_mode_needs_export() {
+        let refused = Table::Record(RecordTable::Alerts)
+            .command()
+            .try_get_matches_from([
+                "alerts",
+                "load",
+                "rows.jsonl",
+                "--on-export-conflict",
+                "skip",
+            ])
+            .unwrap_err();
+        assert_eq!(
+            refused.kind(),
+            clap::error::ErrorKind::MissingRequiredArgument
+        );
+    }
+
+    #[test]
     fn a_repeated_key_folds_into_a_set() {
         let invocation = read(
             RecordTable::Messages,
@@ -179,18 +242,26 @@ mod tests {
 
     #[test]
     fn a_projection_merges_its_positional_and_flagged_halves() {
-        // The last spelling of a field wins, and a comma-separated spec names several
-        // fields at once so a projection can be typed rather than repeated.
+        // A repeated alias takes the last field, one field may fill two columns, and an
+        // alias splits from its field at the last colon.
         let invocation = read(
             RecordTable::Messages,
-            &["select", "id:first,timestamp", "--field", "id:last"],
+            &[
+                "select",
+                "first:id,timestamp",
+                "--field",
+                "first:address",
+                "--field",
+                "time:utc:timestamp",
+            ],
         );
 
         assert_eq!(
             invocation.projection,
             vec![
-                ("id".to_string(), "last".to_string()),
+                ("address".to_string(), "first".to_string()),
                 ("timestamp".to_string(), "timestamp".to_string()),
+                ("timestamp".to_string(), "time:utc".to_string()),
             ]
         );
     }

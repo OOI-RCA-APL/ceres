@@ -401,6 +401,53 @@ from the package, `from ceres import Component`.
       heading_level: 3
 
 
+## Exporters
+
+::: ceres.exporter.ExportColumn
+    options:
+      heading_level: 3
+
+::: ceres.exporter.ExportCsvWriter
+    options:
+      heading_level: 3
+
+::: ceres.exporter.ExportField
+    options:
+      heading_level: 3
+
+::: ceres.exporter.ExportFileError
+    options:
+      heading_level: 3
+
+::: ceres.exporter.ExportJsonLinesWriter
+    options:
+      heading_level: 3
+
+::: ceres.exporter.ExportLineWriter
+    options:
+      heading_level: 3
+
+::: ceres.exporter.ExportNetCDFWriter
+    options:
+      heading_level: 3
+
+::: ceres.exporter.ExportRawWriter
+    options:
+      heading_level: 3
+
+::: ceres.exporter.ExportSchema
+    options:
+      heading_level: 3
+
+::: ceres.exporter.ExportWriter
+    options:
+      heading_level: 3
+
+::: ceres.exporter.atomic_write
+    options:
+      heading_level: 3
+
+
 ## Configuration
 
 ::: ceres.config.Config
@@ -456,6 +503,18 @@ Type alias accepting either a raw JSON object or a typed `ParticleData` instance
 
 `Message`, `Particle`, `Alert`, `LogEntry`, `User`, `Variable`, `Setting`, `Workspace`, `WorkspaceEdit`, `Group`, `GroupMembership`, `UserPermission`, `GroupPermission`
 
+### `ExportKey`
+
+The `(timestamp, id)` pair that orders the records of every keyed file.
+
+`tuple`
+
+### `ExportRecord`
+
+A stored record of any kind an exporter writes.
+
+`Message`, `Particle[Any]`, `Alert`, `LogEntry`
+
 ### `Item`
 
 Union of record types that flow through the system as user-visible items.
@@ -486,6 +545,6 @@ Union of all concrete schedule variants, discriminated by `type`.
 
 Union of every event type defined in the standard ceres distribution.
 
-`StartedEvent`, `StoppedEvent`, `EnabledEvent`, `DisabledEvent`, `AttachedEvent`, `WillDetachEvent`, `DetachedEvent`, `ConnectionAddedEvent`, `ConnectionRemovedEvent`, `ConnectionStartedEvent`, `ConnectionStoppedEvent`, `ConnectionExceptionEvent`, `ConnectedEvent`, `DisconnectedEvent`, `DisconnectingEvent`, `ReceiveTimeoutEvent`, `DisconnectVerifyStartedEvent`, `DisconnectVerifiedEvent`, `DisconnectUnverifiedEvent`, `DisconnectVerifyEndedEvent`, `ConnectionLostEvent`, `ConnectFailedEvent`, `ReconnectScheduledEvent`, `BufferOverflowEvent`, `ServerBindEvent`, `ServerBindExceptionEvent`, `ClientConnectedEvent`, `ClientDisconnectedEvent`, `ServerProcessingExceptionEvent`, `MessageSentEvent`, `MessageReceivedEvent`, `AlertEvent`, `LogEvent`, `RoutineStartedEvent`, `RoutineStoppedEvent`, `RoutineCompletedEvent`, `RoutineExceptionEvent`, `RoutineRestartedEvent`, `JobAddedEvent`, `JobRemovedEvent`, `JobStartedEvent`, `JobEndedEvent`, `JobCompletedEvent`, `JobCancelledEvent`, `JobExceptionEvent`, `JobRetryPendingEvent`, `JobRetryEvent`, `PrunerAddedEvent`, `PrunerRemovedEvent`, `PruneStartedEvent`, `PruneEndedEvent`, `PruneCompletedEvent`, `PruneCancelledEvent`, `PruneExceptionEvent`, `SieveAddedEvent`, `SieveRemovedEvent`, `SieveStartedEvent`, `SieveStoppedEvent`, `SieveCancelledEvent`, `SieveExceptionEvent`, `SieveRetryPendingEvent`, `SieveRetryEvent`, `ProcedureCalledEvent`, `ProcedureCancelledEvent`, `ProcedureCompletedEvent`, `ProcedureExceptionEvent`, `StreamLostEvent`, `StreamReconnectScheduledEvent`, `StreamReconnectedEvent`, `StreamEndedEvent`, `DatabaseExceptionEvent`
+`StartedEvent`, `StoppedEvent`, `EnabledEvent`, `DisabledEvent`, `AttachedEvent`, `WillDetachEvent`, `DetachedEvent`, `ConnectionAddedEvent`, `ConnectionRemovedEvent`, `ConnectionStartedEvent`, `ConnectionStoppedEvent`, `ConnectionExceptionEvent`, `ConnectedEvent`, `DisconnectedEvent`, `DisconnectingEvent`, `ReceiveTimeoutEvent`, `DisconnectVerifyStartedEvent`, `DisconnectVerifiedEvent`, `DisconnectUnverifiedEvent`, `DisconnectVerifyEndedEvent`, `ConnectionLostEvent`, `ConnectFailedEvent`, `ReconnectScheduledEvent`, `BufferOverflowEvent`, `ServerBindEvent`, `ServerBindExceptionEvent`, `ClientConnectedEvent`, `ClientDisconnectedEvent`, `ServerProcessingExceptionEvent`, `MessageSentEvent`, `MessageReceivedEvent`, `AlertEvent`, `LogEvent`, `RoutineStartedEvent`, `RoutineStoppedEvent`, `RoutineCompletedEvent`, `RoutineExceptionEvent`, `RoutineRestartedEvent`, `JobAddedEvent`, `JobRemovedEvent`, `JobStartedEvent`, `JobEndedEvent`, `JobCompletedEvent`, `JobCancelledEvent`, `JobExceptionEvent`, `JobRetryPendingEvent`, `JobRetryEvent`, `PrunerAddedEvent`, `PrunerRemovedEvent`, `PruneStartedEvent`, `PruneEndedEvent`, `PruneCompletedEvent`, `PruneCancelledEvent`, `PruneExceptionEvent`, `ExportRunStartedEvent`, `ExportRunProgressEvent`, `ExportRunCompletedEvent`, `ExportRunFailedEvent`, `PlaybackStartedEvent`, `PlaybackProgressEvent`, `PlaybackCompletedEvent`, `PlaybackFailedEvent`, `SieveAddedEvent`, `SieveRemovedEvent`, `SieveStartedEvent`, `SieveStoppedEvent`, `SieveCancelledEvent`, `SieveExceptionEvent`, `SieveRetryPendingEvent`, `SieveRetryEvent`, `ProcedureCalledEvent`, `ProcedureCancelledEvent`, `ProcedureCompletedEvent`, `ProcedureExceptionEvent`, `StreamLostEvent`, `StreamReconnectScheduledEvent`, `StreamReconnectedEvent`, `StreamEndedEvent`, `DatabaseExceptionEvent`
 
 `ceres.__version__` holds the installed version as a string.

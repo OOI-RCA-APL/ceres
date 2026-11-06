@@ -302,6 +302,15 @@ fn run(cli: Cli, arguments: Vec<OsString>, output: &Output) -> Result<()> {
         Command::Up(args) => operate(config, output, Operation::Up, &args.addresses),
         Command::Down(args) => operate(config, output, Operation::Down, &args.addresses),
 
+        Command::Export(args) => {
+            let project = Project::discover(config)?;
+            commands::exports::export(&project, output, &args)
+        }
+        Command::Playback(args) => {
+            let project = Project::discover(config)?;
+            commands::exports::playback(&project, output, &args)
+        }
+
         Command::Console(args) => {
             let project = Project::discover(config)?;
             match args.command {

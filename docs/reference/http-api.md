@@ -85,6 +85,20 @@ caller themselves against the resource they name.
 | `POST` | `/api/stop` | required | Stop matching components. |
 | `POST` | `/api/up` | required | Enable and start matching components. |
 
+## Exporters
+
+| Method | Path | Token | Description |
+| --- | --- | --- | --- |
+| `GET` | `/api/components/{id}/exporters` | required | List one component's exporters. |
+| `GET` | `/api/components/{id}/exporters/{second}/runs` | required | List one exporter's recent runs, newest first. |
+| `POST` | `/api/components/{id}/exporters/{second}/runs` | optional | Start an export run over a range, access checked by the operation. |
+
+## Exports
+
+| Method | Path | Token | Description |
+| --- | --- | --- | --- |
+| `POST` | `/api/exports/pending` | required | Merge records a load wrote into the files of every exporter that exports them, without waiting for the runs. |
+
 ## Files
 
 | Method | Path | Token | Description |
@@ -154,6 +168,13 @@ caller themselves against the resource they name.
 | `GET` | `/api/permissions/user/{id}` | required | List a user's permissions. |
 | `PUT` | `/api/permissions/user/{id}` | required | Assign a user permission. |
 | `DELETE` | `/api/permissions/user/{id}` | required | Delete a user permission, the target named in the request body. |
+
+## Playbacks
+
+| Method | Path | Token | Description |
+| --- | --- | --- | --- |
+| `GET` | `/api/components/{id}/playbacks` | required | List one component's recent playbacks, newest first. |
+| `POST` | `/api/components/{id}/playbacks` | optional | Start a playback of stored messages over a range, access checked by the operation. |
 
 ## Procedures
 

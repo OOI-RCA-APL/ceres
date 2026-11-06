@@ -71,6 +71,20 @@ __all__ = [
     # .event
     "Event",
     "StandardEvent",
+    # .exporter
+    "ExportColumn",
+    "ExportCsvWriter",
+    "ExportField",
+    "ExportFileError",
+    "ExportJsonLinesWriter",
+    "ExportKey",
+    "ExportLineWriter",
+    "ExportNetCDFWriter",
+    "ExportRawWriter",
+    "ExportRecord",
+    "ExportSchema",
+    "ExportWriter",
+    "atomic_write",
     # .group
     "Group",
     "GroupMembership",
@@ -199,6 +213,21 @@ with __lazy_imports__(__name__, export=True):
     from ceres.engine import Engine
     from ceres.entity import Entity, EntityType
     from ceres.event import Event, StandardEvent
+    from ceres.exporter import (
+        ExportColumn,
+        ExportCsvWriter,
+        ExportField,
+        ExportFileError,
+        ExportJsonLinesWriter,
+        ExportKey,
+        ExportLineWriter,
+        ExportNetCDFWriter,
+        ExportRawWriter,
+        ExportRecord,
+        ExportSchema,
+        ExportWriter,
+        atomic_write,
+    )
     from ceres.group import Group, GroupMembership
     from ceres.item import Item, ItemType
     from ceres.level import Level
