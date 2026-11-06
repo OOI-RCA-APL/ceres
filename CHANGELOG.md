@@ -10,60 +10,57 @@ written, and the release workflow refuses a version that has no entry here.
 
 **Breaking**
 
-- A `--field` spec and a positional field spec name the output first, `alias:field`, splitting at
-  the last colon. `--field id:first` becomes `--field first:id`, and a bare field is unchanged.
+- `--field` and positional field specs put the output name first, `alias:field`, and split at the
+  last colon. `--field id:first` becomes `--field first:id`. A bare field is unchanged.
+- A repeated output name keeps its last field, and one field can fill several output columns.
 
 **Engine**
 
-- A component's `exporters` write its messages, particles, alerts, or log entries to files in
-  `csv`, `jsonl`, `netcdf`, `raw`, or an `ExportWriter` class of your own, one file per `hour`,
-  `day`, or `month`, or one file for `all`. The files go under one of the component's mounts, in its
-  layout's dated folders, named by a `path` template rendered in UTC. An exporter writes records
-  live within seconds of storing them, rewrites its files from the database on a `schedule`, and
-  never removes a record from a file unless a run asks to purge it. An exporter's `fields` choose,
-  order, and rename its columns with the same `alias:field` specs as `--field`, as a string, a
-  list, or a mapping. A `csv` file has a header line only with the format's `header: true`.
-- `ExportWriter` and `ExportLineWriter` are the base classes of a custom writer, with
-  `ExportSchema`, `ExportColumn`, `ExportField`, `ExportRecord` and `ExportKey` describing what it
-  writes. The built-in writers are `ExportCsvWriter`, `ExportJsonLinesWriter`, `ExportRawWriter`
-  and `ExportNetCDFWriter`. `atomic_write` replaces a mount's file only once a block completes, for
-  a component writing a file of its own.
-- An export run rewrites the files a range touches from the database, `POST
-  /api/components/{address}/exporters/{name}/runs`, and `GET` on the same path lists the last 20.
-  `range_mode` widens the range to whole files (`expand`), keeps it (`exact`), or narrows it
-  (`shrink`). `on_conflict` overwrites an existing file unless it may hold records the database no
-  longer does (`overwrite`), leaves it (`skip`), refuses the run (`error`), or rewrites or removes
-  it regardless (`purge`). `dry_run` answers with each file the run would write, keep, or remove,
-  and writes nothing. Each run counts `periods` and `periods_done`, and emits
-  `ExportRunStartedEvent`, `ExportRunProgressEvent` per file, and `ExportRunCompletedEvent` or
-  `ExportRunFailedEvent`.
-- A playback parses a component's stored messages again over a range, replacing the particles
-  its sieves stored and, with `export`, rewriting their exporters' files, `POST
-  /api/components/{address}/playbacks`. `level: full` also emits each particle's event. A range
-  before the oldest stored message starts at that message. `dry_run` runs fresh sieves over the
-  stored messages and answers with the particles it would delete and parse, each export's plan,
-  and the sieves' first 100 log entries, changing nothing. Its record reads `progress` from 0 to
-  1, and `PlaybackProgressEvent` fires about once a second.
-- `Mount.place` names the file `file` returns without creating its folder.
-- A flush of many buffered records writes them in statements of at most 1000 rows, so a SQLite
-  database no longer refuses it for too many SQL variables.
+- A component's `exporters` write its messages, particles, alerts, or log entries to files on one
+  of its mounts, one file per `hour`, `day`, or `month`, or one for `all`, named by a `path`
+  template in UTC. The formats are `csv`, `jsonl`, `netcdf`, `raw`, or a custom writer. An
+  exporter writes records live and rewrites its files on a `schedule`. `fields` chooses, orders,
+  and renames the columns with `alias:field` specs. A `csv` file has a header only with
+  `header: true`.
+- A custom writer subclasses `ExportWriter` or `ExportLineWriter`, which `ceres` exports with
+  `ExportSchema` and the built-in writers. `atomic_write` replaces a mount's file only after its
+  block succeeds.
+- `POST /api/components/{address}/exporters/{name}/runs` rewrites the files a range touches from
+  the database. `GET` on the same path returns the exporter's recent runs.
+- `range_mode` defaults to `expand` and also accepts `exact` and `shrink`. `on_conflict` defaults
+  to `overwrite`, which keeps an existing file when the selection is empty or partial or the file
+  starts before the stored history. `skip` keeps existing files, `error` refuses them, and `purge`
+  rewrites or removes them regardless. `dry_run` lists each file the run would write, keep, or
+  remove.
+- `POST /api/components/{address}/playbacks` parses stored messages again over a range and
+  replaces the particles their sieves stored. `level: full` also emits each particle's
+  `ParticleEvent`. With `export`, it also rewrites the exporters' files. A range reaching before
+  the history of the playback's sieves starts where that history does.
+- A playback's `dry_run` parses the messages with fresh sieves and reports particle counts, export
+  plans, and up to 100 log entries, without storing particles or writing files.
+- Export runs and playbacks emit events as they start, progress, and end.
+- `Particle.to` keeps the particle's `connection`.
+- `Mount.place` returns the path `Mount.file` would, without creating its folder.
+- A flush writes at most 1000 rows per statement, so SQLite no longer refuses a large flush for
+  too many SQL variables.
+- Ceres now depends on `numpy`, `h5py`, and `h5netcdf` for `netcdf` files.
 
 **CLI**
 
-- `ceres export` and `ceres playback` start a run or a playback in the running engine and wait
-  for it to end, showing its progress on one line. `ceres export` takes `--on-conflict`,
-  `--range-mode`, and `--dry-run`, and `ceres playback` takes `--export`,
-  `--on-export-conflict`, `--export-range-mode`, and `--dry-run`.
-- `ceres messages load --export`, and the same flag on the other record loads, exports what the
-  load wrote, now in the running engine or when the engine next starts, with
-  `--on-export-conflict` and `--export-range-mode`.
-- A refusal from the engine prints its message rather than its JSON.
+- `ceres export` and `ceres playback` start a run or a playback in the running engine and show its
+  progress until it ends. Both take `--dry-run`. `ceres export` takes `--on-conflict` and
+  `--range-mode`, and `ceres playback --export` takes `--on-export-conflict` and
+  `--export-range-mode`.
+- Record loads such as `ceres messages load` take `--export`, `--on-export-conflict`, and
+  `--export-range-mode`. A running engine exports the loaded range at once, otherwise the engine
+  exports it when it next starts.
+- A refusal from the engine prints its message instead of its JSON.
 
 **Web Console**
 
-- A component's page lists its exporters with each one's last run. "Rebuild" starts a run over
-  a range with its conflict and range modes, "Play Back" starts a playback, and "Files" opens the
-  folder of the current file.
+- A component's page lists its exporters and their latest runs. "Rebuild" rewrites an exporter's
+  files over a range, "Play Back" replays stored messages, and "Files" opens the folder of the
+  current file.
 
 ## [0.50.0] - 2026-11-02
 
