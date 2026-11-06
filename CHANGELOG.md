@@ -39,7 +39,7 @@ written, and the release workflow refuses a version that has no entry here.
 - A playback's `dry_run` parses the messages with fresh sieves and reports particle counts, export
   plans, and up to 100 log entries, without storing particles or writing files.
 - Export runs and playbacks emit events as they start, progress, and end.
-- `Particle.to` keeps the particle's `connection`.
+- `Particle.convert` keeps the particle's `connection`.
 - `Mount.place` returns the path `Mount.file` would, without creating its folder.
 - A flush writes at most 1000 rows per statement, so SQLite no longer refuses a large flush for
   too many SQL variables.
