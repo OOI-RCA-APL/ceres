@@ -554,24 +554,6 @@ async def test_re_adding_an_exporter_keeps_its_pending_runs(tmp_path: Path) -> N
     await exported.settled(*runs)
 
 
-def second_exporter(**fields: Any) -> ExporterConfig:
-    return validate(
-        ExporterConfig,
-        {"name": "copy", "exports": "message", "format": "csv", "period": "hour", **fields},
-    )
-
-
-async def test_two_exporters_cannot_write_one_file(tmp_path: Path) -> None:
-    exporters = Exported.create(tmp_path).component.system.exporters
-
-    with pytest.raises(ValueError, match="exporters 'messages' and 'copy' both write"):
-        exporters.add(second_exporter(path="{yyyy}/{MM}/{dd}/{HH}"))
-
-    exporters.add(second_exporter(path="{yyyy}/{MM}/{dd}/{HH}", format="jsonl"))
-    exporters.add(second_exporter(name="other", path="{exporter}_{yyyy}{MM}{dd}{HH}"))
-    assert [exporter.name for exporter in exporters.get_all()] == ["messages", "copy", "other"]
-
-
 async def test_stopping_the_component_fails_its_runs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -769,9 +751,14 @@ class Live(Exported):
     async def begin(self) -> None:
         system = self.component.system
         system.start()
-        await wait_for_condition("the component runs", lambda: system.running, 30)
-        if any(exporter.is_live for exporter in system.exporters.get_all()):
-            await wait_for_condition("the start check ends", self.checked, 30)
+        try:
+            await wait_for_condition("the component runs", lambda: system.running, 30)
+            if any(exporter.is_live for exporter in system.exporters.get_all()):
+                await wait_for_condition("the start check ends", self.checked, 30)
+        except BaseException:
+            # A test's own cleanup starts after `begin` returns, so a failed start stops here.
+            await system.stop()
+            raise
 
     def checked(self) -> bool:
         exporters = self.component.system.exporters

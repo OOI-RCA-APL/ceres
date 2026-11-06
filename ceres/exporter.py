@@ -530,7 +530,7 @@ class ExportLineWriter(ExportWriter, abstract=True):
         ...
 
     def key(self, line: bytes) -> ExportKey:
-        """Parse the key out of one line `encode` wrote."""
+        """Parse the key out of one record `encode` wrote, its line terminator included."""
         raise NotImplementedError(f"`{type(self).__name__}` has no keys")
 
     def split(self, lines: AsyncIterator[bytes]) -> AsyncIterator[bytes]:
@@ -1114,25 +1114,6 @@ class ExportPath:
                     f"and {start.isoformat()} to one file '{rendered}'"
                 )
 
-    def shared(self, mount: Mount, other: ExportPath, other_mount: Mount) -> Path | None:
-        """Return a file both this path on `mount` and `other` on `other_mount` would write,
-        or `None` when they write none in common over the periods `check` probes."""
-        files = {self.file(mount, start).path for start in self.__starts()}
-        return next(
-            (
-                file
-                for file in (other.file(other_mount, start).path for start in other.__starts())
-                if file in files
-            ),
-            None,
-        )
-
-    def __starts(self) -> Iterator[datetime | None]:
-        if self.period == ExporterPeriod.ALL:
-            yield None
-        else:
-            yield from self.__probes()
-
     def __probes(self) -> Iterator[datetime]:
         # Each sweep varies one unit of the start, so a template missing that unit renders two
         # starts of one sweep alike. The shifted years catch a two-digit year.
@@ -1591,17 +1572,7 @@ class ExporterManager(BaseComponentManager):
         """Register an exporter, replacing any registered under the same name."""
         self.remove(exporter.name)
         registered = _Exporter(exporter, self.__system__.address)
-        mount = self.__mount(exporter)
-        registered.path.check(mount)
-        for other in self.__exporters.values():
-            # Locks and live state are per exporter, so two exporters writing one file would
-            # overwrite each other's records.
-            shared = registered.path.shared(mount, other.path, self.__mount(other.config))
-            if shared is not None:
-                raise ValueError(
-                    f"exporters '{other.config.name}' and '{exporter.name}' both write '{shared}'"
-                )
-
+        registered.path.check(self.__mount(exporter))
         omitted = registered.writer.check(registered.schema)
         if omitted:
             self.__system__.log.warning(

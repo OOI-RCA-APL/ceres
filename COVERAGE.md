@@ -1,6 +1,6 @@
 # Coverage
 
-<!-- coverage:fingerprint:403a337373c8c21a -->
+<!-- coverage:fingerprint:07640a2ac4a9aa39 -->
 
 ## Python
 
@@ -84,7 +84,7 @@
 | `ceres/entity.py` | 99% |
 | `ceres/error.py` | 97% |
 | `ceres/event.py` | 96% |
-| `ceres/exporter.py` | 93% |
+| `ceres/exporter.py` | 94% |
 | `ceres/group.py` | 98% |
 | `ceres/item.py` | 90% |
 | `ceres/job.py` | 59% |
@@ -145,7 +145,7 @@
 | `rust/ceres-cli/src/output.rs` | 79% |
 | `rust/ceres-cli/src/project.rs` | 84% |
 | `rust/ceres-cli/src/reference.rs` | 100% |
-| `rust/ceres-cli/src/runtime.rs` | 10% |
+| `rust/ceres-cli/src/runtime.rs` | 8% |
 | `rust/ceres-cli/src/selector.rs` | 100% |
 | `rust/ceres-cli/src/service.rs` | 42% |
 | `rust/ceres-config/src/database.rs` | 89% |
@@ -217,7 +217,7 @@
 | `rust/ceres-server/src/api/auth.rs` | 95% |
 | `rust/ceres-server/src/api/config.rs` | 100% |
 | `rust/ceres-server/src/api/dispatch.rs` | 91% |
-| `rust/ceres-server/src/api/files.rs` | 96% |
+| `rust/ceres-server/src/api/files.rs` | 95% |
 | `rust/ceres-server/src/api/mod.rs` | 100% |
 | `rust/ceres-server/src/api/records.rs` | 78% |
 | `rust/ceres-server/src/api/schema.rs` | 100% |
@@ -244,7 +244,7 @@
 | `rust/ceres-webrtc/src/parameter_sets.rs` | 98% |
 | `rust/ceres-webrtc/src/picture.rs` | 100% |
 | `rust/ceres-webrtc/src/server.rs` | 85% |
-| `rust/ceres-webrtc/src/session.rs` | 88% |
+| `rust/ceres-webrtc/src/session.rs` | 87% |
 | `rust/ceres-webrtc/src/socket.rs` | 96% |
 | **Total** | **77%** |
 <!-- coverage:rust:end -->

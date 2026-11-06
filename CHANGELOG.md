@@ -22,8 +22,7 @@ written, and the release workflow refuses a version that has no entry here.
   live within seconds of storing them, rewrites its files from the database on a `schedule`, and
   never removes a record from a file unless a run asks to purge it. An exporter's `fields` choose,
   order, and rename its columns with the same `alias:field` specs as `--field`, as a string, a
-  list, or a mapping. A `csv` file has a header line only with the format's `header: true`. Two
-  exporters of a component may not write one file.
+  list, or a mapping. A `csv` file has a header line only with the format's `header: true`.
 - `ExportWriter` and `ExportLineWriter` are the base classes of a custom writer, with
   `ExportSchema`, `ExportColumn`, `ExportField`, `ExportRecord` and `ExportKey` describing what it
   writes. The built-in writers are `ExportCsvWriter`, `ExportJsonLinesWriter`, `ExportRawWriter`

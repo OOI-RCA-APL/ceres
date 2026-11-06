@@ -136,8 +136,9 @@ its last line. When `fields` does not start with those two under their own names
 it finds on start as `raw` does.
 
 A file without a header holds nothing to compare columns with, so an exporter whose `fields` or
-particle class changed appends rows of the new shape to an existing file without noticing. Give an
-exporter a new `path` or `name` when its columns change.
+particle class changed appends rows of the new shape to an existing file without noticing. When
+columns change, give the exporter a `path` that renders new file names, or a new `name` when its
+`path` contains `{exporter}`.
 
 ### NetCDF
 
@@ -212,29 +213,36 @@ class TabWriter(ExportLineWriter):
 
     header_line: bool = False
 
+    @staticmethod
+    def cell(value: object) -> str:
+        # A tab or line break inside a value would split its cell or its line.
+        text = "" if value is None else str(value)
+        return text.replace("\\", "\\\\").replace("\t", "\\t").replace("\n", "\\n")
+
     @override
     def header(self, schema: ExportSchema) -> bytes:
-        return ("\t".join(schema.names) + "\n").encode() if self.header_line else b""
+        names = (self.cell(name) for name in schema.names)
+        return ("\t".join(names) + "\n").encode() if self.header_line else b""
 
     @override
     def encode(self, schema: ExportSchema, record: ExportRecord) -> bytes:
-        cells = ("" if value is None else str(value) for value in schema.row(record))
-        return ("\t".join(cells) + "\n").encode()
+        return ("\t".join(self.cell(value) for value in schema.row(record)) + "\n").encode()
 
     @override
     def key(self, line: bytes) -> ExportKey:
-        timestamp, id = line.split(b"\t", 2)[:2]
+        timestamp, id = line.rstrip(b"\n").split(b"\t", 2)[:2]
         return datetime.fromisoformat(timestamp.decode()), UUID(id.decode())
 ```
 
 `schema.names` lists the columns in file order after `fields` chose and renamed them, and
 `schema.row(record)` returns a record's values in that order, in the JSON form the API serves:
 times as text, nested values as lists and objects. `encode` returns one record's bytes with their
-line terminator. A line writer appends records live and leaves an existing file's earlier lines
-alone. With `resumable` set, `key` reads the `timestamp` and `id` back from a line, so a live
-exporter restarting on a file continues after its last line and cuts off a torn last line. Without
-it, the exporter never reads the file, which suits lines that hold no key. A record spanning
-several physical lines needs `split`, which groups the file's lines back into records.
+line terminator, so a value holding the separator or a line break must be escaped. A line writer
+appends records live and leaves an existing file's earlier lines alone. With `resumable` set, `key`
+reads the `timestamp` and `id` back from a record, its line terminator included, so a live exporter
+restarting on a file continues after its last line and cuts off a torn last line. Without it, the
+exporter never reads the file, which suits lines that hold no key. A record spanning several
+physical lines needs `split`, which groups the file's lines back into records.
 
 Any other file subclasses `ExportWriter` and writes the whole file at once:
 
@@ -244,6 +252,8 @@ from collections.abc import AsyncIterable
 from pathlib import Path
 from typing import ClassVar, override
 
+import anyio
+
 from ceres import ExportRecord, ExportSchema, ExportWriter
 
 
@@ -252,25 +262,37 @@ class SummaryWriter(ExportWriter):
 
     extension: ClassVar[str] = ".json"
 
-    indent: int | None = None
-
     @override
     async def write(
         self, path: Path, schema: ExportSchema, records: AsyncIterable[ExportRecord]
     ) -> None:
-        rows = [dict(zip(schema.names, schema.row(record), strict=True)) async for record in records]
-        path.write_text(json.dumps({"columns": schema.names, "rows": rows}, indent=self.indent))
+        # Writes each row as it arrives, so a file of any size holds one row in memory.
+        async with await anyio.open_file(path, "w") as file:
+            await file.write(f'{{"columns": {json.dumps(schema.names)}, "rows": [')
+            separator = ""
+            async for record in records:
+                row = dict(zip(schema.names, schema.row(record), strict=True))
+                await file.write(separator + json.dumps(row))
+                separator = ", "
+
+            await file.write("]}")
 ```
 
-A whole-file writer rewrites its file on every run, and on every live write when `live` is set.
-`schema.fields` describes the particle class's data fields, their types and their `Unit()`
-metadata, for a format that records them.
+A period has no cap on its records, so a writer streams them to the file as they arrive and does
+its file work through async IO, since a writer runs on the engine's event loop. A whole-file writer
+rewrites its file on every run, and on every live write when `live` is set and the database still
+holds every record the file does. `schema.fields` describes the particle class's data fields, their
+types and their `Unit()` metadata, for a format that records them.
 
 Every writer keeps to these rules:
 
-- It writes only the file at the path it receives. The path is a temporary file beside the final
-  one, which replaces the final file when `write` returns, so a library choosing its behavior from
-  the file's suffix needs it given explicitly. A writer that raises leaves the old file in place.
+- `write` writes a whole file at the path it receives, a temporary file beside the final one,
+  which replaces the final file only when `write` returns. A library choosing its behavior from
+  the file's suffix needs the format given explicitly. A `write` that raises leaves the old file in
+  place.
+- `append`, on a writer that sets `appendable`, adds records to the end of the final file itself,
+  so records it wrote before raising stay in the file. `ExportLineWriter` provides it, and a
+  resumable line writer's next start cuts off a torn last line.
 - It reads the records to their end, once, in `timestamp` then `id` order, and closes the file
   before returning.
 - It lets exceptions propagate, which fails the run and names the error.
@@ -282,7 +304,7 @@ Every writer keeps to these rules:
 `appendable`, `schema_bound` (a particle exporter must name `type`), `exports` (the record kinds it
 writes) and `selects` (whether it takes `fields`) are class variables a writer may set, and `check`
 may refuse a schema or name the data fields its files leave out. A dry run plans files and counts
-records without running the writer, so it cannot show that a write would succeed.
+records without calling `write` or `append`, so it cannot show that a write would succeed.
 
 A component can also write a file of particles it computes and never stores, with a writer and
 `atomic_write`, which replaces the file only once the block completes:
@@ -292,10 +314,11 @@ from ceres import EntityType, ExportSchema, atomic_write
 
 schema = ExportSchema.create(EntityType.PARTICLE, Reading, "daily")
 async with atomic_write(self.output / "summary.json") as temporary:
-    await SummaryWriter(indent=2).write(temporary, schema, computed())
+    await SummaryWriter().write(temporary, schema, computed())
 ```
 
-Two exporters may not write one file, and the component refuses the second.
+Two exporters writing one file overwrite each other's records, and nothing checks for it, so each
+exporter needs a `path` of its own.
 
 ## Live Export
 
