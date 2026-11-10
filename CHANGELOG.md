@@ -8,6 +8,12 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+**Breaking**
+
+- A procedure call whose client disconnects is cancelled and ends with `ProcedureCancelledEvent`,
+  so a long action stops when its client leaves and the console's "Cancel" stops the action
+  itself.
+
 ## [0.51.0] - 2026-11-06
 
 **Breaking**

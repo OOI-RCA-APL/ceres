@@ -282,8 +282,9 @@ class Host:
     async def _pull[T](self, handle: int, iterator: AsyncIterator[T]) -> T:
         """Await an iterator's next item where `stream_close` can cancel the wait.
 
-        The server dropping its future leaves this coroutine running, and a busy iterator
-        refuses `aclose`, so a close has to cancel the pending pull first.
+        A busy iterator refuses `aclose`, and the cancellation the server sends when it
+        drops its future may not have landed when the close arrives, so a close cancels
+        the pending pull first.
         """
         task = asyncio.current_task()
         if task is not None:

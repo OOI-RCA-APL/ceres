@@ -14,6 +14,7 @@ from typing import Any
 from uuid import uuid4
 
 import httpx
+import pytest
 
 from ceres import Bound, Component, Engine, Mount, listener, query
 from ceres.address import Address
@@ -105,6 +106,13 @@ class _Media(Component):
     @query(permit="public", media="video/mp4")
     async def video(self) -> StreamingOutput:
         return await rtsp(_media["video"])
+
+    @query(permit="public")
+    async def hold(self) -> str:
+        import asyncio
+
+        await asyncio.sleep(30)
+        return "held"
 
 
 async def _ended(procedure: str) -> list[str]:
@@ -633,6 +641,15 @@ async def test_a_client_leaving_mid_stream_closes_the_producer_then_runs_the_exi
         assert await _exited("endless")
         assert _media["exited"][-2:] == ["endless producer", "endless"]
         assert await _ended("endless") == ["procedure-cancelled"]
+
+
+async def test_a_client_leaving_mid_call_cancels_the_call() -> None:
+    """A call whose client disconnects ends as cancelled rather than running to its end."""
+    async with _serve(media=True) as (_, client):
+        with pytest.raises(httpx.ReadTimeout):
+            await client.get("/api/components/@media/queries/hold/call", timeout=0.5)
+
+        assert await _ended("hold") == ["procedure-cancelled"]
 
 
 async def test_a_stream_failing_mid_body_ends_its_call_with_the_exception() -> None:
