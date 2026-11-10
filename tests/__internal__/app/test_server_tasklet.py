@@ -25,6 +25,7 @@ from ceres import Engine
 from ceres.__internal__.host import _dev_listener
 from ceres.__internal__.project import LoadedProject
 from ceres.config import ConfigCheckType
+from ceres.logs import get_logger
 
 if TYPE_CHECKING:
     import pytest
@@ -160,6 +161,8 @@ async def test_startup_issues_a_managed_certificate_clients_can_trust(
     chain and the names, and the redirecting listener hands the authority out in place.
     """
     monkeypatch.chdir(tmp_path)
+    # The engine's logger keeps its records from the root logger `caplog` reads.
+    monkeypatch.setattr(get_logger("~"), "propagate", True)
     caplog.set_level(logging.INFO)
     failures: list[BaseException] = []
     engine = await _load(
