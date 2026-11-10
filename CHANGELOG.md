@@ -11,8 +11,11 @@ written, and the release workflow refuses a version that has no entry here.
 **Breaking**
 
 - A procedure call whose client disconnects is cancelled and ends with `ProcedureCancelledEvent`,
-  so a long action stops when its client leaves and the console's "Cancel" stops the action
-  itself.
+  so a long action stops when its client leaves and the console's "Abort" stops the action itself.
+
+**Web Console**
+
+- A procedure page's call offers "Abort" while it runs.
 
 ## [0.51.0] - 2026-11-06
 

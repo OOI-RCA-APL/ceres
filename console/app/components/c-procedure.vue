@@ -25,6 +25,10 @@ let result = $ref<unknown>(undefined)
 let sentAt = $ref<Datetime | null>(null)
 let receivedAt = $ref<Datetime | null>(null)
 
+// The controller of the call in flight, so "Abort" can reach it. Aborting the request cancels the
+// procedure since the server cancels a call whose client disconnects.
+let running = $ref<AbortController | null>(null)
+
 const resultJson = $computed(() => {
   try {
     return JSON.stringify(result, null, 2)
@@ -55,10 +59,28 @@ const form = useSchemaForm({
   // "Arguments" heading over no arguments would only promise fields that never come.
   title: () => (form.isEmpty ? undefined : 'Arguments'),
   async onSubmit(args) {
+    const controller = new AbortController()
+    running = controller
     sentAt = utc()
     receivedAt = null
-    result = await engine.components.call(address, procedure.name, args as Record<string, unknown>)
-    receivedAt = utc()
+    try {
+      result = await engine.components.call(
+        address,
+        procedure.name,
+        args as Record<string, unknown>,
+        {
+          signal: controller.signal,
+        },
+      )
+      receivedAt = utc()
+    } catch (error) {
+      // Asked for so not a failure. Anything else is one and stays thrown.
+      if (!controller.signal.aborted) {
+        throw error
+      }
+    } finally {
+      running = null
+    }
   },
 })
 
@@ -95,7 +117,12 @@ const isShowingCard = $computed(
         </div>
       </div>
     </div>
-    <c-schema-form-controls class="mb-2" :form />
+    <c-schema-form-controls
+      :cancel-label="running != null ? 'Abort' : undefined"
+      class="mb-2"
+      :form
+      @cancel="running?.abort()"
+    />
     <div v-if="resultJson === undefined" class="flex items-center justify-center p-1">
       <c-text variant="description">Results will be displayed here.</c-text>
     </div>
