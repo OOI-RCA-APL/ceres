@@ -115,10 +115,19 @@ jobs:
       # user cannot grant itself.
       - name: Enable Systemd User Session
         run: sudo loginctl enable-linger "$(whoami)"
+      # The suites run side by side, and `--output-sync` holds each one's output until it ends,
+      # so the log reads as one block per suite rather than interleaved lines.
       - name: Test
-        run: make test
+        run: make -j --output-sync=target test
         env:
           CERES_SERVICE_TEST: "1"
+      - name: Upload End To End Results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-results
+          path: console/e2e-results
+          if-no-files-found: ignore
       - name: Build
         run: make build
       # A build that exhausts the runner's disk fails in ways that look unrelated, and the

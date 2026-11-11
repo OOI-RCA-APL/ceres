@@ -1,8 +1,9 @@
 <script lang="ts" setup>
 import { onBeforeUnmount } from 'vue'
 
+import { useAccess } from '@/api/access'
 import type { Address } from '@/api/address'
-import type { ProcedureInfo } from '@/api/components'
+import { canInvokeProcedure, type ProcedureInfo } from '@/api/components'
 import { useEngine } from '@/api/engine'
 import { procedureArgumentsKey } from '@/procedure-arguments'
 import { useSchemaForm } from '@/schema-form'
@@ -22,6 +23,12 @@ const { address, procedure } = defineProps<{
 const hasArgumentsModel = $computed(() => argumentsModel !== undefined)
 
 const engine = useEngine()
+const access = useAccess()
+
+// The server refuses the call anyway, and a refusal after pressing reads as a failure.
+const canInvoke = $computed(() =>
+  canInvokeProcedure(procedure, access.levelFor(address.toString())),
+)
 
 // Held in a box since the reactivity transform cannot type an `unknown` ref that is reset.
 let answer = $ref<{ value: unknown } | null>(null)
@@ -133,6 +140,7 @@ const isShowingCard = $computed(
       :cancel-label="running != null ? 'Abort' : undefined"
       class="mb-2"
       :form
+      :unavailable-reason="canInvoke ? undefined : 'Not available with your access.'"
       @cancel="running?.abort()"
     />
     <div v-if="resultJson === undefined" class="flex items-center justify-center p-1">

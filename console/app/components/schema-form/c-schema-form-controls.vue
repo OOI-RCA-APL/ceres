@@ -6,6 +6,7 @@ const {
   executeLabel = 'Execute',
   resetLabel = 'Reset',
   cancelLabel,
+  unavailableReason,
 } = defineProps<{
   form?: SchemaForm | null
 
@@ -15,6 +16,9 @@ const {
   /** A label for a cancel button, offered only when set, for a form standing somewhere that can
   be backed out of. */
   cancelLabel?: string
+
+  /** Why the form cannot be submitted at all, shown on the disabled execute button. */
+  unavailableReason?: string
 }>()
 
 const emit = defineEmits<{
@@ -32,16 +36,20 @@ function reset() {
 
 <template>
   <div class="flex gap-2">
-    <c-button
-      block
-      class="flex-1"
-      color="primary"
-      :disabled="form == null || !form.canSubmit"
-      :label="executeLabel"
-      :loading="form?.state === 'submitting'"
-      size="sm"
-      @click="submit"
-    />
+    <!-- The tooltip renders no element of its own, so the wrapper carries the button's share. -->
+    <div class="flex-1">
+      <c-tooltip :disabled="unavailableReason == null" :text="unavailableReason ?? ''">
+        <c-button
+          block
+          color="primary"
+          :disabled="form == null || !form.canSubmit || unavailableReason != null"
+          :label="executeLabel"
+          :loading="form?.state === 'submitting'"
+          size="sm"
+          @click="submit"
+        />
+      </c-tooltip>
+    </div>
     <c-button
       v-if="form == null || !form.isEmpty"
       block

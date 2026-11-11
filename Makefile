@@ -31,12 +31,20 @@ ceres/static/console:
 update:
 	uv update
 	cd console && make update
+# One target per suite, so `make -j test` runs them side by side.
+test: test-python test-rust test-console test-e2e
 # Distributed across cores, which needs the capture that `-s` in the pytest options turns
 # off. A bare `pytest` still runs serially, where `-s` is what makes a single test readable.
-test:
+test-python:
 	uv run pytest -n auto --capture=fd
+test-rust:
 	cd rust && cargo test && cargo test -p ceres-core
+test-console:
 	cd console && make test
+# Drives the bundle in `ceres/static/console` through the installed `ceres`, so a console
+# change needs `make console` first.
+test-e2e:
+	cd console && make e2e
 test-postgres:
 	uv run pytest -vv -s --database postgres
 test-turso:

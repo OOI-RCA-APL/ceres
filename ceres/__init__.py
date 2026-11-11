@@ -10,6 +10,7 @@ __all__ = [
     "ChannelReader",
     "OutputChannel",
     # .concurrency
+    "CancelledError",
     "cancel",
     "concurrently",
     "sleep",
@@ -186,7 +187,7 @@ with __lazy_imports__(__name__, export=True):
         routine,
         sieve,
     )
-    from ceres.concurrency import cancel, concurrently, sleep, spawn
+    from ceres.concurrency import CancelledError, cancel, concurrently, sleep, spawn
     from ceres.config import Config, ConfigCheckType
     from ceres.connection import (
         Buffer,

@@ -16,9 +16,17 @@ written, and the release workflow refuses a version that has no entry here.
   effects or interrupt synchronous work. Clients must keep the connection open until the call
   returns to avoid requesting cancellation.
 
+**Engine**
+
+- `ceres` and `ceres.concurrency` export `CancelledError`, so a component can catch its own
+  cancellation without importing `asyncio`.
+
 **Web Console**
 
 - Procedure pages offer "Abort" during a call. Leaving the page also aborts the request.
+- A procedure's "Execute" is disabled for a user whose access cannot invoke it.
+- Schema form labels are tied to their fields, so a screen reader announces a field by its
+  title.
 
 ## [0.51.0] - 2026-11-06
 
