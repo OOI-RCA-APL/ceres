@@ -10,15 +10,15 @@ written, and the release workflow refuses a version that has no entry here.
 
 **Breaking**
 
-- The server cancels a procedure call whose client disconnects, so a long action no longer
-  outlives a client that leaves, the console's "Abort" included. An async procedure receives
-  `CancelledError` at its next `await`, and a call that ends that way emits
-  `ProcedureCancelledEvent`. Cancelling undoes no completed side effect and cannot interrupt
-  synchronous work.
+- The server requests cancellation of a procedure call when its client disconnects. Async
+  procedures receive `CancelledError` at cancellation points. A call that ends through
+  cancellation emits `ProcedureCancelledEvent`. Cancellation does not undo completed side
+  effects or interrupt synchronous work. Clients must keep the connection open until the call
+  returns to avoid requesting cancellation.
 
 **Web Console**
 
-- A procedure page's call offers "Abort" while it runs.
+- Procedure pages offer "Abort" during a call. Leaving the page also aborts the request.
 
 ## [0.51.0] - 2026-11-06
 
