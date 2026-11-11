@@ -28,6 +28,7 @@ use pyo3::prelude::*;
 use pyo3_stub_gen::derive::{gen_stub_pyclass, gen_stub_pymethods};
 use serde_json::Value;
 use serde_json::value::RawValue;
+use tokio::sync::oneshot;
 use uuid::Uuid;
 
 use crate::interop::to_value_error;
@@ -56,21 +57,48 @@ impl PyHost {
     /// Await one host method, answering with whatever it returned.
     ///
     /// Host coroutines run on the event loop captured when serving started because the
-    /// server's own tasks run on tokio threads with no ambient loop of their own.
+    /// server's own tasks run on tokio threads with no ambient loop of their own. Dropping
+    /// the returned future, as the server does when a client disconnects, cancels the
+    /// coroutine's task.
     async fn await_call<A>(&self, method: &str, arguments: A) -> Result<Py<PyAny>, String>
     where
         A: for<'py> pyo3::call::PyCallArgs<'py> + Send,
     {
-        let future = Python::attach(|py| {
+        let (sender, receiver) = oneshot::channel();
+        let call = Python::attach(|py| {
             let locals = self.locals.get().ok_or_else(|| {
                 PyRuntimeError::new_err("the host cannot answer before the server serves")
             })?;
             let coroutine = self.host.bind(py).call_method1(method, arguments)?;
-            pyo3_async_runtimes::into_future_with_locals(locals, coroutine)
+            // A context entered on one thread cannot be entered on another at once, so each
+            // call runs the scheduling in a copy, which its task then copies in turn.
+            let context = locals.context(py).call_method0("copy")?;
+            let future = context.call_method1(
+                "run",
+                (
+                    py.import("asyncio")?.getattr("run_coroutine_threadsafe")?,
+                    coroutine,
+                    locals.event_loop(py),
+                ),
+            )?;
+            future.call_method1(
+                "add_done_callback",
+                (HostCallCompleter {
+                    sender: Some(sender),
+                },),
+            )?;
+            PyResult::Ok(HostCall {
+                future: Some(future.unbind()),
+            })
         })
         .map_err(|error| error.to_string())?;
 
-        future.await.map_err(|error| error.to_string())
+        let result = receiver.await;
+        call.finish();
+        match result {
+            Ok(outcome) => outcome.map_err(|error| error.to_string()),
+            Err(_) => Err("the host dropped the call without answering".into()),
+        }
     }
 
     /// Await one host method, answering with the JSON envelope it returned.
@@ -80,6 +108,52 @@ impl PyHost {
     {
         let result = self.await_call(method, arguments).await?;
         Python::attach(|py| result.extract::<String>(py)).map_err(|error| error.to_string())
+    }
+}
+
+/// One host coroutine scheduled on the engine's event loop, cancelled when dropped unanswered.
+struct HostCall {
+    future: Option<Py<PyAny>>,
+}
+
+impl HostCall {
+    /// Forget the call once it answered, so dropping it cancels nothing.
+    fn finish(mut self) {
+        // PyO3 defers the reference drop until a thread next holds the interpreter.
+        self.future = None;
+    }
+}
+
+impl Drop for HostCall {
+    fn drop(&mut self) {
+        let Some(future) = self.future.take() else {
+            return;
+        };
+
+        // The interpreter may be finalizing as the server shuts down, when nothing is
+        // left to cancel.
+        let _ = Python::try_attach(|py| {
+            if let Err(error) = future.bind(py).call_method0("cancel") {
+                log::warn!("a host call could not be cancelled: {error}");
+            }
+        });
+    }
+}
+
+/// The done callback that hands a host call's outcome back to the awaiting server task.
+#[pyclass]
+struct HostCallCompleter {
+    sender: Option<oneshot::Sender<PyResult<Py<PyAny>>>>,
+}
+
+#[pymethods]
+impl HostCallCompleter {
+    fn __call__(&mut self, future: &Bound<PyAny>) {
+        let outcome = future.call_method0("result").map(Bound::unbind);
+        if let Some(sender) = self.sender.take() {
+            // The receiver is gone when the server stopped waiting, which cancelled the call.
+            let _ = sender.send(outcome);
+        }
     }
 }
 

@@ -261,8 +261,8 @@ export const useComponents = defineStore('components', () => {
     })
   }
 
-  // The signal cancels the action as well as the request, since the engine ties the running
-  // procedure to the request that asked for it and a client gone away cancels it.
+  // The signal cancels the procedure as well as the request, since the server cancels a call
+  // whose client disconnects.
   async function call(
     address: Address,
     procedure: string,

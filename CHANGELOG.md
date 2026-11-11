@@ -8,6 +8,18 @@ written, and the release workflow refuses a version that has no entry here.
 
 ## [Unreleased]
 
+**Breaking**
+
+- The server requests cancellation of a procedure call when its client disconnects. Async
+  procedures receive `CancelledError` at cancellation points. A call that ends through
+  cancellation emits `ProcedureCancelledEvent`. Cancellation does not undo completed side
+  effects or interrupt synchronous work. Clients must keep the connection open until the call
+  returns to avoid requesting cancellation.
+
+**Web Console**
+
+- Procedure pages offer "Abort" during a call. Leaving the page also aborts the request.
+
 ## [0.51.0] - 2026-11-06
 
 **Breaking**

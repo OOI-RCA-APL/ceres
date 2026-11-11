@@ -282,16 +282,26 @@ class Host:
     async def _pull[T](self, handle: int, iterator: AsyncIterator[T]) -> T:
         """Await an iterator's next item where `stream_close` can cancel the wait.
 
-        The server dropping its future leaves this coroutine running, and a busy iterator
-        refuses `aclose`, so a close has to cancel the pending pull first.
+        The item comes from an inner task that is cancelled at most once, since a second
+        cancellation would interrupt the iterator's own cleanup. Both the server dropping its
+        call and `stream_close` cancel through `_stop_pull`, and `stream_close` waits for
+        the inner task to end before it closes the iterator.
         """
-        task = asyncio.current_task()
-        if task is not None:
-            self._pulls[handle] = task
+        pull: asyncio.Task[T] = asyncio.ensure_future(anext(iterator))
+        self._pulls[handle] = pull
+        pull.add_done_callback(lambda _: self._forget_pull(handle, pull))
         try:
-            return await anext(iterator)
-        finally:
-            self._pulls.pop(handle, None)
+            return await asyncio.shield(pull)
+        except asyncio.CancelledError:
+            _stop_pull(pull)
+            raise
+
+    def _forget_pull(self, handle: int, pull: asyncio.Task[Any]) -> None:
+        if self._pulls.get(handle) is pull:
+            del self._pulls[handle]
+        # A pull whose caller was cancelled has nobody to read its failure.
+        if not pull.cancelled():
+            pull.exception()
 
     async def stream_close(self, handle: int) -> None:
         """Release whatever a handle names, a message stream, a body, or an exit hook.
@@ -299,9 +309,9 @@ class Host:
         A handle can name any combination of the three, and each releases even when
         another fails because an exit hook has to run whatever ended the body.
         """
-        pull = self._pulls.pop(handle, None)
+        pull = self._pulls.get(handle)
         if pull is not None:
-            pull.cancel()
+            _stop_pull(pull)
             await asyncio.wait([pull])
 
         iterator: AsyncIterator[Any] | None = self._streams.pop(handle, None)
@@ -321,6 +331,12 @@ class Host:
                 await release()
             except Exception:  # noqa: BLE001, S110
                 pass
+
+
+def _stop_pull(pull: asyncio.Task[Any]) -> None:
+    """Cancel a pull once, leaving one already cancelling to finish its cleanup."""
+    if not pull.done() and not pull.cancelling():
+        pull.cancel()
 
 
 def _file_description(output: FileOutput) -> dict[str, Any]:

@@ -197,8 +197,8 @@ function confirmWith(confirmed: boolean) {
   answerConfirm = null
 }
 
-// The controller of the call in flight, held so a cancel can reach it. Aborting the request is
-// aborting the action since the engine cancels a procedure whose caller has gone away.
+// The controller of the call in flight, held so a cancel can reach it. Aborting the request
+// cancels the action since the server cancels a call whose client disconnects.
 let running = $ref<AbortController | null>(null)
 
 /** One toast that follows the whole run.
@@ -474,7 +474,6 @@ const tooltip = $computed(() => {
             aborting the action once one is in flight. -->
             <c-schema-form-controls
               :cancel-label="running != null ? 'Abort' : 'Cancel'"
-              :execute-label="button.confirm ? 'Execute ...' : 'Execute'"
               :form
               @cancel="onCancel"
             />
