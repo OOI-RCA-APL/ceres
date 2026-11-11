@@ -900,6 +900,125 @@ mod tests {
         messages
     }
 
+    /// A host whose stream answers once told to, counting the pulls dropped unanswered.
+    #[derive(Default)]
+    struct SlowStreamHost {
+        produce: tokio::sync::Notify,
+        dropped: std::sync::atomic::AtomicUsize,
+    }
+
+    /// Counts a pull as dropped unless it answered first.
+    struct PullGuard<'a> {
+        dropped: &'a std::sync::atomic::AtomicUsize,
+        answered: bool,
+    }
+
+    impl Drop for PullGuard<'_> {
+        fn drop(&mut self) {
+            if !self.answered {
+                self.dropped
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Host for SlowStreamHost {
+        async fn user(&self, _id: uuid::Uuid) -> Result<Option<UserRecord>, HostError> {
+            Ok(None)
+        }
+
+        async fn verify_login(
+            &self,
+            _username: String,
+            _password: String,
+        ) -> Result<Option<UserRecord>, HostError> {
+            Ok(None)
+        }
+
+        async fn change_password(
+            &self,
+            _user: uuid::Uuid,
+            _old_password: String,
+            _new_password: String,
+        ) -> Result<Option<UserRecord>, HostError> {
+            Ok(None)
+        }
+
+        async fn stream_open(
+            &self,
+            _operation: &str,
+            _arguments: serde_json::Value,
+        ) -> Result<u64, StreamClose> {
+            Ok(1)
+        }
+
+        async fn stream_next(&self, _handle: u64) -> Result<Option<String>, StreamClose> {
+            let mut guard = PullGuard {
+                dropped: &self.dropped,
+                answered: false,
+            };
+            self.produce.notified().await;
+            guard.answered = true;
+            Ok(Some("produced".to_string()))
+        }
+
+        async fn stream_close(&self, _handle: u64) {}
+
+        async fn operate(
+            &self,
+            _operation: &str,
+            _arguments: serde_json::Value,
+        ) -> Result<Answer, HostError> {
+            Ok(Answer::Payload("null".to_string()))
+        }
+    }
+
+    #[tokio::test]
+    async fn a_client_frame_keeps_the_pending_pull() {
+        use futures_util::{SinkExt, StreamExt};
+        use tokio_tungstenite::tungstenite::Message as Frame;
+
+        let host = std::sync::Arc::new(SlowStreamHost::default());
+        let app = build_router(AppConfig {
+            authority: None,
+            webrtc: None,
+            console: None,
+            cli_token: None,
+            auth: None,
+            host: host.clone(),
+            version: "0.0.0".to_string(),
+        });
+        let (port, stopper, serving) = served(app).await;
+        let path = "/api/components/@probe/procedures/ping/subscribe";
+        let (mut socket, _) =
+            tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}{path}"))
+                .await
+                .unwrap();
+
+        socket
+            .send(Frame::Ping(b"abc".to_vec().into()))
+            .await
+            .unwrap();
+        socket.send(Frame::Text("abc".into())).await.unwrap();
+        // The pong answers the ping, so the server has read both frames by the time it arrives.
+        while !matches!(socket.next().await, Some(Ok(Frame::Pong(_)))) {}
+        host.produce.notify_one();
+
+        let message = loop {
+            match socket.next().await {
+                Some(Ok(Frame::Text(text))) => break text.to_string(),
+                Some(Ok(_)) => continue,
+                other => panic!("the stream ended early: {other:?}"),
+            }
+        };
+        assert_eq!(message, "produced");
+        assert_eq!(host.dropped.load(std::sync::atomic::Ordering::SeqCst), 0);
+
+        stopper.stop(std::time::Duration::from_millis(50));
+        let _ = serving.await;
+    }
+
     #[tokio::test]
     async fn features_report_impersonation() {
         let user = uuid::Uuid::new_v4();

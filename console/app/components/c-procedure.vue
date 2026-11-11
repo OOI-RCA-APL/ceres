@@ -1,4 +1,6 @@
 <script lang="ts" setup>
+import { onBeforeUnmount } from 'vue'
+
 import type { Address } from '@/api/address'
 import type { ProcedureInfo } from '@/api/components'
 import { useEngine } from '@/api/engine'
@@ -21,7 +23,8 @@ const hasArgumentsModel = $computed(() => argumentsModel !== undefined)
 
 const engine = useEngine()
 
-let result = $ref<unknown>(undefined)
+// Held in a box since the reactivity transform cannot type an `unknown` ref that is reset.
+let answer = $ref<{ value: unknown } | null>(null)
 let sentAt = $ref<Datetime | null>(null)
 let receivedAt = $ref<Datetime | null>(null)
 
@@ -30,8 +33,12 @@ let receivedAt = $ref<Datetime | null>(null)
 let running = $ref<AbortController | null>(null)
 
 const resultJson = $computed(() => {
+  if (answer == null) {
+    return undefined
+  }
+
   try {
-    return JSON.stringify(result, null, 2)
+    return JSON.stringify(answer.value, null, 2)
   } catch {
     return undefined
   }
@@ -61,10 +68,11 @@ const form = useSchemaForm({
   async onSubmit(args) {
     const controller = new AbortController()
     running = controller
+    answer = null
     sentAt = utc()
     receivedAt = null
     try {
-      result = await engine.components.call(
+      const value: unknown = await engine.components.call(
         address,
         procedure.name,
         args as Record<string, unknown>,
@@ -72,6 +80,7 @@ const form = useSchemaForm({
           signal: controller.signal,
         },
       )
+      answer = { value }
       receivedAt = utc()
     } catch (error) {
       // Asked for so not a failure. Anything else is one and stays thrown.
@@ -87,6 +96,9 @@ const form = useSchemaForm({
 if (!form.isValid) {
   form.reset()
 }
+
+// The call goes with the page, since leaving it removes the only "Abort" that could reach it.
+onBeforeUnmount(() => running?.abort())
 
 // The card documents the call, its description and arguments and what it returns or raises.
 const isShowingCard = $computed(
@@ -126,6 +138,6 @@ const isShowingCard = $computed(
     <div v-if="resultJson === undefined" class="flex items-center justify-center p-1">
       <c-text variant="description">Results will be displayed here.</c-text>
     </div>
-    <c-procedure-output v-else :received-at :sent-at :value="result" />
+    <c-procedure-output v-else :received-at :sent-at :value="answer?.value" />
   </div>
 </template>

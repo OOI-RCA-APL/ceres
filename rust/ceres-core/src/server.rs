@@ -119,9 +119,8 @@ struct HostCall {
 impl HostCall {
     /// Forget the call once it answered, so dropping it cancels nothing.
     fn finish(mut self) {
-        if let Some(future) = self.future.take() {
-            Python::attach(|_| drop(future));
-        }
+        // PyO3 defers the reference drop until a thread next holds the interpreter.
+        self.future = None;
     }
 }
 

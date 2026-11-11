@@ -96,6 +96,9 @@ impl AppState {
             }
         };
 
+        // One pull stays pending across the frames a client sends, a ping included, since
+        // dropping it cancels the engine's read and can end a healthy stream.
+        let mut next = Box::pin(self.host.stream_next(handle));
         loop {
             tokio::select! {
                 // A client that leaves ends the stream, which is how a socket in
@@ -104,11 +107,12 @@ impl AppState {
                     None | Some(Err(_)) | Some(Ok(Message::Close(_))) => break,
                     Some(Ok(_)) => continue,
                 },
-                message = self.host.stream_next(handle) => match message {
+                message = &mut next => match message {
                     Ok(Some(text)) => {
                         if socket.send(Message::Text(text.into())).await.is_err() {
                             break;
                         }
+                        next.set(self.host.stream_next(handle));
                     }
                     Ok(None) => break,
                     Err(close) => {
@@ -119,6 +123,7 @@ impl AppState {
             }
         }
 
+        drop(next);
         self.host.stream_close(handle).await;
     }
 }

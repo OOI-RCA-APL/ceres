@@ -14,7 +14,6 @@ from typing import Any
 from uuid import uuid4
 
 import httpx
-import pytest
 
 from ceres import Bound, Component, Engine, Mount, listener, query
 from ceres.address import Address
@@ -87,10 +86,12 @@ class _Media(Component):
             import asyncio
 
             try:
-                while True:
-                    yield b"x" * 4096
-                    await asyncio.sleep(0.01)
+                yield b"x" * 4096
+                # The client leaves while a pull waits here, so the cancellation lands mid-pull.
+                await asyncio.sleep(30)
             finally:
+                # Cleanup that awaits, which a second cancellation would cut short.
+                await asyncio.sleep(0.01)
                 _media.setdefault("exited", []).append("endless producer")
 
         return StreamingOutput(chunks, "application/octet-stream", on_exit=_exit("endless"))
@@ -111,6 +112,7 @@ class _Media(Component):
     async def hold(self) -> str:
         import asyncio
 
+        _media["holding"].set()
         await asyncio.sleep(30)
         return "held"
 
@@ -192,6 +194,7 @@ async def _serve(
     if media:
         _media["exited"] = []
         _media["ended"] = []
+        _media["holding"] = asyncio.Event()
         _media["component"] = _Media(__with_name__="media")
         engine.attach(_media["component"])
         # Started so its listener records how each call ended.
@@ -645,9 +648,12 @@ async def test_a_client_leaving_mid_stream_closes_the_producer_then_runs_the_exi
 
 async def test_a_client_leaving_mid_call_cancels_the_call() -> None:
     """A call whose client disconnects ends as cancelled rather than running to its end."""
+    import asyncio
+
     async with _serve(media=True) as (_, client):
-        with pytest.raises(httpx.ReadTimeout):
-            await client.get("/api/components/@media/queries/hold/call", timeout=0.5)
+        call = asyncio.create_task(client.get("/api/components/@media/queries/hold/call"))
+        await asyncio.wait_for(_media["holding"].wait(), 5)
+        call.cancel()
 
         assert await _ended("hold") == ["procedure-cancelled"]
 
