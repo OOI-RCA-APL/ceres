@@ -50,6 +50,7 @@ Changelog = "https://github.com/OOI-RCA-APL/ceres/blob/main/CHANGELOG.md"
 [dependency-groups]
 dev = [
     "httpx>=0.28,<1",
+    "maturin>=1.8,<2",
     "pyright==1.1.408",
     "pytest>=9.0.2,<10",
     "pytest-asyncio>=1.3.0,<2",
@@ -106,6 +107,10 @@ include = [
 
 # Rebuild when the Rust sources change, not only when the packaging files do.
 [tool.uv]
+# Built in the project environment, so the interpreter path cargo sees stays the same between
+# builds and the PyO3 crates stay compiled. An isolated build gets a fresh temporary
+# interpreter path each time, which rebuilds them all.
+no-build-isolation-package = ["ceres-engine"]
 cache-keys = [
     { file = "pyproject.toml" },
     { file = ".cargo/config.toml" },

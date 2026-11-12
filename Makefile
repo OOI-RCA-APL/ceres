@@ -78,11 +78,16 @@ release-check:
 	uv run ./scripts/release.py --dry-run
 test-all:
 	uv run ./scripts/test-all-python-versions.py
-lint: words-check
+# One target per language, so `make -j lint` checks them side by side.
+lint: words-check lint-python lint-console lint-rust
+lint-python:
 	uv run sh -c "ruff check . && ruff format --check . && pyright"
+lint-console:
 	cd console && make lint
-	cd rust && cargo fmt --check && cargo clippy --all-targets -- -D warnings
-	cd rust && cargo clippy -p ceres-core --all-targets -- -D warnings
+# Unlike a workspace build, a workspace check includes `ceres-core` without the output
+# filename collision `default-members` avoids, so one pass covers every crate.
+lint-rust:
+	cd rust && cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings
 # Ceres names no project built on it or that project's domain, in code, text, or docs.
 # Released changelog entries stay as published, so only the unreleased section is read.
 words-check:
@@ -97,7 +102,7 @@ fix:
 	cd rust && cargo stubs
 	uv run sh -c "ruff check --fix . && ruff format ."
 	cd console && make fix
-	cd rust && cargo fmt && cargo clippy --fix --allow-dirty --allow-staged --all-targets
+	cd rust && cargo fmt && cargo clippy --fix --allow-dirty --allow-staged --workspace --all-targets
 build-docs: install-docs
 	uv run mkdocs build
 install-docs:

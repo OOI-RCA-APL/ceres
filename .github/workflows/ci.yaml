@@ -89,7 +89,7 @@ jobs:
       - name: Install
         run: make install
       - name: Lint
-        run: make lint
+        run: make -j --output-sync=target lint
       # Ahead of the tests, because a migration that changed the schema without recording
       # it fails here in seconds and there in minutes, saying the same thing either way.
       # This refuses a backend it cannot reach as well as one that has drifted, so the
