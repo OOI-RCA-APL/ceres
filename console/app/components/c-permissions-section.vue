@@ -202,6 +202,7 @@ function promptRemovePermission(targetType: PermissionTargetType, target: string
             {{ upperFirst(permission.level) }}
           </c-badge>
           <c-button
+            aria-label="Remove Permission"
             color="error"
             :icon="icons.delete"
             size="xs"
@@ -240,7 +241,7 @@ function promptRemovePermission(targetType: PermissionTargetType, target: string
           :ui="{ content: 'w-[240px]' }"
         >
           <c-tooltip text="Add Permission">
-            <c-button :icon="icons.add" size="xs" />
+            <c-button aria-label="Add Permission" :icon="icons.add" size="xs" />
           </c-tooltip>
           <template #content>
             <div class="flex flex-col gap-2 p-2">

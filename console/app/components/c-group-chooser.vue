@@ -65,14 +65,16 @@ const paletteGroups = $computed(() => [
       description: group.description,
       icon: icons.group,
       disabled: disable?.(group) ?? false,
-      group,
+      // The palette strips an item's own `group` key before selecting it, so the record rides
+      // under another name.
+      chosen: group,
     })),
   },
 ])
 
-function onSelect(item: CommandPaletteItem & { group?: Group }) {
-  if (item.group != null) {
-    emit('select', item.group)
+function onSelect(item: CommandPaletteItem & { chosen?: Group }) {
+  if (item.chosen != null) {
+    emit('select', item.chosen)
   }
 }
 </script>

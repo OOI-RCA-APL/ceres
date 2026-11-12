@@ -82,6 +82,8 @@ pub(crate) async fn features(State(state): State<Arc<AppState>>) -> Response {
 }
 
 /// Authenticate a username and password, answering with a fresh identity.
+///
+/// A disabled account is refused as not permitted.
 pub(crate) async fn login(
     State(state): State<Arc<AppState>>,
     bytes: Bytes,
@@ -100,6 +102,8 @@ pub(crate) async fn login(
         unreachable!("finishing the body refused missing fields");
     };
     match state.host.verify_login(username, password).await? {
+        // Checked only once the password matches, so a refusal reveals nothing to a guess.
+        Some(user) if user.disabled => Err(ApiError::not_permitted()),
         Some(user) => settings.identity_response(user, None, kind),
         None => {
             tokio::time::sleep(WRONG_PASSWORD_DELAY).await;

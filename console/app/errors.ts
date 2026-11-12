@@ -70,6 +70,7 @@ export type ErrorType =
   | 'not-found-error'
   | 'already-exists-error'
   | 'bad-credentials-error'
+  | 'not-permitted-error'
   | 'validation-failed-error'
 
 type BaseErrorInfo = {

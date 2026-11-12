@@ -4,20 +4,18 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 
-import { test as base, expect, type Page } from '@playwright/test'
+import { expect } from '@playwright/test'
 
 const run = promisify(execFile)
 
-// Playwright sets `FORCE_COLOR`, which would color the JSON the fixture reads and the engine log.
+// Playwright sets `FORCE_COLOR`, which would color the JSON the engine reads back and its log.
 const { FORCE_COLOR: _, ...environment } = process.env
 
 const consoleDirectory = path.resolve(import.meta.dirname, '..')
 const projectSource = path.join(import.meta.dirname, 'project')
 const ceres = process.env.CERES_BINARY ?? path.resolve(consoleDirectory, '../.venv/bin/ceres')
 
-/** Each worker's engine listens on its own port, so workers never share an engine. */
-const basePort = 18500
-
+/** The password of every account the tests create. */
 export const password = 'abcdefgh'
 
 /** A workspace on `@device` holding a "Procedures" widget open on `hold`, tall enough to show its
@@ -40,34 +38,169 @@ const proceduresWorkspace = {
   meta: {},
 }
 
-/** A log entry as `ceres logs select` prints it. */
+export type EngineUser = {
+  id: string
+  username: string
+}
+
+/** A stored user as `ceres users select` prints it. */
+export type EngineUserRecord = EngineUser & {
+  email: string
+  admin: boolean
+  disabled: boolean
+}
+
+export type EngineGroup = {
+  id: string
+  name: string
+  description: string | null
+}
+
 export type EngineLog = {
   address: string
   content: string
   level: string
 }
 
-/** An engine running the fixture project from a scratch copy, with an admin and a viewer who
-may view `@device` but not operate it. */
+export type AccessLevel = 'view' | 'operate' | 'manage'
+
+/** An engine running the fixture project from a scratch directory, administered through the
+`ceres` command. */
 export class Engine {
   readonly url: string
+  readonly logPath: string
 
-  constructor(
+  // Tests share an engine, so every account and group they create takes a fresh name.
+  private created = 0
+
+  private constructor(
     readonly directory: string,
     readonly port: number,
-    readonly process: ChildProcess,
-    readonly logPath: string,
+    private readonly process: ChildProcess,
   ) {
     this.url = `http://localhost:${port}`
+    this.logPath = path.join(directory, 'engine.log')
+  }
+
+  /** Copies the fixture project into a scratch directory, sets up its database and the
+  "Procedures" workspace, and runs it on `port`. */
+  static async start(port: number): Promise<Engine> {
+    const directory = await mkdtemp(path.join(tmpdir(), 'ceres-e2e-'))
+    await cp(projectSource, directory, { recursive: true })
+    await writeFile(path.join(directory, 'ceres.yaml'), configuration(port))
+    await command(directory, 'database', 'migrate', '--yes')
+    await command(
+      directory,
+      'workspaces',
+      'create',
+      '--name',
+      'Procedures',
+      '--scope',
+      '@device',
+      '--data',
+      JSON.stringify(proceduresWorkspace),
+    )
+
+    const log = await open(path.join(directory, 'engine.log'), 'w')
+    const child = spawn(ceres, ['run'], {
+      cwd: directory,
+      env: environment,
+      stdio: ['ignore', log.fd, log.fd],
+    })
+    await log.close()
+
+    const engine = new Engine(directory, port, child)
+    await engine.ready()
+    return engine
   }
 
   /** Runs a `ceres` command in the project and returns its standard output. */
-  async ceres(...args: string[]): Promise<string> {
-    const { stdout } = await run(ceres, args, { cwd: this.directory, env: environment })
-    return stdout
+  ceres(...args: string[]): Promise<string> {
+    return command(this.directory, ...args)
   }
 
-  /** Logs `address` stored whose content contains `text`. */
+  /** `name` with a fixed-width counter, so no name contains another and a search finds one. */
+  private fresh(name: string): string {
+    return `${name}-${String(++this.created).padStart(3, '0')}`
+  }
+
+  /** Creates an account named after `name` with the shared password, an administrator when
+  `admin` is set. */
+  async createUser(name: string, { admin = false } = {}): Promise<EngineUser> {
+    const username = this.fresh(name)
+    const output = await this.ceres(
+      'users',
+      'create',
+      '--username',
+      username,
+      '--email',
+      `${username}@example.com`,
+      '--password',
+      password,
+      ...(admin ? ['--admin'] : []),
+      '--format',
+      'json',
+    )
+    return JSON.parse(output) as EngineUser
+  }
+
+  /** The stored user named `username`, or `null` when there is none. */
+  async user(username: string): Promise<EngineUserRecord | null> {
+    return first(await this.ceres('users', 'select', '--username', username, '--format', 'json'))
+  }
+
+  /** Creates a group named after `name`. */
+  async createGroup(name: string): Promise<EngineGroup> {
+    const output = await this.ceres(
+      'groups',
+      'create',
+      '--name',
+      this.fresh(name),
+      '--format',
+      'json',
+    )
+    return JSON.parse(output) as EngineGroup
+  }
+
+  /** The stored group named `name`, or `null` when there is none. */
+  async group(name: string): Promise<EngineGroup | null> {
+    return first(await this.ceres('groups', 'select', '--name', name, '--format', 'json'))
+  }
+
+  /** Whether `user` is a member of `group`. */
+  async isMember(user: EngineUser, group: EngineGroup): Promise<boolean> {
+    const output = await this.ceres(
+      'group-memberships',
+      'count',
+      '--user-id',
+      user.id,
+      '--group-id',
+      group.id,
+    )
+    return Number(output.trim()) > 0
+  }
+
+  async addMember(user: EngineUser, group: EngineGroup): Promise<void> {
+    await this.ceres('group-memberships', 'create', '--user-id', user.id, '--group-id', group.id)
+  }
+
+  /** Grants `user` `level` access to the component at `address`. */
+  async grant(user: EngineUser, address: string, level: AccessLevel): Promise<void> {
+    await this.ceres(
+      'user-permissions',
+      'create',
+      '--user-id',
+      user.id,
+      '--target-type',
+      'component',
+      '--target',
+      address,
+      '--level',
+      level,
+    )
+  }
+
+  /** The stored logs of `address` whose content contains `text`. */
   async logs(address: string, text: string): Promise<EngineLog[]> {
     const output = await this.ceres(
       'logs',
@@ -79,87 +212,21 @@ export class Engine {
       '--format',
       'json',
     )
-    return output
-      .split('\n')
-      .filter((line) => line !== '')
-      .map((line) => JSON.parse(line) as EngineLog)
+    return lines(output).map((line) => JSON.parse(line) as EngineLog)
   }
 
-  static async start(port: number): Promise<Engine> {
-    const directory = await mkdtemp(path.join(tmpdir(), 'ceres-e2e-'))
-    await cp(projectSource, directory, { recursive: true })
-    await writeFile(path.join(directory, 'ceres.yaml'), configuration(port))
-
-    const setup = async (...args: string[]) => {
-      await run(ceres, args, { cwd: directory, env: environment })
+  async stop(): Promise<void> {
+    if (this.process.exitCode == null) {
+      const exited = new Promise((resolve) => this.process.once('exit', resolve))
+      this.process.kill('SIGTERM')
+      await exited
     }
 
-    const user = async (name: string, ...flags: string[]): Promise<string> => {
-      const { stdout } = await run(
-        ceres,
-        [
-          'users',
-          'create',
-          '--username',
-          name,
-          '--email',
-          `${name}@example.com`,
-          '--password',
-          password,
-          '--field',
-          'id',
-          '--format',
-          'csv',
-          '--no-header',
-          ...flags,
-        ],
-        { cwd: directory, env: environment },
-      )
-      return stdout.trim()
-    }
-
-    await setup('database', 'migrate', '--yes')
-    await user('admin', '--admin')
-    const viewer = await user('viewer')
-    await setup(
-      'user-permissions',
-      'create',
-      '--user-id',
-      viewer,
-      '--target-type',
-      'component',
-      '--target',
-      '@device',
-      '--level',
-      'view',
-    )
-    await setup(
-      'workspaces',
-      'create',
-      '--name',
-      'Procedures',
-      '--scope',
-      '@device',
-      '--data',
-      JSON.stringify(proceduresWorkspace),
-    )
-
-    const logPath = path.join(directory, 'engine.log')
-    const log = await open(logPath, 'w')
-    const child = spawn(ceres, ['run'], {
-      cwd: directory,
-      env: environment,
-      stdio: ['ignore', log.fd, log.fd],
-    })
-    await log.close()
-
-    const engine = new Engine(directory, port, child, logPath)
-    await engine.ready()
-    return engine
+    await rm(this.directory, { recursive: true, force: true })
   }
 
   /** Waits until the engine serves the console. */
-  async ready(): Promise<void> {
+  private async ready(): Promise<void> {
     await expect
       .poll(
         async () => {
@@ -177,18 +244,21 @@ export class Engine {
       )
       .toBe(200)
   }
+}
 
-  async stop(): Promise<void> {
-    if (this.process.exitCode == null) {
-      const exited = new Promise((resolve) => this.process.once('exit', resolve))
-      this.process.kill('SIGTERM')
-      await exited
-    }
-  }
+async function command(directory: string, ...args: string[]): Promise<string> {
+  const { stdout } = await run(ceres, args, { cwd: directory, env: environment })
+  return stdout
+}
 
-  async remove(): Promise<void> {
-    await rm(this.directory, { recursive: true, force: true })
-  }
+function lines(text: string): string[] {
+  return text.split('\n').filter((line) => line !== '')
+}
+
+/** The first record of JSON lines output, or `null` when there is none. */
+function first<T>(output: string): T | null {
+  const [line] = lines(output)
+  return line == null ? null : (JSON.parse(line) as T)
 }
 
 function configuration(port: number): string {
@@ -200,6 +270,7 @@ server:
     port: ${port}
   authentication:
     secret: an-adequately-long-end-to-end-signing-secret
+    allow-impersonate: true
 console:
   title: End To End
 components:
@@ -207,40 +278,3 @@ components:
     class: device.Device
 `
 }
-
-/** Signs `username` in through the login page. */
-export async function login(page: Page, username: string): Promise<void> {
-  await page.goto('/login')
-  await page.getByPlaceholder('Username').fill(username)
-  await page.getByPlaceholder('Password').fill(password)
-  await page.getByRole('button', { name: 'Submit' }).click()
-  await page.waitForURL('/')
-}
-
-export const test = base.extend<{ engineLog: undefined }, { engine: Engine }>({
-  engine: [
-    // Playwright reads a fixture's dependencies from its first parameter's destructuring.
-    // eslint-disable-next-line no-empty-pattern
-    async ({}, use, workerInfo) => {
-      const engine = await Engine.start(basePort + workerInfo.parallelIndex)
-      await use(engine)
-      await engine.stop()
-      await engine.remove()
-    },
-    { scope: 'worker' },
-  ],
-  engineLog: [
-    async ({ engine }, use, testInfo) => {
-      await use(undefined)
-      if (testInfo.status !== testInfo.expectedStatus) {
-        await testInfo.attach('engine.log', { path: engine.logPath, contentType: 'text/plain' })
-      }
-    },
-    { auto: true },
-  ],
-  baseURL: async ({ engine }, use) => {
-    await use(engine.url)
-  },
-})
-
-export { expect }
