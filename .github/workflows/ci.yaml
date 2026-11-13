@@ -88,6 +88,9 @@ jobs:
           # Compilation finishes before any check can fail, so a failed run's build is still
           # worth restoring on the rerun.
           cache-on-failure: true
+          # The workspace crates are most of the build, and a change usually touches few of
+          # them, so the rest are worth restoring too.
+          cache-workspace-crates: true
       - name: Install
         run: make install
       - name: Lint
