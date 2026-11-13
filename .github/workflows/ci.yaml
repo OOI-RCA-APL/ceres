@@ -77,8 +77,10 @@ jobs:
         with:
           workspaces: rust
           # The action keys on the lockfile and the toolchain, so a profile or flag change
-          # reuses a key that already exists, and a cache entry cannot be overwritten.
-          key: ${{ env.RUNNER_IMAGE }}-${{ hashFiles('rust/Cargo.toml', '.cargo/config.toml') }}
+          # reuses a key that already exists, and a cache entry cannot be overwritten. The
+          # workflow and the Makefile are in the key, since their commands decide which
+          # feature sets get compiled and so what a warm cache must hold.
+          key: ${{ env.RUNNER_IMAGE }}-${{ hashFiles('rust/Cargo.toml', '.cargo/config.toml', '.github/workflows/ci.yaml', 'Makefile') }}
           # A tag is released once and never built again, and a cache is readable only from
           # the ref that saved it and from the default branch, so an entry saved here would
           # be read by nobody while holding several gigabytes of the repository's ten.
