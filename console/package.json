@@ -8,9 +8,10 @@
     "postbuild": "node scripts/normalize-build.mjs && mkdir -p ../ceres/static && rm -rf ../ceres/static/console && cp -R .output/public ../ceres/static/console",
     "serve": "nuxi preview",
     "postinstall": "nuxi prepare",
-    "lint": "nuxi typecheck && eslint --max-warnings 0 . && prettier --check .",
+    "lint": "nuxi typecheck && tsc -p e2e && eslint --max-warnings 0 . && prettier --check .",
     "fix": "eslint --fix . && prettier --write .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "e2e": "playwright test"
   },
   "prettier": {
     "semi": false,
@@ -51,6 +52,7 @@
   "devDependencies": {
     "@iconify-json/lucide": "^1.2.124",
     "@iconify-json/mdi": "^1.2.3",
+    "@playwright/test": "^1.65.0",
     "@types/lodash-es": "^4.17.12",
     "@types/markdown-it": "^14.2.0",
     "@types/node": "^26.2.0",

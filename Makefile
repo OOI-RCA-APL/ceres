@@ -31,12 +31,20 @@ ceres/static/console:
 update:
 	uv update
 	cd console && make update
+# One target per suite, so `make -j test` runs them side by side.
+test: test-python test-rust test-console test-e2e
 # Distributed across cores, which needs the capture that `-s` in the pytest options turns
 # off. A bare `pytest` still runs serially, where `-s` is what makes a single test readable.
-test:
+test-python:
 	uv run pytest -n auto --capture=fd
+test-rust:
 	cd rust && cargo test && cargo test -p ceres-core
+test-console:
 	cd console && make test
+# Drives the bundle in `ceres/static/console` through the installed `ceres`, so a console
+# change needs `make console` first.
+test-e2e:
+	cd console && make e2e
 test-postgres:
 	uv run pytest -vv -s --database postgres
 test-turso:
@@ -70,11 +78,16 @@ release-check:
 	uv run ./scripts/release.py --dry-run
 test-all:
 	uv run ./scripts/test-all-python-versions.py
-lint: words-check
+# One target per language, so `make -j lint` checks them side by side.
+lint: words-check lint-python lint-console lint-rust
+lint-python:
 	uv run sh -c "ruff check . && ruff format --check . && pyright"
+lint-console:
 	cd console && make lint
-	cd rust && cargo fmt --check && cargo clippy --all-targets -- -D warnings
-	cd rust && cargo clippy -p ceres-core --all-targets -- -D warnings
+# Unlike a workspace build, a workspace check includes `ceres-core` without the output
+# filename collision `default-members` avoids, so one pass covers every crate.
+lint-rust:
+	cd rust && cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings
 # Ceres names no project built on it or that project's domain, in code, text, or docs.
 # Released changelog entries stay as published, so only the unreleased section is read.
 words-check:
@@ -89,7 +102,7 @@ fix:
 	cd rust && cargo stubs
 	uv run sh -c "ruff check --fix . && ruff format ."
 	cd console && make fix
-	cd rust && cargo fmt && cargo clippy --fix --allow-dirty --allow-staged --all-targets
+	cd rust && cargo fmt && cargo clippy --fix --allow-dirty --allow-staged --workspace --all-targets
 build-docs: install-docs
 	uv run mkdocs build
 install-docs:

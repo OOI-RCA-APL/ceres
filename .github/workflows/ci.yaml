@@ -77,8 +77,10 @@ jobs:
         with:
           workspaces: rust
           # The action keys on the lockfile and the toolchain, so a profile or flag change
-          # reuses a key that already exists, and a cache entry cannot be overwritten.
-          key: ${{ env.RUNNER_IMAGE }}-${{ hashFiles('rust/Cargo.toml', '.cargo/config.toml') }}
+          # reuses a key that already exists, and a cache entry cannot be overwritten. The
+          # workflow and the Makefile are in the key, since their commands decide which
+          # feature sets get compiled and so what a warm cache must hold.
+          key: ${{ env.RUNNER_IMAGE }}-${{ hashFiles('rust/Cargo.toml', '.cargo/config.toml', '.github/workflows/ci.yaml', 'Makefile') }}
           # A tag is released once and never built again, and a cache is readable only from
           # the ref that saved it and from the default branch, so an entry saved here would
           # be read by nobody while holding several gigabytes of the repository's ten.
@@ -86,10 +88,13 @@ jobs:
           # Compilation finishes before any check can fail, so a failed run's build is still
           # worth restoring on the rerun.
           cache-on-failure: true
+          # The workspace crates are most of the build, and a change usually touches few of
+          # them, so the rest are worth restoring too.
+          cache-workspace-crates: true
       - name: Install
         run: make install
       - name: Lint
-        run: make lint
+        run: make -j --output-sync=target lint
       # Ahead of the tests, because a migration that changed the schema without recording
       # it fails here in seconds and there in minutes, saying the same thing either way.
       # This refuses a backend it cannot reach as well as one that has drifted, so the
@@ -115,10 +120,19 @@ jobs:
       # user cannot grant itself.
       - name: Enable Systemd User Session
         run: sudo loginctl enable-linger "$(whoami)"
+      # The suites run side by side, and `--output-sync` holds each one's output until it ends,
+      # so the log reads as one block per suite rather than interleaved lines.
       - name: Test
-        run: make test
+        run: make -j --output-sync=target test
         env:
           CERES_SERVICE_TEST: "1"
+      - name: Upload End To End Results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-results
+          path: console/e2e-results
+          if-no-files-found: ignore
       - name: Build
         run: make build
       # A build that exhausts the runner's disk fails in ways that look unrelated, and the

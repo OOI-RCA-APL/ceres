@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from types import EllipsisType
 
 __all__ = [
+    "CancelledError",
     "sleep",
     "awaitify",
     "cancel",

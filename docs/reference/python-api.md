@@ -465,6 +465,10 @@ from the package, `from ceres import Component`.
 
 ## Concurrency
 
+::: ceres.concurrency.CancelledError
+    options:
+      heading_level: 3
+
 ::: ceres.concurrency.cancel
     options:
       heading_level: 3

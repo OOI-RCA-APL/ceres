@@ -16,9 +16,23 @@ written, and the release workflow refuses a version that has no entry here.
   effects or interrupt synchronous work. Clients must keep the connection open until the call
   returns to avoid requesting cancellation.
 
+**Engine**
+
+- `ceres` and `ceres.concurrency` export `CancelledError`, so a component can catch its own
+  cancellation without importing `asyncio`.
+- Logging in to a disabled account is refused with `not-permitted-error`, rather than issuing a
+  token every later request refuses.
+
 **Web Console**
 
 - Procedure pages offer "Abort" during a call. Leaving the page also aborts the request.
+- A procedure's "Execute" is disabled for a user whose access cannot invoke it.
+- Schema form labels are tied to their fields, so a screen reader announces a field by its
+  title.
+- The login page says when an account is disabled.
+- Choosing a group in a user's "Add to Group" adds the user to it.
+- The add and remove buttons of group members, user groups and permissions carry labels, so a
+  screen reader names them.
 
 ## [0.51.0] - 2026-11-06
 

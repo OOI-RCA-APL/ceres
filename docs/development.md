@@ -49,9 +49,9 @@ This guide covers setting up a development environment for working on Ceres itse
 | Target               | Description                                                     |
 | -------------------- | --------------------------------------------------------------- |
 | `make install`       | Install Python and console dependencies.                         |
-| `make test`          | Run the test suite with pytest.                                  |
+| `make test`          | Run every suite: pytest, the Rust crates, the console, and end to end. `make -j test` runs them side by side. |
 | `make test-postgres` | Run the same suite against a real PostgreSQL server.             |
-| `make lint`          | Run ruff and pyright, then rustfmt and clippy over the workspace. |
+| `make lint`          | Run ruff and pyright, the console checks, then rustfmt and clippy over the workspace. `make -j lint` runs them side by side. |
 | `make fix`           | Auto-fix lint issues and reformat code.                          |
 | `make coverage`      | Regenerate the coverage tables and badges.                       |
 | `make coverage-check` | Verify the recorded coverage still matches the sources.         |

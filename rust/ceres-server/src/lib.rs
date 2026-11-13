@@ -200,6 +200,8 @@ mod tests {
     #[derive(Default)]
     struct TestHost {
         users: Vec<(uuid::Uuid, &'static str, bool)>,
+        /// Users whose accounts are disabled.
+        disabled: Vec<uuid::Uuid>,
         /// Open streams by handle, each tracking how many messages it has sent.
         streams: std::sync::Mutex<std::collections::HashMap<u64, (String, u32)>>,
     }
@@ -209,7 +211,7 @@ mod tests {
             UserRecord {
                 id,
                 admin,
-                disabled: false,
+                disabled: self.disabled.contains(&id),
                 payload: serde_json::json!({"id": id.to_string(), "username": username}),
             }
         }
@@ -438,6 +440,34 @@ mod tests {
             response,
             FORBIDDEN,
             br#"{"__error__":true,"type":"authentication-disabled-error"}"#
+        );
+    }
+
+    #[tokio::test]
+    async fn a_disabled_account_cannot_log_in() {
+        let user = uuid::Uuid::new_v4();
+        let app = build_router(AppConfig {
+            authority: None,
+            webrtc: None,
+            console: None,
+            cli_token: None,
+            auth: Some(settings(false)),
+            host: std::sync::Arc::new(TestHost {
+                users: vec![(user, "u", false)],
+                disabled: vec![user],
+                ..TestHost::default()
+            }),
+            version: "0.0.0".to_string(),
+        });
+
+        let response = request_json!(
+            app, post "/api/auth/login",
+            serde_json::json!({"username": "u", "password": PASSWORD})
+        );
+        assert_response!(
+            response,
+            FORBIDDEN,
+            br#"{"__error__":true,"type":"not-permitted-error"}"#
         );
     }
 

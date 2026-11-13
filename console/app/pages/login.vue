@@ -39,6 +39,9 @@ const form = useForm({
       'bad-credentials-error': () => {
         notify.error('Failed to log in. Incorrect username or password.')
       },
+      'not-permitted-error': () => {
+        notify.error('Failed to log in. This account is disabled.')
+      },
     })
 
     notify.success(`Logged in as "${identity.user.username}".`, {

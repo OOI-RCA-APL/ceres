@@ -88,6 +88,7 @@ function promptDelete() {
               <c-text class="block truncate" variant="description">{{ user.email }}</c-text>
             </span>
             <c-button
+              aria-label="Remove Member"
               color="error"
               :icon="icons.delete"
               size="xs"
@@ -106,7 +107,7 @@ function promptDelete() {
             :ui="{ content: 'w-[220px]' }"
           >
             <c-tooltip text="Add Member">
-              <c-button :icon="icons.add" size="xs" />
+              <c-button aria-label="Add Member" :icon="icons.add" size="xs" />
             </c-tooltip>
             <template #content>
               <c-user-chooser

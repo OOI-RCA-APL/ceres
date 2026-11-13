@@ -8,6 +8,10 @@ import { ProcedureInfoModel } from '@/api/components'
 import CProcedure from '@/components/c-procedure.vue'
 
 const calls = vi.hoisted(() => ({ signals: [] as AbortSignal[] }))
+const access = vi.hoisted(() => ({ level: 'operate' as string | null }))
+vi.mock('@/api/access', () => ({
+  useAccess: () => ({ levelFor: () => access.level }),
+}))
 vi.mock('@/api/engine', () => ({
   useEngine: () => ({
     components: {
@@ -26,11 +30,13 @@ vi.mock('@/api/engine', () => ({
   }),
 }))
 
-// Offers the form's submit and the "Abort" the page passes, as buttons to press.
+// Offers the form's submit and the "Abort" the page passes, as buttons to press, and shows why
+// submitting is unavailable.
 const Controls = defineComponent({
   props: {
     form: { type: Object, required: true },
     cancelLabel: { type: String, default: undefined },
+    unavailableReason: { type: String, default: undefined },
   },
   emits: ['cancel'],
   setup(props, { emit }) {
@@ -38,6 +44,8 @@ const Controls = defineComponent({
       h('div', [
         h('button', {
           class: 'submit',
+          disabled: props.unavailableReason != null,
+          title: props.unavailableReason,
           onClick: () => (props.form as { submit(): void }).submit(),
         }),
         props.cancelLabel == null
@@ -56,10 +64,11 @@ const procedure = ProcedureInfoModel.parse({
   output: { type: 'value', json_schema: {} },
 })
 
-async function running() {
+function mounted(level: string | null = 'operate') {
   calls.signals = []
+  access.level = level
   setActivePinia(createPinia())
-  const page = mount(CProcedure, {
+  return mount(CProcedure, {
     props: { address: Address.parse('@device'), procedure },
     global: {
       stubs: {
@@ -71,12 +80,23 @@ async function running() {
       },
     },
   })
+}
+
+async function running() {
+  const page = mounted()
   await page.find('.submit').trigger('click')
   await flushPromises()
   return page
 }
 
 describe('c-procedure', () => {
+  it('disables executing a procedure the user cannot invoke', () => {
+    const page = mounted('view')
+
+    expect(page.find('.submit').attributes('disabled')).toBeDefined()
+    expect(page.find('.submit').attributes('title')).toBe('Not available with your access.')
+  })
+
   it('offers "Abort" while a call runs, which aborts the request', async () => {
     const page = await running()
 

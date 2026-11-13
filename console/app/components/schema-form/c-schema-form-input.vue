@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import type { DropdownMenuItem } from '@nuxt/ui'
 import { createReusableTemplate } from '@vueuse/core'
-import { watch } from 'vue'
+import { useId, watch } from 'vue'
 
 import { CInput, CTextarea } from '#components'
 import icons from '@/icons'
@@ -17,6 +17,9 @@ let modelValue: unknown = $(defineModel<unknown>({ required: true }))
 // The trailing controls render either inside the field's own slot or beside it, so they are
 // declared once here and placed twice below.
 const [DefineTrailing, ReuseTrailing] = createReusableTemplate()
+
+// Ties the label to the field, so the field is announced, and found, by its title.
+const inputId = useId()
 
 const {
   form,
@@ -152,6 +155,7 @@ function onInput(value: string | number) {
       :align="form.align"
       class="cursor-text"
       element="label"
+      :for="inputId"
       :label="title"
       :schema-type="schemaType"
       :show-type="form.showTypes"
@@ -190,6 +194,7 @@ function onInput(value: string | number) {
     <div :class="form.embedded ? 'flex min-w-0 items-center gap-0.5' : 'contents'">
       <component
         :is="autogrow ? CTextarea : CInput"
+        :id="inputId"
         ref="input"
         :aria-required="isRequired"
         autoresize

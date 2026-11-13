@@ -366,6 +366,7 @@ async function logout() {
                 </c-text>
               </span>
               <c-button
+                aria-label="Remove from Group"
                 color="error"
                 :icon="icons.delete"
                 size="xs"
@@ -384,7 +385,7 @@ async function logout() {
               :ui="{ content: 'w-[220px]' }"
             >
               <c-tooltip text="Add to Group">
-                <c-button :icon="icons.add" size="xs" />
+                <c-button aria-label="Add to Group" :icon="icons.add" size="xs" />
               </c-tooltip>
               <template #content>
                 <c-group-chooser
