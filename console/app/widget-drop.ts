@@ -745,6 +745,11 @@ function createWidgetDrop(workspace: WorkspaceContext) {
 
     /** The line saying where the widget lands, until the layout opens for it. Layout-relative. */
     marker: computed(() => marker),
+
+    /** How tall the row with `rowId` stood when the drag began, if it was on screen. A row sized
+    to its contents is held there for the drag, or it would shrink as widgets leave it and every
+    drop target measured below it would drift. */
+    shownHeight: (rowId: string) => shown.get(rowId) ?? null,
   })
 }
 

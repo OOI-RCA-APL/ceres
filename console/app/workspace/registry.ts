@@ -10,6 +10,7 @@ import {
   type Widget,
   widgetModels,
   type WidgetRow,
+  type WidgetRowHeight,
   WidgetRowModel,
   type WidgetType,
   withPages,
@@ -24,6 +25,7 @@ type WidgetOptionsInput = {
   initialHeight?: number
   paddingClass?: string | string[]
   fullHeight?: boolean
+  fitsContent?: boolean
   reloadOnThemeChange?: boolean
 }
 
@@ -35,6 +37,9 @@ type WidgetOptions = {
   initialHeight: number
   paddingClass: string | string[]
   fullHeight: boolean
+  /** Whether the widget's height follows what it shows, so a row sized to its contents can hold
+  it. A widget filling whatever height it is given, such as a chart, has no height of its own. */
+  fitsContent: boolean
   reloadOnThemeChange: boolean
 }
 
@@ -45,6 +50,7 @@ function widgetOptions(options: WidgetOptionsInput): WidgetOptions {
     initialHeight: options.initialHeight ?? options.minHeight ?? defaultMinHeight,
     paddingClass: options.paddingClass ?? defaultPaddingClass,
     fullHeight: options.fullHeight ?? true,
+    fitsContent: options.fitsContent ?? false,
     reloadOnThemeChange: options.reloadOnThemeChange ?? false,
   }
 }
@@ -85,6 +91,7 @@ export const widgetInfos = {
     component: defineAsyncComponent(() => import('@/components/c-workspace-widget-procedures.vue')),
     options: widgetOptions({
       fullHeight: false,
+      fitsContent: true,
     }),
   },
   chart: {
@@ -151,6 +158,7 @@ export const widgetInfos = {
     ),
     options: widgetOptions({
       paddingClass: [],
+      fitsContent: true,
     }),
   },
   tabs: {
@@ -161,6 +169,7 @@ export const widgetInfos = {
     // No settings dialog. Its pages are arranged on the strip itself.
     options: widgetOptions({
       paddingClass: [],
+      fitsContent: true,
     }),
   },
   carousel: {
@@ -169,7 +178,8 @@ export const widgetInfos = {
     model: widgetModels.carousel,
     component: defineAsyncComponent(() => import('@/components/c-workspace-widget-carousel.vue')),
     // No settings dialog. Its slides are arranged in place and its behavior is set from the
-    // control band under them.
+    // control band under them. Its slides are stacked out of flow to travel sideways, so it has
+    // no height of its own to fit to.
     options: widgetOptions({
       paddingClass: [],
     }),
@@ -186,6 +196,7 @@ export const widgetInfos = {
       // step the row's resize handle moves in.
       framelessMinHeight: 45,
       fullHeight: false,
+      fitsContent: true,
     }),
   },
 } as const
@@ -198,6 +209,7 @@ const unknownWidgetInfo = {
   component: defineAsyncComponent(() => import('@/components/c-workspace-widget-unknown.vue')),
   options: widgetOptions({
     fullHeight: false,
+    fitsContent: true,
   }),
 } as const
 
@@ -213,6 +225,22 @@ export function getWidgetInfo(type: WidgetType): WidgetInfo {
 export function widgetMinHeight(widget: Widget): number {
   const { options } = getWidgetInfo(widget.type)
   return widget.frameless ? options.framelessMinHeight : options.minHeight
+}
+
+/** Whether `widget` takes its height from what it shows, which a row sized to its contents
+needs. A widget that does not gets its opening height as a floor in such a row. */
+export function fitsContent(widget: Widget): boolean {
+  return getWidgetInfo(widget.type).options.fitsContent
+}
+
+/** The height a row opened for `widgets` starts at: sized to its contents when every widget
+fits them, else as tall as the tallest asks to open at. */
+export function openedRowHeight(widgets: Widget[]): WidgetRowHeight {
+  if (widgets.every(fitsContent)) {
+    return 'auto'
+  }
+
+  return Math.max(...widgets.map((widget) => getWidgetInfo(widget.type).options.initialHeight))
 }
 
 /** The default name for a widget of `type`.
@@ -298,10 +326,7 @@ export function convertedPagesWidget(widget: Widget, to: PagesWidgetType): Widge
   return withPages(converted, pagesOf(widget))
 }
 
-/** A row opened for arriving widgets, as tall as the tallest of them asks to open at. */
+/** A row opened for arriving widgets, at the height `openedRowHeight` gives them. */
 export function openedRowFor(widgets: Widget[]): WidgetRow {
-  return WidgetRowModel.parse({
-    widgets,
-    height: Math.max(...widgets.map((widget) => getWidgetInfo(widget.type).options.initialHeight)),
-  })
+  return WidgetRowModel.parse({ widgets, height: openedRowHeight(widgets) })
 }

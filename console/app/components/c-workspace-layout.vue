@@ -147,14 +147,35 @@ function getWidgetWidthStyle(widget: Widget, isLast: boolean) {
 /** Take a row to `height`, moving the surrounding box by the same amount where the row fills it.
 
 A filling row's own height is not what renders so moving the box is what makes the drag visible.
+A row sized to its contents starts the drag from where it stands, so its first step moves nothing.
 */
 function setRowHeight(row: WidgetRow, index: number, height: number) {
-  const change = height - row.height
+  const change = row.height === 'auto' ? 0 : height - row.height
   row.height = height
 
-  if (host != null && isFilling(row, index)) {
+  if (host != null && host.height !== 'auto' && isFilling(row, index)) {
     host.height = Math.max(shortestHost, host.height + change)
   }
+}
+
+/** The height `row` stands at on screen. */
+function measureRow(row: WidgetRow) {
+  return element?.querySelector<HTMLElement>(`[data-row="${row.id}"]`)?.offsetHeight ?? 0
+}
+
+/** The height a row is drawn at. A row sized to its contents holds the height it had when a drag
+began, so it does not shrink under the widgets leaving it. */
+function rowHeightStyle(row: WidgetRow) {
+  if (row.collapsed) {
+    return undefined
+  }
+
+  if (row.height !== 'auto') {
+    return `${row.height}px`
+  }
+
+  const shown = drop.active ? drop.shownHeight(row.id) : null
+  return shown == null ? undefined : `${shown}px`
 }
 
 function setWidgetWidth(row: WidgetRow, widget: Widget, column: number, pixels: number) {
@@ -249,27 +270,30 @@ defineExpose({ element: $$(element) })
         :key="row.id"
         class="relative w-full"
         :class="isFilling(row, i) && $style.rowFilling"
-        data-row
-        :style="{
-          height: row.collapsed ? undefined : `${row.height}px`,
-        }"
+        :data-row="row.id"
+        :style="{ height: rowHeightStyle(row) }"
       >
         <c-resize-handle
           v-if="!drop.active && !row.collapsed"
           class="absolute -bottom-[4.5px] left-0 z-[1]"
           direction="vertical"
+          label="Row Height"
+          :measure="() => measureRow(row)"
           :min="Math.max(...row.widgets.map(widgetMinHeight))"
-          :model-value="row.height"
+          :model-value="row.height === 'auto' ? null : row.height"
           :readout="false"
           :step="5"
           visibility="hover"
+          @reset="row.height = 'auto'"
           @update:dragging="(dragging: boolean) => (resizingRow = dragging ? row : null)"
           @update:model-value="(value: number) => setRowHeight(row, i, value)"
         />
         <!-- A row is sized in pixels so its readout shows pixels where a widget's shows its
         share. -->
         <div v-if="resizingRow === row" :class="[$style.share, 'flex items-center justify-center']">
-          <span :class="$style.shareValue">{{ Math.round(row.height) }}px</span>
+          <span :class="$style.shareValue">
+            {{ row.height === 'auto' ? 'Auto' : `${Math.round(row.height)}px` }}
+          </span>
         </div>
         <!-- The box the widgets are laid out across. Move measurement lays out a copy in here,
         and a boxless wrapper would land that copy among the widgets it is measuring. -->

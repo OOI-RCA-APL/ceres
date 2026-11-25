@@ -324,6 +324,20 @@ describe('a stored value widget', () => {
   })
 })
 
+describe('a stored row', () => {
+  it('keeps a height sized to its contents', () => {
+    const data = WorkspaceDataModel.parse({ layout: [{ id: 'r1', height: 'auto', widgets: [] }] })
+
+    expect(data.layout[0]?.height).toBe('auto')
+  })
+
+  it('falls back to a fixed height it cannot read', () => {
+    const data = WorkspaceDataModel.parse({ layout: [{ id: 'r1', height: 'tall', widgets: [] }] })
+
+    expect(data.layout[0]?.height).toBe(250)
+  })
+})
+
 describe('comparableWorkspaceData', () => {
   /** A stored chart widget with an ID-less series, the legacy shape a workspace saved before
   series carried one still holds. */

@@ -477,16 +477,20 @@ export const widgetWidthSubdivisions = 120
 
 /** Written out rather than inferred for the same reason as `WidgetPage`, the types are
 mutually recursive. */
+/** A row's height in pixels, or `'auto'` for the height of what it holds. An older console reads
+`'auto'` as the default fixed height, so no migration is needed. */
+export type WidgetRowHeight = number | 'auto'
+
 export type WidgetRow = {
   id: string
-  height: number
+  height: WidgetRowHeight
   collapsed: boolean
   widgets: Widget[]
 }
 
 export const WidgetRowModel = z.object({
   id: z.string().catch(() => v7()),
-  height: z.number().catch(250),
+  height: z.union([z.number(), z.literal('auto')]).catch(250),
   collapsed: z.boolean().catch(false),
   widgets: safeArrayOf(WidgetModel),
 }) as unknown as z.ZodType<WidgetRow>

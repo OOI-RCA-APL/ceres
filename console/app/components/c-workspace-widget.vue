@@ -10,6 +10,7 @@ import { isOnWidgetFrame } from '@/widget-drop'
 import type { WidgetStatus } from '@/widget-status'
 import {
   createWidget,
+  fitsContent,
   getWidgetInfo,
   pagesWidgetConversionItems,
   useWorkspace,
@@ -46,6 +47,17 @@ const isNameOffered = $computed(() => isEditingName || isNameHovered)
 const menuContent = keepFocusWhile(() => isEditingName)
 
 const info = $computed(() => getWidgetInfo(widget.type))
+
+/** How the card takes its height. A fixed row gives it the row's. A row sized to its contents
+takes its height from a widget that fits them, and holds one that does not, such as a chart, at
+its opening height, drawn out of flow so the chart still has a definite box to fill. */
+const sizing = $computed<'row' | 'content' | 'floor'>(() => {
+  if (container.height !== 'auto') {
+    return 'row'
+  }
+
+  return fitsContent(widget) ? 'content' : 'floor'
+})
 const settingsComponent = $computed(() => {
   if ('settingsComponent' in info) {
     return info.settingsComponent
@@ -260,6 +272,15 @@ const menuItems = $computed<MenuItem[][]>(() => {
     { label: 'Reload', icon: icons.refresh, onSelect: onReloadRequested },
   ]
 
+  // Dragging a row's edge fixes its height, and this is the way back besides double-clicking it.
+  if (container.height !== 'auto') {
+    framing.splice(1, 0, {
+      label: 'Fit Row To Content',
+      icon: icons.fitContent,
+      onSelect: () => (container.height = 'auto'),
+    })
+  }
+
   return [
     [...single, ...arranging],
     framing,
@@ -323,6 +344,7 @@ function onFrameHover(event: PointerEvent) {
       ]"
       data-widget-frame
       :data-widget-id="widget.id"
+      :style="sizing === 'floor' ? { minHeight: `${info.options.initialHeight}px` } : undefined"
       @mousedown="onFramePress"
       @pointerleave="isFrameHovered = false"
       @pointermove="onFrameHover"
@@ -444,11 +466,13 @@ function onFrameHover(event: PointerEvent) {
           :class="[
             // The box takes the card's size rather than its own contents', in both directions.
             // Left to itself it grows to whatever it holds, and something wide inside, a long
-            // strip of tabs most of all, drags the whole row wider instead of scrolling.
-            'h-0! w-full',
-            'grow overflow-auto',
+            // strip of tabs most of all, drags the whole row wider instead of scrolling. A widget
+            // setting its row's height is the exception, growing to what it holds.
+            sizing === 'content' ? 'w-full' : 'h-0! w-full',
+            'grow',
+            sizing === 'floor' ? 'relative' : 'overflow-auto',
             !widget.frameless && 'bg-default',
-            !widget.frameless && info.options.paddingClass,
+            !widget.frameless && sizing !== 'floor' && info.options.paddingClass,
           ]"
           data-widget-frame
           @contextmenu="keepMenuToFrame"
@@ -457,7 +481,13 @@ function onFrameHover(event: PointerEvent) {
           <component
             :is="info.component as any"
             v-else
-            :class="(info.options.fullHeight || widget.frameless) && 'h-full'"
+            :class="[
+              (info.options.fullHeight || widget.frameless) && 'h-full',
+              sizing === 'floor' && [
+                'absolute! inset-0 h-auto! overflow-auto',
+                !widget.frameless && info.options.paddingClass,
+              ],
+            ]"
             :container="container"
             :widget="widget"
             @reload-requested="onReloadRequested"

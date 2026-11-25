@@ -27,6 +27,10 @@ written, and the release workflow refuses a version that has no entry here.
 
 - A console tab left open across an engine upgrade shows "Ceres Updated" and asks to reload. It
   checks when the page comes back into view and when its streams reconnect.
+- A new workspace row holding only procedures, controls, sections or tab strips opens sized to
+  its contents. Dragging a row's edge fixes its height, and double-clicking the edge or "Fit Row
+  To Content" sizes it to its contents again. A chart or other filling widget in such a row keeps
+  its opening height.
 - Procedure pages offer "Abort" during a call. Leaving the page also aborts the request.
 - A procedure's "Execute" is disabled for a user whose access cannot invoke it.
 - Schema form labels are tied to their fields, so a screen reader announces a field by its

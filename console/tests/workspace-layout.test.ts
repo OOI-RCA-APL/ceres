@@ -4,9 +4,12 @@ import {
   type CarouselWidget,
   collectLayouts,
   type ControlsWidget,
+  createWidget,
+  getWidgetInfo,
   layoutsWithin,
   pagesOf,
   planWidgetsGroup,
+  planWidgetsInsert,
   planWidgetsMove,
   planWidgetUngroup,
   resolveWidths,
@@ -353,6 +356,35 @@ describe('planWidgetsMove', () => {
 
     expect(planWidgetsMove(layouts, ['a'], { layout: rootLayoutId, row: 9, column: 0 })).toBeNull()
   })
+
+  it('leaves a row sized to its contents so when a widget joins it', () => {
+    const layouts = layoutsOf([
+      { ...row('r1', widget('a')), height: 'auto' },
+      row('r2', widget('b')),
+    ])
+    const plan = planWidgetsMove(layouts, ['b'], { layout: rootLayoutId, row: 0, column: 1 })
+
+    expect(plan?.layouts[rootLayoutId]?.map((current) => current.height)).toEqual(['auto'])
+  })
+})
+
+describe('planWidgetsInsert', () => {
+  const at = { layout: rootLayoutId, row: 1, column: null }
+
+  it('opens a row sized to its contents for widgets that fit them', () => {
+    const plan = planWidgetsInsert(layoutsOf([row('r1')]), [createWidget('procedures')], at)
+
+    expect(plan?.layouts[rootLayoutId]?.map((current) => current.height)).toEqual([250, 'auto'])
+  })
+
+  it('opens a row at the opening height of a widget that fills its box', () => {
+    const widgets = [createWidget('procedures'), createWidget('chart')]
+    const plan = planWidgetsInsert(layoutsOf([row('r1')]), widgets, at)
+
+    expect(plan?.layouts[rootLayoutId]?.[1]?.height).toBe(
+      getWidgetInfo('chart').options.initialHeight,
+    )
+  })
 })
 
 describe('planWidgetsGroup', () => {
@@ -436,13 +468,19 @@ describe('planWidgetsGroup', () => {
     expect(pages[0]?.layout[0]?.height).toBe(250)
   })
 
-  it('opens a section alone in its row tall enough to show every row it took', () => {
+  it('opens a section alone in its row sized to what it holds', () => {
     const rows = [row('r1', widget('a')), row('r2', widget('b')), row('r3', widget('c'))]
     const plan = planWidgetsGroup(rows, ['a', 'b'], 'section', 'none')
 
-    // Two 250 px rows, the gap between them, and the section's header and padding.
-    expect(plan?.rows.map((current) => current.height)).toEqual([250 + 8 + 250 + 48, 250])
+    expect(plan?.rows.map((current) => current.height)).toEqual(['auto', 250])
     expect(pagesOf(plan!.holder)).toHaveLength(1)
+  })
+
+  it('opens a carousel alone in its row at its opening height', () => {
+    const rows = [row('r1', widget('a')), row('r2', widget('b'))]
+    const plan = planWidgetsGroup(rows, ['a', 'b'], 'carousel', 'none')
+
+    expect(plan?.rows.map((current) => current.height)).toEqual([250])
   })
 
   it('leaves a section sharing its row at the row height', () => {

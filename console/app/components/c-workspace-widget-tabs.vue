@@ -33,6 +33,9 @@ let index = $ref(0)
 
 const shown = $computed(() => widget.tabs[index] ?? null)
 
+// A row sized to its contents gives a tab no height to spread or squeeze into.
+const fitting = $computed(() => container?.height === 'auto')
+
 // Which tab is open is this browser's own place in the workspace rather than part of it so it
 // survives a reload here and goes nowhere else. Held as the tab's ID rather than its position, so
 // tabs reordered or deleted from another seat cannot restore somebody else's tab.
@@ -345,7 +348,8 @@ const stripMenuItems = $computed<DropdownMenuItem[][]>(() => [
       checked: widget.fill,
       onUpdateChecked: (value: boolean) => (widget.fill = value),
     },
-    ...(widget.expand !== 'none'
+    // A row sized to its contents leaves no height to fill, so neither choice applies there.
+    ...(widget.expand !== 'none' && !fitting
       ? [
           {
             label: 'Shrink',
@@ -355,15 +359,19 @@ const stripMenuItems = $computed<DropdownMenuItem[][]>(() => [
           },
         ]
       : []),
-    {
-      label: 'Fill Tab Height',
-      children: layoutExpandOptions.map((option) => ({
-        label: option.label,
-        type: 'checkbox' as const,
-        checked: widget.expand === option.value,
-        onUpdateChecked: () => (widget.expand = option.value),
-      })),
-    },
+    ...(fitting
+      ? []
+      : [
+          {
+            label: 'Fill Tab Height',
+            children: layoutExpandOptions.map((option) => ({
+              label: option.label,
+              type: 'checkbox' as const,
+              checked: widget.expand === option.value,
+              onUpdateChecked: () => (widget.expand = option.value),
+            })),
+          },
+        ]),
   ],
 ])
 
@@ -531,11 +539,11 @@ function tabMenuItems(at: number): DropdownMenuItem[][] {
     <div v-else class="min-h-0 flex-1 overflow-auto px-2 [scrollbar-gutter:stable]">
       <c-workspace-layout
         :key="shown.id"
-        :expand="widget.expand"
+        :expand="fitting ? 'none' : widget.expand"
         :host="container"
         :layout="shown.layout"
         :layout-id="shown.id"
-        :shrink="widget.shrink"
+        :shrink="!fitting && widget.shrink"
       />
     </div>
   </div>

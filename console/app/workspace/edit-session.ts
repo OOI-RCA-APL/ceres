@@ -63,7 +63,7 @@ import {
   type WorkspaceInput,
   WorkspaceModel,
 } from '@/workspace/models'
-import { createWidget, getWidgetInfo, openedRowFor, widgetMinHeight } from '@/workspace/registry'
+import { createWidget, openedRowFor, openedRowHeight, widgetMinHeight } from '@/workspace/registry'
 
 export type WorkspaceContext = ReturnType<typeof createWorkspaceContext>
 
@@ -391,10 +391,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
   Opening at the default row height would leave a short widget above a band of empty space.
   */
   function openedRow(widgets: Widget[], opening: Widget): WidgetRow {
-    return WidgetRowModel.parse({
-      widgets,
-      height: getWidgetInfo(opening.type).options.initialHeight,
-    })
+    return WidgetRowModel.parse({ widgets, height: openedRowHeight([opening]) })
   }
 
   function insertWidget(
@@ -421,8 +418,9 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     } else if (rowObject == null) {
       layout.set([...rows, openedRow(widgets, widget)])
     } else {
+      // A row sized to its contents grows to the widget by itself.
       const minHeight = widgetMinHeight(widget)
-      if (rowObject.height < minHeight) {
+      if (rowObject.height !== 'auto' && rowObject.height < minHeight) {
         rowObject.height = minHeight
       }
 

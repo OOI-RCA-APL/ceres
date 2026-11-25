@@ -18,12 +18,12 @@ const ceres = process.env.CERES_BINARY ?? path.resolve(consoleDirectory, '../.ve
 /** The password of every account the tests create. */
 export const password = 'abcdefgh'
 
-/** A workspace on `@device` holding a "Procedures" widget open on `hold`, tall enough to show its
-buttons. */
+/** A workspace on `@device` holding a "Procedures" widget open on `hold`, in a row sized to show
+all of it. */
 const proceduresWorkspace = {
   layout: [
     {
-      height: 500,
+      height: 'auto',
       widgets: [
         {
           type: 'procedures',
