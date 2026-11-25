@@ -31,7 +31,8 @@ function belongsTo(particle: Particle, source: ParticleSource): boolean {
 }
 
 /** The newest particle `source` holds, fetched whenever the source changes and kept current from
-its live stream.
+its live stream, and the connections of every record seen since, null standing for records that
+name none.
 
 Each change starts a new generation, so a fetch for an earlier source that answers late is
 dropped rather than shown under the new one.
@@ -41,12 +42,20 @@ export function useLatestParticle(source: MaybeRefOrGetter<ParticleSource | null
   const engine = useEngine()
 
   let particle = $ref<Particle | null>(null)
+  let connections = $ref<(string | null)[]>([])
   let generation = 0
 
   const current = $computed(() => toValue(source))
 
-  /** Take `candidate` when it is newer than what is shown. */
+  /** Learn `candidate`'s connection, null for none, and take it when it is newer than what is
+  shown. Every record counts toward the connections, since a source whose clock lags never
+  shows. */
   function offer(candidate: Particle) {
+    const connection = candidate.connection ?? null
+    if (!connections.includes(connection)) {
+      connections = [...connections, connection]
+    }
+
     if (particle == null || utc(candidate.timestamp).isAfter(particle.timestamp)) {
       particle = candidate
     }
@@ -57,6 +66,7 @@ export function useLatestParticle(source: MaybeRefOrGetter<ParticleSource | null
     async () => {
       const fetched = ++generation
       particle = null
+      connections = []
       if (current?.address == null) {
         return
       }
@@ -90,5 +100,5 @@ export function useLatestParticle(source: MaybeRefOrGetter<ParticleSource | null
     },
   })
 
-  return { particle: $$(particle) }
+  return { particle: $$(particle), connections: $$(connections) }
 }

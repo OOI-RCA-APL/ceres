@@ -1,6 +1,5 @@
 <script lang="ts" setup>
 import { useElementSize } from '@vueuse/core'
-import { watch } from 'vue'
 
 import { useEngine } from '@/api/engine'
 import icons from '@/icons'
@@ -34,8 +33,8 @@ let chosen = $ref<string | null>(null)
 
 const connection = $computed(() => widget.particleConnection ?? chosen)
 
-/** The connections the type is known to carry, from its declaration and from the records this
-meter has seen, since an unnarrowed meter learns of a second one only when it arrives. */
+/** The connections the type is known to carry, from its declaration. The records the meter reads
+add the rest, since an unnarrowed meter learns of a second one only when it arrives. */
 const declared = $computed(() => {
   if (address == null || widget.particleType == null) {
     return []
@@ -47,38 +46,25 @@ const declared = $computed(() => {
   )
 })
 
-let seen = $ref<string[]>([])
+const latest = useLatestParticle(() => ({
+  address,
+  type: widget.particleType ?? null,
+  connection,
+}))
+const particle = $(latest.particle)
+const seen = $(latest.connections)
 
-const particle = $(
-  useLatestParticle(() => ({
-    address,
-    type: widget.particleType ?? null,
-    connection,
-  })).particle,
-)
-
-watch(
-  () => [address, widget.particleType, connection],
-  () => (seen = []),
-)
-
-watch(
-  () => particle?.connection,
-  (name) => {
-    if (connection == null && name != null && !seen.includes(name)) {
-      seen = [...seen, name]
-    }
-  },
-)
-
-/** The connections to choose between, set only while the meter would blend several. */
+/** The named connections to choose between, set only while the meter would blend several sources,
+records naming no connection counting as one. Those cannot be chosen, since no filter reads them
+alone. */
 const choices = $computed(() => {
   if (connection != null) {
     return []
   }
 
-  const names = [...new Set([...declared, ...seen])]
-  return names.length > 1 ? names : []
+  const names = [...new Set([...declared, ...seen.filter((name) => name != null)])]
+  const sources = names.length + (seen.includes(null) ? 1 : 0)
+  return sources > 1 ? names : []
 })
 
 function choose(name: string) {
@@ -194,7 +180,7 @@ const fontSize = $computed(() => {
     v-else-if="choices.length > 0"
     class="flex min-h-full flex-1 flex-col items-center justify-center gap-2 p-2"
   >
-    <c-text variant="description">Choose a connection</c-text>
+    <c-text variant="description">Choose Connection</c-text>
     <div class="flex flex-wrap justify-center gap-1">
       <c-button
         v-for="name in choices"

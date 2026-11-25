@@ -45,8 +45,9 @@ written, and the release workflow refuses a version that has no entry here.
 - The data picker lists a type whose records come in on several connections once per connection,
   by the connection's label, and its search matches every word across component, connection,
   type and field. A chart or meter built from such an entry reads that connection alone.
-- A meter on a type with several connections and none chosen asks "Choose a connection" rather
-  than showing whichever reported last. A viewer's choice holds for that view only.
+- A meter reading several connections, records naming none counting as one, shows "Choose
+  Connection" with a button per named connection rather than whichever reported last. A viewer's
+  choice holds for that view only.
 - Chart lines and series list entries name a connection by its label. The series list's
   connection menu is gone, since the picker chooses the connection.
 - A chart carries its range on itself. "Earlier" and "Later" page by the range's length, the

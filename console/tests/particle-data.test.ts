@@ -17,26 +17,43 @@ vi.mock('@/api/engine', () => ({
     },
   }),
 }))
-vi.mock('@/api/client', () => ({ useClient: () => ({ useStream: () => {} }) }))
+/** Hands a record to the latest mounted reader's stream. */
+const streamed = vi.hoisted(() => ({ receive: (_particle: Particle) => {} }))
+vi.mock('@/api/client', () => ({
+  useClient: () => ({
+    useStream: (options: { onReceive: (particle: Particle) => void }) => {
+      streamed.receive = options.onReceive
+    },
+  }),
+}))
 
-function particle(address: string, timestamp: string): Particle {
-  return ParticleModel.parse({ id: address, address, timestamp, type: 'reading', data: {} })
+function particle(address: string, timestamp: string, connection: string | null = null): Particle {
+  return ParticleModel.parse({
+    id: address,
+    address,
+    timestamp,
+    type: 'reading',
+    connection,
+    data: {},
+  })
 }
 
 /** Mounts a reader of `source`, returning what it shows. */
 function reading(source: ReturnType<typeof ref<ParticleSource>>) {
   let shown = (): Particle | null => null
+  let connections = (): (string | null)[] => []
   mount(
     defineComponent({
       setup() {
-        const { particle: latest } = useLatestParticle(() => source.value ?? null)
-        shown = () => latest.value
+        const latest = useLatestParticle(() => source.value ?? null)
+        shown = () => latest.particle.value
+        connections = () => latest.connections.value
         return () => h('div')
       },
     }),
   )
 
-  return () => shown()
+  return Object.assign(() => shown(), { connections: () => connections() })
 }
 
 describe('useLatestParticle', () => {
@@ -53,5 +70,19 @@ describe('useLatestParticle', () => {
     await flushPromises()
 
     expect(shown()?.address.toString()).toBe('@two')
+  })
+
+  it('learns the connection of a record older than the one it shows', async () => {
+    const source = ref<ParticleSource>({ address: '@one', type: 'reading', connection: null })
+    const shown = reading(source)
+    await flushPromises()
+    fetches.get('@one')?.([particle('@one', '2026-01-02T00:00:00Z', 'a')])
+    await flushPromises()
+
+    streamed.receive(particle('@one', '2026-01-01T00:00:00Z', 'b'))
+    streamed.receive(particle('@one', '2026-01-01T00:00:00Z'))
+
+    expect(shown()?.connection).toBe('a')
+    expect(shown.connections()).toEqual(['a', 'b', null])
   })
 })

@@ -7,8 +7,9 @@ import { ParticleModel } from '@/api/particles'
 import CWorkspaceWidgetMeter from '@/components/c-workspace-widget-meter.vue'
 import { MeterWidgetModel } from '@/workspace/models'
 
-// A component whose `reading` records, with a `value` in kPa, come in on two connections, `one`
-// labeled.
+// A component whose `reading` records, with a `value` in kPa, come in on the declared connections,
+// `one` labeled.
+const declared = vi.hoisted(() => ({ connections: [] as string[] }))
 vi.mock('@/api/engine', () => ({
   useEngine: () => ({
     components: {
@@ -17,7 +18,7 @@ vi.mock('@/api/engine', () => ({
           {
             type: 'reading',
             fields: [{ name: 'value', schema: { type: 'number', unit: 'kPa' } }],
-            connections: ['one', 'two'],
+            connections: declared.connections,
           },
         ],
       }),
@@ -37,15 +38,21 @@ vi.mock('@/workspace', () => ({
   }),
 }))
 
-/** The sources meters read, and the newest record each reads. */
+/** The sources meters read, and the newest record and the connections each reads. */
 const sources = vi.hoisted(() => [] as unknown[])
-const latest = vi.hoisted(() => ({ particle: null as unknown }))
+const latest = vi.hoisted(() => ({
+  particle: null as unknown,
+  connections: [] as (string | null)[],
+}))
 vi.mock('@/particle-data', async () => {
   const { computed, toValue } = await import('vue')
   return {
     useLatestParticle: (source: () => unknown) => {
       sources.push(computed(() => toValue(source)))
-      return { particle: computed(() => latest.particle) }
+      return {
+        particle: computed(() => latest.particle),
+        connections: computed(() => latest.connections),
+      }
     },
   }
 })
@@ -73,7 +80,13 @@ function render(connection: string | null, settings: object = {}) {
   )
   const meter = mount(CWorkspaceWidgetMeter, {
     props: { widget },
-    global: { stubs: { 'c-button': Button, 'c-text': { template: '<p><slot /></p>' } } },
+    global: {
+      stubs: {
+        'c-button': Button,
+        'c-text': { template: '<p><slot /></p>' },
+        'c-tooltip': { template: '<slot />' },
+      },
+    },
   })
   return { meter, widget }
 }
@@ -93,13 +106,15 @@ function reading(value: unknown, minutesAgo = 0) {
 beforeEach(() => {
   setActivePinia(createPinia())
   latest.particle = null
+  latest.connections = []
+  declared.connections = ['one', 'two']
 })
 
 describe('a meter on a type with several connections', () => {
   it('asks which connection to show rather than blending them', () => {
     const { meter } = render(null)
 
-    expect(meter.text()).toContain('Choose a connection')
+    expect(meter.text()).toContain('Choose Connection')
     expect(meter.findAll('button').map((button) => button.text())).toEqual(['Port One', 'two'])
   })
 
@@ -121,12 +136,28 @@ describe('a meter on a type with several connections', () => {
     await flushPromises()
 
     expect(widget.particleConnection ?? null).toBeNull()
-    expect(meter.text()).not.toContain('Choose a connection')
+    expect(meter.text()).not.toContain('Choose Connection')
     expect(sources.at(-1)).toMatchObject({ value: { connection: 'two' } })
   })
 
   it('shows a meter narrowed to one connection as it is', () => {
-    expect(render('two').meter.text()).not.toContain('Choose a connection')
+    expect(render('two').meter.text()).not.toContain('Choose Connection')
+  })
+
+  it('counts records naming no connection as a source of their own', () => {
+    declared.connections = ['one']
+    latest.connections = ['one', null]
+    const { meter } = render(null)
+
+    expect(meter.text()).toContain('Choose Connection')
+    expect(meter.findAll('button').map((button) => button.text())).toEqual(['Port One'])
+  })
+
+  it('reads one declared connection as it is', () => {
+    declared.connections = ['one']
+    latest.connections = ['one']
+
+    expect(render(null).meter.text()).not.toContain('Choose Connection')
   })
 })
 
