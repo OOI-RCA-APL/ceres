@@ -61,6 +61,31 @@ test.describe('buttons', () => {
     expect((await bar.boundingBox())?.height).toBeLessThan(80)
   })
 
+  test('dragging one of two picked-out buttons moves both', async ({ engine, page }) => {
+    const bar = await openBar(page, engine)
+    await bar.getByRole('button', { name: 'Echo' }).click({ modifiers: ['ControlOrMeta'] })
+    await bar.getByRole('button', { name: 'Hold' }).click({ modifiers: ['ControlOrMeta'] })
+    const hold = await bar.getByRole('button', { name: 'Hold' }).boundingBox()
+    const chart = await page
+      .locator('[data-widget-id]')
+      .filter({ hasText: 'Readings' })
+      .boundingBox()
+    expect(hold).not.toBeNull()
+    expect(chart).not.toBeNull()
+
+    // Into the gap above the chart's row, which opens a row of its own there.
+    await page.mouse.move(hold!.x + hold!.width / 2, hold!.y + hold!.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(chart!.x + chart!.width / 2, chart!.y - 2, { steps: 10 })
+    await page.waitForTimeout(400)
+    await page.mouse.up()
+
+    await expect(bar.getByRole('button', { name: 'Echo' })).toBeHidden()
+    await expect(bar.getByRole('button', { name: 'Hold' })).toBeHidden()
+    await expect(page.getByRole('button', { name: 'Echo', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Hold', exact: true })).toBeVisible()
+  })
+
   test('a section laying out buttons adds another', async ({ engine, page }) => {
     const bar = await openBar(page, engine)
     await bar.hover()

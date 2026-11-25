@@ -553,6 +553,8 @@ function createWidgetDrop(workspace: WorkspaceContext) {
   const shown = new Map<string, number>()
   let origin: { x: number; y: number } | null = null
   let begun = false
+  /** A press on a picked-out bare widget defers letting go of the selection to its release. */
+  let clearOnRelease = false
 
   let active = $ref(false)
   let placement = $ref<WidgetPlacement | null>(null)
@@ -757,6 +759,11 @@ function createWidgetDrop(workspace: WorkspaceContext) {
       workspace.drag = null
     }
 
+    if (clearOnRelease && !active) {
+      workspace.clearSelection()
+    }
+
+    clearOnRelease = false
     reset()
   }
 
@@ -787,7 +794,14 @@ function createWidgetDrop(workspace: WorkspaceContext) {
       (card == null || !isOnWidgetFrame(event, card)) &&
       target?.closest('[data-dismissable-layer], [role="dialog"]') == null
     ) {
-      workspace.clearSelection()
+      // A press on a picked-out bare widget may start dragging the whole selection, so it lets go
+      // only once the press ends as a click.
+      const id = card?.hasAttribute('data-widget-bare') ? card.getAttribute('data-widget-id') : null
+      if (id != null && workspace.isSelected(id)) {
+        clearOnRelease = true
+      } else {
+        workspace.clearSelection()
+      }
     }
   })
 
