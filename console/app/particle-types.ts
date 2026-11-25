@@ -54,28 +54,96 @@ export function useParticleTypesByAddress(addresses: MaybeRefOrGetter<string[]>)
   return { types: $$(types) }
 }
 
-/** Narrow `types` to what a search string matches, case-insensitively.
+/** One entry of a component's data catalog: a declared particle type on one connection.
 
-A type whose own name matches keeps every field, and one matched through its fields keeps
-only those. Fields match on their names and descriptions.
+A type whose records carry several connections becomes one entry per connection, labeled by it,
+so nothing built from an entry mixes two sources. A type one connection produces keeps the
+look of a plain type but still names its connection, and one no connection is known to produce
+reads from every connection, with `connection` null.
 */
-export function filterParticleTypes(types: ParticleTypeInfo[], filter: string): ParticleTypeInfo[] {
-  if (filter === '') {
-    return types
-  }
+export type ParticleTypeEntry = ParticleTypeInfo & {
+  connection: string | null
+  /** The connection's label, set only where the type has several connections to tell apart. */
+  connectionLabel: string | null
+}
 
-  return types.flatMap((type) => {
-    if (type.type.toLowerCase().includes(filter)) {
-      return [type]
+/** The label `address`'s `connection` shows as, its own name when it declares none or the
+component no longer lists it. */
+export function connectionLabel(
+  engine: ReturnType<typeof useEngine>,
+  address: string,
+  connection: string,
+): string {
+  return engine.components.getConnection(address, connection)?.label ?? connection
+}
+
+/** `types` as catalog entries, in declaration order and each type's connections in the order it
+lists them, labeling a connection through `label`. */
+export function particleTypeEntries(
+  types: ParticleTypeInfo[],
+  label: (connection: string) => string,
+): ParticleTypeEntry[] {
+  return types.flatMap((type): ParticleTypeEntry[] => {
+    if (type.connections.length <= 1) {
+      return [{ ...type, connection: type.connections[0] ?? null, connectionLabel: null }]
     }
 
-    const fields = type.fields.filter(
-      (field) =>
-        field.name.toLowerCase().includes(filter) ||
-        (describeFieldDescription(field.schema) ?? '').toLowerCase().includes(filter),
+    return type.connections.map((connection) => ({
+      ...type,
+      connection,
+      connectionLabel: label(connection),
+    }))
+  })
+}
+
+/** The name an entry shows as, its connection's label leading where it has one. */
+export function describeParticleTypeEntry(entry: ParticleTypeEntry): string {
+  return entry.connectionLabel == null ? entry.type : `${entry.connectionLabel} › ${entry.type}`
+}
+
+/** Narrow `entries` of `address` to what a search string matches, case-insensitively.
+
+Each word of the search must appear somewhere in the text a row composes of its address,
+connection, type and field, so "pres 2" finds the "pressure" field of connection "Pressure 2". An
+entry the search matches without its fields keeps every field, and one matched through its
+fields keeps only those.
+*/
+export function filterParticleEntries(
+  address: string,
+  entries: ParticleTypeEntry[],
+  search: string,
+): ParticleTypeEntry[] {
+  const words = search
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((word) => word !== '')
+  if (words.length === 0) {
+    return entries
+  }
+
+  const matches = (text: string) => words.every((word) => text.includes(word))
+
+  return entries.flatMap((entry) => {
+    const entryText = [
+      address,
+      entry.connectionLabel ?? '',
+      entry.connection ?? '',
+      entry.type,
+      entry.description ?? '',
+    ]
+      .join(' ')
+      .toLowerCase()
+    if (matches(entryText)) {
+      return [entry]
+    }
+
+    const fields = entry.fields.filter((field) =>
+      matches(
+        `${entryText} ${field.name} ${describeFieldDescription(field.schema) ?? ''}`.toLowerCase(),
+      ),
     )
 
-    return fields.length === 0 ? [] : [{ ...type, fields }]
+    return fields.length === 0 ? [] : [{ ...entry, fields }]
   })
 }
 

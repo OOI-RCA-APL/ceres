@@ -12,7 +12,7 @@ import type { DataValue, Option } from '@/chart'
 import CChart from '@/components/c-chart.vue'
 import { html, type SafeHtml, trusted } from '@/html'
 import icons from '@/icons'
-import { useDerivedChartUnit } from '@/particle-types'
+import { connectionLabel, useDerivedChartUnit } from '@/particle-types'
 import { formatParticleValue } from '@/particle-values'
 import { usePreferences } from '@/preferences'
 import { duration, useTime, utc, parseDuration } from '@/time'
@@ -324,7 +324,12 @@ const baseOption: Option = $computed(() => {
     return particle.series.flatMap((series, index) =>
       (connections.length > 0 ? connections : [null]).map((connection) => {
         const base = getSeriesName(series, index)
-        const name = connection == null ? base : `${base} (${connection})`
+        const address = workspace.resolveAddress(particle.address)?.toString() ?? null
+        const label =
+          connection == null || address == null
+            ? connection
+            : connectionLabel(engine, address, connection)
+        const name = label == null ? base : `${base} (${label})`
         const color = seriesColors[lineId(series, connection)]
         const result = {
           // The stable ID is what `replaceMerge` matches on, keeping surviving series merged

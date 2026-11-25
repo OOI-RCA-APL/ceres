@@ -20,6 +20,6 @@ describe('html', () => {
   })
 
   it('keeps markup it built or was vouched for', () => {
-    expect(html`${[html`<br />`, trusted('<i></i>')]}`.text).toBe('<br/><i></i>')
+    expect(html`${[html`<br />`, trusted('<i></i>')]}`.text).toBe('<br /><i></i>')
   })
 })

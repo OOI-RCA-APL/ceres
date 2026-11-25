@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { AddressSelector } from '@/api/address'
 import {
   addParticleSeries,
+  type ParticleFieldRef,
   removeParticleSeries,
   seriesForGroup,
   toggleParticleField,
@@ -21,9 +22,14 @@ function particle(type: string, ...fields: string[]): ChartWidgetParticle {
   })
 }
 
+/** `name` of `address`'s `type`, on `connection` when given. */
+function field(type: string, name: string, connection: string | null = null): ParticleFieldRef {
+  return { address, type, connection, field: name }
+}
+
 describe('toggleParticleField', () => {
   it('creates an entry for a field toggled on with no existing entry', () => {
-    const result = toggleParticleField([], address, 'temperature', 'celsius', true)
+    const result = toggleParticleField([], field('temperature', 'celsius'), true)
 
     expect(result).toHaveLength(1)
     expect(result[0]!.address?.toString()).toBe(address)
@@ -33,7 +39,7 @@ describe('toggleParticleField', () => {
 
   it('adds a field to an existing entry rather than creating a second one', () => {
     const particles = [particle('temperature', 'celsius')]
-    const result = toggleParticleField(particles, address, 'temperature', 'humidity', true)
+    const result = toggleParticleField(particles, field('temperature', 'humidity'), true)
 
     expect(result).toHaveLength(1)
     expect(result[0]!.series.map((series) => series.field).sort()).toEqual(['celsius', 'humidity'])
@@ -41,7 +47,7 @@ describe('toggleParticleField', () => {
 
   it('does not duplicate a field already toggled on', () => {
     const particles = [particle('temperature', 'celsius')]
-    const result = toggleParticleField(particles, address, 'temperature', 'celsius', true)
+    const result = toggleParticleField(particles, field('temperature', 'celsius'), true)
 
     expect(result).toHaveLength(1)
     expect(result[0]!.series.map((series) => series.field)).toEqual(['celsius'])
@@ -49,7 +55,7 @@ describe('toggleParticleField', () => {
 
   it('turns a field off, keeping the entry while another field remains', () => {
     const particles = [particle('temperature', 'celsius', 'humidity')]
-    const result = toggleParticleField(particles, address, 'temperature', 'humidity', false)
+    const result = toggleParticleField(particles, field('temperature', 'humidity'), false)
 
     expect(result).toHaveLength(1)
     expect(result[0]!.series.map((series) => series.field)).toEqual(['celsius'])
@@ -57,7 +63,7 @@ describe('toggleParticleField', () => {
 
   it('removes the entry once its last field turns off', () => {
     const particles = [particle('temperature', 'celsius')]
-    const result = toggleParticleField(particles, address, 'temperature', 'celsius', false)
+    const result = toggleParticleField(particles, field('temperature', 'celsius'), false)
 
     expect(result).toHaveLength(0)
   })
@@ -65,7 +71,7 @@ describe('toggleParticleField', () => {
   it('leaves entries for other addresses and types untouched', () => {
     const other = particle('humidity', 'percent')
     const particles = [other, particle('temperature', 'celsius')]
-    const result = toggleParticleField(particles, address, 'temperature', 'celsius', false)
+    const result = toggleParticleField(particles, field('temperature', 'celsius'), false)
 
     expect(result).toEqual([other])
   })
@@ -74,7 +80,7 @@ describe('toggleParticleField', () => {
     // A stored widget from the old free-form UI, which enforced no uniqueness on address and
     // type, can carry more than one entry for the same pair.
     const particles = [particle('temperature', 'celsius'), particle('temperature', 'humidity')]
-    const result = toggleParticleField(particles, address, 'temperature', 'humidity', false)
+    const result = toggleParticleField(particles, field('temperature', 'humidity'), false)
 
     expect(result).toHaveLength(1)
     expect(result[0]!.series.map((series) => series.field)).toEqual(['celsius'])
@@ -82,10 +88,20 @@ describe('toggleParticleField', () => {
 
   it('removes duplicate entries entirely once every field across them turns off', () => {
     const particles = [particle('temperature', 'celsius'), particle('temperature', 'humidity')]
-    const withoutCelsius = toggleParticleField(particles, address, 'temperature', 'celsius', false)
-    const result = toggleParticleField(withoutCelsius, address, 'temperature', 'humidity', false)
+    const withoutCelsius = toggleParticleField(particles, field('temperature', 'celsius'), false)
+    const result = toggleParticleField(withoutCelsius, field('temperature', 'humidity'), false)
 
     expect(result).toHaveLength(0)
+  })
+
+  it('keeps one connection of a type apart from another', () => {
+    const first = toggleParticleField([], field('pressure', 'value', 'one'), true)
+    const result = toggleParticleField(first, field('pressure', 'value', 'two'), true)
+
+    expect(result.map((entry) => entry.connection)).toEqual(['one', 'two'])
+    expect(toggleParticleField(result, field('pressure', 'value', 'one'), false)).toEqual([
+      result[1],
+    ])
   })
 })
 

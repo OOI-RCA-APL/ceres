@@ -4,13 +4,8 @@ import type { DropdownMenuItem } from '@nuxt/ui'
 import { useEngine } from '@/api/engine'
 import { defaultSeriesColor } from '@/chart'
 import icons from '@/icons'
-import {
-  duplicateParticleGroup,
-  groupConnection,
-  removeParticleSeries,
-  withGroupConnection,
-} from '@/particle-series'
-import { useParticleTypesByAddress } from '@/particle-types'
+import { duplicateParticleGroup, groupConnection, removeParticleSeries } from '@/particle-series'
+import { connectionLabel, useParticleTypesByAddress } from '@/particle-types'
 import { ChartWidgetSeriesTypeModel } from '@/workspace'
 import type { ChartWidgetParticle, ChartWidgetSeries, ChartWidgetSeriesType } from '@/workspace'
 
@@ -90,47 +85,6 @@ const selectedGroups = $computed<SelectedAddressGroup[]>(() => {
   }))
 })
 
-/** The connections a group's type can narrow to.
-
-The type's declared connections are the ones its records carry, so they are the whole
-useful list. A type declaring none is unattributed and falls back to every connection the
-component has, which at least bounds the choice.
-*/
-function connectionsFor(group: SelectedTypeGroup, address: string): string[] {
-  const declared = declaredByAddress
-    .get(address)
-    ?.find((current) => current.type === group.type)?.connections
-  if (declared != null && declared.length > 0) {
-    return [...declared]
-  }
-
-  return (engine.components.get(address)?.connections ?? []).map((connection) => connection.name)
-}
-
-function connectionItems(group: SelectedTypeGroup, address: string): DropdownMenuItem[][] {
-  const every = {
-    label: 'Every Connection',
-    type: 'checkbox' as const,
-    checked: group.connection == null,
-    onSelect: () => (modelValue = withGroupConnection(modelValue, group.index, null)),
-  }
-
-  // A stored connection the list no longer carries still shows as itself.
-  const names = connectionsFor(group, address)
-  if (group.connection != null && !names.includes(group.connection)) {
-    names.push(group.connection)
-  }
-
-  const declared = names.map((connection) => ({
-    label: connection,
-    type: 'checkbox' as const,
-    checked: group.connection === connection,
-    onSelect: () => (modelValue = withGroupConnection(modelValue, group.index, connection)),
-  }))
-
-  return [[every], declared].filter((entries) => entries.length > 0)
-}
-
 function groupItems(group: SelectedTypeGroup): DropdownMenuItem[] {
   return [
     {
@@ -171,29 +125,18 @@ function removeSeries(seriesId: string) {
         levels. -->
         <div class="flex items-center gap-1.5 px-2 py-1">
           <c-text variant="mono-sm">{{ group.address }}::particles::{{ typeGroup.type }}</c-text>
+          <!-- The picker chooses the connection, so the list only names it. -->
+          <c-badge
+            v-if="typeGroup.connection != null"
+            color="neutral"
+            :label="connectionLabel(engine, group.address, typeGroup.connection)"
+            size="sm"
+            variant="subtle"
+          />
           <c-tooltip v-if="typeGroup.warning != null" :text="typeGroup.warning">
             <c-icon class="text-warning shrink-0" :name="icons.warning" size="14" />
           </c-tooltip>
           <div class="grow" />
-          <!-- Narrowing to a connection is the rare case, so unset it is an icon and only a
-          chosen connection takes the room to name itself. -->
-          <c-dropdown-menu
-            :items="connectionItems(typeGroup, group.address)"
-            size="sm"
-            :ui="{ content: 'w-auto min-w-fit' }"
-          >
-            <c-tooltip :text="typeGroup.connection == null ? 'Every Connection' : 'Connection'">
-              <c-button
-                :color="typeGroup.connection == null ? 'neutral' : 'primary'"
-                :icon="icons.connection"
-                :label="typeGroup.connection ?? undefined"
-                size="xs"
-                :square="typeGroup.connection == null"
-                :ui="{ label: 'font-mono text-[10px]' }"
-                variant="ghost"
-              />
-            </c-tooltip>
-          </c-dropdown-menu>
           <c-dropdown-menu :items="groupItems(typeGroup)" size="sm">
             <c-button color="neutral" :icon="icons.more" size="xs" square variant="ghost" />
           </c-dropdown-menu>

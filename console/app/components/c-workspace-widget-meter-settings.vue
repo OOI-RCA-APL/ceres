@@ -30,20 +30,17 @@ const selected = $computed<ParticleFieldRef[]>({
       {
         address: resolvedParticleAddress,
         type: widget.particleType,
+        connection: widget.particleConnection ?? null,
         field: widget.particleField,
       },
     ]
   },
+  // The picker's entry names the connection, so a pick sets all four at once.
   set: (refs) => {
     const ref = refs[0]
-    if (ref == null) {
-      return
+    if (ref != null) {
+      useSource(ref.address, ref.type, ref.field, ref.connection)
     }
-
-    // A connection belongs to the source it narrowed, so another source starts on none.
-    const sameSource = ref.address === resolvedParticleAddress && ref.type === widget.particleType
-    const connection = sameSource ? (widget.particleConnection ?? null) : null
-    useSource(ref.address, ref.type, ref.field, connection)
   },
 })
 

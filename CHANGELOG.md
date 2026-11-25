@@ -42,6 +42,13 @@ written, and the release workflow refuses a version that has no entry here.
 - Chart and meter settings open with a live preview and share one data picker, with "Manual
   Entry" for fields a component does not declare, now with a connection for both.
 - A meter follows a change of its data at once, rather than only after a reload.
+- The data picker lists a type whose records come in on several connections once per connection,
+  by the connection's label, and its search matches every word across component, connection,
+  type and field. A chart or meter built from such an entry reads that connection alone.
+- A meter on a type with several connections and none chosen asks "Choose a connection" rather
+  than showing whichever reported last. A viewer's choice holds for that view only.
+- Chart lines and series list entries name a connection by its label. The series list's
+  connection menu is gone, since the picker chooses the connection.
 - Chart tooltips escape series names and values.
 - Procedure pages offer "Abort" during a call. Leaving the page also aborts the request.
 - A procedure's "Execute" is disabled for a user whose access cannot invoke it.

@@ -1,11 +1,16 @@
 <script lang="ts" setup>
 import { Address } from '@/api/address'
-import type { ParticleTypeInfo } from '@/api/components'
 import { useEngine } from '@/api/engine'
 import icons from '@/icons'
 import { fieldRefKey, toggleParticleField, typeRefKey } from '@/particle-series'
 import type { ParticleFieldRef, ParticleTypeRef } from '@/particle-series'
-import { filterParticleTypes, useParticleTypesByAddress } from '@/particle-types'
+import {
+  connectionLabel,
+  filterParticleEntries,
+  particleTypeEntries,
+  type ParticleTypeEntry,
+  useParticleTypesByAddress,
+} from '@/particle-types'
 import { createRowSelection } from '@/row-selection'
 import { useWorkspace } from '@/workspace'
 import type { ChartWidgetParticle, SelectMode } from '@/workspace'
@@ -70,8 +75,13 @@ const selectedKeys = $computed(() => new Set(selected.map(fieldRefKey)))
 const flatOrder = $computed<ParticleFieldRef[]>(() =>
   visibleNodes.flatMap((node) => {
     const address = node.toString()
-    return (filteredByAddress.get(address) ?? []).flatMap((type) =>
-      type.fields.map((field) => ({ address, type: type.type, field: field.name })),
+    return (filteredByAddress.get(address) ?? []).flatMap((entry) =>
+      entry.fields.map((field) => ({
+        address,
+        type: entry.type,
+        connection: entry.connection,
+        field: field.name,
+      })),
     )
   }),
 )
@@ -79,8 +89,7 @@ const flatOrder = $computed<ParticleFieldRef[]>(() =>
 // The row a shift range extends from, whichever was last chosen on its own.
 let anchor = $ref<string | null>(null)
 
-function onSelect(address: string, type: string, field: string, mode: SelectMode) {
-  const ref: ParticleFieldRef = { address, type, field }
+function onSelect(ref: ParticleFieldRef, mode: SelectMode) {
   const key = fieldRefKey(ref)
   typeRows.clear()
 
@@ -110,8 +119,7 @@ function onSelect(address: string, type: string, field: string, mode: SelectMode
 }
 
 // A right click acts on the selection, so a row outside it becomes the selection first.
-function onContext(address: string, type: string, field: string, event: MouseEvent) {
-  const ref: ParticleFieldRef = { address, type, field }
+function onContext(ref: ParticleFieldRef, event: MouseEvent) {
   typeRows.clear()
   if (!selectedKeys.has(fieldRefKey(ref))) {
     selected = [ref]
@@ -126,7 +134,11 @@ selection of them reads back in. */
 const typeOrder = $computed<ParticleTypeRef[]>(() =>
   visibleNodes.flatMap((node) => {
     const address = node.toString()
-    return (filteredByAddress.get(address) ?? []).map((type) => ({ address, type: type.type }))
+    return (filteredByAddress.get(address) ?? []).map((entry) => ({
+      address,
+      type: entry.type,
+      connection: entry.connection,
+    }))
   }),
 )
 
@@ -148,8 +160,8 @@ function typesFor(keys: string[]): ParticleTypeRef[] {
   return typeOrder.filter((ref) => wanted.has(typeRefKey(ref)))
 }
 
-function onTypeSelect(address: string, type: string, mode: SelectMode) {
-  typeRows.select(typeRefKey({ address, type }), mode)
+function onTypeSelect(ref: ParticleTypeRef, mode: SelectMode) {
+  typeRows.select(typeRefKey(ref), mode)
 
   // The tree carries one selection, and the two act on different things, so picking a header
   // puts the fields down.
@@ -158,13 +170,13 @@ function onTypeSelect(address: string, type: string, mode: SelectMode) {
   }
 }
 
-function onTypeContext(address: string, type: string, event: MouseEvent) {
-  typeRows.ensureSelected(typeRefKey({ address, type }))
+function onTypeContext(ref: ParticleTypeRef, event: MouseEvent) {
+  typeRows.ensureSelected(typeRefKey(ref))
   emit('typeContext', event, typesFor(typeRows.selected()))
 }
 
-function onTypePress(address: string, type: string, event: PointerEvent) {
-  const keys = typeRows.pressTargets(typeRefKey({ address, type }), event)
+function onTypePress(ref: ParticleTypeRef, event: PointerEvent) {
+  const keys = typeRows.pressTargets(typeRefKey(ref), event)
   if (keys != null) {
     emit('typePress', event, typesFor(keys))
   }
@@ -207,17 +219,27 @@ const declaredByAddress = $(
   useParticleTypesByAddress(() => addressNodes.map((node) => node.toString())).types,
 )
 
-// Filtered once for the whole tree, deciding address visibility here and handed down as each
-// child's rows. An address whose own name matches keeps everything under it.
-const filteredByAddress = $computed<Map<string, ParticleTypeInfo[]>>(() => {
-  const map = new Map<string, ParticleTypeInfo[]>()
-  for (const [address, types] of declaredByAddress) {
-    const effective = address.toLowerCase().includes(normalizedFilter) ? '' : normalizedFilter
-    map.set(address, filterParticleTypes(types, effective))
-  }
+const entriesByAddress = $computed<Map<string, ParticleTypeEntry[]>>(
+  () =>
+    new Map(
+      [...declaredByAddress].map(([address, types]) => [
+        address,
+        particleTypeEntries(types, (name) => connectionLabel(engine, address, name)),
+      ]),
+    ),
+)
 
-  return map
-})
+// Filtered once for the whole tree, deciding address visibility here and handed down as each
+// child's rows.
+const filteredByAddress = $computed<Map<string, ParticleTypeEntry[]>>(
+  () =>
+    new Map(
+      [...entriesByAddress].map(([address, entries]) => [
+        address,
+        filterParticleEntries(address, entries, normalizedFilter),
+      ]),
+    ),
+)
 
 // Addresses declaring nothing sink to the bottom since they offer nothing to pick, and a
 // search drops them along with everything else it does not match.
@@ -235,8 +257,8 @@ const visibleNodes = $computed<Address[]>(() => {
   return declaring.filter((node) => (filteredByAddress.get(node.toString())?.length ?? 0) > 0)
 })
 
-function toggleField(address: string, type: string, field: string, value: boolean) {
-  modelValue = toggleParticleField(modelValue, address, type, field, value)
+function toggleField(ref: ParticleFieldRef, value: boolean) {
+  modelValue = toggleParticleField(modelValue, ref, value)
 }
 </script>
 
@@ -284,16 +306,13 @@ function toggleField(address: string, type: string, field: string, value: boolea
           :selected-type-keys="selectedTypeKeys"
           :selection-mode="selectionMode"
           :shown-types="filteredByAddress.get(node.toString()) ?? []"
-          @context="(type, field, event) => onContext(node.toString(), type, field, event)"
-          @press="
-            (type, field, event) =>
-              emit('itemPress', event, { address: node.toString(), type, field })
-          "
-          @select="(type, field, mode) => onSelect(node.toString(), type, field, mode)"
-          @toggle="(type, field, value) => toggleField(node.toString(), type, field, value)"
-          @type-context="(type, event) => onTypeContext(node.toString(), type, event)"
-          @type-press="(type, event) => onTypePress(node.toString(), type, event)"
-          @type-select="(type, mode) => onTypeSelect(node.toString(), type, mode)"
+          @context="onContext"
+          @press="(ref, event) => emit('itemPress', event, ref)"
+          @select="onSelect"
+          @toggle="toggleField"
+          @type-context="onTypeContext"
+          @type-press="onTypePress"
+          @type-select="onTypeSelect"
         />
       </div>
     </div>
