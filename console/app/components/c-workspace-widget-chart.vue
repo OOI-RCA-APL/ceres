@@ -10,8 +10,10 @@ import type { Particle } from '@/api/particles'
 import { anchoredAtZero, chartPalette } from '@/chart'
 import type { DataValue, Option } from '@/chart'
 import CChart from '@/components/c-chart.vue'
+import { html, type SafeHtml, trusted } from '@/html'
 import icons from '@/icons'
 import { useDerivedChartUnit } from '@/particle-types'
+import { formatParticleValue } from '@/particle-values'
 import { usePreferences } from '@/preferences'
 import { duration, useTime, utc, parseDuration } from '@/time'
 import { debouncedComputed, formatNumber, toTitle } from '@/utilities'
@@ -366,11 +368,11 @@ const baseOption: Option = $computed(() => {
 
         const header = utc(params[0].value[0]).format('YYYY-MM-DD HH:mm:ss.SSS') + ' UTC'
         const lines = params.map((p: any) => {
-          const value = p.value[1]
-          const read = typeof value === 'number' ? formatNumber(value, widget.decimals) : value
-          return `${p.marker} ${p.seriesName}: <strong>${read}${unit ? ' ' + unit : ''}</strong>`
+          const read = formatParticleValue(p.value[1], widget.decimals)
+          return html`${trusted(p.marker)} ${p.seriesName}:
+            <strong>${read}${unit ? ' ' + unit : ''}</strong>`
         })
-        return `${header}<br/>${lines.join('<br/>')}`
+        return html`${header}${lines.map((line: SafeHtml) => html`<br />${line}`)}`.text
       },
     },
     // Counted over the lines drawn rather than the series configured, a group split by

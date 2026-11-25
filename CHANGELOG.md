@@ -39,6 +39,10 @@ written, and the release workflow refuses a version that has no entry here.
   and pressing it still runs it. A section, tab or carousel slide set to "Arrange: Flex" lays its
   buttons out side by side at their own sizes, wrapping as needed. Creating buttons for several
   actions makes such a section.
+- Chart and meter settings open with a live preview and share one data picker, with "Manual
+  Entry" for fields a component does not declare, now with a connection for both.
+- A meter follows a change of its data at once, rather than only after a reload.
+- Chart tooltips escape series names and values.
 - Procedure pages offer "Abort" during a call. Leaving the page also aborts the request.
 - A procedure's "Execute" is disabled for a user whose access cannot invoke it.
 - Schema form labels are tied to their fields, so a screen reader announces a field by its

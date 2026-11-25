@@ -325,7 +325,7 @@ function dropTypeViews(form: 'combined' | 'separate') {
   <div v-if="types.length > 0" ref="section" class="border-default rounded-md border">
     <c-detail-section v-model:expanded="expanded" :title="`Particles (${types.length})`">
       <c-context-menu :items="menuItems">
-        <c-particle-series-selector
+        <c-particle-data-picker
           ref="selector"
           v-model:expanded-types="expandedTypes"
           v-model:selected="selection"

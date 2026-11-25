@@ -1,12 +1,7 @@
 <script lang="ts" setup>
-import { computed, onMounted } from 'vue'
-
-import { useClient } from '@/api/client'
-import { useEngine } from '@/api/engine'
-import { ParticleModel } from '@/api/particles'
-import type { Particle } from '@/api/particles'
+import { useLatestParticle } from '@/particle-data'
+import { formatParticleValue, particleFieldValue } from '@/particle-values'
 import { displayDuration, useTime, utc } from '@/time'
-import { formatNumber } from '@/utilities'
 import { useWorkspace } from '@/workspace'
 import type { MeterWidget } from '@/workspace'
 
@@ -14,49 +9,16 @@ const { widget } = defineProps<{
   widget: MeterWidget
 }>()
 
-const client = useClient()
-const engine = useEngine()
 const time = useTime()
 const workspace = useWorkspace()
 
-const resolvedParticleAddress = $computed(() => workspace.resolveAddress(widget.particleAddress))
-
-let particle = $ref<Particle | null>(null)
-
-const value = $computed(() => {
-  if (particle == null) {
-    return undefined
-  }
-
-  let value: unknown
-  if (widget.particleField) {
-    value = particle.data[widget.particleField]
-  } else {
-    value = particle.data
-  }
-
-  return value
-})
-
-onMounted(async () => {
-  const latest = (
-    await engine.particles.getAll({
-      address: resolvedParticleAddress,
-      type: widget.particleType,
-      connection: widget.particleConnection,
-      order: 'timestamp:desc',
-      limit: 1,
-    })
-  )?.[0]
-
-  if (latest == null) {
-    return
-  }
-
-  if (particle == null || utc(latest.timestamp).isAfter(particle.timestamp)) {
-    particle = latest
-  }
-})
+const particle = $(
+  useLatestParticle(() => ({
+    address: workspace.resolveAddress(widget.particleAddress)?.toString() ?? null,
+    type: widget.particleType ?? null,
+    connection: widget.particleConnection ?? null,
+  })).particle,
+)
 
 const textWeight = $computed(() => {
   switch (widget.fontWeight) {
@@ -79,24 +41,11 @@ const textStyle = $computed(() => {
   }
 })
 
-const stringified = $computed(() => {
-  if (particle == null) {
-    return ''
-  }
-  if (value === undefined) {
-    return '(No Value)'
-  }
-
-  if (typeof value === 'string') {
-    return value
-  }
-
-  if (typeof value === 'number') {
-    return formatNumber(value, widget.decimals)
-  }
-
-  return JSON.stringify(value)
-})
+const stringified = $computed(() =>
+  particle == null
+    ? ''
+    : formatParticleValue(particleFieldValue(particle, widget.particleField), widget.decimals),
+)
 
 const display = $computed(() => {
   let current = stringified
@@ -126,23 +75,6 @@ const updatedAt = $computed(() => {
   }
 
   return `${displayDuration(age, { decimals: 0, short: true })} ago`
-})
-
-client.useStream({
-  stream: computed(() => ({
-    path: '/api/particles',
-    query: {
-      address: resolvedParticleAddress,
-      type: widget.particleType,
-      connection: widget.particleConnection,
-    },
-  })),
-  parse: ParticleModel,
-  onReceive: (latest: Particle) => {
-    if (particle == null || utc(latest.timestamp).isAfter(particle.timestamp)) {
-      particle = latest
-    }
-  },
 })
 </script>
 

@@ -121,16 +121,17 @@ export function toggleParticleField(
   return withGroupSeries(particles, address, type, null, series)
 }
 
-/** Add one series entry for `address`'s `type`, merging into any existing entry for the group the
-way a toggle does. */
+/** Add one series entry for `address`'s `type` on `connection`, merging into any existing entry
+for the group the way a toggle does. */
 export function addParticleSeries(
   particles: ChartWidgetParticle[],
   address: string,
   type: string,
   series: ChartWidgetSeries,
+  connection: string | null = null,
 ): ChartWidgetParticle[] {
-  return withGroupSeries(particles, address, type, null, [
-    ...seriesForGroup(particles, address, type),
+  return withGroupSeries(particles, address, type, connection, [
+    ...seriesForGroup(particles, address, type, connection),
     series,
   ])
 }

@@ -1,6 +1,8 @@
 <script lang="ts" setup>
+import type { ParticleManualEntry } from '@/components/c-particle-manual-entry.vue'
+import { addParticleSeries } from '@/particle-series'
 import { useDerivedChartUnit } from '@/particle-types'
-import { ChartWidgetFitModel, useWorkspace } from '@/workspace'
+import { ChartWidgetFitModel, ChartWidgetSeriesModel, useWorkspace } from '@/workspace'
 import type { ChartWidget } from '@/workspace'
 
 const { widget } = defineProps<{
@@ -11,14 +13,30 @@ const workspace = useWorkspace()
 
 // Offered as the unit input's placeholder so a blank setting says what the chart will show.
 const derivedUnit = $(useDerivedChartUnit(() => widget, workspace).unit)
+
+function addEntry(entry: ParticleManualEntry) {
+  const series = ChartWidgetSeriesModel.parse({ field: entry.field, label: entry.label })
+  widget.particles = addParticleSeries(
+    widget.particles,
+    entry.address,
+    entry.type,
+    series,
+    entry.connection,
+  )
+}
 </script>
 
 <template>
   <c-workspace-widget-settings :widget>
-    <c-text class="mb-2" variant="title2">Particles</c-text>
-    <!-- The selector's own "Manual Entry" section carries the margin under it. -->
-    <c-particle-series-selector v-model="widget.particles" collapse-unselected show-selected />
-    <c-text class="mb-2" variant="title2">Time Range</c-text>
+    <!-- The chart itself, so every change below shows as it is made. -->
+    <div class="border-default mb-4 h-48 overflow-hidden rounded-md border p-2">
+      <c-workspace-widget-chart :widget="widget" />
+    </div>
+    <c-text class="mb-2" variant="title2">Data</c-text>
+    <c-particle-data-picker v-model="widget.particles" class="mb-2" collapse-unselected />
+    <c-particle-manual-entry class="mb-2" labeled @choose="addEntry" />
+    <c-chart-series-list v-model="widget.particles" class="mb-4" />
+    <c-text class="mb-2" variant="title2">Range</c-text>
     <div class="mb-4 grid grid-cols-2 gap-x-2">
       <c-schema-form-value
         v-model="widget.after"
