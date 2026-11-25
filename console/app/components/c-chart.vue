@@ -83,8 +83,12 @@ let element = $shallowRef<HTMLDivElement | null>(null)
 
 const isVisible = $(useElementVisibility(() => container))
 
-/** The select-zoom feature a drag runs through. ECharts sets the feature up only in a toolbox it
-shows, so the toolbox shows with no buttons to see, the drag itself being the control. */
+/** The select-zoom feature a drag runs through, the drag itself being the control.
+
+@workaround ECharts 6.1.0 `lib/component/toolbox/ToolboxView.js` renders nothing, the dataZoom
+feature's select handler included, when the toolbox has `show: false`. The toolbox therefore
+shows with zero-size icons, and hiding it would silently disable drag zoom.
+*/
 const brushOption: Option = {
   toolbox: {
     show: true,
