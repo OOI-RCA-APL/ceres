@@ -165,6 +165,15 @@ export const MeterWidgetModel = BaseWidgetModel.extend({
   fontWeight: TextWeightModel.default('normal').catch('normal'),
   prefix: z.string().nullish(),
   suffix: z.string().nullish(),
+  /** The unit after the value, the field's declared unit when unset. */
+  unit: z.string().nullish(),
+  /** Bounds coloring a numeric value, warning first and error over it. Each is optional. */
+  warningBelow: z.number().nullish().catch(null),
+  warningAbove: z.number().nullish().catch(null),
+  errorBelow: z.number().nullish().catch(null),
+  errorAbove: z.number().nullish().catch(null),
+  /** How old the newest record may grow before the value dims, as a duration such as `5m`. */
+  staleAfter: z.union([z.number(), z.string()]).nullish().catch(null),
 })
 
 export type VideoWidget = z.infer<typeof VideoWidgetModel>

@@ -1,11 +1,12 @@
 <script lang="ts" setup>
+import { useElementSize } from '@vueuse/core'
 import { watch } from 'vue'
 
 import { useEngine } from '@/api/engine'
 import { useLatestParticle } from '@/particle-data'
-import { connectionLabel } from '@/particle-types'
-import { formatParticleValue, particleFieldValue } from '@/particle-values'
-import { displayDuration, useTime, utc } from '@/time'
+import { connectionLabel, fieldUnit } from '@/particle-types'
+import { formatParticleValue, particleFieldValue, thresholdLevel } from '@/particle-values'
+import { displayDuration, parseDuration, useTime, utc } from '@/time'
 import { useWorkspace } from '@/workspace'
 import type { MeterWidget } from '@/workspace'
 
@@ -95,48 +96,75 @@ const textWeight = $computed(() => {
   }
 })
 
-const textStyle = $computed(() => {
-  const fontSize = Math.max(Math.min(widget.fontSize ?? 18, 60), 0)
-  return {
-    fontSize: `${fontSize}px`,
-    fontWeight: textWeight,
-  }
-})
-
-const stringified = $computed(() =>
-  particle == null
-    ? ''
-    : formatParticleValue(particleFieldValue(particle, widget.particleField), widget.decimals),
+const value = $computed(() =>
+  particle == null ? undefined : particleFieldValue(particle, widget.particleField),
 )
 
-const display = $computed(() => {
-  let current = stringified
-  if (current.trim() === '') {
-    return ' '
-  }
-
-  if (widget.prefix) {
-    current = `${widget.prefix}${current}`
-  }
-  if (widget.suffix) {
-    current = `${current}${widget.suffix}`
-  }
-
-  return current
+const declaredUnit = $computed(() => {
+  const types = address == null ? [] : (engine.components.get(address)?.particles ?? [])
+  return fieldUnit(types, widget.particleType, widget.particleField)
 })
 
-const updatedAt = $computed(() => {
+/** The unit after the value: the setting, or the unit the field declares. */
+const unit = $computed(() => widget.unit?.trim() || declaredUnit || '')
+
+const display = $computed(() => {
   if (particle == null) {
     return ''
   }
 
-  const timestamp = utc(particle.timestamp)
-  const age = time.nowFast.diff(timestamp, 'second')
-  if (age < 1.5) {
-    return 'Now'
+  const read = formatParticleValue(value, widget.decimals)
+  return `${widget.prefix ?? ''}${read}${unit === '' ? '' : ` ${unit}`}${widget.suffix ?? ''}`
+})
+
+const level = $computed(() => thresholdLevel(value, widget))
+
+const age = $computed(() =>
+  particle == null ? null : time.nowFast.diff(utc(particle.timestamp), 'millisecond'),
+)
+
+const staleAfter = $computed(() => {
+  try {
+    return widget.staleAfter == null ? null : parseDuration(widget.staleAfter).asMilliseconds()
+  } catch {
+    return null
+  }
+})
+
+const isStale = $computed(() => age != null && staleAfter != null && age > staleAfter)
+
+const updatedAt = $computed(() => {
+  if (age == null) {
+    return ''
   }
 
-  return `${displayDuration(age, { decimals: 0, short: true })} ago`
+  return age < 1500 ? 'Now' : `${displayDuration(age / 1000, { decimals: 0, short: true })} ago`
+})
+
+let box = $ref<HTMLElement | null>(null)
+let sample = $ref<HTMLElement | null>(null)
+
+const { width: boxWidth, height: boxHeight } = useElementSize(() => box)
+const { width: sampleWidth, height: sampleHeight } = useElementSize(() => sample)
+
+/** The size the text is drawn at, the setting or else the largest that fits the box, read from
+the text drawn once at `sampleSize` out of sight. */
+const sampleSize = 100
+const fontSize = $computed(() => {
+  if (widget.fontSize != null) {
+    return widget.fontSize
+  }
+
+  if (sampleWidth.value === 0 || sampleHeight.value === 0) {
+    return 18
+  }
+
+  // The age line takes the bottom of the box, so the value keeps clear of it.
+  const scale = Math.min(
+    (boxWidth.value * 0.9) / sampleWidth.value,
+    (boxHeight.value * 0.75) / sampleHeight.value,
+  )
+  return Math.max(8, Math.floor(sampleSize * scale))
 })
 </script>
 
@@ -159,14 +187,38 @@ const updatedAt = $computed(() => {
       />
     </div>
   </div>
-  <div v-else class="relative flex min-h-full flex-1 items-center justify-center overflow-hidden">
-    <div class="text-center">
-      <div class="m-0 p-0 font-extralight whitespace-pre-wrap" :style="textStyle">
-        {{ display }}
-      </div>
-      <div class="absolute right-1 bottom-0.5 text-[10px] opacity-50">
-        {{ updatedAt }}
-      </div>
+  <div
+    v-else
+    ref="box"
+    class="relative flex h-full min-h-full flex-1 items-center justify-center overflow-hidden"
+  >
+    <!-- The text at a known size, out of sight, which the fitted size scales from. -->
+    <span
+      ref="sample"
+      aria-hidden="true"
+      class="invisible absolute whitespace-pre"
+      :style="{ fontSize: `${sampleSize}px`, fontWeight: textWeight }"
+    >
+      {{ display || ' ' }}
+    </span>
+    <div
+      class="m-0 p-0 text-center whitespace-pre transition-opacity"
+      :class="[
+        level === 'error' && 'text-error',
+        level === 'warning' && 'text-warning',
+        isStale && 'opacity-40',
+      ]"
+      data-meter-value
+      :style="{ fontSize: `${fontSize}px`, fontWeight: textWeight }"
+    >
+      {{ display || ' ' }}
+    </div>
+    <div
+      class="absolute right-1 bottom-0.5 text-[10px]"
+      :class="isStale ? 'text-warning' : 'opacity-50'"
+      data-meter-age
+    >
+      {{ updatedAt }}
     </div>
   </div>
 </template>

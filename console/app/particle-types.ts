@@ -230,6 +230,18 @@ export function useDerivedChartUnit(
   return { unit: $$(unit) }
 }
 
+/** The unit `type`'s `field` declares among `types`, when it declares one. */
+export function fieldUnit(
+  types: ParticleTypeInfo[],
+  type: string | null | undefined,
+  field: string | null | undefined,
+): string | undefined {
+  const schema = types
+    .find((current) => current.type === type)
+    ?.fields.find((current) => current.name === field)?.schema
+  return schema == null ? undefined : describeFieldUnit(schema)
+}
+
 /** The measurement unit `schema` carries, published by the `Unit()` field marker.
 
 An optional field holds the unit on its non-null `anyOf` member rather than at the top, so

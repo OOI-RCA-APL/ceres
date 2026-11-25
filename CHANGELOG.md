@@ -59,6 +59,10 @@ written, and the release workflow refuses a version that has no entry here.
   whole span up to now.
 - A chart group reading every connection draws records naming no connection, or a connection
   found after the chart opened, on lines of their own rather than dropping them.
+- A meter shows the unit its field declares unless "Unit" sets another, colors its value past
+  optional warning and error bounds, and dims once its newest record is older than "Stale
+  After". Its text fits the meter unless "Font Size" sets one, so a stored meter without a font
+  size now fills its widget.
 - Chart tooltips escape series names and values.
 - Procedure pages offer "Abort" during a call. Leaving the page also aborts the request.
 - A procedure's "Execute" is disabled for a user whose access cannot invoke it.

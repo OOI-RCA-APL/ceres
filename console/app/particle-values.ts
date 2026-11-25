@@ -19,3 +19,30 @@ export function formatParticleValue(value: unknown, decimals: number): string {
 
   return typeof value === 'string' ? value : JSON.stringify(value)
 }
+
+/** The bounds a value is judged against, each optional. */
+export type ValueThresholds = {
+  warningBelow?: number | null
+  warningAbove?: number | null
+  errorBelow?: number | null
+  errorAbove?: number | null
+}
+
+export type ThresholdLevel = 'warning' | 'error'
+
+/** The level `value` crosses, error over warning. Only a number is compared, so text and a
+missing value cross nothing. */
+export function thresholdLevel(value: unknown, thresholds: ValueThresholds): ThresholdLevel | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return null
+  }
+
+  const crosses = (below?: number | null, above?: number | null) =>
+    (below != null && value < below) || (above != null && value > above)
+
+  if (crosses(thresholds.errorBelow, thresholds.errorAbove)) {
+    return 'error'
+  }
+
+  return crosses(thresholds.warningBelow, thresholds.warningAbove) ? 'warning' : null
+}

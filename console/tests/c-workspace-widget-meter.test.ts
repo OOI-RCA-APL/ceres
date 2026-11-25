@@ -3,14 +3,24 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, h, reactive } from 'vue'
 
+import { ParticleModel } from '@/api/particles'
 import CWorkspaceWidgetMeter from '@/components/c-workspace-widget-meter.vue'
 import { MeterWidgetModel } from '@/workspace/models'
 
-// A component whose `reading` records come in on two connections, `one` labeled.
+// A component whose `reading` records, with a `value` in kPa, come in on two connections, `one`
+// labeled.
 vi.mock('@/api/engine', () => ({
   useEngine: () => ({
     components: {
-      get: () => ({ particles: [{ type: 'reading', fields: [], connections: ['one', 'two'] }] }),
+      get: () => ({
+        particles: [
+          {
+            type: 'reading',
+            fields: [{ name: 'value', schema: { type: 'number', unit: 'kPa' } }],
+            connections: ['one', 'two'],
+          },
+        ],
+      }),
       getConnection: (_address: string, name: string) =>
         name === 'one' ? { name, label: 'Port One' } : null,
     },
@@ -27,13 +37,15 @@ vi.mock('@/workspace', () => ({
   }),
 }))
 
+/** The sources meters read, and the newest record each reads. */
 const sources = vi.hoisted(() => [] as unknown[])
+const latest = vi.hoisted(() => ({ particle: null as unknown }))
 vi.mock('@/particle-data', async () => {
   const { computed, toValue } = await import('vue')
   return {
     useLatestParticle: (source: () => unknown) => {
       sources.push(computed(() => toValue(source)))
-      return { particle: computed(() => null) }
+      return { particle: computed(() => latest.particle) }
     },
   }
 })
@@ -47,7 +59,7 @@ const Button = defineComponent({
   },
 })
 
-function render(connection: string | null) {
+function render(connection: string | null, settings: object = {}) {
   const widget = reactive(
     MeterWidgetModel.parse({
       id: 'meter',
@@ -56,6 +68,7 @@ function render(connection: string | null) {
       particleType: 'reading',
       particleField: 'value',
       particleConnection: connection,
+      ...settings,
     }),
   )
   const meter = mount(CWorkspaceWidgetMeter, {
@@ -65,9 +78,24 @@ function render(connection: string | null) {
   return { meter, widget }
 }
 
-describe('a meter on a type with several connections', () => {
-  beforeEach(() => setActivePinia(createPinia()))
+/** A reading of `value` taken `minutesAgo` minutes ago. */
+function reading(value: unknown, minutesAgo = 0) {
+  return ParticleModel.parse({
+    id: 'reading',
+    address: '@gauge',
+    timestamp: new Date(Date.now() - minutesAgo * 60_000).toISOString(),
+    type: 'reading',
+    connection: 'two',
+    data: { value },
+  })
+}
 
+beforeEach(() => {
+  setActivePinia(createPinia())
+  latest.particle = null
+})
+
+describe('a meter on a type with several connections', () => {
   it('asks which connection to show rather than blending them', () => {
     const { meter } = render(null)
 
@@ -99,5 +127,30 @@ describe('a meter on a type with several connections', () => {
 
   it('shows a meter narrowed to one connection as it is', () => {
     expect(render('two').meter.text()).not.toContain('Choose a connection')
+  })
+})
+
+describe('a meter reading', () => {
+  /** The value element of a meter on connection `two` reading `value`. */
+  function valueOf(value: unknown, settings: object = {}, minutesAgo = 0) {
+    latest.particle = reading(value, minutesAgo)
+    return render('two', settings).meter.find('[data-meter-value]')
+  }
+
+  it('reads with the unit its field declares, or the one set', () => {
+    expect(valueOf(3.14159).text()).toBe('3.14 kPa')
+    expect(valueOf(3.14159, { unit: 'bar', decimals: 1 }).text()).toBe('3.1 bar')
+  })
+
+  it('takes the color of the bound it crosses, error over warning', () => {
+    const settings = { warningAbove: 2, errorAbove: 5 }
+    expect(valueOf(1, settings).classes()).not.toContain('text-warning')
+    expect(valueOf(3, settings).classes()).toContain('text-warning')
+    expect(valueOf(6, settings).classes()).toContain('text-error')
+  })
+
+  it('dims once its newest record is older than "Stale After"', () => {
+    expect(valueOf(1, { staleAfter: '5m' }, 1).classes()).not.toContain('opacity-40')
+    expect(valueOf(1, { staleAfter: '5m' }, 10).classes()).toContain('opacity-40')
   })
 })

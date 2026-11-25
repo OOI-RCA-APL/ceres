@@ -1,7 +1,21 @@
 import { describe, expect, it } from 'vitest'
 
 import { html, trusted } from '@/html'
-import { formatParticleValue } from '@/particle-values'
+import { formatParticleValue, thresholdLevel } from '@/particle-values'
+
+describe('thresholdLevel', () => {
+  const thresholds = { warningBelow: 0, warningAbove: 10, errorAbove: 20 }
+
+  it.each([
+    [5, null],
+    [-1, 'warning'],
+    [15, 'warning'],
+    [25, 'error'],
+    ['25', null],
+  ])('judges %j as %s', (value, level) => {
+    expect(thresholdLevel(value, thresholds)).toBe(level)
+  })
+})
 
 describe('formatParticleValue', () => {
   it.each([
