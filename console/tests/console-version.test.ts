@@ -77,6 +77,22 @@ describe('useConsoleVersion', () => {
     expect(consoleVersion.outdated).toBe(true)
   })
 
+  it('writes while the engine serves this build', async () => {
+    const consoleVersion = started()
+    consoleVersion.learn('1.0.0')
+
+    expect(await consoleVersion.unlessOutdated(async () => 'abc')).toBe('abc')
+  })
+
+  it('skips a write once the engine serves another build', async () => {
+    const consoleVersion = started()
+    const write = vi.fn(async () => 'abc')
+    consoleVersion.learn('1.1.0')
+
+    expect(await consoleVersion.unlessOutdated(write)).toBeNull()
+    expect(write).not.toHaveBeenCalled()
+  })
+
   it('checks nothing before it starts', async () => {
     const fetch = serve()
 

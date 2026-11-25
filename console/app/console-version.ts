@@ -19,6 +19,8 @@ export const useConsoleVersion = defineStore('console-version', () => {
   let latestUrl: string | null = null
   let checking: Promise<void> | null = null
 
+  const outdated = $computed(() => running != null && served != null && served !== running)
+
   /** Start comparing this page's build `version` with the build named at `url`. */
   function start(version: string, url: string) {
     running = version
@@ -59,12 +61,20 @@ export const useConsoleVersion = defineStore('console-version', () => {
     served = version
   }
 
+  /** Run `write` unless the engine is known to serve another build, since an outdated page can drop
+  what a newer console stored. Answers null when skipped. It checks nothing itself, because a
+  save on the way out of the page has no time to wait for one. */
+  async function unlessOutdated<T>(write: () => Promise<T>): Promise<T | null> {
+    return outdated ? null : await write()
+  }
+
   return {
     running: computed(() => running),
     served: computed(() => served),
-    outdated: computed(() => running != null && served != null && served !== running),
+    outdated: computed(() => outdated),
     start,
     check,
     learn,
+    unlessOutdated,
   }
 })

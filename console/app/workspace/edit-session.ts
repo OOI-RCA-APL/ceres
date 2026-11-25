@@ -21,6 +21,7 @@ import type { Address } from '@/api/address'
 import { AddressSelector, engineRoot } from '@/api/address'
 import { useAuth } from '@/api/auth'
 import { useClient, useQuery } from '@/api/client'
+import { useConsoleVersion } from '@/console-version'
 import { Failure } from '@/errors'
 import { createHistory } from '@/history'
 import { useNavigation } from '@/navigation'
@@ -251,8 +252,9 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     }
 
     const written = deepClone(data) as WorkspaceData
-    await workspaces.assignEdit(id, written)
-    draft.agree(written)
+    if ((await workspaces.assignEdit(id, written)) != null) {
+      draft.agree(written)
+    }
   }
 
   /** Takes the draft another tab wrote since this one loaded, unless this tab has an edit of its
@@ -1132,6 +1134,7 @@ export function useWorkspace() {
 export const useWorkspaces = defineStore('workspaces', () => {
   const navigation = useNavigation()
   const client = useClient()
+  const consoleVersion = useConsoleVersion()
   const auth = useAuth()
   const notify = useNotify()
 
@@ -1264,16 +1267,20 @@ export const useWorkspaces = defineStore('workspaces', () => {
     }
   }
 
+  /** Write this user's draft of `workspaceId`, unless the engine is known to serve a newer
+  console, whose workspace data this page could save only in part. Answers null when skipped. */
   async function assignEdit(workspaceId: string, data: WorkspaceData) {
-    return await client.put(`/api/users/${getUserId()}/workspace-edits/${workspaceId}`, {
-      data: {
-        // `meta` is shared so an edit carries content only. Committing an edit must not restore
-        // the tab order that was in force when the edit began.
-        data: withoutMeta(data),
-      },
-      parse: WorkspaceEditModel,
-      timeout: saveTimeoutMs,
-    })
+    return await consoleVersion.unlessOutdated(() =>
+      client.put(`/api/users/${getUserId()}/workspace-edits/${workspaceId}`, {
+        data: {
+          // `meta` is shared so an edit carries content only. Committing an edit must not restore
+          // the tab order that was in force when the edit began.
+          data: withoutMeta(data),
+        },
+        parse: WorkspaceEditModel,
+        timeout: saveTimeoutMs,
+      }),
+    )
   }
 
   // Lets the component-scoped tab strip learn which workspaces still have unsaved edits
