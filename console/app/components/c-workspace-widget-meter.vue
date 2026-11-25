@@ -3,6 +3,7 @@ import { useElementSize } from '@vueuse/core'
 import { watch } from 'vue'
 
 import { useEngine } from '@/api/engine'
+import icons from '@/icons'
 import { useLatestParticle } from '@/particle-data'
 import { connectionLabel, fieldUnit } from '@/particle-types'
 import { formatParticleValue, particleFieldValue, thresholdLevel } from '@/particle-values'
@@ -12,6 +13,11 @@ import type { MeterWidget } from '@/workspace'
 
 const { widget } = defineProps<{
   widget: MeterWidget
+}>()
+
+const emit = defineEmits<{
+  /** The empty meter's "Choose Data" asks for the settings that choose it. */
+  settingsRequested: []
 }>()
 
 const engine = useEngine()
@@ -169,9 +175,23 @@ const fontSize = $computed(() => {
 </script>
 
 <template>
+  <div
+    v-if="widget.particleType == null"
+    class="flex min-h-full flex-1 items-center justify-center"
+  >
+    <c-tooltip text="Choose Data">
+      <c-button
+        aria-label="Choose Data"
+        class="rounded-full"
+        color="primary"
+        :icon="icons.add"
+        @click="emit('settingsRequested')"
+      />
+    </c-tooltip>
+  </div>
   <!-- A value blended from several sources would mislead, so the meter asks which to show. -->
   <div
-    v-if="choices.length > 0"
+    v-else-if="choices.length > 0"
     class="flex min-h-full flex-1 flex-col items-center justify-center gap-2 p-2"
   >
     <c-text variant="description">Choose a connection</c-text>

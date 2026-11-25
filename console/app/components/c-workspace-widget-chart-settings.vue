@@ -43,7 +43,12 @@ function addEntry(entry: ParticleManualEntry) {
       <c-workspace-widget-chart :widget="widget" />
     </div>
     <c-text class="mb-2" variant="title2">Data</c-text>
-    <c-particle-data-picker v-model="widget.particles" class="mb-2" collapse-unselected />
+    <c-particle-data-picker
+      v-model="widget.particles"
+      class="mb-2"
+      collapse-unselected
+      :focus-search="widget.particles.length === 0"
+    />
     <c-particle-manual-entry class="mb-2" labeled @choose="addEntry" />
     <c-chart-series-list v-model="widget.particles" class="mb-4" />
     <c-text class="mb-2" variant="title2">Range</c-text>

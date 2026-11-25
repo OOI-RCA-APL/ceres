@@ -69,6 +69,7 @@ import {
   createWidget,
   openedRowFor,
   openedRowHeight,
+  widgetInfos,
   widgetMinHeight,
 } from '@/workspace/registry'
 
@@ -166,6 +167,10 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
   // Whether this workspace is bound to a component rather than the engine root. The root
   // contains every component so a workspace placed there restricts nothing.
   const isBound = $computed(() => scope != null && !scope.isEngine)
+
+  /** The widget just added that asks for its settings, until its card takes the request. Not
+  reactive, since the card reads it once as it mounts. */
+  let settingsRequest: string | null = null
 
   function resolveAddress(
     value: string | AddressSelector | null | undefined,
@@ -486,8 +491,26 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     }
 
     const widget = createWidget(type)
+    if (!insertWidget(widget, row, column, layoutId)) {
+      return null
+    }
 
-    return insertWidget(widget, row, column, layoutId) ? widget : null
+    if (widgetInfos[type].options.opensSettingsWhenAdded) {
+      settingsRequest = widget.id
+    }
+
+    return widget
+  }
+
+  /** Whether `id` was just added and asks for its settings, answered once so a later remount or a
+  copy of it never opens them again. */
+  function takeSettingsRequest(id: string): boolean {
+    if (settingsRequest !== id) {
+      return false
+    }
+
+    settingsRequest = null
+    return true
   }
 
   function deleteWidgets(ids: string[]) {
@@ -1049,6 +1072,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     insertWidget,
     insertWidgetsAt,
     addWidget,
+    takeSettingsRequest,
     deleteWidget,
     deleteWidgets,
     moveWidgets,

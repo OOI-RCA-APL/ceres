@@ -84,6 +84,7 @@ function useSource(address: string, type: string, field: string, connection: str
         v-model:selected="selected"
         class="mb-2"
         collapse-unselected
+        :focus-search="widget.particleField == null"
         selection-mode="highlight"
         single
       />

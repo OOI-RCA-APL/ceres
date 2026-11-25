@@ -37,6 +37,11 @@ const { widget } = defineProps<{
   widget: ChartWidget
 }>()
 
+const emit = defineEmits<{
+  /** The empty chart's "Choose Data" asks for the settings that choose it. */
+  settingsRequested: []
+}>()
+
 const engine = useEngine()
 const client = useClient()
 const time = useTime()
@@ -794,6 +799,20 @@ watchEffect((cleanup) => {
         :loading="isLoading"
         @zoom="onZoom"
       />
+      <div
+        v-if="widget.particles.length === 0"
+        class="absolute inset-0 flex items-center justify-center"
+      >
+        <c-tooltip text="Choose Data">
+          <c-button
+            aria-label="Choose Data"
+            class="rounded-full"
+            color="primary"
+            :icon="icons.add"
+            @click="emit('settingsRequested')"
+          />
+        </c-tooltip>
+      </div>
     </div>
   </div>
 </template>

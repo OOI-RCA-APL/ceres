@@ -63,6 +63,8 @@ written, and the release workflow refuses a version that has no entry here.
   optional warning and error bounds, and dims once its newest record is older than "Stale
   After". Its text fits the meter unless "Font Size" sets one, so a stored meter without a font
   size now fills its widget.
+- A chart or meter added to a workspace opens its settings with the data search focused, and an
+  empty one offers "Choose Data".
 - Chart tooltips escape series names and values.
 - Procedure pages offer "Abort" during a call. Leaving the page also aborts the request.
 - A procedure's "Execute" is disabled for a user whose access cannot invoke it.

@@ -1,4 +1,6 @@
 <script lang="ts" setup>
+import { onMounted, useTemplateRef } from 'vue'
+
 import { Address } from '@/api/address'
 import { useEngine } from '@/api/engine'
 import icons from '@/icons'
@@ -23,6 +25,7 @@ const {
   frameless = false,
   collapseUnselected = false,
   maxHeight = 232,
+  focusSearch = false,
 } = defineProps<{
   /** Fixes the tree to this one address rather than a workspace's placement subtree, the
   component page's case. */
@@ -42,6 +45,9 @@ const {
   collapseUnselected?: boolean
   /** The tallest the tree grows before it scrolls, in pixels. */
   maxHeight?: number
+  /** Puts the cursor in the search box as the tree mounts, for a host opening on an empty
+  choice. */
+  focusSearch?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -260,6 +266,16 @@ const visibleNodes = $computed<Address[]>(() => {
 function toggleField(ref: ParticleFieldRef, value: boolean) {
   modelValue = toggleParticleField(modelValue, ref, value)
 }
+
+const search = useTemplateRef<HTMLInputElement>('search')
+
+// Focused as the tree mounts, ahead of a hosting dialog's own first focus, which leaves focus
+// where it already sits inside the dialog.
+onMounted(() => {
+  if (focusSearch) {
+    search.value?.focus()
+  }
+})
 </script>
 
 <template>
@@ -268,7 +284,9 @@ function toggleField(ref: ParticleFieldRef, value: boolean) {
       <div class="flex items-center gap-2 px-2">
         <c-icon class="text-muted shrink-0" :name="icons.search" size="14" />
         <input
+          ref="search"
           v-model="filter"
+          aria-label="Search Data"
           class="h-7 w-full bg-transparent text-xs outline-none"
           placeholder="Search"
           spellcheck="false"

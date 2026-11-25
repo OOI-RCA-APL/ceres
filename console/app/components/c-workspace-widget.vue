@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import type { DropdownMenuItem } from '@nuxt/ui'
-import { useTemplateRef, watch } from 'vue'
+import { onMounted, useTemplateRef, watch } from 'vue'
 
 import icons from '@/icons'
 import { useNavigation } from '@/navigation'
@@ -110,6 +110,13 @@ function onReloadRequested() {
 function onSettingsRequested() {
   isShowingSettingsDialog = true
 }
+
+// A widget added to be told what to show opens on its settings, once.
+onMounted(() => {
+  if (settingsComponent != null && workspace.takeSettingsRequest(widget.id)) {
+    isShowingSettingsDialog = true
+  }
+})
 
 /** The widget's pages under each other pages-widget kind, none for a widget without pages.
 Offered from the header as well as from a strip itself because it changes the widget rather

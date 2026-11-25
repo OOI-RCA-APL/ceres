@@ -31,6 +31,7 @@ type WidgetOptionsInput = {
   fitsWidth?: boolean
   bare?: boolean
   reloadOnThemeChange?: boolean
+  opensSettingsWhenAdded?: boolean
 }
 
 type WidgetOptions = {
@@ -50,6 +51,9 @@ type WidgetOptions = {
   content starts a drag and carries the widget's menu itself. */
   bare: boolean
   reloadOnThemeChange: boolean
+  /** Whether adding the widget opens its settings, for a widget that shows nothing until it is
+  told what to show. */
+  opensSettingsWhenAdded: boolean
 }
 
 function widgetOptions(options: WidgetOptionsInput): WidgetOptions {
@@ -63,6 +67,7 @@ function widgetOptions(options: WidgetOptionsInput): WidgetOptions {
     fitsWidth: options.fitsWidth ?? false,
     bare: options.bare ?? false,
     reloadOnThemeChange: options.reloadOnThemeChange ?? false,
+    opensSettingsWhenAdded: options.opensSettingsWhenAdded ?? false,
   }
 }
 
@@ -117,6 +122,7 @@ export const widgetInfos = {
       minHeight: 200,
       paddingClass: ['py-2', 'pr-4'],
       reloadOnThemeChange: true,
+      opensSettingsWhenAdded: true,
     }),
   },
   meter: {
@@ -131,6 +137,7 @@ export const widgetInfos = {
       minHeight: 50,
       initialHeight: 60,
       paddingClass: [],
+      opensSettingsWhenAdded: true,
     }),
   },
   video: {
