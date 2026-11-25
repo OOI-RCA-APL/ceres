@@ -15,7 +15,15 @@ import icons from '@/icons'
 import { connectionLabel, useDerivedChartUnit } from '@/particle-types'
 import { formatParticleValue } from '@/particle-values'
 import { usePreferences } from '@/preferences'
-import { duration, useTime, utc, parseDuration } from '@/time'
+import { duration, useTime, utc } from '@/time'
+import {
+  boundsOf,
+  fixedRange,
+  storedRange,
+  type TimeBounds,
+  type TimeRange,
+  useTimeRangeViews,
+} from '@/time-range'
 import { debouncedComputed, formatNumber, toTitle } from '@/utilities'
 import { useWorkspace } from '@/workspace'
 import type {
@@ -41,9 +49,6 @@ type Data = Record<string, DataEntry[]>
 let instance = $shallowRef<InstanceType<typeof CChart> | null>(null)
 let isInitialized = $ref(false)
 let isLoading = $ref(true)
-let isPaused = $ref(false)
-let frozenXMin = $ref(0)
-let frozenXMax = $ref(0)
 const pending: Data = $ref({})
 
 // What each series holds, owned here rather than read back from the chart, whose own copy an
@@ -83,13 +88,17 @@ function recomputeExtent() {
   }
 }
 
-/** The connections found producing each undeclared group's type, by `address|type`.
+/** The connections found producing each group's type beyond what it declares, by `address|type`,
+with `unattributed` standing for records that name none.
 
-The fallback for a type declaring no connections, where only an unfiltered load reveals
-what its records carry. A type one connection produces is never split and costs no extra
-query.
+The fallback for a type declaring no connections, where only an unfiltered load reveals what
+its records carry, and for a connection that starts producing after the declaration was read.
+A type one connection produces is never split and costs no extra query.
 */
 const splitConnections = $ref<Record<string, string[]>>({})
+
+/** The key a split group's line for records naming no connection is drawn under. */
+const unattributed = ''
 
 function groupKey(particle: ChartWidgetParticle): string {
   return `${particle.address?.toString() ?? ''}|${particle.type ?? ''}`
@@ -109,15 +118,40 @@ function declaredConnections(particle: ChartWidgetParticle): string[] {
   )
 }
 
-/** The connections a group draws a line each for, empty where it draws one line for all. */
+/** The connections a group's type is known to carry, declared or found. */
+function knownConnections(particle: ChartWidgetParticle): string[] {
+  return [
+    ...new Set([...declaredConnections(particle), ...(splitConnections[groupKey(particle)] ?? [])]),
+  ]
+}
+
+/** The connections a group draws a line each for, empty where it draws one line for all. A
+group narrowed to one connection never splits, and one carrying several never blends them. */
 function splitFor(particle: ChartWidgetParticle): string[] {
   if (particle.connection != null) {
     return []
   }
 
-  const declared = declaredConnections(particle)
-  const found = declared.length > 0 ? declared : (splitConnections[groupKey(particle)] ?? [])
-  return found.length > 1 ? found : []
+  const known = knownConnections(particle)
+  return known.length > 1 ? known : []
+}
+
+/** Note that `particle`'s group has seen `connection`, splitting it once it carries two. */
+function discover(particle: ChartWidgetParticle, connection: string) {
+  const key = groupKey(particle)
+  if (!knownConnections(particle).includes(connection)) {
+    splitConnections[key] = [...(splitConnections[key] ?? []), connection]
+  }
+}
+
+/** The name a split line adds for its connection. */
+function lineConnectionLabel(particle: ChartWidgetParticle, connection: string): string {
+  if (connection === unattributed) {
+    return 'Unattributed'
+  }
+
+  const address = workspace.resolveAddress(particle.address)?.toString() ?? null
+  return address == null ? connection : connectionLabel(engine, address, connection)
 }
 
 /** What one drawn line is keyed by, a split group qualifying its series by connection. */
@@ -140,34 +174,43 @@ const drawnIds = $computed(() => {
   return ids
 })
 
-function togglePause() {
-  if (!isPaused) {
-    frozenXMin = start.valueOf()
-    frozenXMax = (end ?? time.now).valueOf()
-    isPaused = true
-  } else {
-    isPaused = false
-    applyPending()
+const views = useTimeRangeViews()
+
+// The range starts from the stored default and is the viewer's own from then on, so it lives
+// in a store by widget ID and outlasts the remount a color mode change causes.
+watch(
+  () => `${widget.after ?? ''}|${widget.timespan ?? ''}`,
+  (key) => views.ensure(widget.id, key, () => storedRange(widget.after, widget.timespan)),
+  { immediate: true },
+)
+
+// Set by the watch above before anything reads it.
+const view = $computed(() => views.get(widget.id)!)
+
+const isLive = $computed(() => view.range.mode === 'live')
+
+const bounds = $computed(() => boundsOf(view.range, time.now.valueOf()))
+
+/** Show `range`, a choice made on the range bar, which a later "Reset Zoom" never undoes. */
+function setRange(range: TimeRange) {
+  view.range = range
+  view.zoomedFrom = null
+}
+
+function onZoom(start: number, end: number) {
+  const zoomed = fixedRange(start, end)
+  if (zoomed != null) {
+    view.zoomedFrom ??= view.range
+    view.range = zoomed
   }
 }
 
-const start = $computed(() => {
-  if (widget.after != null) {
-    return utc(widget.after)
+function resetZoom() {
+  if (view.zoomedFrom != null) {
+    view.range = view.zoomedFrom
+    view.zoomedFrom = null
   }
-
-  const timespan = parseDuration(widget.timespan ?? '1h')
-  return utc(time.now.valueOf()).subtract(timespan)
-})
-
-const end = $computed(() => {
-  if (widget.after != null) {
-    const timespan = parseDuration(widget.timespan ?? '1h')
-    return utc(widget.after).add(timespan)
-  }
-
-  return null
-})
+}
 
 // Keyed by series ID rather than by the name on screen, two groups of the same type differing
 // only by connection drawing two lines that would otherwise share a name and a bucket.
@@ -204,8 +247,8 @@ function draw(ids?: string[]) {
   }
 }
 
-const xMin = $computed(() => (isPaused ? frozenXMin : start.valueOf()))
-const xMax = $computed(() => (isPaused ? frozenXMax : (end ?? time.now).valueOf()))
+const xMin = $computed(() => bounds.start)
+const xMax = $computed(() => bounds.end)
 
 const derivedUnit = $(useDerivedChartUnit(() => widget, workspace).unit)
 
@@ -324,12 +367,8 @@ const baseOption: Option = $computed(() => {
     return particle.series.flatMap((series, index) =>
       (connections.length > 0 ? connections : [null]).map((connection) => {
         const base = getSeriesName(series, index)
-        const address = workspace.resolveAddress(particle.address)?.toString() ?? null
-        const label =
-          connection == null || address == null
-            ? connection
-            : connectionLabel(engine, address, connection)
-        const name = label == null ? base : `${base} (${label})`
+        const name =
+          connection == null ? base : `${base} (${lineConnectionLabel(particle, connection)})`
         const color = seriesColors[lineId(series, connection)]
         const result = {
           // The stable ID is what `replaceMerge` matches on, keeping surviving series merged
@@ -383,7 +422,6 @@ const baseOption: Option = $computed(() => {
     // Counted over the lines drawn rather than the series configured, a group split by
     // connection standing for one series and several lines.
     legend: { show: series.length > 1 },
-    dataZoom: [{ type: 'inside', filterMode: 'none' }],
     series,
     ...baseAxisOption,
   }
@@ -409,8 +447,6 @@ watch([() => instance, () => baseOption], () => {
     })
   } else {
     isInitialized = false
-    // Zoom state belongs to the instance, so losing it also drops the pause.
-    isPaused = false
   }
 })
 
@@ -422,13 +458,19 @@ watch([() => instance, () => axisOption], () => {
   }, 0)
 })
 
-async function fetchParticles(particle: ChartWidgetParticle, connection: string | null) {
+/** The records `particle`'s group holds on `connection` within `window`, which every group of
+one load shares so they all cover the same span. */
+async function fetchParticles(
+  particle: ChartWidgetParticle,
+  connection: string | null,
+  window: TimeBounds,
+) {
   return await engine.particles.getAll({
     address: workspace.resolveAddress(particle.address),
     type: particle.type,
     connection,
-    after: widget.after,
-    timespan: widget.timespan ?? '1h',
+    after: utc(window.start).toISOString(),
+    before: isLive ? null : utc(window.end).toISOString(),
     // Subsampling buckets by time and keeps one record per bucket, so a query covering several
     // connections would thin them against each other. One query per drawn line keeps each whole.
     subsample: 5000,
@@ -458,68 +500,81 @@ function collect(
   }
 }
 
-async function load() {
-  await Promise.all(
+/** Counts loads, so one that answers after a later one started writes nothing. */
+let generation = 0
+
+/** Load every group's records for the current range, returning whether this load is still the
+latest once it finishes. */
+async function load(): Promise<boolean> {
+  const loaded = ++generation
+  const window = bounds
+  const isCurrent = () => loaded === generation
+
+  // Per connection, the records of a split group's own connections, and with no connection the
+  // records naming none, which no query can ask for alone and so come from the unfiltered load.
+  async function fetchSplit(group: ChartWidgetParticle, data: Data, unfiltered: Particle[]) {
+    const connections = splitFor(group)
+    const results = await Promise.all(
+      connections
+        .filter((connection) => connection !== unattributed)
+        .map(async (connection) => [connection, await fetchParticles(group, connection, window)]),
+    )
+    for (const [connection, particles] of results as [string, Particle[]][]) {
+      collect(data, particles, group, connection)
+    }
+
+    if (connections.includes(unattributed)) {
+      collect(
+        data,
+        unfiltered.filter((particle) => particle.connection == null),
+        group,
+        unattributed,
+      )
+    }
+  }
+
+  const loads = await Promise.all(
     widget.particles.map(async (group) => {
       const data = {} as Data
-      if (instance != null) {
-        const known = splitFor(group)
-        if (known.length > 0) {
-          const results = await Promise.all(
-            known.map(async (connection) => [connection, await fetchParticles(group, connection)]),
-          )
-          for (const [connection, particles] of results as [string, Particle[]][]) {
-            collect(data, particles, group, connection)
-          }
-        } else {
-          const particles = await fetchParticles(group, group.connection ?? null)
+      if (instance == null) {
+        return data
+      }
 
-          // What the records themselves say produced this type, only for a type declaring
-          // nothing, since `splitFor` answers from the declaration otherwise and a split
-          // decided here would draw lines it does not expect.
-          const discovering = group.connection == null && declaredConnections(group).length === 0
-          const found = discovering
-            ? [
-                ...new Set(
-                  particles.map((particle) => particle.connection).filter((name) => name != null),
-                ),
-              ].sort()
-            : []
-
-          if (discovering) {
-            splitConnections[groupKey(group)] = found
-          }
-
-          if (found.length > 1) {
-            // These records came thinned against each other, so they are dropped rather than
-            // drawn, and each connection is asked for on its own.
-            for (const series of group.series) {
-              plotted[series.id] = []
-            }
-
-            const results = await Promise.all(
-              found.map(async (connection) => [
-                connection,
-                await fetchParticles(group, connection),
-              ]),
-            )
-            for (const [connection, records] of results as [string, Particle[]][]) {
-              collect(data, records, group, connection)
-            }
-          } else {
-            collect(data, particles, group, null)
-          }
+      const unfiltered = await fetchParticles(group, group.connection ?? null, window)
+      if (group.connection == null) {
+        for (const particle of unfiltered) {
+          discover(group, particle.connection ?? unattributed)
         }
       }
 
-      for (const [id, entries] of Object.entries(data)) {
-        plotted[id] = [...entries]
+      if (splitFor(group).length > 0) {
+        // These records came thinned against each other, so each connection is asked for alone.
+        await fetchSplit(group, data, unfiltered)
+      } else {
+        collect(data, unfiltered, group, null)
       }
 
-      recomputeExtent()
-      draw(Object.keys(data))
+      return data
     }),
   )
+
+  if (!isCurrent()) {
+    return false
+  }
+
+  for (const key in plotted) {
+    plotted[key] = []
+  }
+
+  for (const data of loads) {
+    for (const [id, entries] of Object.entries(data)) {
+      plotted[id] = [...entries]
+    }
+  }
+
+  recomputeExtent()
+  draw()
+  return true
 }
 
 function clearPending() {
@@ -556,7 +611,7 @@ watch(
       return
     }
 
-    if (!isPaused && time.now.diff(lastPendingApplied) >= pendingApplyInterval.asMilliseconds()) {
+    if (time.now.diff(lastPendingApplied) >= pendingApplyInterval.asMilliseconds()) {
       applyPending()
     }
   },
@@ -564,10 +619,17 @@ watch(
 
 // Compared as text rather than as a fresh array, which is a new object on every read and so
 // reports a change whenever anything touches the widget, reloading a chart that never moved and
-// discarding the records waiting to be drawn.
-const windowKey = $computed(() => `${widget.after ?? ''}|${widget.timespan ?? ''}`)
+// discarding the records waiting to be drawn. A live range is keyed by its span alone, since its
+// ends move with every tick.
+const rangeKey = $computed(() => {
+  const range = view.range
+  return range.mode === 'live' ? `live|${range.span}` : `fixed|${range.start}|${range.end}`
+})
 
-watch([() => JSON.stringify(widget.particles), () => windowKey], () => {
+// A group splitting in two loads each connection's records apart.
+const splitKey = $computed(() => JSON.stringify(widget.particles.map(splitFor)))
+
+watch([() => JSON.stringify(widget.particles), () => rangeKey], () => {
   isLoading = true
 })
 
@@ -576,7 +638,8 @@ watch(
     () => instance,
     () => isInitialized,
     debouncedComputed(() => JSON.stringify(widget.particles), 1000),
-    debouncedComputed(() => windowKey, 250),
+    debouncedComputed(() => rangeKey, 250),
+    () => splitKey,
   ],
   async () => {
     // Nothing to load into yet. The flag starts set, and leaving it that way here would hold off
@@ -587,12 +650,18 @@ watch(
     }
 
     isLoading = true
+    clearPending()
+    // `load` takes the next generation, and only the latest load clears the flag, so an earlier
+    // one finishing never shows the chart as loaded while a later one is still out.
+    const loading = generation + 1
     try {
-      clearPending()
-      await load()
-      applyPending()
+      if (await load()) {
+        applyPending()
+      }
     } finally {
-      isLoading = false
+      if (loading === generation) {
+        isLoading = false
+      }
     }
   },
   { immediate: true },
@@ -608,14 +677,18 @@ function getSeries(option: Option) {
   return list.filter((series) => series != null)
 }
 
-// Records older than the window are dropped rather than left to grow without bound, the chart
+// Records older than a live range are dropped rather than left to grow without bound, the chart
 // being open for as long as the workspace is.
 function prune() {
+  if (!isLive) {
+    return
+  }
+
   const dropped: string[] = []
   for (const name in plotted) {
     const data = plotted[name]!
     let index = 0
-    while (index < data.length && utc(data[index]![0]).isBefore(start)) {
+    while (index < data.length && data[index]![0] < bounds.start) {
       index++
     }
 
@@ -647,14 +720,8 @@ client.useStream({
   ),
   parse: ParticleModel,
   onReceive: (particle: Particle, stream: Stream) => {
-    if (instance == null) {
-      return
-    }
-
-    if (
-      utc(particle.timestamp).isBefore(start) ||
-      (end != null && utc(particle.timestamp).isSameOrAfter(end))
-    ) {
+    // A fixed range holds what it loaded, so it keeps no backlog of what arrives meanwhile.
+    if (instance == null || !isLive) {
       return
     }
 
@@ -664,19 +731,13 @@ client.useStream({
       return
     }
 
-    // A split group has a line per connection, so the record joins the one it came in on. Its
-    // own connection is unset only where the group is not split.
-    const connections = splitFor(particleDefinition)
-    const key =
-      connections.length > 0 &&
-      particle.connection != null &&
-      connections.includes(particle.connection)
-        ? particle.connection
-        : null
-    if (connections.length > 0 && key == null) {
-      return
+    // A record on a connection the group had not seen splits it, which reloads every line.
+    const connection = particle.connection ?? unattributed
+    if (particleDefinition.connection == null) {
+      discover(particleDefinition, connection)
     }
 
+    const key = splitFor(particleDefinition).includes(connection) ? connection : null
     for (const series of particleDefinition.series) {
       if (series.field == null) {
         continue
@@ -708,22 +769,31 @@ watchEffect((cleanup) => {
 </script>
 
 <template>
-  <div class="relative h-25">
-    <c-chart
-      ref="instance"
-      class="h-full w-full"
-      :class="(isLoading || isJustLoaded) && 'pointer-events-none'"
-      height="100%"
-      :loading="isLoading"
-    />
-    <c-button
-      class="absolute top-1 right-0 z-1"
-      color="primary"
-      :icon="isPaused ? icons.start : icons.pause"
-      size="sm"
-      square
-      variant="ghost"
-      @click="togglePause"
-    />
+  <div class="flex h-full min-h-25 flex-col">
+    <c-time-range class="self-end px-1" :model-value="view.range" @update:model-value="setRange">
+      <c-tooltip v-if="view.zoomedFrom != null" text="Reset Zoom">
+        <c-button
+          aria-label="Reset Zoom"
+          color="neutral"
+          :icon="icons.zoomReset"
+          size="xs"
+          square
+          variant="ghost"
+          @click="resetZoom"
+        />
+      </c-tooltip>
+    </c-time-range>
+    <!-- A drag across the plot zooms to its span, and a double click returns to before it. -->
+    <div class="relative min-h-0 grow" @dblclick="resetZoom">
+      <c-chart
+        ref="instance"
+        brush-zoom
+        class="h-full w-full"
+        :class="(isLoading || isJustLoaded) && 'pointer-events-none'"
+        height="100%"
+        :loading="isLoading"
+        @zoom="onZoom"
+      />
+    </div>
   </div>
 </template>

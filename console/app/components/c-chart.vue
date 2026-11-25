@@ -60,10 +60,19 @@ const {
   option,
   loading = false,
   height = undefined,
+  brushZoom = false,
 } = defineProps<{
   option?: Option
   loading?: boolean
   height?: number | string | null
+  /** Turns a drag across the plot into a zoom the host applies, reported through `zoom` while
+  the chart's own view stays whole. */
+  brushZoom?: boolean
+}>()
+
+const emit = defineEmits<{
+  /** A drag selected this span of the X axis, in its own units. */
+  zoom: [start: number, end: number]
 }>()
 
 const preferences = usePreferences()
@@ -74,13 +83,65 @@ let element = $shallowRef<HTMLDivElement | null>(null)
 
 const isVisible = $(useElementVisibility(() => container))
 
+/** The select-zoom feature a drag runs through. ECharts sets the feature up only in a toolbox it
+shows, so the toolbox shows with no buttons to see, the drag itself being the control. */
+const brushOption: Option = {
+  toolbox: {
+    show: true,
+    itemSize: 0,
+    showTitle: false,
+    feature: { dataZoom: { yAxisIndex: 'none', icon: { zoom: 'path://', back: 'path://' } } },
+  },
+}
+
 const merged: Option | undefined = $computed(() => {
   if (option != null) {
-    return merge({}, defaultOptions, option)
+    return merge({}, defaultOptions, brushZoom ? brushOption : {}, option)
   }
 
   return undefined
 })
+
+/** Whether the instance holds the select-zoom cursor, which it drops when recreated. */
+let isBrushing = false
+
+// Resetting the chart's own zoom raises a zoom event of its own, which is not a drag.
+let isResetting = false
+
+function takeBrush(target: ECharts) {
+  if (!brushZoom || isBrushing) {
+    return
+  }
+
+  target.dispatchAction({
+    type: 'takeGlobalCursor',
+    key: 'dataZoomSelect',
+    dataZoomSelectActive: true,
+  })
+  isBrushing = true
+}
+
+function onDataZoom(
+  target: ECharts,
+  event: { batch?: { startValue?: unknown; endValue?: unknown }[] },
+) {
+  if (isResetting) {
+    return
+  }
+
+  const [selected] = event.batch ?? []
+  const start = Number(selected?.startValue)
+  const end = Number(selected?.endValue)
+
+  // The host shows the span by changing the axis, so the chart's own zoom goes back to whole.
+  isResetting = true
+  target.dispatchAction({ type: 'dataZoom', start: 0, end: 100 })
+  isResetting = false
+
+  if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
+    emit('zoom', start, end)
+  }
+}
 
 // The theme reads the resolved token palette, so a color mode flip rebuilds the instance
 // after the DOM classes settle.
@@ -89,7 +150,10 @@ watchEffect(
     let created: ECharts | null = null
     if (element != null) {
       void preferences.isDarkModeEnabled
-      created = init(element, chartTheme(chartPalette()))
+      const target = init(element, chartTheme(chartPalette()))
+      target.on('datazoom', (event) => onDataZoom(target, event as never))
+      created = target
+      isBrushing = false
       instance = created
     }
 
@@ -104,8 +168,9 @@ watch(
   [() => merged, () => instance],
   () => {
     requestAnimationFrame(() => {
-      if (merged != null) {
-        instance?.setOption(merged)
+      if (merged != null && instance != null) {
+        instance.setOption(merged)
+        takeBrush(instance)
       }
     })
   },
@@ -136,10 +201,15 @@ defineExpose({
     },
   ) {
     if (params?.withDefaults) {
-      option = merge({}, defaultOptions, option)
+      option = merge({}, defaultOptions, brushZoom ? brushOption : {}, option)
     }
 
-    instance?.setOption(option, params as any)
+    if (instance != null) {
+      instance.setOption(option, params as any)
+      if (params?.withDefaults) {
+        takeBrush(instance)
+      }
+    }
   },
   resize(...args: Parameters<ECharts['resize']>) {
     return instance?.resize(...args)

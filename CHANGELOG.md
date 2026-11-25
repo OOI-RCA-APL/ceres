@@ -49,6 +49,16 @@ written, and the release workflow refuses a version that has no entry here.
   than showing whichever reported last. A viewer's choice holds for that view only.
 - Chart lines and series list entries name a connection by its label. The series list's
   connection menu is gone, since the picker chooses the connection.
+- A chart carries its range on itself: "Earlier" and "Later" page by the range's length, the
+  range label opens presets from "Last 1 h" to "Last 30 d", a calendar and typed "Start" and
+  "End" times, and "Live" pauses or follows new data. Dragging across the plot zooms to that
+  span and a double click or "Reset Zoom" returns. The range is each viewer's own and never
+  saved, and the chart's settings choose the range it opens with.
+- A chart reloads only the latest range asked for, so paging quickly never shows an earlier
+  page's records under a later range, and a fixed range fetches its window rather than the
+  whole span up to now.
+- A chart group reading every connection draws records naming no connection, or a connection
+  found after the chart opened, on lines of their own rather than dropping them.
 - Chart tooltips escape series names and values.
 - Procedure pages offer "Abort" during a call. Leaving the page also aborts the request.
 - A procedure's "Execute" is disabled for a user whose access cannot invoke it.

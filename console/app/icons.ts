@@ -136,6 +136,7 @@ const icons = {
   warning: 'i-mdi-alert-outline',
   workingCopy: 'i-mdi-pencil-box-multiple',
   workspace: 'i-mdi-dots-grid',
+  zoomReset: 'i-mdi-magnify-minus-outline',
 } as const
 
 export default icons

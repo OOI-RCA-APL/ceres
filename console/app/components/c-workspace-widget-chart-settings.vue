@@ -2,6 +2,7 @@
 import type { ParticleManualEntry } from '@/components/c-particle-manual-entry.vue'
 import { addParticleSeries } from '@/particle-series'
 import { useDerivedChartUnit } from '@/particle-types'
+import { storedFields, storedRange, type TimeRange } from '@/time-range'
 import { ChartWidgetFitModel, ChartWidgetSeriesModel, useWorkspace } from '@/workspace'
 import type { ChartWidget } from '@/workspace'
 
@@ -13,6 +14,15 @@ const workspace = useWorkspace()
 
 // Offered as the unit input's placeholder so a blank setting says what the chart will show.
 const derivedUnit = $(useDerivedChartUnit(() => widget, workspace).unit)
+
+const storedDefault = $computed<TimeRange>({
+  get: () => storedRange(widget.after, widget.timespan),
+  set: (range) => {
+    const { after, timespan } = storedFields(range)
+    widget.after = after
+    widget.timespan = timespan
+  },
+})
 
 function addEntry(entry: ParticleManualEntry) {
   const series = ChartWidgetSeriesModel.parse({ field: entry.field, label: entry.label })
@@ -37,22 +47,8 @@ function addEntry(entry: ParticleManualEntry) {
     <c-particle-manual-entry class="mb-2" labeled @choose="addEntry" />
     <c-chart-series-list v-model="widget.particles" class="mb-4" />
     <c-text class="mb-2" variant="title2">Range</c-text>
-    <div class="mb-4 grid grid-cols-2 gap-x-2">
-      <c-schema-form-value
-        v-model="widget.after"
-        :schema="{ type: 'string', format: 'date-time', title: 'After', optional: true }"
-      />
-      <c-schema-form-value
-        v-model="widget.timespan"
-        :schema="{
-          type: 'string',
-          format: 'duration',
-          title: 'Timespan',
-          optional: true,
-          default: '1h',
-        }"
-      />
-    </div>
+    <!-- The range the chart opens with, which each viewer then moves on the chart itself. -->
+    <c-time-range v-model="storedDefault" class="mb-4" />
     <c-text class="mb-2" variant="title2">Display</c-text>
     <div class="flex flex-col gap-1">
       <div class="grid grid-cols-2 gap-x-2">
