@@ -474,9 +474,9 @@ function sectionFromControls(stored: RawWidget): RawWidget {
   }
 }
 
-/** A stored widget in its current kind. A `controls` widget, or a `button` from before buttons
-were widgets that holds `buttons`, becomes a section of buttons. A `button` with inline action
-fields is already a button widget, its `label` becoming its name. */
+/** A stored widget in its current kind. A `controls` widget, or a `button` holding a `buttons`
+list, becomes a flex section of button widgets. A `button` with inline action fields is a button
+widget, its `label` becoming its name. */
 function migratedRawWidget(stored: unknown): unknown {
   if (typeof stored !== 'object' || stored == null) {
     return stored

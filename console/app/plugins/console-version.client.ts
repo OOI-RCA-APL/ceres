@@ -1,5 +1,6 @@
 import { useEventListener } from '@vueuse/core'
 
+import { defineNuxtPlugin, useRuntimeConfig } from '#app'
 import { useConsoleVersion } from '@/console-version'
 
 // Nuxt checks the served build hourly and reloads only on the next navigation, which a dashboard
@@ -11,9 +12,9 @@ export default defineNuxtPlugin((nuxtApp) => {
   const assets = `${app.baseURL}/${app.buildAssetsDir}`.replace(/\/+/g, '/')
   consoleVersion.start(app.buildId, `${assets}builds/latest.json`)
 
-  nuxtApp.hook('app:manifest:update', (meta) => {
-    if (meta != null) {
-      consoleVersion.learn(meta.id)
+  nuxtApp.hook('app:manifest:update', (manifest) => {
+    if (manifest != null) {
+      consoleVersion.learn(manifest.id)
     }
   })
 

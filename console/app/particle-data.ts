@@ -8,8 +8,8 @@ import { ParticleModel } from '@/api/particles'
 import type { Particle } from '@/api/particles'
 import { utc } from '@/time'
 
-/** Where a widget reads particles from: one component's type, narrowed to a connection or not.
-`address` is the concrete address a selector resolved to, null while it resolves to none. */
+/** A component's particle type, narrowed to one connection when `connection` is set. `address` is
+the concrete address a selector resolved to, null while it resolves to none. */
 export type ParticleSource = {
   address: string | null
   type: string | null

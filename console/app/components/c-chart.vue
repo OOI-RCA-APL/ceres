@@ -196,7 +196,7 @@ defineExpose({
   },
   setOption(
     option: Option,
-    params?: {
+    settings?: {
       notMerge?: boolean
       lazyUpdate?: boolean
       withDefaults?: boolean
@@ -204,13 +204,13 @@ defineExpose({
       replaceMerge?: string | string[]
     },
   ) {
-    if (params?.withDefaults) {
+    if (settings?.withDefaults) {
       option = merge({}, defaultOptions, brushZoom ? brushOption : {}, option)
     }
 
     if (instance != null) {
-      instance.setOption(option, params as any)
-      if (params?.withDefaults) {
+      instance.setOption(option, settings)
+      if (settings?.withDefaults) {
         takeBrush(instance)
       }
     }

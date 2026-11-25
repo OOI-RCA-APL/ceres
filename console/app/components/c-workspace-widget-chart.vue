@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import { useIntervalFn } from '@vueuse/core'
+import type { TooltipComponentFormatterCallbackParams } from 'echarts'
 import { computed, watch, watchEffect } from 'vue'
 
 import { useClient } from '@/api/client'
@@ -438,18 +439,19 @@ const baseOption: Option = $computed(() => {
     tooltip: {
       trigger: 'axis',
       confine: true,
-      formatter(params: any) {
-        if (!Array.isArray(params)) {
-          params = [params]
-        }
-        if (params.length === 0) {
+      formatter(hovered: TooltipComponentFormatterCallbackParams) {
+        const points = Array.isArray(hovered) ? hovered : [hovered]
+        const first = points[0]
+        if (first == null) {
           return ''
         }
 
-        const header = utc(params[0].value[0]).format('YYYY-MM-DD HH:mm:ss.SSS') + ' UTC'
-        const lines = params.map((p: any) => {
-          const read = formatParticleValue(p.value[1], widget.decimals)
-          return html`${trusted(p.marker)} ${p.seriesName}:
+        // Every line plots `[time, value]` entries, which ECharts hands back as each point's value.
+        const entryOf = (point: typeof first) => point.value as DataEntry
+        const header = utc(entryOf(first)[0]).format('YYYY-MM-DD HH:mm:ss.SSS') + ' UTC'
+        const lines = points.map((point) => {
+          const read = formatParticleValue(entryOf(point)[1], widget.decimals)
+          return html`${trusted(String(point.marker ?? ''))} ${point.seriesName}:
             <strong>${read}${unit ? ' ' + unit : ''}</strong>`
         })
         return html`${header}${lines.map((line: SafeHtml) => html`<br />${line}`)}`.text

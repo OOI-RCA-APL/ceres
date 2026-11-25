@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import { useElementSize } from '@vueuse/core'
+import type { ComponentPublicInstance } from 'vue'
 
 import { useEngine } from '@/api/engine'
 import icons from '@/icons'
@@ -134,7 +135,7 @@ const updatedAt = $computed(() => {
 })
 
 let box = $ref<HTMLElement | null>(null)
-let sample = $ref<HTMLElement | null>(null)
+let sample = $ref<ComponentPublicInstance | null>(null)
 
 const { width: boxWidth, height: boxHeight } = useElementSize(() => box)
 const { width: sampleWidth, height: sampleHeight } = useElementSize(() => sample)
@@ -198,17 +199,20 @@ const fontSize = $computed(() => {
     ref="box"
     class="relative flex h-full min-h-full flex-1 items-center justify-center overflow-hidden"
   >
-    <!-- The text at a known size, out of sight, which the fitted size scales from. -->
-    <span
+    <!-- The text at a known size, out of sight, which the fitted size scales from. Size and weight
+    are inline, since the fit computes one and the weight setting picks the other. -->
+    <c-text
       ref="sample"
       aria-hidden="true"
       class="invisible absolute whitespace-pre"
+      element="span"
       :style="{ fontSize: `${sampleSize}px`, fontWeight: textWeight }"
+      variant="value"
     >
       {{ display || ' ' }}
-    </span>
-    <div
-      class="m-0 p-0 text-center whitespace-pre transition-opacity"
+    </c-text>
+    <c-text
+      class="text-center whitespace-pre transition-opacity"
       :class="[
         level === 'error' && 'text-error',
         level === 'warning' && 'text-warning',
@@ -216,15 +220,17 @@ const fontSize = $computed(() => {
       ]"
       data-meter-value
       :style="{ fontSize: `${fontSize}px`, fontWeight: textWeight }"
+      variant="value"
     >
       {{ display || ' ' }}
-    </div>
-    <div
-      class="absolute right-1 bottom-0.5 text-[10px]"
-      :class="isStale ? 'text-warning' : 'opacity-50'"
+    </c-text>
+    <c-text
+      class="absolute right-1 bottom-0.5"
+      :class="isStale ? 'text-warning!' : 'opacity-50'"
       data-meter-age
+      variant="description"
     >
       {{ updatedAt }}
-    </div>
+    </c-text>
   </div>
 </template>

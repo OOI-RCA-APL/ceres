@@ -166,8 +166,7 @@ function renameButton(name: string) {
   widget.name = name
 }
 
-// A confirmation is a question with an answer so the dialog hands its answer back to whatever
-// asked and the run either carries on or stops there.
+// Resolves the open confirmation with the user's answer, which continues or stops the run.
 let answerConfirm = $ref<((confirmed: boolean) => void) | null>(null)
 
 // The arguments the confirmed run would send, highlighted for the dialog, or null with none.

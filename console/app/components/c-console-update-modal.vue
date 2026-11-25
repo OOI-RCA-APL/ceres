@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import { reloadNuxtApp } from '#app'
 import { useConsoleVersion } from '@/console-version'
 
 const consoleVersion = useConsoleVersion()

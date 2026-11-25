@@ -4,8 +4,8 @@ import { reactive } from 'vue'
 
 import { displayDuration, parseDuration, utc } from '@/time'
 
-/** What a time-series view shows: the newest `span` milliseconds as they arrive, or a fixed
-window from `start` up to `end`, both epoch milliseconds with `end` exclusive. */
+/** A time-series window, the newest `span` milliseconds while `live` or the fixed window from
+`start` to `end`, in epoch milliseconds with `end` exclusive. */
 export type TimeRange =
   { mode: 'live'; span: number } | { mode: 'fixed'; start: number; end: number }
 
