@@ -32,6 +32,7 @@ import { DraftSync } from '@/workspace/draft'
 import {
   collectLayouts,
   filledWidths,
+  flexPlacement,
   planIsCurrent,
   planWidgetsGroup,
   planWidgetsMove,
@@ -63,7 +64,13 @@ import {
   type WorkspaceInput,
   WorkspaceModel,
 } from '@/workspace/models'
-import { createWidget, openedRowFor, openedRowHeight, widgetMinHeight } from '@/workspace/registry'
+import {
+  arrangeAccepts,
+  createWidget,
+  openedRowFor,
+  openedRowHeight,
+  widgetMinHeight,
+} from '@/workspace/registry'
 
 export type WorkspaceContext = ReturnType<typeof createWorkspaceContext>
 
@@ -112,6 +119,10 @@ export type Drag = {
   they landed or null when the drag never took hold anywhere. The widgets in hand stand for
   what would be created, so releasing moves nothing itself. */
   drop?: (placement: WidgetPlacement | null) => void
+
+  /** Whether the press landed on what the widget shows, such as a button, rather than on its
+  frame. Such a press picks nothing out unless it travels, so it stays a press. */
+  quiet?: boolean
 }
 
 /** How a widget joins what is already picked out when it is chosen. */
@@ -399,10 +410,15 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     row: number,
     column: number = 0,
     layoutId: string = rootLayoutId,
-  ) {
+  ): boolean {
     const layout = findLayout(layoutId)
-    if (layout == null) {
-      return
+    if (layout == null || !arrangeAccepts(layout.arrange, [widget])) {
+      return false
+    }
+
+    // A flex layout holds its widgets in its one row.
+    if (layout.arrange === 'flex') {
+      row = 0
     }
 
     const rows = layout.rows
@@ -426,6 +442,8 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
 
       rowObject.widgets = widgets
     }
+
+    return true
   }
 
   /** Insert widgets arriving from outside the workspace at a drop placement.
@@ -434,8 +452,13 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
   row side by side.
   */
   function insertWidgetsAt(widgets: Widget[], placement: WidgetPlacement) {
-    if (widgets.length === 0) {
+    const layout = findLayout(placement.layout)
+    if (widgets.length === 0 || layout == null || !arrangeAccepts(layout.arrange, widgets)) {
       return
+    }
+
+    if (layout.arrange === 'flex') {
+      placement = flexPlacement(layout.rows, placement)
     }
 
     if (placement.column != null) {
@@ -443,11 +466,6 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
         insertWidget(widget, placement.row, placement.column + offset, placement.layout)
       }
 
-      return
-    }
-
-    const layout = findLayout(placement.layout)
-    if (layout == null) {
       return
     }
 
@@ -468,9 +486,8 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     }
 
     const widget = createWidget(type)
-    insertWidget(widget, row, column, layoutId)
 
-    return widget
+    return insertWidget(widget, row, column, layoutId) ? widget : null
   }
 
   function deleteWidgets(ids: string[]) {
@@ -564,6 +581,11 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
         continue
       }
 
+      // The holder takes a share of a row's width, which a flex layout has none of to give.
+      if (!arrangeAccepts(layout.arrange, [plan.holder])) {
+        return null
+      }
+
       layout.set(plan.rows)
 
       // The holder stands in for what it took so it becomes the selection.
@@ -607,6 +629,27 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
 
     const refs = layoutRefs()
     const layouts = new Map(refs.map((layout) => [layout.id, layout.rows]))
+    const widgets = widgetsIn(layouts)
+    const destination = refs.find((layout) => layout.id === placement.layout) ?? null
+    if (destination == null) {
+      return
+    }
+
+    const moving = ids.map((id) => widgets.get(id)).filter((widget) => widget != null)
+    if (!arrangeAccepts(destination.arrange, moving)) {
+      return
+    }
+
+    if (destination.arrange === 'flex') {
+      placement = flexPlacement(
+        destination.rows.map((row) => ({
+          ...row,
+          widgets: row.widgets.filter((widget) => !ids.includes(widget.id)),
+        })),
+        placement,
+      )
+    }
+
     const plan = planWidgetsMove(layouts, ids, placement)
     if (plan == null) {
       return
@@ -617,8 +660,6 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     if (planIsCurrent(plan, layouts)) {
       return
     }
-
-    const widgets = widgetsIn(layouts)
 
     for (const [widgetId, width] of Object.entries(plan.widths)) {
       const widget = widgets.get(widgetId)
@@ -767,21 +808,34 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
       return 0
     }
 
-    // Landing under the selection puts a paste beside its source rather than at the end of the
-    // workspace.
-    let after = layout.rows.length
-    for (const [index, row] of layout.rows.entries()) {
-      if (row.widgets.some((widget) => isSelected(widget.id))) {
-        after = index + 1
-      }
+    const widgets = pasted.flatMap((row) => row.widgets)
+    if (!arrangeAccepts(layout.arrange, widgets)) {
+      return 0
     }
 
-    const rows = [...layout.rows]
-    rows.splice(after, 0, ...pasted)
-    layout.set(rows)
+    if (layout.arrange === 'flex') {
+      // A flex layout's one row takes the paste after the last widget picked out in it.
+      const row = layout.rows[0]
+      const selected = row?.widgets.findLastIndex((widget) => isSelected(widget.id)) ?? -1
+      const at = selected >= 0 ? selected + 1 : (row?.widgets.length ?? 0)
+      insertWidgetsAt(widgets, { layout: layout.id, row: 0, column: row == null ? null : at })
+    } else {
+      // Landing under the selection puts a paste beside its source rather than at the end of the
+      // workspace.
+      let after = layout.rows.length
+      for (const [index, row] of layout.rows.entries()) {
+        if (row.widgets.some((widget) => isSelected(widget.id))) {
+          after = index + 1
+        }
+      }
+
+      const rows = [...layout.rows]
+      rows.splice(after, 0, ...pasted)
+      layout.set(rows)
+    }
 
     selectionLayout = layout.id
-    selection = pasted.flatMap((row) => row.widgets.map((widget) => widget.id))
+    selection = widgets.map((widget) => widget.id)
     selectionAnchor = selection[selection.length - 1] ?? null
 
     return selection.length
@@ -999,6 +1053,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     deleteWidgets,
     moveWidgets,
     duplicateWidgets,
+    positionOf,
     requestReload,
     reloadStamp,
     replaceWidget,

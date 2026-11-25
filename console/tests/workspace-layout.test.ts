@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  arrangedPage,
   type CarouselWidget,
   collectLayouts,
-  type ControlsWidget,
   createWidget,
+  flexPlacement,
   getWidgetInfo,
+  type LayoutArrange,
   layoutsWithin,
   pagesOf,
   planWidgetsGroup,
@@ -16,6 +18,7 @@ import {
   rootLayoutId,
   type TabsWidget,
   type Widget,
+  type WidgetPage,
   type WidgetRow,
   widgetWidthSubdivisions,
   withFreshIds,
@@ -43,7 +46,12 @@ function carousel(id: string, slides: { id: string; layout: WidgetRow[] }[]): Ca
     autoplay: false,
     expand: 'last',
     shrink: false,
-    slides: slides.map((slide) => ({ id: slide.id, name: '', layout: slide.layout })),
+    slides: slides.map((slide) => ({
+      id: slide.id,
+      name: '',
+      arrange: 'rows',
+      layout: slide.layout,
+    })),
   }
 }
 
@@ -58,8 +66,13 @@ function tabs(id: string, pages: { id: string; layout: WidgetRow[] }[]): TabsWid
     fill: false,
     expand: 'last',
     shrink: false,
-    tabs: pages.map((page) => ({ id: page.id, name: '', layout: page.layout })),
+    tabs: pages.map((page) => ({ id: page.id, name: '', arrange: 'rows', layout: page.layout })),
   }
+}
+
+/** A button, the one kind a flex page takes. */
+function button(id: string): Widget {
+  return { ...createWidget('button'), id, name: id }
 }
 
 /** The layouts a plan settles on, as rows of widget IDs. */
@@ -237,19 +250,73 @@ describe('withFreshIds', () => {
     expect(copy.tabs[0]?.layout[0]?.widgets[0]?.id).not.toBe('a')
   })
 
-  it('renames the buttons on a bar, which answer to names of their own', () => {
-    const original = { ...widget('bar'), type: 'controls', buttons: [{ id: 'b1' }] } as Widget
-    const copy = withFreshIds(original) as ControlsWidget
-
-    expect(copy.buttons[0]?.id).not.toBe('b1')
-  })
-
   it('leaves the widget it copied untouched', () => {
     const original = carousel('outer', [{ id: 'outer-1', layout: [row('r1', widget('a'))] }])
     withFreshIds(original)
 
     expect(original.slides[0]?.id).toBe('outer-1')
     expect(original.slides[0]?.layout[0]?.widgets[0]?.id).toBe('a')
+  })
+})
+
+describe('arrangedPage', () => {
+  const page = (arrange: LayoutArrange, ...rows: WidgetRow[]): WidgetPage => ({
+    id: 'p',
+    name: '',
+    arrange,
+    layout: rows,
+  })
+  const idsOf = (arranged: WidgetPage | null) =>
+    arranged?.layout.map((current) => current.widgets.map((held) => held.id))
+
+  it('runs rows together into the one row a flex page holds, sized to its contents', () => {
+    const arranged = arrangedPage(
+      page('rows', row('r1', button('a'), button('b')), row('r2', button('c'))),
+      'flex',
+    )
+
+    expect(arranged?.arrange).toBe('flex')
+    expect(idsOf(arranged)).toEqual([['a', 'b', 'c']])
+    expect(arranged?.layout[0]?.height).toBe('auto')
+  })
+
+  it('refuses flex while a widget takes a share of the width', () => {
+    expect(arrangedPage(page('rows', row('r1', button('a'), widget('b'))), 'flex')).toBeNull()
+  })
+
+  it('turns a flex page into one row the widgets share evenly', () => {
+    const arranged = arrangedPage(page('flex', row('r1', button('a'), button('b'))), 'rows')
+
+    expect(idsOf(arranged)).toEqual([['a', 'b']])
+    expect(arranged?.layout[0]?.widgets.map((held) => held.width)).toEqual([60, 60])
+  })
+})
+
+describe('flexPlacement', () => {
+  const rows = [row('r1', button('a'), button('b'))]
+
+  it('puts a row opened above the one row at its start', () => {
+    expect(flexPlacement(rows, { layout: 'p', row: 0, column: null })).toEqual({
+      layout: 'p',
+      row: 0,
+      column: 0,
+    })
+  })
+
+  it('puts a row opened below the one row at its end', () => {
+    expect(flexPlacement(rows, { layout: 'p', row: 1, column: null })).toEqual({
+      layout: 'p',
+      row: 0,
+      column: 2,
+    })
+  })
+
+  it('opens the one row in an empty page', () => {
+    expect(flexPlacement([], { layout: 'p', row: 3, column: 1 })).toEqual({
+      layout: 'p',
+      row: 0,
+      column: null,
+    })
   })
 })
 

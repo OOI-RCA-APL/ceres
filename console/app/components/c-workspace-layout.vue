@@ -5,19 +5,22 @@ import { onMounted } from 'vue'
 import icons from '@/icons'
 import { useWidgetDrop } from '@/widget-drop'
 import {
+  addableWidgetInfos,
+  type LayoutArrange,
   type LayoutExpand,
   resolveWidgetWidths,
   useWorkspace,
   type Widget,
-  widgetInfos,
   widgetMinHeight,
   type WidgetRow,
+  type WidgetType,
   widgetWidthSubdivisions,
 } from '@/workspace'
 
 const {
   layout,
   layoutId,
+  arrange = 'rows',
   expand = 'none',
   shrink = false,
   host,
@@ -27,6 +30,9 @@ const {
 
   /** The ID a drag targets this layout by. */
   layoutId: string
+
+  /** How the widgets are laid out. A flex layout wraps its one row at the widgets' own sizes. */
+  arrange?: LayoutArrange
 
   /** What to do with height the layout has been given and its rows have not claimed.
 
@@ -56,6 +62,7 @@ let layoutWidth = $ref<number | null>(null)
 drop.register({
   id: layoutId,
   rows: () => layout,
+  arrange: () => arrange,
   element: () => element,
 })
 
@@ -204,12 +211,27 @@ function isFilling(row: WidgetRow, index: number) {
   return expand === 'first' ? index === 0 : index === rows.length - 1
 }
 
-const addWidgetItems = Object.values(widgetInfos).map((info) => ({
-  label: info.name,
-  onSelect: () => {
-    workspace.addWidget(info.type, 0, 0, layoutId)
-  },
-}))
+const addable = $computed(() => addableWidgetInfos(arrange))
+
+/** The one kind a layout offers, which its add button adds without asking. */
+const onlyAddable = $computed(() => (addable.length === 1 ? (addable[0] ?? null) : null))
+
+const addWidgetItems = $computed(() =>
+  addable.map((info) => ({
+    label: info.name,
+    onSelect: () => addWidget(info.type),
+  })),
+)
+
+/** Add a widget of `type` at the end of the layout: a row of its own, or the end of a flex
+layout's one row. */
+function addWidget(type: WidgetType) {
+  const row = arrange === 'flex' ? 0 : layout.length
+  workspace.addWidget(type, row, layout[0]?.widgets.length ?? 0, layoutId)
+}
+
+/** The widgets of a flex layout, which holds them all in its one row. */
+const flexRow = $computed(() => rows[0] ?? null)
 
 onMounted(() => {
   for (const row of layout) {
@@ -230,7 +252,16 @@ defineExpose({ element: $$(element) })
       class="flex min-h-[120px] flex-auto flex-col items-center justify-center"
       @pointerdown="workspace.focusLayout(layoutId)"
     >
-      <c-dropdown-menu :items="addWidgetItems">
+      <c-tooltip v-if="onlyAddable != null" :text="`Add ${onlyAddable.name}`">
+        <c-button
+          :aria-label="`Add ${onlyAddable.name}`"
+          class="rounded-full"
+          :icon="icons.add"
+          size="xs"
+          @click="addWidget(onlyAddable.type)"
+        />
+      </c-tooltip>
+      <c-dropdown-menu v-else :items="addWidgetItems">
         <c-tooltip text="Add Widget">
           <c-button aria-label="Add Widget" class="rounded-full" :icon="icons.add" size="xs" />
         </c-tooltip>
@@ -248,10 +279,53 @@ defineExpose({ element: $$(element) })
         height: `${drop.marker.height}px`,
       }"
     />
+    <!-- A flex layout wraps its widgets at their own sizes, centered in the room it is given. Its
+    one row carries `data-row` so a drag measures its height as it does any row's. -->
+    <div
+      v-if="arrange === 'flex' && flexRow != null"
+      class="group/flex flex min-h-full flex-wrap items-center justify-center gap-x-1.5 gap-y-3 py-2"
+      :data-row="flexRow.id"
+    >
+      <div
+        v-for="(widget, j) in flexRow.widgets"
+        :key="widget.id"
+        class="relative inline-flex max-w-full"
+        data-widget
+      >
+        <c-workspace-widget-placeholder v-if="isHeld(widget)" :widget="widget" />
+        <c-workspace-widget
+          v-else
+          :column="j"
+          :container="flexRow"
+          :layout-id="layoutId"
+          :row="0"
+          :widget="widget"
+        />
+      </div>
+      <!-- The anchor spends no room in the line, so the button hangs past the last widget rather
+      than wrapping alone or skewing the centering. Offered only while the layout is pointed at,
+      so a finished layout reads as its widgets alone. -->
+      <div v-if="!drop.active && onlyAddable != null" class="relative w-0 self-stretch">
+        <c-tooltip :text="`Add ${onlyAddable.name}`">
+          <c-button
+            :aria-label="`Add ${onlyAddable.name}`"
+            :class="[
+              'absolute top-1/2 left-0 -translate-y-1/2 opacity-0 transition-opacity duration-150',
+              'group-hover/flex:opacity-60 hover:opacity-100 focus:opacity-100',
+            ]"
+            :icon="icons.add"
+            size="xs"
+            variant="ghost"
+            @click="addWidget(onlyAddable.type)"
+          />
+        </c-tooltip>
+      </div>
+    </div>
     <!-- Rows slide to their new positions, which reads as movement rather than a redraw.
     Rendered under a tag of its own since move testing needs an element and a fragment has
     none. -->
     <transition-group
+      v-else-if="arrange === 'rows'"
       :class="[
         $style.rows,
         expand !== 'none' && $style.rowsFilling,

@@ -22,6 +22,7 @@ const fitting = $computed(() => container?.height === 'auto')
   <div class="h-full min-h-0 overflow-auto px-2 [scrollbar-gutter:stable]">
     <c-workspace-layout
       :key="page.id"
+      :arrange="page.arrange"
       :expand="fitting ? 'none' : widget.expand"
       :host="container"
       :layout="page.layout"

@@ -15,6 +15,10 @@ written, and the release workflow refuses a version that has no entry here.
   cancellation emits `ProcedureCancelledEvent`. Cancellation does not undo completed side
   effects or interrupt synchronous work. Clients must keep the connection open until the call
   returns to avoid requesting cancellation.
+- Workspaces store each button as a widget of its own, and a "Controls" widget loads as a section
+  laying its buttons out as flex. A console older than this release drops the widgets of a flex
+  page when it saves the workspace, so reload consoles left open across the upgrade before
+  editing.
 
 **Engine**
 
@@ -27,10 +31,14 @@ written, and the release workflow refuses a version that has no entry here.
 
 - A console tab left open across an engine upgrade shows "Ceres Updated" and asks to reload. It
   checks when the page comes back into view and when its streams reconnect.
-- A new workspace row holding only procedures, controls, sections or tab strips opens sized to
+- A new workspace row holding only procedures, buttons, sections or tab strips opens sized to
   its contents. Dragging a row's edge fixes its height, and double-clicking the edge or "Fit Row
   To Content" sizes it to its contents again. A chart or other filling widget in such a row keeps
   its opening height.
+- A button is a widget: it is dragged, picked out, copied, grouped and deleted like any other,
+  and pressing it still runs it. A section, tab or carousel slide set to "Arrange: Flex" lays its
+  buttons out side by side at their own sizes, wrapping as needed. Creating buttons for several
+  actions makes such a section.
 - Procedure pages offer "Abort" during a call. Leaving the page also aborts the request.
 - A procedure's "Execute" is disabled for a user whose access cannot invoke it.
 - Schema form labels are tied to their fields, so a screen reader announces a field by its

@@ -6,8 +6,8 @@ import type { ComponentAccessLevel } from '@/api/permissions'
 import type { DetailWidgetAction } from '@/components/c-detail-widget-section.vue'
 import icons from '@/icons'
 import { toTitle } from '@/utilities'
-import { ButtonActionModel, createWidget } from '@/workspace'
-import type { ControlsWidget, Widget, WidgetPlacement } from '@/workspace'
+import { createButtonBar, createWidget } from '@/workspace'
+import type { ButtonWidget, Widget, WidgetPlacement } from '@/workspace'
 
 const {
   address,
@@ -33,28 +33,28 @@ const emit = defineEmits<{
 
 let expanded = $(defineModel<boolean>('expanded', { required: true }))
 
-/** One bar of buttons, one per action, which is the arrangement a set of related actions is
-usually wanted in. */
-function controlsFor(chosen: ActionInfo[]): ControlsWidget {
-  const widget = createWidget('controls') as ControlsWidget
-  widget.buttons = chosen.map((action) =>
-    ButtonActionModel.parse({
-      label: toTitle(action.name),
-      address: address.toString(),
-      action: action.name,
-    }),
-  )
-  return widget
+/** A button for each chosen action, side by side in one bar when there are several, which is the
+arrangement a set of related actions is usually wanted in. */
+function buttonFor(action: ActionInfo): ButtonWidget {
+  return {
+    ...(createWidget('button') as ButtonWidget),
+    name: toTitle(action.name),
+    address: address,
+    action: action.name,
+  }
+}
+
+function buttonsFor(chosen: ActionInfo[]): Widget[] {
+  return chosen.length === 1 ? chosen.map(buttonFor) : [createButtonBar(chosen.map(buttonFor))]
 }
 
 const widgetActions: DetailWidgetAction<ActionInfo>[] = [
   {
-    // A controls widget holds nothing but buttons today, so it is named by what it gets.
     label: (chosen) => (chosen.length === 1 ? 'Create Button' : 'Create Buttons'),
-    separateLabel: 'Create Separate Controls',
+    separateLabel: 'Create Separate Buttons',
     icon: icons.controls,
-    combined: (chosen) => [controlsFor(chosen)],
-    separate: (chosen) => chosen.map((action) => controlsFor([action])),
+    combined: buttonsFor,
+    separate: (chosen) => chosen.map(buttonFor),
   },
 ]
 

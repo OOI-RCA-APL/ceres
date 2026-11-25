@@ -19,7 +19,7 @@ const ceres = process.env.CERES_BINARY ?? path.resolve(consoleDirectory, '../.ve
 export const password = 'abcdefgh'
 
 /** A workspace on `@device` holding a "Procedures" widget open on `hold`, in a row sized to show
-all of it. */
+all of it, and under it a bar of buttons stored as the "Controls" widget older consoles wrote. */
 const proceduresWorkspace = {
   layout: [
     {
@@ -31,6 +31,26 @@ const proceduresWorkspace = {
           procedureAddress: '@device',
           procedureType: 'action',
           procedureName: 'hold',
+        },
+      ],
+    },
+    {
+      height: 75,
+      widgets: [
+        {
+          type: 'controls',
+          name: 'Controls',
+          buttons: [
+            { label: 'Echo', address: '@device', action: 'echo', locked: true, confirm: false },
+            {
+              label: 'Hold',
+              address: '@device',
+              action: 'hold',
+              arguments: { seconds: 0.1 },
+              locked: true,
+              confirm: false,
+            },
+          ],
         },
       ],
     },

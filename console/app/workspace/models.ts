@@ -202,11 +202,15 @@ export const ColorModel = z.enum(['primary', 'positive', 'warning', 'negative', 
 export type ButtonStyling = z.infer<typeof ButtonStylingModel>
 export const ButtonStylingModel = z.enum(['flat', 'outlined'])
 
-/** One action a button widget offers, and how pressing it behaves. */
-export type ButtonAction = z.infer<typeof ButtonActionModel>
-export const ButtonActionModel = z.object({
-  id: z.string().catch(() => v7()),
-  label: z.string().nullish(),
+/** One procedure call offered as a button, and how pressing it behaves. The widget's name is the
+button's label. */
+export type ButtonWidget = z.infer<typeof ButtonWidgetModel>
+export const ButtonWidgetModel = BaseWidgetModel.extend({
+  type: z.literal('button'),
+
+  // Empty, so the button labels itself from its action until it is named.
+  name: z.string().catch(''),
+
   address: AddressModel.nullish(),
   action: z.string().nullish(),
   arguments: z.record(z.string(), z.any()).catch(() => ({})),
@@ -224,54 +228,35 @@ export const ButtonActionModel = z.object({
   confirm: z.boolean().catch(true),
 })
 
-/** Controls offered side by side, laid out as a bar. Buttons are the one kind it holds so far. */
-export type ControlsWidget = BaseWidget & {
-  type: 'controls'
-  buttons: ButtonAction[]
-}
+/** How a page lays out its widgets: as rows of shares, or wrapping side by side at their own
+sizes, which only widgets sized by their contents can do. */
+export type LayoutArrange = z.infer<typeof LayoutArrangeModel>
+export const LayoutArrangeModel = z.enum(['rows', 'flex'])
 
-export const ControlsWidgetModel = BaseWidgetModel.extend({
-  type: z.literal('controls'),
-  name: z.string().catch('Controls'),
-  buttons: safeArrayOf(ButtonActionModel),
-})
+/** The choices for `LayoutArrange`, in the words a settings select shows them in. */
+export const layoutArrangeOptions: { label: string; value: LayoutArrange }[] = [
+  { label: 'Rows', value: 'rows' },
+  { label: 'Flex', value: 'flex' },
+]
 
-/** A controls widget in its legacy stored form, the single-action `button` widget.
-
-The single-action fields are declared here rather than on `ControlsWidget` so the rest of the
-app reaches an action only through `buttons`.
-*/
-type StoredButtonWidget = Omit<ControlsWidget, 'type'> & { type: 'button' } & Partial<
-    Omit<ButtonAction, 'id' | 'locked' | 'confirm'>
-  >
-
-const StoredButtonWidgetModel = ControlsWidgetModel.extend({
-  type: z.literal('button'),
-
-  // The legacy single-action fields. Kept so a stored workspace still parses, and folded into
-  // `buttons` by `upgradedWidget` on load.
-  label: z.string().nullish(),
-  address: AddressModel.nullish(),
-  action: z.string().nullish(),
-  arguments: z.record(z.string(), z.any()).nullish(),
-  color: ColorModel.nullish().catch(undefined),
-  styling: ButtonStylingModel.nullish().catch(undefined),
-  tooltip: z.string().nullish().catch(undefined),
-})
-
-/** A named layout, as held by a carousel slide or a tab.
+/** A named layout, as held by a carousel slide, a tab or a section.
 
 Written out rather than inferred because the types are mutually recursive.
 */
 export type WidgetPage = {
   id: string
   name: string
+  arrange: LayoutArrange
+
+  /** A flex page holds its widgets in one row, so an older console reading the page sees them
+  side by side and keeps them. */
   layout: WidgetRow[]
 }
 
 export const WidgetPageModel = z.object({
   id: z.string().catch(() => v7()),
   name: z.string().catch(''),
+  arrange: LayoutArrangeModel.catch('rows'),
   get layout() {
     return safeArrayOf(WidgetRowModel)
   },
@@ -389,7 +374,7 @@ export type Widget =
   | MeterWidget
   | VideoWidget
   | FilesWidget
-  | ControlsWidget
+  | ButtonWidget
   | CarouselWidget
   | TabsWidget
   | SectionWidget
@@ -427,24 +412,79 @@ export const widgetModels = {
   meter: MeterWidgetModel,
   video: VideoWidgetModel,
   files: FilesWidgetModel,
-  controls: ControlsWidgetModel,
+  button: ButtonWidgetModel,
   carousel: CarouselWidgetModel,
   tabs: TabsWidgetModel,
   section: SectionWidgetModel,
 } as const
 
 /** Kinds that were renamed without changing shape, rewritten on the stored data before its
-model parses. A kind whose shape also changed migrates in `upgradedWidget` instead. */
+model parses. */
 const renamedWidgetTypes: Record<string, WidgetType> = {
   value: 'meter',
 }
 
+type RawWidget = Record<string, unknown>
+
+/** One stored button action, from a `controls` widget's `buttons`, as a button widget. */
+function buttonFromAction(action: unknown): unknown {
+  if (typeof action !== 'object' || action == null) {
+    return action
+  }
+
+  const { label, ...rest } = action as RawWidget
+  return { ...rest, type: 'button', name: label ?? '' }
+}
+
+/** A stored `controls` widget as the section of buttons that replaces it, keeping its ID, name,
+width and frame. The page and row IDs derive from the widget's so every parse of the same stored
+widget compares equal. */
+function sectionFromControls(stored: RawWidget): RawWidget {
+  const { buttons, type: _type, name, ...rest } = stored
+  const id = typeof stored.id === 'string' ? stored.id : v7()
+
+  return {
+    ...rest,
+    id,
+    type: 'section',
+    name: name ?? 'Controls',
+    expand: 'none',
+    pages: [
+      {
+        id: `${id}-buttons`,
+        arrange: 'flex',
+        layout: [
+          {
+            id: `${id}-row`,
+            height: 'auto',
+            widgets: Array.isArray(buttons) ? buttons.map(buttonFromAction) : [],
+          },
+        ],
+      },
+    ],
+  }
+}
+
+/** A stored widget in its current kind. A `controls` widget, or a `button` from before buttons
+were widgets that holds `buttons`, becomes a section of buttons. A `button` with inline action
+fields is already a button widget, its `label` becoming its name. */
 function migratedRawWidget(stored: unknown): unknown {
   if (typeof stored !== 'object' || stored == null) {
     return stored
   }
 
-  const renamed = renamedWidgetTypes[(stored as { type?: string }).type ?? '']
+  const raw = stored as RawWidget
+  const holdsButtons = Array.isArray(raw.buttons) && raw.buttons.length > 0
+  if (raw.type === 'controls' || (raw.type === 'button' && holdsButtons)) {
+    return sectionFromControls(raw)
+  }
+
+  if (raw.type === 'button' && 'label' in raw) {
+    const { label, buttons: _buttons, ...rest } = raw
+    return { ...rest, name: label ?? '' }
+  }
+
+  const renamed = renamedWidgetTypes[typeof raw.type === 'string' ? raw.type : '']
 
   return renamed == null ? stored : { ...stored, type: renamed }
 }
@@ -462,10 +502,7 @@ export const WidgetModel = z.preprocess(
       MeterWidgetModel,
       VideoWidgetModel,
       FilesWidgetModel,
-      ControlsWidgetModel,
-      // The controls widget's legacy stored kind, turned into `controls` by `upgradedWidget` on
-      // load.
-      StoredButtonWidgetModel,
+      ButtonWidgetModel,
       CarouselWidgetModel,
       TabsWidgetModel,
       SectionWidgetModel,
@@ -533,18 +570,31 @@ export function withPages(widget: Widget, pages: WidgetPage[]): Widget {
 /** One page holding every row of `pages`, in order.
 
 It keeps the first page's ID so the layout it names carries on as the folded one. With no pages it
-is a fresh empty page.
+is a fresh empty page. Flex pages fold into a flex page only when every page is flex, holding all
+their widgets in its one row. A mix folds into rows, each flex page becoming one row.
 */
 export function foldedPage(pages: WidgetPage[]): WidgetPage {
+  const first = pages[0]
+  if (first == null) {
+    return emptyPage()
+  }
+
+  const rows = pages.flatMap((page) => page.layout)
+  const flex = pages.every((page) => page.arrange === 'flex')
+  const opening = rows[0]
+
   return {
-    id: pages[0]?.id ?? v7(),
+    id: first.id,
     name: '',
-    layout: pages.flatMap((page) => page.layout),
+    arrange: flex ? 'flex' : 'rows',
+    layout:
+      flex && opening != null
+        ? [{ ...opening, widgets: rows.flatMap((row) => row.widgets) }]
+        : rows,
   }
 }
 
-/** Return `widget` in its current shape, upgrading the legacy `button` kind and its inline
-action fields to a `controls` widget. */
+/** Return `widget` with at least one page when it is a kind that holds pages, all the way down. */
 function upgradedWidget(widget: Widget): Widget {
   const pages = pagesOf(widget).map((page) => ({
     ...page,
@@ -553,31 +603,12 @@ function upgradedWidget(widget: Widget): Widget {
 
   // A widget that holds pages always holds at least one since one with no pages has no layout to
   // drag or paste widgets into. A section's are folded into exactly one by `withPages`.
-  const upgraded = withPages(
-    widget,
-    pages.length === 0 && isPagesWidget(widget) ? [{ id: v7(), name: '', layout: [] }] : pages,
-  )
+  return withPages(widget, pages.length === 0 && isPagesWidget(widget) ? [emptyPage()] : pages)
+}
 
-  const stored = upgraded as Widget | StoredButtonWidget
-  if (stored.type !== 'button') {
-    return upgraded
-  }
-
-  const { label, address, action, color, styling, tooltip, arguments: values, ...rest } = stored
-  const held = { label, address, action, color, styling, tooltip }
-
-  // Stored button widgets carry empty arguments either way so the settable fields decide
-  // whether there is a configured button to carry over.
-  const wasConfigured = Object.values(held).some((value) => value != null)
-  if (stored.buttons.length > 0 || !wasConfigured) {
-    return { ...rest, type: 'controls', buttons: stored.buttons }
-  }
-
-  return {
-    ...rest,
-    type: 'controls',
-    buttons: [ButtonActionModel.parse({ ...held, arguments: values ?? {} })],
-  }
+/** A fresh page with nothing on it. */
+export function emptyPage(arrange: LayoutArrange = 'rows'): WidgetPage {
+  return { id: v7(), name: '', arrange, layout: [] }
 }
 
 function upgradedRows(rows: WidgetRow[]): WidgetRow[] {
@@ -799,9 +830,6 @@ export function widgetTargetSignature(widget: Widget): string {
   }
   if ('particles' in widget) {
     values.push(widget.particles.map((particle) => particle.address?.toString() ?? null))
-  }
-  if ('buttons' in widget) {
-    values.push(widget.buttons.map((button) => button.address?.toString() ?? null))
   }
 
   return JSON.stringify(values.map((value) => value?.toString() ?? null))

@@ -58,6 +58,35 @@ const sizing = $computed<'row' | 'content' | 'floor'>(() => {
 
   return fitsContent(widget) ? 'content' : 'floor'
 })
+/** Whether the widget is drawn as its content alone. A restricted one keeps its card, since the
+card's menu is the way back to an editable widget. */
+const isBare = $computed(() => info.options.bare && !widget.restricted)
+
+/** Take hold of a bare widget from a press on its content, which drags it once the pointer
+travels and stays the content's own press otherwise. A held modifier picks it out instead, as a
+press on a header does. */
+function onContentPress(event: MouseEvent) {
+  if (event.button !== 0) {
+    return
+  }
+
+  // Shift asks a button for its rename, so only the other modifiers pick a bare widget out.
+  if (event.shiftKey) {
+    return
+  }
+
+  if (event.metaKey || event.ctrlKey) {
+    pickOut(event)
+    return
+  }
+
+  const widgets =
+    workspace.isSelected(widget.id) && workspace.selectionLayout === layoutId
+      ? [...workspace.selectedWidgets]
+      : [widget]
+  workspace.drag = { widget, widgets, layout: layoutId, quiet: true }
+}
+
 const settingsComponent = $computed(() => {
   if ('settingsComponent' in info) {
     return info.settingsComponent
@@ -324,7 +353,23 @@ function onFrameHover(event: PointerEvent) {
 </script>
 
 <template>
-  <c-context-menu :content="menuContent" :items="menuItems">
+  <!-- A bare widget carries its own menu, so only the outline marking it picked out is drawn
+  around it. -->
+  <div
+    v-if="isBare"
+    class="relative mx-auto w-fit rounded-md outline-offset-2"
+    :class="workspace.isSelected(widget.id) && 'outline-primary outline-2'"
+    data-widget-bare
+    :data-widget-id="widget.id"
+  >
+    <component
+      :is="info.component as any"
+      :container="container"
+      :widget="widget"
+      @press="onContentPress"
+    />
+  </div>
+  <c-context-menu v-else :content="menuContent" :items="menuItems">
     <div
       ref="card"
       class="relative flex h-full flex-col overflow-hidden rounded-lg"

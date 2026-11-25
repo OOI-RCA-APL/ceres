@@ -3,14 +3,15 @@ import { describe, expect, it } from 'vitest'
 import { Address } from '@/api/address'
 import { isStructurallyEqual } from '@/utilities'
 import {
+  type ButtonWidget,
   ChartWidgetModel,
   comparableWorkspaceData,
-  type ControlsWidget,
   createWidget,
   defaultWidgetName,
   type MeterWidget,
   pagesOf,
   resolveWidgetAddress,
+  type SectionWidget,
   type Widget,
   WorkspaceDataModel,
 } from '@/workspace'
@@ -92,184 +93,118 @@ describe('a stored widget of an unknown kind', () => {
   })
 })
 
+/** The widgets a stored workspace holds, once it has been read the way the app reads one. */
+function loaded(...widgets: unknown[]): Widget[] {
+  const data = WorkspaceDataModel.parse({
+    layout: [{ id: 'r1', height: 250, collapsed: false, widgets }],
+  })
+
+  return data.layout[0]?.widgets ?? []
+}
+
 describe('a stored button widget', () => {
-  /** The widgets a stored workspace holds, once it has been read the way the app reads one. */
-  function loaded(...widgets: unknown[]): Widget[] {
-    const data = WorkspaceDataModel.parse({
-      layout: [{ id: 'r1', height: 250, collapsed: false, widgets }],
-    })
-
-    return data.layout[0]?.widgets ?? []
+  const stored = {
+    id: 'w1',
+    type: 'button',
+    name: 'Card',
+    label: 'Restart',
+    address: '@rig',
+    action: 'restart',
+    arguments: { force: true },
   }
 
-  function buttonsOf(widget: Widget): ControlsWidget['buttons'] {
-    return (widget as ControlsWidget).buttons
-  }
+  it('is a button widget named by its label', () => {
+    const [button] = loaded(stored) as ButtonWidget[]
 
-  it('comes back as a controls widget, the kind it is stored under now', () => {
-    const [upgraded] = loaded({ id: 'w1', type: 'button', name: '' })
-
-    expect(upgraded?.type).toBe('controls')
-  })
-
-  it('becomes a widget holding the single button it always was', () => {
-    const [upgraded] = loaded({
+    expect(button).toMatchObject({
       id: 'w1',
       type: 'button',
-      name: '',
-      address: '@engine.thing',
-      action: 'restart',
-      label: 'Restart',
-      arguments: { force: true },
-    })
-
-    expect(buttonsOf(upgraded as Widget)).toHaveLength(1)
-    expect(buttonsOf(upgraded as Widget)[0]?.action).toBe('restart')
-    expect(buttonsOf(upgraded as Widget)[0]?.label).toBe('Restart')
-    expect(buttonsOf(upgraded as Widget)[0]?.arguments).toEqual({ force: true })
-  })
-
-  it('holds no buttons when nothing was ever made of it', () => {
-    const [upgraded] = loaded({ id: 'w1', type: 'button', name: '', arguments: {} })
-
-    expect(buttonsOf(upgraded as Widget)).toEqual([])
-  })
-
-  it('leaves the fields it was stored with behind', () => {
-    const [upgraded] = loaded({
-      id: 'w1',
-      type: 'button',
-      name: '',
+      name: 'Restart',
       action: 'restart',
       arguments: { force: true },
+      locked: false,
+      confirm: true,
     })
-
-    expect(upgraded).not.toHaveProperty('action')
-    expect(upgraded).not.toHaveProperty('arguments')
-  })
-
-  it('comes back with a confirm up and its arguments unlocked', () => {
-    const [upgraded] = loaded({ id: 'w1', type: 'button', name: '', action: 'restart' })
-
-    expect(buttonsOf(upgraded as Widget)[0]?.locked).toBe(false)
-    expect(buttonsOf(upgraded as Widget)[0]?.confirm).toBe(true)
+    expect(button).not.toHaveProperty('label')
   })
 
   it('is written back and read again as exactly what it was', () => {
-    const [first] = loaded({
-      id: 'w1',
-      type: 'button',
-      name: '',
-      address: '@engine.thing',
-      action: 'restart',
-      arguments: { force: true },
-    })
-    // Both safeguards are on by default so turning them off is what has to survive the trip.
-    const firstButton = buttonsOf(first as Widget)[0]
-    if (firstButton != null) {
-      firstButton.confirm = false
-      firstButton.locked = false
-    }
+    const [first] = loaded(stored) as ButtonWidget[]
+    Object.assign(first as ButtonWidget, { confirm: false, locked: true })
 
-    // The trip a workspace makes every time it is saved and opened again.
     const [second] = loaded(JSON.parse(JSON.stringify(first)))
-    const button = buttonsOf(second as Widget)[0]
 
-    expect(buttonsOf(second as Widget)).toHaveLength(1)
-    expect(button?.id).toBe(firstButton?.id)
-    expect(button?.address?.toString()).toBe('@engine.thing')
-    expect(button?.action).toBe('restart')
-    expect(button?.arguments).toEqual({ force: true })
-    expect(button?.confirm).toBe(false)
-    expect(button?.locked).toBe(false)
+    expect(second).toEqual(first)
   })
 
-  it('is left alone once it holds buttons of its own', () => {
-    const [upgraded] = loaded({
-      id: 'w1',
-      type: 'button',
-      name: '',
-      buttons: [
-        { id: 'b1', action: 'one' },
-        { id: 'b2', action: 'two' },
-      ],
-      action: 'legacy',
+  it.each([
+    ['carousel', 'slides'],
+    ['tabs', 'tabs'],
+  ])('is reached inside a %s page', (type, key) => {
+    const [holder] = loaded({
+      id: 'w0',
+      type,
+      [key]: [{ id: 'p1', layout: [{ id: 'r2', widgets: [stored] }] }],
     })
 
-    expect(buttonsOf(upgraded as Widget).map((button) => button.action)).toEqual(['one', 'two'])
+    const inside = pagesOf(holder as Widget)[0]?.layout[0]?.widgets[0]
+    expect(inside).toMatchObject({ type: 'button', name: 'Restart' })
+  })
+})
+
+describe('a stored controls widget', () => {
+  const stored = {
+    id: 'c1',
+    type: 'controls',
+    name: 'Rig',
+    width: 60,
+    frameless: true,
+    buttons: [
+      { id: 'b1', label: 'Go', action: 'go' },
+      { id: 'b2', action: 'stop' },
+    ],
+  }
+
+  it('becomes a section laying its buttons out side by side', () => {
+    const [section] = loaded(stored) as SectionWidget[]
+    const page = section?.pages[0]
+
+    expect(section).toMatchObject({ id: 'c1', type: 'section', name: 'Rig', width: 60 })
+    expect(section?.frameless).toBe(true)
+    expect(page?.arrange).toBe('flex')
+    expect(page?.layout).toHaveLength(1)
+    expect(page?.layout[0]?.height).toBe('auto')
+    expect(page?.layout[0]?.widgets).toMatchObject([
+      { id: 'b1', type: 'button', name: 'Go', action: 'go' },
+      { id: 'b2', type: 'button', name: '', action: 'stop' },
+    ])
   })
 
-  it('is reached inside a carousel slide', () => {
-    const [upgraded] = loaded({
-      id: 'w1',
-      type: 'carousel',
-      name: 'Carousel',
-      slides: [
-        {
-          id: 's1',
-          name: '',
-          layout: [
-            {
-              id: 'r2',
-              height: 250,
-              collapsed: false,
-              widgets: [{ id: 'w2', type: 'button', name: '', action: 'restart' }],
-            },
-          ],
-        },
-      ],
-    })
+  it('reads the same on every parse, so it never shows as edited', () => {
+    const parse = () => WorkspaceDataModel.parse({ layout: [{ id: 'r1', widgets: [stored] }] })
 
-    const inside = pagesOf(upgraded as Widget)[0]?.layout[0]?.widgets[0]
-    expect(buttonsOf(inside as Widget).map((button) => button.action)).toEqual(['restart'])
+    expect(
+      isStructurallyEqual(comparableWorkspaceData(parse()), comparableWorkspaceData(parse())),
+    ).toBe(true)
   })
 
-  it('is reached inside a tab strip page', () => {
-    const [upgraded] = loaded({
-      id: 'w1',
-      type: 'tabs',
-      name: 'Tabs',
-      tabs: [
-        {
-          id: 't1',
-          name: '',
-          layout: [
-            {
-              id: 'r2',
-              height: 250,
-              collapsed: false,
-              widgets: [{ id: 'w2', type: 'button', name: '', action: 'restart' }],
-            },
-          ],
-        },
-      ],
-    })
+  it('is what a stored button holding buttons of its own becomes too', () => {
+    const [section] = loaded({ ...stored, type: 'button', action: 'legacy' }) as SectionWidget[]
 
-    const inside = pagesOf(upgraded as Widget)[0]?.layout[0]?.widgets[0]
-    expect(buttonsOf(inside as Widget).map((button) => button.action)).toEqual(['restart'])
+    expect(section?.type).toBe('section')
+    expect(section?.pages[0]?.layout[0]?.widgets.map((widget) => widget.id)).toEqual(['b1', 'b2'])
   })
+})
 
-  it('wears a frame by default, the same as every other widget', () => {
-    const [button, chart] = loaded(
-      { id: 'w1', type: 'button', name: '' },
-      { id: 'w2', type: 'chart', name: 'Chart' },
-    )
+describe('a stored page', () => {
+  it('lays its widgets out as rows unless it says otherwise', () => {
+    const [section] = loaded({ id: 's1', type: 'section', pages: [{ id: 'p1' }] })
 
-    expect(button?.frameless).toBe(false)
-    expect(chart?.frameless).toBe(false)
+    expect(pagesOf(section as Widget)[0]?.arrange).toBe('rows')
   })
 })
 
 describe('a stored value widget', () => {
-  /** The widgets a stored workspace holds, once it has been read the way the app reads one. */
-  function loaded(...widgets: unknown[]): Widget[] {
-    const data = WorkspaceDataModel.parse({
-      layout: [{ id: 'r1', height: 250, collapsed: false, widgets }],
-    })
-
-    return data.layout[0]?.widgets ?? []
-  }
-
   it('comes back as a meter widget, the kind it is stored under now', () => {
     const [upgraded] = loaded({ id: 'w1', type: 'value', name: 'Depth' })
 

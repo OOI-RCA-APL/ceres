@@ -1,6 +1,8 @@
 import { v7 } from 'uuid'
 
 import {
+  emptyPage,
+  type LayoutArrange,
   pagesOf,
   type PagesWidgetType,
   type Widget,
@@ -10,7 +12,13 @@ import {
   widgetWidthSubdivisions,
   withPages,
 } from '@/workspace/models'
-import { createWidget, openedRowHeight, widgetMinHeight } from '@/workspace/registry'
+import {
+  arrangeAccepts,
+  createWidget,
+  openedRowFor,
+  openedRowHeight,
+  widgetMinHeight,
+} from '@/workspace/registry'
 
 // The narrowest a width may be squeezed to. A zero or negative width stores a widget nothing can
 // grab and draws its neighbours past the row's edge.
@@ -220,16 +228,22 @@ export function planWidgetsGroup(
   if (split === 'widget') {
     // Each page is named after its widget since the strip then stands for the widgets on it.
     pages = groupList.flatMap(({ row, taken }) =>
-      taken.map((widget) => ({ id: v7(), name: widget.name, layout: [pageRow(row, [widget])] })),
+      taken.map((widget) => ({
+        id: v7(),
+        name: widget.name,
+        arrange: 'rows' as const,
+        layout: [pageRow(row, [widget])],
+      })),
     )
   } else if (split === 'row') {
     pages = groupList.map(({ row, taken }) => ({
       id: v7(),
       name: '',
+      arrange: 'rows' as const,
       layout: [pageRow(row, taken)],
     }))
   } else {
-    pages = [{ id: v7(), name: '', layout: groupList.map(({ row, taken }) => pageRow(row, taken)) }]
+    pages = [{ ...emptyPage(), layout: groupList.map(({ row, taken }) => pageRow(row, taken)) }]
   }
 
   const base = createWidget(type)
@@ -330,6 +344,9 @@ export type WorkspaceLayoutRef = {
   id: string
   rows: WidgetRow[]
 
+  /** How the layout lays its widgets out. The workspace's own is always rows. */
+  arrange: LayoutArrange
+
   /** Put a rearranged layout back where this one came from. */
   set: (rows: WidgetRow[]) => void
 }
@@ -339,7 +356,9 @@ export function collectLayouts(
   root: WidgetRow[],
   setRoot: (rows: WidgetRow[]) => void,
 ): WorkspaceLayoutRef[] {
-  const found: WorkspaceLayoutRef[] = [{ id: rootLayoutId, rows: root, set: setRoot }]
+  const found: WorkspaceLayoutRef[] = [
+    { id: rootLayoutId, rows: root, arrange: 'rows', set: setRoot },
+  ]
 
   function visit(rows: WidgetRow[]) {
     for (const row of rows) {
@@ -348,6 +367,7 @@ export function collectLayouts(
           found.push({
             id: page.id,
             rows: page.layout,
+            arrange: page.arrange,
             set: (replacement) => (page.layout = replacement),
           })
           visit(page.layout)
@@ -367,11 +387,6 @@ A copy keeping any stored ID would leave two things answering to it wherever loo
 */
 export function withFreshIds(widget: Widget): Widget {
   const copy: Widget = { ...widget, id: v7() }
-
-  // Buttons carry IDs of their own.
-  if (copy.type === 'controls') {
-    copy.buttons = copy.buttons.map((button) => ({ ...button, id: v7() }))
-  }
 
   // Chart series carry IDs of their own.
   if (copy.type === 'chart') {
@@ -429,6 +444,57 @@ export type WidgetPlacement = {
 
   /** Insertion index within that row, or null to open a row of its own. */
   column: number | null
+}
+
+/** `placement` as a flex layout reads it. A flex layout holds its widgets in one row so every
+placement joins that row: a new row above it means its start, and below it means its end. */
+export function flexPlacement(rows: WidgetRow[], placement: WidgetPlacement): WidgetPlacement {
+  const row = rows[0]
+  if (row == null) {
+    return { layout: placement.layout, row: 0, column: null }
+  }
+
+  if (placement.column != null && placement.row === 0) {
+    return placement
+  }
+
+  return {
+    layout: placement.layout,
+    row: 0,
+    column: placement.row <= 0 ? 0 : row.widgets.length,
+  }
+}
+
+/** `page` arranged as `arrange`, or null when its widgets cannot be.
+
+Rows become flex only when every widget fits its own width, and its rows run together into one.
+Flex becomes one row sized to its contents, the widgets sharing its width evenly.
+*/
+export function arrangedPage(page: WidgetPage, arrange: LayoutArrange): WidgetPage | null {
+  if (page.arrange === arrange) {
+    return page
+  }
+
+  const widgets = page.layout.flatMap((row) => row.widgets)
+  if (!arrangeAccepts(arrange, widgets)) {
+    return null
+  }
+
+  if (widgets.length === 0) {
+    return { ...page, arrange, layout: [] }
+  }
+
+  if (arrange === 'flex') {
+    return { ...page, arrange, layout: [openedRowFor(widgets)] }
+  }
+
+  const shared = widgets.map((widget) => ({
+    ...widget,
+    width: widgetWidthSubdivisions / widgets.length,
+  }))
+  resolveWidgetWidths(shared)
+
+  return { ...page, arrange, layout: [openedRowFor(shared)] }
 }
 
 /** A row of a planned layout, in widget IDs, so it can be drawn before it is applied. */

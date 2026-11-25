@@ -1,11 +1,13 @@
-import { v7 } from 'uuid'
 import { defineAsyncComponent } from 'vue'
 
 import icons from '@/icons'
 import {
+  emptyPage,
   isPagesWidget,
+  type LayoutArrange,
   pagesOf,
   type PagesWidgetType,
+  type SectionWidget,
   UnknownWidgetModel,
   type Widget,
   widgetModels,
@@ -26,6 +28,8 @@ type WidgetOptionsInput = {
   paddingClass?: string | string[]
   fullHeight?: boolean
   fitsContent?: boolean
+  fitsWidth?: boolean
+  bare?: boolean
   reloadOnThemeChange?: boolean
 }
 
@@ -40,6 +44,11 @@ type WidgetOptions = {
   /** Whether the widget's height follows what it shows, so a row sized to its contents can hold
   it. A widget filling whatever height it is given, such as a chart, has no height of its own. */
   fitsContent: boolean
+  /** Whether the widget's width follows what it shows too, which a flex layout needs. */
+  fitsWidth: boolean
+  /** Whether the widget is drawn as its content alone, with no card, header or frame handle. Its
+  content starts a drag and carries the widget's menu itself. */
+  bare: boolean
   reloadOnThemeChange: boolean
 }
 
@@ -51,6 +60,8 @@ function widgetOptions(options: WidgetOptionsInput): WidgetOptions {
     paddingClass: options.paddingClass ?? defaultPaddingClass,
     fullHeight: options.fullHeight ?? true,
     fitsContent: options.fitsContent ?? false,
+    fitsWidth: options.fitsWidth ?? false,
+    bare: options.bare ?? false,
     reloadOnThemeChange: options.reloadOnThemeChange ?? false,
   }
 }
@@ -157,6 +168,10 @@ export const widgetInfos = {
       () => import('@/components/c-workspace-widget-section-settings.vue'),
     ),
     options: widgetOptions({
+      // As short as a header over one line of buttons, which a section laying them out holds.
+      minHeight: 75,
+      framelessMinHeight: 45,
+      initialHeight: 150,
       paddingClass: [],
       fitsContent: true,
     }),
@@ -184,19 +199,21 @@ export const widgetInfos = {
       paddingClass: [],
     }),
   },
-  controls: {
-    type: 'controls',
-    name: 'Controls',
-    model: widgetModels.controls,
-    component: defineAsyncComponent(() => import('@/components/c-workspace-widget-controls.vue')),
-    // No settings dialog. Each control is configured from the control itself.
+  button: {
+    type: 'button',
+    name: 'Button',
+    model: widgetModels.button,
+    component: defineAsyncComponent(() => import('@/components/c-workspace-widget-button.vue')),
+    // No settings dialog of the workspace's. The button opens its own from its menu.
     options: widgetOptions({
-      minHeight: 75,
-      // One 34px row of buttons and the 10px of menu dots hanging under it, rounded to the 5px
-      // step the row's resize handle moves in.
-      framelessMinHeight: 45,
+      // One 32px button and the 10px of menu dots hanging under it, rounded to the 5px step the
+      // row's resize handle moves in.
+      minHeight: 45,
       fullHeight: false,
+      paddingClass: [],
       fitsContent: true,
+      fitsWidth: true,
+      bare: true,
     }),
   },
 } as const
@@ -233,6 +250,24 @@ export function fitsContent(widget: Widget): boolean {
   return getWidgetInfo(widget.type).options.fitsContent
 }
 
+/** Whether `widget` takes its width from what it shows, which a flex layout needs. */
+export function fitsWidth(widget: Widget): boolean {
+  return getWidgetInfo(widget.type).options.fitsWidth
+}
+
+/** Whether a layout arranged as `arrange` can hold every one of `widgets`. A flex layout holds
+only widgets sized by their contents, since it gives them no share of its width. */
+export function arrangeAccepts(arrange: LayoutArrange, widgets: Iterable<Widget>): boolean {
+  return arrange === 'rows' || [...widgets].every(fitsWidth)
+}
+
+/** The widget kinds a layout arranged as `arrange` offers to add, in menu order. */
+export function addableWidgetInfos(
+  arrange: LayoutArrange,
+): (typeof widgetInfos)[keyof typeof widgetInfos][] {
+  return Object.values(widgetInfos).filter((info) => arrange === 'rows' || info.options.fitsWidth)
+}
+
 /** The height a row opened for `widgets` starts at: sized to its contents when every widget
 fits them, else as tall as the tallest asks to open at. */
 export function openedRowHeight(widgets: Widget[]): WidgetRowHeight {
@@ -261,10 +296,22 @@ export function createWidget(type: WidgetType): Widget {
   // A widget that holds pages begins with one since one with no pages has no layout to drag or
   // paste widgets into.
   if (isPagesWidget(widget) && pagesOf(widget).length === 0) {
-    return withPages(widget, [{ id: v7(), name: '', layout: [] }])
+    return withPages(widget, [emptyPage()])
   }
 
   return widget
+}
+
+/** A frameless section laying `buttons` out side by side, the way a set of related actions is
+usually wanted. */
+export function createButtonBar(buttons: Widget[]): Widget {
+  const section = createWidget('section') as SectionWidget
+  return {
+    ...section,
+    frameless: true,
+    expand: 'none',
+    pages: [{ ...emptyPage('flex'), layout: [openedRowFor(buttons)] }],
+  }
 }
 
 /** Every pages-widget kind, in the order menus offer them. */
