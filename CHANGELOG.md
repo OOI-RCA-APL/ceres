@@ -29,8 +29,9 @@ written, and the release workflow refuses a version that has no entry here.
 
 **Web Console**
 
-- A console tab left open across an engine upgrade shows "Ceres Updated" and asks to reload. It
-  checks when the page comes back into view and when its streams reconnect.
+- A console tab left open across an engine upgrade shows "Ceres Updated" and asks to reload, and
+  saves no workspace draft from then on. It checks when the page comes back into view and when its
+  streams reconnect.
 - A new workspace row holding only procedures, buttons, sections or tab strips opens sized to
   its contents. Dragging a row's edge fixes its height, and double-clicking the edge or "Fit Row
   To Content" sizes it to its contents again. A chart or other filling widget in such a row keeps
@@ -57,7 +58,8 @@ written, and the release workflow refuses a version that has no entry here.
   saved, and the chart's settings choose the range it opens with.
 - A chart reloads only the latest range asked for, so paging quickly never shows an earlier
   page's records under a later range, and a fixed range fetches its window rather than the
-  whole span up to now.
+  whole span up to now. A record both loaded and streamed draws once, and a live record from
+  before the window is dropped rather than held on the axis.
 - A chart group reading every connection draws records naming no connection, or a connection
   found after the chart opened, on lines of their own rather than dropping them.
 - A meter shows the unit its field declares unless "Unit" sets another, colors its value past
