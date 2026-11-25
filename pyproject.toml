@@ -113,13 +113,15 @@ include = [
 no-build-isolation-package = ["ceres-engine"]
 cache-keys = [
     { file = "pyproject.toml" },
+    { file = "rust-toolchain.toml" },
     { file = ".cargo/config.toml" },
     { file = "rust/Cargo.toml" },
     { file = "rust/Cargo.lock" },
     { file = "rust/*/Cargo.toml" },
     { file = "rust/*/build.rs" },
     { file = "rust/*/src/**/*" },
-    # Media embeds its test clips and builds its vendored sources.
+    # The database embeds its migrations, media its test clips and vendored sources.
+    { file = "rust/ceres-database/migrations/**/*" },
     { file = "rust/ceres-media/clips/**/*" },
     { file = "rust/ceres-media/vendor/**/*" },
     { file = "ceres/__internal__/core.pyi" },
