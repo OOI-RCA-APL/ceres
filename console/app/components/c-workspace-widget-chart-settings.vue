@@ -40,7 +40,7 @@ function addEntry(entry: ParticleManualEntry) {
   <c-workspace-widget-settings :widget>
     <!-- The chart itself, so every change below shows as it is made. -->
     <div class="border-default mb-4 h-48 overflow-hidden rounded-md border p-2">
-      <c-workspace-widget-chart :widget="widget" />
+      <c-workspace-widget-chart preview :widget="widget" />
     </div>
     <c-text class="mb-2" variant="title2">Data</c-text>
     <c-particle-data-picker

@@ -66,9 +66,10 @@ function receive(record: unknown) {
 }
 
 /** Mounts a live chart of the last hour of `reading` values and lets it start its first load. */
-async function render() {
+async function render(preview = false) {
   mount(CWorkspaceWidgetChart, {
     props: {
+      preview,
       widget: ChartWidgetModel.parse({
         id: 'chart',
         type: 'chart',
@@ -149,5 +150,15 @@ describe('a chart widget', () => {
     receive(reading('c', 3, 20))
 
     expect(await drawn()).toEqual([3, 1, 2])
+  })
+
+  it('pages its settings preview apart from the workspace chart', async () => {
+    await render()
+    await render(true)
+    const views = useTimeRangeViews()
+
+    views.get('chart|preview')!.range = fixedRange(1, 2)!
+
+    expect(views.get('chart')!.range.mode).toBe('live')
   })
 })

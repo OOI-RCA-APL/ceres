@@ -33,8 +33,9 @@ import type {
   ChartWidgetSeriesType,
 } from '@/workspace'
 
-const { widget } = defineProps<{
+const { widget, preview = false } = defineProps<{
   widget: ChartWidget
+  preview?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -198,16 +199,20 @@ const drawnIds = $computed(() => {
 
 const views = useTimeRangeViews()
 
+/** The store key of the range this chart shows. A settings preview keeps its own so paging it
+leaves the workspace's chart where it was. */
+const viewId = $computed(() => (preview ? `${widget.id}|preview` : widget.id))
+
 // The range starts from the stored default and is the viewer's own from then on, so it lives
 // in a store by widget ID and outlasts the remount a color mode change causes.
 watch(
-  () => `${widget.after ?? ''}|${widget.timespan ?? ''}`,
-  (key) => views.ensure(widget.id, key, () => storedRange(widget.after, widget.timespan)),
+  () => `${viewId}|${widget.after ?? ''}|${widget.timespan ?? ''}`,
+  (key) => views.ensure(viewId, key, () => storedRange(widget.after, widget.timespan)),
   { immediate: true },
 )
 
 // Set by the watch above before anything reads it.
-const view = $computed(() => views.get(widget.id)!)
+const view = $computed(() => views.get(viewId)!)
 
 const isLive = $computed(() => view.range.mode === 'live')
 
