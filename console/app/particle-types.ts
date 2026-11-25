@@ -68,7 +68,7 @@ export type ParticleTypeEntry = ParticleTypeInfo & {
 }
 
 /** The label `address`'s `connection` shows as, its own name when it declares none or the
-component no longer lists it. */
+component does not list it. */
 export function connectionLabel(
   engine: ReturnType<typeof useEngine>,
   address: string,

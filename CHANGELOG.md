@@ -35,7 +35,7 @@ written, and the release workflow refuses a version that has no entry here.
   its contents. Dragging a row's edge fixes its height, and double-clicking the edge or "Fit Row
   To Content" sizes it to its contents again. A chart or other filling widget in such a row keeps
   its opening height.
-- A button is a widget: it is dragged, picked out, copied, grouped and deleted like any other,
+- A button is a widget. It is dragged, picked out, copied, grouped and deleted like any other,
   and pressing it still runs it. A section, tab or carousel slide set to "Arrange: Flex" lays its
   buttons out side by side at their own sizes, wrapping as needed. Creating buttons for several
   actions makes such a section.
@@ -49,7 +49,7 @@ written, and the release workflow refuses a version that has no entry here.
   than showing whichever reported last. A viewer's choice holds for that view only.
 - Chart lines and series list entries name a connection by its label. The series list's
   connection menu is gone, since the picker chooses the connection.
-- A chart carries its range on itself: "Earlier" and "Later" page by the range's length, the
+- A chart carries its range on itself. "Earlier" and "Later" page by the range's length, the
   range label opens presets from "Last 1 h" to "Last 30 d", a calendar and typed "Start" and
   "End" times, and "Live" pauses or follows new data. Dragging across the plot zooms to that
   span and a double click or "Reset Zoom" returns. The range is each viewer's own and never
