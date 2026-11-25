@@ -14,6 +14,7 @@ import { v7 } from 'uuid'
 import { watchEffect, onUnmounted, type MaybeRef, type MaybeRefOrGetter, toValue } from 'vue'
 import * as z from 'zod'
 
+import { useConsoleVersion } from '@/console-version'
 import { type ErrorInfo, Failure } from '@/errors'
 import { getWebSocketUrl } from '@/utilities'
 
@@ -181,6 +182,7 @@ type StreamEntry = {
 }
 
 function useStream<TParseModel extends z.ZodType>(options: UseStreamOptions<TParseModel>) {
+  const consoleVersion = useConsoleVersion()
   const ids = [] as string[]
   function getId(index: number) {
     while (ids.length <= index) {
@@ -244,6 +246,7 @@ function useStream<TParseModel extends z.ZodType>(options: UseStreamOptions<TPar
         current.socket == null &&
         isEqual(current.stream, stream)
       ) {
+        void consoleVersion.check()
         open(stream)
       }
     }, 1000)

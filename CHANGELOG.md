@@ -25,6 +25,8 @@ written, and the release workflow refuses a version that has no entry here.
 
 **Web Console**
 
+- A console tab left open across an engine upgrade shows "Ceres Updated" and asks to reload. It
+  checks when the page comes back into view and when its streams reconnect.
 - Procedure pages offer "Abort" during a call. Leaving the page also aborts the request.
 - A procedure's "Execute" is disabled for a user whose access cannot invoke it.
 - Schema form labels are tied to their fields, so a screen reader announces a field by its

@@ -59,6 +59,7 @@ const loaded = $computed(() => engine.config.data != null)
       <div v-if="!loaded" class="bg-default fixed inset-0 z-50 flex items-center justify-center">
         <c-icon class="size-8 animate-spin text-primary" name="i-mdi-loading" />
       </div>
+      <c-console-update-modal />
     </c-app-boundary>
   </c-app>
 </template>
