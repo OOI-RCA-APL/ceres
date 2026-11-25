@@ -51,10 +51,27 @@ const preferences = usePreferences()
 type DataEntry = [number, DataValue]
 type Data = Record<string, DataEntry[]>
 
+/** The value a record's `field` plots as, a boolean as 1 or 0, or undefined when it cannot plot. */
+function plotValue(particle: Particle, field: string): DataValue {
+  const value = particle.data[field]
+  if (typeof value === 'boolean') {
+    return Number(value)
+  }
+
+  return typeof value === 'number' || typeof value === 'string' ? value : undefined
+}
+
 let instance = $shallowRef<InstanceType<typeof CChart> | null>(null)
 let isInitialized = $ref(false)
 let isLoading = $ref(true)
-const pending: Data = $ref({})
+
+/** A record that arrived live and waits for the next batch, keyed by its group's position and its
+ID, since the load in flight may return it too. */
+type Arrival = { record: string; line: string; entry: DataEntry }
+let pending: Arrival[] = []
+
+/** The records the latest load drew, by the same key, which an arrival it also returned skips. */
+let loadedRecords = new Set<string>()
 
 // What each series holds, owned here rather than read back from the chart, whose own copy an
 // option rebuild replaces. Plain arrays, off the reactive graph, since a record arriving must
@@ -217,21 +234,30 @@ function resetZoom() {
   }
 }
 
-// Keyed by series ID rather than by the name on screen, two groups of the same type differing
-// only by connection drawing two lines that would otherwise share a name and a bucket.
-function append(seriesId: string, entries: DataEntry[], to: 'pending' | 'instance') {
+/** Add `entries` to the line `id`, keyed by series ID rather than by the name on screen, since two
+groups of one type differing only by connection would share a name.
+
+Lines stay in time order, which pruning and drawing rely on and a record arriving late breaks, so
+such a batch sorts its line again.
+*/
+function append(id: string, entries: DataEntry[]) {
   if (entries.length === 0) {
     return
   }
 
-  if (to === 'pending') {
-    pending[seriesId] ??= []
-    pending[seriesId].push(...entries)
-    return
+  const line = (plotted[id] ??= [])
+  let previous = line.at(-1)?.[0] ?? -Infinity
+  let ordered = true
+  for (const [at] of entries) {
+    ordered &&= at >= previous
+    previous = at
   }
 
-  plotted[seriesId] ??= []
-  plotted[seriesId].push(...entries)
+  line.push(...entries)
+  if (!ordered) {
+    line.sort((first, second) => first[0] - second[0])
+  }
+
   foldExtent(entries)
 }
 
@@ -464,18 +490,19 @@ watch([() => instance, () => axisOption], () => {
 })
 
 /** The records `particle`'s group holds on `connection` within `window`, which every group of
-one load shares so they all cover the same span. */
+one load shares so they all cover the same span. A live load leaves the end open. */
 async function fetchParticles(
   particle: ChartWidgetParticle,
   connection: string | null,
   window: TimeBounds,
+  live: boolean,
 ) {
   return await engine.particles.getAll({
     address: workspace.resolveAddress(particle.address),
     type: particle.type,
     connection,
     after: utc(window.start).toISOString(),
-    before: isLive ? null : utc(window.end).toISOString(),
+    before: live ? null : utc(window.end).toISOString(),
     // Subsampling buckets by time and keeps one record per bucket, so a query covering several
     // connections would thin them against each other. One query per drawn line keeps each whole.
     subsample: 5000,
@@ -496,16 +523,17 @@ function collect(
     }
 
     for (const particle of particles) {
-      const value = particle.data[field]
-      if (typeof value === 'number' || typeof value === 'string' || typeof value === 'boolean') {
+      const value = plotValue(particle, field)
+      if (value !== undefined) {
         const bucket = (data[lineId(current, key)] ??= [])
-        bucket.push([utc(particle.timestamp).valueOf(), value as any])
+        bucket.push([utc(particle.timestamp).valueOf(), value])
       }
     }
   }
 }
 
-/** Counts loads, so one that answers after a later one started writes nothing. */
+/** Counts load requests, bumped as soon as what the chart shows changes, so a load that answers
+after a later request writes nothing, even one that answers while the next waits out its delay. */
 let generation = 0
 
 /** Load every group's records for the current range, returning whether this load is still the
@@ -513,18 +541,37 @@ latest once it finishes. */
 async function load(): Promise<boolean> {
   const loaded = ++generation
   const window = bounds
+  const live = isLive
   const isCurrent = () => loaded === generation
+  const records = new Set<string>()
+
+  /** Fetch `group`'s records on `connection`, noting each one by the key its arrivals carry. */
+  async function fetchGroup(group: ChartWidgetParticle, index: number, connection: string | null) {
+    const particles = await fetchParticles(group, connection, window, live)
+    for (const particle of particles) {
+      records.add(`${index}|${particle.id}`)
+    }
+
+    return particles
+  }
 
   // Per connection, the records of a split group's own connections, and with no connection the
   // records naming none, which no query can ask for alone and so come from the unfiltered load.
-  async function fetchSplit(group: ChartWidgetParticle, data: Data, unfiltered: Particle[]) {
+  async function fetchSplit(
+    group: ChartWidgetParticle,
+    index: number,
+    data: Data,
+    unfiltered: Particle[],
+  ) {
     const connections = splitFor(group)
     const results = await Promise.all(
       connections
         .filter((connection) => connection !== unattributed)
-        .map(async (connection) => [connection, await fetchParticles(group, connection, window)]),
+        .map(
+          async (connection) => [connection, await fetchGroup(group, index, connection)] as const,
+        ),
     )
-    for (const [connection, particles] of results as [string, Particle[]][]) {
+    for (const [connection, particles] of results) {
       collect(data, particles, group, connection)
     }
 
@@ -539,13 +586,13 @@ async function load(): Promise<boolean> {
   }
 
   const loads = await Promise.all(
-    widget.particles.map(async (group) => {
+    widget.particles.map(async (group, index) => {
       const data = {} as Data
       if (instance == null) {
         return data
       }
 
-      const unfiltered = await fetchParticles(group, group.connection ?? null, window)
+      const unfiltered = await fetchGroup(group, index, group.connection ?? null)
       if (group.connection == null) {
         for (const particle of unfiltered) {
           discover(group, particle.connection ?? unattributed)
@@ -554,7 +601,7 @@ async function load(): Promise<boolean> {
 
       if (splitFor(group).length > 0) {
         // These records came thinned against each other, so each connection is asked for alone.
-        await fetchSplit(group, data, unfiltered)
+        await fetchSplit(group, index, data, unfiltered)
       } else {
         collect(data, unfiltered, group, null)
       }
@@ -577,31 +624,29 @@ async function load(): Promise<boolean> {
     }
   }
 
+  loadedRecords = records
   recomputeExtent()
   draw()
   return true
 }
 
-function clearPending() {
-  for (const name in pending) {
-    pending[name]!.length = 0
-  }
-}
-
 let lastPendingApplied = $shallowRef(time.now)
 
 function applyPending() {
-  const arrived: string[] = []
-  for (const name in pending) {
-    if (pending[name]!.length > 0) {
-      append(name, pending[name]!, 'instance')
-      arrived.push(name)
+  const lines = new Map<string, DataEntry[]>()
+  for (const arrival of pending) {
+    if (!loadedRecords.has(arrival.record)) {
+      lines.set(arrival.line, [...(lines.get(arrival.line) ?? []), arrival.entry])
     }
   }
 
-  clearPending()
-  if (arrived.length > 0) {
-    draw(arrived)
+  pending = []
+  for (const [id, entries] of lines) {
+    append(id, entries)
+  }
+
+  if (lines.size > 0) {
+    draw([...lines.keys()])
   }
 
   lastPendingApplied = time.now
@@ -636,6 +681,7 @@ const splitKey = $computed(() => JSON.stringify(widget.particles.map(splitFor)))
 
 watch([() => JSON.stringify(widget.particles), () => rangeKey], () => {
   isLoading = true
+  generation += 1
 })
 
 watch(
@@ -655,7 +701,7 @@ watch(
     }
 
     isLoading = true
-    clearPending()
+    pending = []
     // `load` takes the next generation, and only the latest load clears the flag, so an earlier
     // one finishing never shows the chart as loaded while a later one is still out.
     const loading = generation + 1
@@ -732,7 +778,10 @@ client.useStream({
 
     const particleIndex = Number(stream.id)
     const particleDefinition = widget.particles[particleIndex] ?? null
-    if (particleDefinition == null) {
+    const at = utc(particle.timestamp).valueOf()
+    // A late or replayed record from before the window would never be pruned behind newer ones
+    // and could hold the axis extent for the window's whole length.
+    if (particleDefinition == null || at < bounds.start) {
       return
     }
 
@@ -748,10 +797,13 @@ client.useStream({
         continue
       }
 
-      const value = particle.data[series.field]
-      if (typeof value === 'number' || typeof value === 'string' || typeof value === 'boolean') {
-        const entry: DataEntry = [utc(particle.timestamp).valueOf(), value as any]
-        append(lineId(series, key), [entry], 'pending')
+      const value = plotValue(particle, series.field)
+      if (value !== undefined) {
+        pending.push({
+          record: `${particleIndex}|${particle.id}`,
+          line: lineId(series, key),
+          entry: [at, value],
+        })
       }
     }
   },
