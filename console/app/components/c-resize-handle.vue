@@ -6,14 +6,23 @@ import { roundTo } from '@/utilities'
 const {
   direction,
   modelValue,
+  measure,
   min = 0,
   max,
   step,
   visibility = 'always',
   readout = true,
+  label,
 } = defineProps<{
   direction: 'vertical' | 'horizontal'
-  modelValue: number
+
+  /** The size in pixels, or null while what is sized takes its size from its contents. */
+  modelValue: number | null
+
+  /** Read the size what is sized has on screen, where a drag starts from while `modelValue` is
+  null. */
+  measure?: () => number
+
   min?: number
   max?: number
   visibility?: 'hidden' | 'hover' | 'always'
@@ -25,12 +34,17 @@ const {
   says it itself while `dragging` is true.
   */
   readout?: boolean
+
+  /** What the grip sizes, for a screen reader. */
+  label?: string
 }>()
 
 const emit = defineEmits<{
   (emit: 'update:modelValue', modelValue: number): void
   /** Whether a size is being dragged out right now, for a caller that draws its own readout. */
   (emit: 'update:dragging', dragging: boolean): void
+  /** A double click, asking to return to sizing from the contents. */
+  (emit: 'reset'): void
 }>()
 
 type Vector = { x: number; y: number }
@@ -67,7 +81,7 @@ function onPointerDown(event: PointerEvent) {
   event.preventDefault()
   drag = {
     start: { x: event.pageX, y: event.pageY },
-    startModelValue: modelValue,
+    startModelValue: modelValue ?? measure?.() ?? 0,
     end: { x: event.pageX, y: event.pageY },
   }
   pointer = { x: event.clientX, y: event.clientY }
@@ -99,8 +113,11 @@ function onPointerUp(event: PointerEvent) {
   drag.end.x = Math.max(event.pageX, 0)
   drag.end.y = Math.max(event.pageY, 0)
 
-  const size = clamp(drag.startModelValue + drag.end[axis] - drag.start[axis])
-  emit('update:modelValue', size)
+  // A click without movement sizes nothing, so a row sized to its contents stays so and a
+  // double click can reset it.
+  if (drag.end[axis] !== drag.start[axis]) {
+    emit('update:modelValue', clamp(drag.startModelValue + drag.end[axis] - drag.start[axis]))
+  }
 
   drag = null
   pointer = null
@@ -110,7 +127,7 @@ function onPointerUp(event: PointerEvent) {
 }
 
 onMounted(() => {
-  if (modelValue !== clamp(modelValue)) {
+  if (modelValue != null && modelValue !== clamp(modelValue)) {
     emit('update:modelValue', clamp(modelValue))
   }
 })
@@ -132,13 +149,17 @@ onUnmounted(() => {
   >
     <div class="relative h-full w-full">
       <div
+        :aria-label="label"
+        :aria-orientation="isVertical ? 'horizontal' : 'vertical'"
         :class="[
           'absolute z-10 rounded bg-[grey] opacity-0 transition-opacity duration-250',
           'hover:opacity-25',
           isVertical ? 'h-[7px] w-full cursor-row-resize' : 'h-full w-[7px] cursor-col-resize',
           drag != null && 'opacity-35!',
         ]"
+        role="separator"
         :style="isVertical ? { top: '-3px' } : { left: '-3px' }"
+        @dblclick="emit('reset')"
         @pointerdown="onPointerDown"
       />
     </div>
@@ -146,7 +167,7 @@ onUnmounted(() => {
     cut the readout off at the edge of the widget being sized. -->
     <teleport to="body">
       <div
-        v-if="readout && pointer != null"
+        v-if="readout && pointer != null && modelValue != null"
         :class="[
           'pointer-events-none fixed z-[6000] translate-x-3.5 translate-y-3.5 rounded px-1.5',
           'py-px text-[11px] leading-4 whitespace-nowrap tabular-nums',

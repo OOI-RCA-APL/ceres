@@ -2,27 +2,34 @@ import { AddressSelector } from '@/api/address'
 import { ChartWidgetParticleModel, ChartWidgetSeriesModel } from '@/workspace'
 import type { ChartWidgetParticle, ChartWidgetSeries } from '@/workspace'
 
-/** One field of one declared particle type, as the selector trees select them. */
+/** One field of one declared particle type on one connection, as the picker selects them.
+`connection` is null for a type no connection is known to produce. */
 export type ParticleFieldRef = {
   address: string
   type: string
+  connection: string | null
   field: string
 }
 
-/** One declared particle type of one address, as the selector trees' type headers stand for. */
+/** One declared particle type of one address on one connection, as the picker's type headers
+stand for. */
 export type ParticleTypeRef = {
   address: string
   type: string
+  connection: string | null
+}
+
+/** The key a selection tracks a type under, unique across the whole tree. A type with no
+connection keeps the key it had before connections were told apart, which remembered tree
+expansion is stored under. */
+export function typeRefKey(ref: ParticleTypeRef): string {
+  const base = `${ref.address}|${ref.type}`
+  return ref.connection == null ? base : `${base}|${ref.connection}`
 }
 
 /** The key a selection tracks a field under, unique across the whole tree. */
 export function fieldRefKey(ref: ParticleFieldRef): string {
-  return `${ref.address}|${ref.type}|${ref.field}`
-}
-
-/** The key a selection tracks a type under, unique across the whole tree. */
-export function typeRefKey(ref: ParticleTypeRef): string {
-  return `${ref.address}|${ref.type}`
+  return `${typeRefKey(ref)}||${ref.field}`
 }
 
 /** The connection a group is narrowed to, `null` standing for every connection. */
@@ -96,20 +103,15 @@ function withGroupSeries(
   return merged
 }
 
-/** Turn `field` on or off for `address`'s `type`, merging into a single entry for that group and
-removing it once its last field goes off.
-
-The tree carries no connection of its own, so this reaches the group covering every connection
-and never one of the narrowed copies beside it.
-*/
+/** Turn `ref`'s field on or off, merging into a single entry for its address, type and connection
+and removing that entry once its last field goes off. */
 export function toggleParticleField(
   particles: ChartWidgetParticle[],
-  address: string,
-  type: string,
-  field: string,
+  ref: ParticleFieldRef,
   value: boolean,
 ): ChartWidgetParticle[] {
-  const current = seriesForGroup(particles, address, type)
+  const { address, type, connection, field } = ref
+  const current = seriesForGroup(particles, address, type, connection)
   const hasField = current.some((series) => series.field === field)
 
   const series = value
@@ -118,19 +120,20 @@ export function toggleParticleField(
       : [...current, ChartWidgetSeriesModel.parse({ field })]
     : current.filter((series) => series.field !== field)
 
-  return withGroupSeries(particles, address, type, null, series)
+  return withGroupSeries(particles, address, type, connection, series)
 }
 
-/** Add one series entry for `address`'s `type`, merging into any existing entry for the group the
-way a toggle does. */
+/** Add one series entry for `address`'s `type` on `connection`, merging into any existing entry
+for the group the way a toggle does. */
 export function addParticleSeries(
   particles: ChartWidgetParticle[],
   address: string,
   type: string,
   series: ChartWidgetSeries,
+  connection: string | null = null,
 ): ChartWidgetParticle[] {
-  return withGroupSeries(particles, address, type, null, [
-    ...seriesForGroup(particles, address, type),
+  return withGroupSeries(particles, address, type, connection, [
+    ...seriesForGroup(particles, address, type, connection),
     series,
   ])
 }
@@ -156,17 +159,6 @@ export function duplicateParticleGroup(
   })
 
   return [...particles.slice(0, index + 1), copy, ...particles.slice(index + 1)]
-}
-
-/** Narrow the group at `index` to `connection`, or to every connection when it is null. */
-export function withGroupConnection(
-  particles: ChartWidgetParticle[],
-  index: number,
-  connection: string | null,
-): ChartWidgetParticle[] {
-  return particles.map((particle, current) =>
-    current === index ? { ...particle, connection } : particle,
-  )
 }
 
 /** Remove one series entry by ID across every particle entry, dropping any entry left empty. */

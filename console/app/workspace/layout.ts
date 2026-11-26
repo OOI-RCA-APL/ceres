@@ -1,25 +1,28 @@
 import { v7 } from 'uuid'
 
 import {
+  emptyPage,
+  type LayoutArrange,
   pagesOf,
   type PagesWidgetType,
   type Widget,
   type WidgetPage,
   type WidgetRow,
+  type WidgetRowHeight,
   widgetWidthSubdivisions,
   withPages,
 } from '@/workspace/models'
-import { createWidget, getWidgetInfo, widgetMinHeight } from '@/workspace/registry'
+import {
+  arrangeAccepts,
+  createWidget,
+  openedRowFor,
+  openedRowHeight,
+  widgetMinHeight,
+} from '@/workspace/registry'
 
 // The narrowest a width may be squeezed to. A zero or negative width stores a widget nothing can
 // grab and draws its neighbours past the row's edge.
 const minWidthUnits = 1
-
-// The space between two rows of a layout, matching `c-workspace-layout.vue`'s row gap.
-const layoutRowGap = 8
-
-// What a section takes beyond its rows, its header and its layout's padding above and below.
-const sectionChromeHeight = 48
 
 /** Spread a row's widths back over `widgetWidthSubdivisions`, without touching any widget.
 
@@ -225,16 +228,22 @@ export function planWidgetsGroup(
   if (split === 'widget') {
     // Each page is named after its widget since the strip then stands for the widgets on it.
     pages = groupList.flatMap(({ row, taken }) =>
-      taken.map((widget) => ({ id: v7(), name: widget.name, layout: [pageRow(row, [widget])] })),
+      taken.map((widget) => ({
+        id: v7(),
+        name: widget.name,
+        arrange: 'rows' as const,
+        layout: [pageRow(row, [widget])],
+      })),
     )
   } else if (split === 'row') {
     pages = groupList.map(({ row, taken }) => ({
       id: v7(),
       name: '',
+      arrange: 'rows' as const,
       layout: [pageRow(row, taken)],
     }))
   } else {
-    pages = [{ id: v7(), name: '', layout: groupList.map(({ row, taken }) => pageRow(row, taken)) }]
+    pages = [{ ...emptyPage(), layout: groupList.map(({ row, taken }) => pageRow(row, taken)) }]
   }
 
   const base = createWidget(type)
@@ -245,15 +254,10 @@ export function planWidgetsGroup(
   )
   const holder: Widget = { ...withPages(base, pages), width }
 
-  // A section shows its rows one under another, so a section alone in its row opens tall enough
-  // to show them all without scrolling. One sharing its row keeps the row's height, since
-  // growing the row would grow its neighbors too.
+  // A section alone in its row opens sized to its rows. One sharing its row keeps the row's
+  // height, since growing the row would grow its neighbors too.
   const sectionHeight =
-    type === 'section' && first.staying.length === 0
-      ? sectionChromeHeight +
-        groupList.reduce((sum, { row }) => sum + row.height, 0) +
-        layoutRowGap * (groupList.length - 1)
-      : null
+    type === 'section' && first.staying.length === 0 ? openedRowHeight([holder]) : null
 
   const result: WidgetRow[] = []
   for (const row of rows) {
@@ -340,6 +344,9 @@ export type WorkspaceLayoutRef = {
   id: string
   rows: WidgetRow[]
 
+  /** How the layout lays its widgets out. The workspace's own is always rows. */
+  arrange: LayoutArrange
+
   /** Put a rearranged layout back where this one came from. */
   set: (rows: WidgetRow[]) => void
 }
@@ -349,7 +356,9 @@ export function collectLayouts(
   root: WidgetRow[],
   setRoot: (rows: WidgetRow[]) => void,
 ): WorkspaceLayoutRef[] {
-  const found: WorkspaceLayoutRef[] = [{ id: rootLayoutId, rows: root, set: setRoot }]
+  const found: WorkspaceLayoutRef[] = [
+    { id: rootLayoutId, rows: root, arrange: 'rows', set: setRoot },
+  ]
 
   function visit(rows: WidgetRow[]) {
     for (const row of rows) {
@@ -358,6 +367,7 @@ export function collectLayouts(
           found.push({
             id: page.id,
             rows: page.layout,
+            arrange: page.arrange,
             set: (replacement) => (page.layout = replacement),
           })
           visit(page.layout)
@@ -377,11 +387,6 @@ A copy keeping any stored ID would leave two things answering to it wherever loo
 */
 export function withFreshIds(widget: Widget): Widget {
   const copy: Widget = { ...widget, id: v7() }
-
-  // Buttons carry IDs of their own.
-  if (copy.type === 'controls') {
-    copy.buttons = copy.buttons.map((button) => ({ ...button, id: v7() }))
-  }
 
   // Chart series carry IDs of their own.
   if (copy.type === 'chart') {
@@ -441,10 +446,61 @@ export type WidgetPlacement = {
   column: number | null
 }
 
+/** `placement` as a flex layout reads it. A flex layout holds its widgets in one row so every
+placement joins that row: a new row above it means its start, and below it means its end. */
+export function flexPlacement(rows: WidgetRow[], placement: WidgetPlacement): WidgetPlacement {
+  const row = rows[0]
+  if (row == null) {
+    return { layout: placement.layout, row: 0, column: null }
+  }
+
+  if (placement.column != null && placement.row === 0) {
+    return placement
+  }
+
+  return {
+    layout: placement.layout,
+    row: 0,
+    column: placement.row <= 0 ? 0 : row.widgets.length,
+  }
+}
+
+/** `page` arranged as `arrange`, or null when its widgets cannot be.
+
+Rows become flex only when every widget fits its own width, and its rows run together into one.
+Flex becomes one row sized to its contents, the widgets sharing its width evenly.
+*/
+export function arrangedPage(page: WidgetPage, arrange: LayoutArrange): WidgetPage | null {
+  if (page.arrange === arrange) {
+    return page
+  }
+
+  const widgets = page.layout.flatMap((row) => row.widgets)
+  if (!arrangeAccepts(arrange, widgets)) {
+    return null
+  }
+
+  if (widgets.length === 0) {
+    return { ...page, arrange, layout: [] }
+  }
+
+  if (arrange === 'flex') {
+    return { ...page, arrange, layout: [openedRowFor(widgets)] }
+  }
+
+  const shared = widgets.map((widget) => ({
+    ...widget,
+    width: widgetWidthSubdivisions / widgets.length,
+  }))
+  resolveWidgetWidths(shared)
+
+  return { ...page, arrange, layout: [openedRowFor(shared)] }
+}
+
 /** A row of a planned layout, in widget IDs, so it can be drawn before it is applied. */
 export type PlannedRow = {
   id: string
-  height: number
+  height: WidgetRowHeight
   collapsed: boolean
   widgets: string[]
 }
@@ -504,6 +560,12 @@ export function planIsCurrent(plan: WidgetMovePlan, layouts: Map<string, WidgetR
   )
 }
 
+/** A row's height after widgets needing `floors` join it. A row sized to its contents grows to
+them by itself and stays so. */
+function raisedRowHeight(height: WidgetRowHeight, floors: number[]): WidgetRowHeight {
+  return height === 'auto' ? 'auto' : Math.max(height, ...floors)
+}
+
 /** Work out the layouts that moving `ids` to `placement` produces, changing nothing.
 
 Widgets keep the rows they came from when the drop opens rows of its own, and a drop into an
@@ -522,9 +584,10 @@ export function planWidgetsMove(
 ): WidgetMovePlan | null {
   const held = new Set(ids)
 
-  /** The height a row actually renders at, which a widget leaving it carries away. */
-  function heightOf(row: WidgetRow): number {
-    return Math.round(shown?.get(row.id) ?? row.height)
+  /** The height a widget leaving `row` carries away: what a fixed row renders at, or `'auto'`
+  from a row sized to its contents, whose rendered height only describes what it held. */
+  function heightOf(row: WidgetRow): WidgetRowHeight {
+    return row.height === 'auto' ? 'auto' : Math.round(shown?.get(row.id) ?? row.height)
   }
 
   // The layout the widgets came out of. A drag holds widgets from one layout at a time.
@@ -630,9 +693,12 @@ export function planWidgetsMove(
   }
 
   destinationRow.widgets.splice(placement.column, 0, ...carried.map((widget) => widget.id))
-  destinationRow.height = Math.max(
+  destinationRow.height = raisedRowHeight(
     destinationRow.height,
-    ...groups.map((group) => heightOf(group.row)),
+    groups.flatMap((group) => {
+      const height = heightOf(group.row)
+      return height === 'auto' ? group.widgets.map(widgetMinHeight) : [height]
+    }),
   )
 
   // Each arriving widget claims at most an even share of the row it joins, and the widgets
@@ -690,9 +756,7 @@ export function planWidgetsInsert(
 
     target.splice(placement.row, 0, {
       id: v7(),
-      height: Math.max(
-        ...widgets.map((widget) => getWidgetInfo(widget.type).options.initialHeight),
-      ),
+      height: openedRowHeight(widgets),
       collapsed: false,
       widgets: widgets.map((widget) => widget.id),
     })
@@ -706,7 +770,7 @@ export function planWidgetsInsert(
   }
 
   destinationRow.widgets.splice(placement.column, 0, ...widgets.map((widget) => widget.id))
-  destinationRow.height = Math.max(destinationRow.height, ...widgets.map(widgetMinHeight))
+  destinationRow.height = raisedRowHeight(destinationRow.height, widgets.map(widgetMinHeight))
 
   // Each arriving widget claims at most an even share of the row it joins, and the widgets
   // already there give up the difference. Arriving widths are read from the widgets in hand

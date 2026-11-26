@@ -2,8 +2,9 @@
 import type { ContextMenuItem } from '@nuxt/ui'
 
 import { type Address, AddressSelector } from '@/api/address'
+import { useEngine } from '@/api/engine'
 import type { ParticleFieldDetails } from '@/components/c-particle-field-details-dialog.vue'
-import { scopedQuery } from '@/filters/model'
+import { createBlock, createCondition, type FilterItem } from '@/filters/model'
 import icons from '@/icons'
 import {
   fieldRefKey,
@@ -11,7 +12,7 @@ import {
   type ParticleTypeRef,
   toggleParticleField,
 } from '@/particle-series'
-import { useParticleTypes } from '@/particle-types'
+import { connectionLabel, useParticleTypes } from '@/particle-types'
 import { clearOnOutsidePress } from '@/row-selection'
 import { toTitle } from '@/utilities'
 import {
@@ -52,6 +53,7 @@ let expandedTypes = $(
   defineModel<Record<string, boolean> | null>('expandedTypes', { default: null }),
 )
 
+const engine = useEngine()
 const types = $(useParticleTypes(() => address.toString()).types)
 
 let selection = $ref<ParticleFieldRef[]>([])
@@ -136,18 +138,43 @@ function onTreeContext(event: MouseEvent) {
   }
 }
 
-/** A view of one component's records, narrowed to the given types.
+/** The label a widget built from `ref` adds to its name, its connection's where the type has
+several to tell apart. */
+function connectionSuffix(ref: ParticleTypeRef): string {
+  const several = (types.find((type) => type.type === ref.type)?.connections.length ?? 0) > 1
+  if (!several || ref.connection == null) {
+    return ''
+  }
+
+  return ` (${connectionLabel(engine, ref.address, ref.connection)})`
+}
+
+/** The condition selecting `ref`'s records, its type on its connection where it names one. */
+function typeConditions(ref: ParticleTypeRef): FilterItem[] {
+  const type = createCondition('type', ref.type)
+  return ref.connection == null ? [type] : [type, createCondition('connection', ref.connection)]
+}
+
+/** A view of one component's records, narrowed to the given types on their connections.
 
 A view of one type is named after it, since that name is the whole of what it shows. Several
 types keep the default, no one of them standing for the rest.
 */
-function particlesWidget(address: string, types: string[]): ParticlesWidget {
+function particlesWidget(address: string, refs: ParticleTypeRef[]): ParticlesWidget {
   const widget = createWidget('particles') as ParticlesWidget
-  if (types.length === 1) {
-    widget.name = toTitle(types[0] as string)
+  const [only] = refs
+  if (only != null && refs.length === 1) {
+    widget.name = toTitle(only.type) + connectionSuffix(only)
   }
 
-  widget.query = scopedQuery(address, 'type', types)
+  const conditions = refs.map((ref) => {
+    const parts = typeConditions(ref)
+    return parts.length === 1 ? parts[0]! : createBlock('and', parts)
+  })
+  widget.query = [
+    createCondition('address', address),
+    ...(only != null && refs.length === 1 ? typeConditions(only) : [createBlock('or', conditions)]),
+  ]
   return widget
 }
 
@@ -155,15 +182,15 @@ function particlesWidget(address: string, types: string[]): ParticlesWidget {
 type where they are wanted apart. */
 function particlesViewsFor(refs: ParticleTypeRef[], form: 'combined' | 'separate'): Widget[] {
   if (form === 'separate') {
-    return refs.map((ref) => particlesWidget(ref.address, [ref.type]))
+    return refs.map((ref) => particlesWidget(ref.address, [ref]))
   }
 
-  const byAddress = new Map<string, string[]>()
+  const byAddress = new Map<string, ParticleTypeRef[]>()
   for (const ref of refs) {
-    byAddress.set(ref.address, [...(byAddress.get(ref.address) ?? []), ref.type])
+    byAddress.set(ref.address, [...(byAddress.get(ref.address) ?? []), ref])
   }
 
-  return [...byAddress].map(([address, types]) => particlesWidget(address, types))
+  return [...byAddress].map(([address, grouped]) => particlesWidget(address, grouped))
 }
 
 function showDetails() {
@@ -193,24 +220,26 @@ function chartWidgetFor(refs: ParticleFieldRef[]): ChartWidget | null {
 
   const widget = createWidget('chart') as ChartWidget
   widget.particles = refs.reduce<ChartWidgetParticle[]>(
-    (particles, ref) =>
-      toggleParticleField(particles, address.toString(), ref.type, ref.field, true),
+    (particles, ref) => toggleParticleField(particles, ref, true),
     [],
   )
-  if (refs.length === 1) {
-    widget.name = toTitle(refs[0]!.field)
+  const [only] = refs
+  if (only != null && refs.length === 1) {
+    widget.name = toTitle(only.field) + connectionSuffix(only)
   }
 
   return widget
 }
 
-/** One meter per given field, each named after the field it shows. */
+/** One meter per given field, each named after the field it shows and the connection it reads
+from. */
 function meterWidgetsFor(refs: ParticleFieldRef[]): MeterWidget[] {
   return refs.map((ref) => {
     const widget = createWidget('meter') as MeterWidget
-    widget.name = toTitle(ref.field)
-    widget.particleAddress = new AddressSelector(address.toString())
+    widget.name = toTitle(ref.field) + connectionSuffix(ref)
+    widget.particleAddress = new AddressSelector(ref.address)
     widget.particleType = ref.type
+    widget.particleConnection = ref.connection
     widget.particleField = ref.field
     return widget
   })
@@ -325,7 +354,7 @@ function dropTypeViews(form: 'combined' | 'separate') {
   <div v-if="types.length > 0" ref="section" class="border-default rounded-md border">
     <c-detail-section v-model:expanded="expanded" :title="`Particles (${types.length})`">
       <c-context-menu :items="menuItems">
-        <c-particle-series-selector
+        <c-particle-data-picker
           ref="selector"
           v-model:expanded-types="expandedTypes"
           v-model:selected="selection"

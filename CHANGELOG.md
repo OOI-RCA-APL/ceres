@@ -15,6 +15,10 @@ written, and the release workflow refuses a version that has no entry here.
   cancellation emits `ProcedureCancelledEvent`. Cancellation does not undo completed side
   effects or interrupt synchronous work. Clients must keep the connection open until the call
   returns to avoid requesting cancellation.
+- Workspaces store each button as a widget of its own, and a "Controls" widget loads as a section
+  laying its buttons out as flex. A console older than this release drops the widgets of a flex
+  page when it saves the workspace, so reload consoles left open across the upgrade before
+  editing.
 
 **Engine**
 
@@ -25,6 +29,46 @@ written, and the release workflow refuses a version that has no entry here.
 
 **Web Console**
 
+- A console tab left open across an engine upgrade shows "Ceres Updated" and asks to reload, and
+  saves no workspace draft from then on. It checks when the page comes back into view and when its
+  streams reconnect.
+- A new workspace row holding only procedures, buttons, sections or tab strips opens sized to
+  its contents. Dragging a row's edge fixes its height, and double-clicking the edge or "Fit Row
+  To Content" sizes it to its contents again. A chart or other filling widget in such a row keeps
+  its opening height.
+- A button is a widget. It is dragged, picked out, copied, grouped and deleted like any other,
+  and pressing it still runs it. A section, tab or carousel slide set to "Arrange: Flex" lays its
+  buttons out side by side at their own sizes, wrapping as needed. Creating buttons for several
+  actions makes such a section.
+- Chart and meter settings open with a live preview and share one data picker, with "Manual
+  Entry" for fields a component does not declare, now with a connection for both.
+- A meter follows a change of its data at once, rather than only after a reload.
+- The data picker lists a type whose records come in on several connections once per connection,
+  by the connection's label, and its search matches every word across component, connection,
+  type and field. A chart or meter built from such an entry reads that connection alone.
+- A meter reading several connections, records naming none counting as one, shows "Choose
+  Connection" with a button per named connection rather than whichever reported last. A viewer's
+  choice holds for that view only.
+- Chart lines and series list entries name a connection by its label. The series list's
+  connection menu is gone, since the picker chooses the connection.
+- A chart carries its range on itself. "Earlier" and "Later" page by the range's length, the
+  range label opens presets from "Last 1 h" to "Last 30 d", a calendar and typed "Start" and
+  "End" times, and "Live" pauses or follows new data. Dragging across the plot zooms to that
+  span and a double click or "Reset Zoom" returns. The range is each viewer's own and never
+  saved, and the chart's settings choose the range it opens with.
+- A chart reloads only the latest range asked for, so paging quickly never shows an earlier
+  page's records under a later range, and a fixed range fetches its window rather than the
+  whole span up to now. A record both loaded and streamed draws once, and a live record from
+  before the window is dropped rather than held on the axis.
+- A chart group reading every connection draws records naming no connection, or a connection
+  found after the chart opened, on lines of their own rather than dropping them.
+- A meter shows the unit its field declares unless "Unit" sets another, colors its value past
+  optional warning and error bounds, and dims once its newest record is older than "Stale
+  After". Its text fits the meter unless "Font Size" sets one, so a stored meter without a font
+  size now fills its widget.
+- A chart or meter added to a workspace opens its settings with the data search focused, and an
+  empty one offers "Choose Data".
+- Chart tooltips escape series names and values.
 - Procedure pages offer "Abort" during a call. Leaving the page also aborts the request.
 - A procedure's "Execute" is disabled for a user whose access cannot invoke it.
 - Schema form labels are tied to their fields, so a screen reader announces a field by its

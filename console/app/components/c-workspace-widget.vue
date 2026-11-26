@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import type { DropdownMenuItem } from '@nuxt/ui'
-import { useTemplateRef, watch } from 'vue'
+import { onMounted, useTemplateRef, watch } from 'vue'
 
 import icons from '@/icons'
 import { useNavigation } from '@/navigation'
@@ -10,6 +10,7 @@ import { isOnWidgetFrame } from '@/widget-drop'
 import type { WidgetStatus } from '@/widget-status'
 import {
   createWidget,
+  fitsContent,
   getWidgetInfo,
   pagesWidgetConversionItems,
   useWorkspace,
@@ -46,6 +47,46 @@ const isNameOffered = $computed(() => isEditingName || isNameHovered)
 const menuContent = keepFocusWhile(() => isEditingName)
 
 const info = $computed(() => getWidgetInfo(widget.type))
+
+/** How the card takes its height. A fixed row gives it the row's. A row sized to its contents
+takes its height from a widget that fits them, and holds one that does not, such as a chart, at
+its opening height, drawn out of flow so the chart still has a definite box to fill. */
+const sizing = $computed<'row' | 'content' | 'floor'>(() => {
+  if (container.height !== 'auto') {
+    return 'row'
+  }
+
+  return fitsContent(widget) ? 'content' : 'floor'
+})
+/** Whether the widget is drawn as its content alone. A restricted one keeps its card, since the
+card's menu is the way back to an editable widget. */
+const isBare = $computed(() => info.options.bare && !widget.restricted)
+
+/** Take hold of a bare widget from a press on its content, which drags it once the pointer
+travels and stays the content's own press otherwise. A held modifier picks it out instead, as a
+press on a header does. */
+function onContentPress(event: MouseEvent) {
+  if (event.button !== 0) {
+    return
+  }
+
+  // Shift asks a button for its rename, so only the other modifiers pick a bare widget out.
+  if (event.shiftKey) {
+    return
+  }
+
+  if (event.metaKey || event.ctrlKey) {
+    pickOut(event)
+    return
+  }
+
+  const widgets =
+    workspace.isSelected(widget.id) && workspace.selectionLayout === layoutId
+      ? [...workspace.selectedWidgets]
+      : [widget]
+  workspace.drag = { widget, widgets, layout: layoutId, quiet: true }
+}
+
 const settingsComponent = $computed(() => {
   if ('settingsComponent' in info) {
     return info.settingsComponent
@@ -69,6 +110,13 @@ function onReloadRequested() {
 function onSettingsRequested() {
   isShowingSettingsDialog = true
 }
+
+// A widget added to be told what to show opens on its settings, once.
+onMounted(() => {
+  if (settingsComponent != null && workspace.takeSettingsRequest(widget.id)) {
+    isShowingSettingsDialog = true
+  }
+})
 
 /** The widget's pages under each other pages-widget kind, none for a widget without pages.
 Offered from the header as well as from a strip itself because it changes the widget rather
@@ -260,6 +308,15 @@ const menuItems = $computed<MenuItem[][]>(() => {
     { label: 'Reload', icon: icons.refresh, onSelect: onReloadRequested },
   ]
 
+  // Dragging a row's edge fixes its height, and this is the way back besides double-clicking it.
+  if (container.height !== 'auto') {
+    framing.splice(1, 0, {
+      label: 'Fit Row To Content',
+      icon: icons.fitContent,
+      onSelect: () => (container.height = 'auto'),
+    })
+  }
+
   return [
     [...single, ...arranging],
     framing,
@@ -303,7 +360,23 @@ function onFrameHover(event: PointerEvent) {
 </script>
 
 <template>
-  <c-context-menu :content="menuContent" :items="menuItems">
+  <!-- A bare widget carries its own menu, so only the outline marking it picked out is drawn
+  around it. -->
+  <div
+    v-if="isBare"
+    class="relative mx-auto w-fit rounded-md outline-offset-2"
+    :class="workspace.isSelected(widget.id) && 'outline-primary outline-2'"
+    data-widget-bare
+    :data-widget-id="widget.id"
+  >
+    <component
+      :is="info.component as any"
+      :container="container"
+      :widget="widget"
+      @press="onContentPress"
+    />
+  </div>
+  <c-context-menu v-else :content="menuContent" :items="menuItems">
     <div
       ref="card"
       class="relative flex h-full flex-col overflow-hidden rounded-lg"
@@ -323,6 +396,7 @@ function onFrameHover(event: PointerEvent) {
       ]"
       data-widget-frame
       :data-widget-id="widget.id"
+      :style="sizing === 'floor' ? { minHeight: `${info.options.initialHeight}px` } : undefined"
       @mousedown="onFramePress"
       @pointerleave="isFrameHovered = false"
       @pointermove="onFrameHover"
@@ -444,11 +518,13 @@ function onFrameHover(event: PointerEvent) {
           :class="[
             // The box takes the card's size rather than its own contents', in both directions.
             // Left to itself it grows to whatever it holds, and something wide inside, a long
-            // strip of tabs most of all, drags the whole row wider instead of scrolling.
-            'h-0! w-full',
-            'grow overflow-auto',
+            // strip of tabs most of all, drags the whole row wider instead of scrolling. A widget
+            // setting its row's height is the exception, growing to what it holds.
+            sizing === 'content' ? 'w-full' : 'h-0! w-full',
+            'grow',
+            sizing === 'floor' ? 'relative' : 'overflow-auto',
             !widget.frameless && 'bg-default',
-            !widget.frameless && info.options.paddingClass,
+            !widget.frameless && sizing !== 'floor' && info.options.paddingClass,
           ]"
           data-widget-frame
           @contextmenu="keepMenuToFrame"
@@ -457,7 +533,13 @@ function onFrameHover(event: PointerEvent) {
           <component
             :is="info.component as any"
             v-else
-            :class="(info.options.fullHeight || widget.frameless) && 'h-full'"
+            :class="[
+              (info.options.fullHeight || widget.frameless) && 'h-full',
+              sizing === 'floor' && [
+                'absolute! inset-0 h-auto! overflow-auto',
+                !widget.frameless && info.options.paddingClass,
+              ],
+            ]"
             :container="container"
             :widget="widget"
             @reload-requested="onReloadRequested"

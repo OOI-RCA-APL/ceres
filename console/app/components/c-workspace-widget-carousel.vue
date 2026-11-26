@@ -1,21 +1,22 @@
 <script lang="ts" setup>
 import type { DropdownMenuItem } from '@nuxt/ui'
 import { useEventListener, useIntervalFn, useMediaQuery } from '@vueuse/core'
-import { v7 } from 'uuid'
 import { nextTick, watch } from 'vue'
 
 import icons from '@/icons'
+import { useLayoutArrange } from '@/layout-arrange'
 import { usePersisted } from '@/persistence'
 import { moved, usePointerReorder } from '@/reorder'
 import { afterMenuCloses } from '@/utilities'
 import { useWidgetDrop } from '@/widget-drop'
 import {
+  emptyPage,
   layoutExpandOptions,
   layoutsWithin,
   pagesWidgetConversionItems,
   useWorkspace,
 } from '@/workspace'
-import type { CarouselSlide, CarouselWidget, WidgetRow } from '@/workspace'
+import type { CarouselWidget, WidgetRow } from '@/workspace'
 
 const { widget, container } = defineProps<{
   widget: CarouselWidget
@@ -26,6 +27,7 @@ const { widget, container } = defineProps<{
 
 const workspace = useWorkspace()
 const drop = useWidgetDrop()
+const layoutArrange = useLayoutArrange()
 
 let index = $ref(0)
 
@@ -243,7 +245,7 @@ function onNameEditing(editing: boolean) {
 // layout is arranged by working on it rather than by describing it somewhere else. A new one is
 // shown at once so the next thing done lands on the slide that was just asked for.
 function addSlide() {
-  const added: CarouselSlide = { id: v7(), name: '', layout: [] }
+  const added = emptyPage()
   widget.slides = [...widget.slides, added]
   index = widget.slides.length - 1
   workspace.focusLayout(added.id)
@@ -357,7 +359,7 @@ function onGhostDrop() {
     return
   }
 
-  const opened: CarouselSlide = { id: v7(), name: '', layout: [] }
+  const opened = emptyPage()
   widget.slides = [...widget.slides, opened]
   workspace.moveWidgets(
     drag.widgets.map((held) => held.id),
@@ -389,6 +391,7 @@ const menuItems = $computed<DropdownMenuItem[][]>(() => [
       // focus back to its own trigger as a click away.
       onSelect: () => afterMenuCloses(startNaming),
     },
+    ...(slide == null ? [] : [layoutArrange.menuItem(slide)]),
     {
       label: 'Move Slide Earlier',
       icon: icons.menuLeft,
@@ -498,6 +501,7 @@ async function focusSlideName() {
         edge jumping under the hand arranging them. -->
         <div :key="slide.id" class="absolute inset-0 overflow-auto px-2 [scrollbar-gutter:stable]">
           <c-workspace-layout
+            :arrange="slide.arrange"
             :expand="widget.expand"
             :host="container"
             :layout="slide.layout"

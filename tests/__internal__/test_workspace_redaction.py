@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 
 from ceres.__internal__.workspace_redaction import (
@@ -376,3 +378,56 @@ def test_pin_widget_addresses_leaves_a_default_address_following_the_workspace()
     a, b = pinned["layout"][0]["widgets"]
     assert a["buttons"][0]["address"] == ""
     assert b["procedureAddress"] is None
+
+
+def in_section(layout: object) -> dict[str, object]:
+    """A workspace whose one widget is a section with one page holding `layout`."""
+    page = {"id": "p1", "name": "", "layout": layout}
+    return {"layout": [{"widgets": [{"id": "s1", "type": "section", "pages": [page]}]}]}
+
+
+def page_widgets(data: Any) -> Any:
+    layout = data["layout"][0]["widgets"][0]["pages"][0]["layout"]
+    return layout["widgets"] if layout["type"] == "flex" else layout["rows"][0]["widgets"]
+
+
+STOP = {"id": "b1", "type": "button", "name": "Stop", "address": "@secret.pump", "action": "stop"}
+LEVEL = {"id": "m1", "type": "meter", "name": "Level", "particleAddress": "@secret.tank"}
+OPEN = {"id": "b2", "type": "button", "name": "Go", "address": "@open.pump", "action": "go"}
+
+
+def hides_secrets(address: Address) -> bool:
+    return not str(address).startswith("@secret")
+
+
+@pytest.mark.parametrize(
+    "layout",
+    [
+        {"type": "flex", "widgets": [STOP, LEVEL, OPEN]},
+        {"type": "rows", "rows": [{"widgets": [STOP, LEVEL, OPEN]}]},
+    ],
+)
+def test_redact_reaches_widgets_in_a_layout_object(layout: dict[str, object]) -> None:
+    redacted = redact_workspace_data(in_section(layout), scope=None, can_view=hides_secrets)
+
+    assert page_widgets(redacted) == [
+        {"id": "b1", "type": "button", "name": "", "width": None, "restricted": True},
+        {"id": "m1", "type": "meter", "name": "", "width": None, "restricted": True},
+        OPEN,
+    ]
+
+
+def test_merge_restores_a_stub_held_in_a_flex_layout() -> None:
+    stored = in_section({"type": "flex", "widgets": [STOP]})
+    incoming = redact_workspace_data(stored, scope=None, can_view=hides_secrets)
+
+    assert page_widgets(incoming)[0]["restricted"] is True
+    assert page_widgets(merge_redacted_widgets(stored, incoming)) == [STOP]
+
+
+def test_pin_widget_addresses_reaches_a_widget_in_a_flex_layout() -> None:
+    data = in_section(
+        {"type": "flex", "widgets": [{"id": "b1", "type": "button", "address": "arm"}]}
+    )
+
+    assert page_widgets(pin_widget_addresses(data, Address("@rig")))[0]["address"] == "@rig.arm"

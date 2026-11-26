@@ -1,12 +1,13 @@
 <script lang="ts" setup>
-import { computed, onMounted } from 'vue'
+import { useElementSize } from '@vueuse/core'
+import type { ComponentPublicInstance } from 'vue'
 
-import { useClient } from '@/api/client'
 import { useEngine } from '@/api/engine'
-import { ParticleModel } from '@/api/particles'
-import type { Particle } from '@/api/particles'
-import { displayDuration, useTime, utc } from '@/time'
-import { formatNumber } from '@/utilities'
+import icons from '@/icons'
+import { useLatestParticle } from '@/particle-data'
+import { connectionLabel, fieldUnit } from '@/particle-types'
+import { formatParticleValue, particleFieldValue, thresholdLevel } from '@/particle-values'
+import { displayDuration, parseDuration, useTime, utc } from '@/time'
 import { useWorkspace } from '@/workspace'
 import type { MeterWidget } from '@/workspace'
 
@@ -14,49 +15,66 @@ const { widget } = defineProps<{
   widget: MeterWidget
 }>()
 
-const client = useClient()
+const emit = defineEmits<{
+  /** The empty meter's "Choose Data" asks for the settings that choose it. */
+  settingsRequested: []
+}>()
+
 const engine = useEngine()
 const time = useTime()
 const workspace = useWorkspace()
 
-const resolvedParticleAddress = $computed(() => workspace.resolveAddress(widget.particleAddress))
+const address = $computed(
+  () => workspace.resolveAddress(widget.particleAddress)?.toString() ?? null,
+)
 
-let particle = $ref<Particle | null>(null)
+/** A connection chosen from the prompt by someone who cannot edit the workspace, which holds for
+this view alone. */
+let chosen = $ref<string | null>(null)
 
-const value = $computed(() => {
-  if (particle == null) {
-    return undefined
+const connection = $computed(() => widget.particleConnection ?? chosen)
+
+/** The connections the type is known to carry, from its declaration. The records the meter reads
+add the rest, since an unnarrowed meter learns of a second one only when it arrives. */
+const declared = $computed(() => {
+  if (address == null || widget.particleType == null) {
+    return []
   }
 
-  let value: unknown
-  if (widget.particleField) {
-    value = particle.data[widget.particleField]
+  return (
+    engine.components.get(address)?.particles.find((type) => type.type === widget.particleType)
+      ?.connections ?? []
+  )
+})
+
+const latest = useLatestParticle(() => ({
+  address,
+  type: widget.particleType ?? null,
+  connection,
+}))
+const particle = $(latest.particle)
+const seen = $(latest.connections)
+
+/** The named connections to choose between, set only while the meter would blend several sources,
+records naming no connection counting as one. Those cannot be chosen, since no filter reads them
+alone. */
+const choices = $computed(() => {
+  if (connection != null) {
+    return []
+  }
+
+  const names = [...new Set([...declared, ...seen.filter((name) => name != null)])]
+  const sources = names.length + (seen.includes(null) ? 1 : 0)
+  return sources > 1 ? names : []
+})
+
+function choose(name: string) {
+  if (workspace.canEdit) {
+    widget.particleConnection = name
   } else {
-    value = particle.data
+    chosen = name
   }
-
-  return value
-})
-
-onMounted(async () => {
-  const latest = (
-    await engine.particles.getAll({
-      address: resolvedParticleAddress,
-      type: widget.particleType,
-      connection: widget.particleConnection,
-      order: 'timestamp:desc',
-      limit: 1,
-    })
-  )?.[0]
-
-  if (latest == null) {
-    return
-  }
-
-  if (particle == null || utc(latest.timestamp).isAfter(particle.timestamp)) {
-    particle = latest
-  }
-})
+}
 
 const textWeight = $computed(() => {
   switch (widget.fontWeight) {
@@ -71,90 +89,148 @@ const textWeight = $computed(() => {
   }
 })
 
-const textStyle = $computed(() => {
-  const fontSize = Math.max(Math.min(widget.fontSize ?? 18, 60), 0)
-  return {
-    fontSize: `${fontSize}px`,
-    fontWeight: textWeight,
-  }
+const value = $computed(() =>
+  particle == null ? undefined : particleFieldValue(particle, widget.particleField),
+)
+
+const declaredUnit = $computed(() => {
+  const types = address == null ? [] : (engine.components.get(address)?.particles ?? [])
+  return fieldUnit(types, widget.particleType, widget.particleField)
 })
 
-const stringified = $computed(() => {
-  if (particle == null) {
-    return ''
-  }
-  if (value === undefined) {
-    return '(No Value)'
-  }
-
-  if (typeof value === 'string') {
-    return value
-  }
-
-  if (typeof value === 'number') {
-    return formatNumber(value, widget.decimals)
-  }
-
-  return JSON.stringify(value)
-})
+/** The unit after the value: the setting, or the unit the field declares. */
+const unit = $computed(() => widget.unit?.trim() || declaredUnit || '')
 
 const display = $computed(() => {
-  let current = stringified
-  if (current.trim() === '') {
-    return ' '
-  }
-
-  if (widget.prefix) {
-    current = `${widget.prefix}${current}`
-  }
-  if (widget.suffix) {
-    current = `${current}${widget.suffix}`
-  }
-
-  return current
-})
-
-const updatedAt = $computed(() => {
   if (particle == null) {
     return ''
   }
 
-  const timestamp = utc(particle.timestamp)
-  const age = time.nowFast.diff(timestamp, 'second')
-  if (age < 1.5) {
-    return 'Now'
-  }
-
-  return `${displayDuration(age, { decimals: 0, short: true })} ago`
+  const read = formatParticleValue(value, widget.decimals)
+  return `${widget.prefix ?? ''}${read}${unit === '' ? '' : ` ${unit}`}${widget.suffix ?? ''}`
 })
 
-client.useStream({
-  stream: computed(() => ({
-    path: '/api/particles',
-    query: {
-      address: resolvedParticleAddress,
-      type: widget.particleType,
-      connection: widget.particleConnection,
-    },
-  })),
-  parse: ParticleModel,
-  onReceive: (latest: Particle) => {
-    if (particle == null || utc(latest.timestamp).isAfter(particle.timestamp)) {
-      particle = latest
-    }
-  },
+const level = $computed(() => thresholdLevel(value, widget))
+
+const age = $computed(() =>
+  particle == null ? null : time.nowFast.diff(utc(particle.timestamp), 'millisecond'),
+)
+
+const staleAfter = $computed(() => {
+  try {
+    return widget.staleAfter == null ? null : parseDuration(widget.staleAfter).asMilliseconds()
+  } catch {
+    return null
+  }
+})
+
+const isStale = $computed(() => age != null && staleAfter != null && age > staleAfter)
+
+const updatedAt = $computed(() => {
+  if (age == null) {
+    return ''
+  }
+
+  return age < 1500 ? 'Now' : `${displayDuration(age / 1000, { decimals: 0, short: true })} ago`
+})
+
+let box = $ref<HTMLElement | null>(null)
+let sample = $ref<ComponentPublicInstance | null>(null)
+
+const { width: boxWidth, height: boxHeight } = useElementSize(() => box)
+const { width: sampleWidth, height: sampleHeight } = useElementSize(() => sample)
+
+/** The size the text is drawn at, the setting or else the largest that fits the box, read from
+the text drawn once at `sampleSize` out of sight. */
+const sampleSize = 100
+const fontSize = $computed(() => {
+  if (widget.fontSize != null) {
+    return widget.fontSize
+  }
+
+  if (sampleWidth.value === 0 || sampleHeight.value === 0) {
+    return 18
+  }
+
+  // The age line takes the bottom of the box, so the value keeps clear of it.
+  const scale = Math.min(
+    (boxWidth.value * 0.9) / sampleWidth.value,
+    (boxHeight.value * 0.75) / sampleHeight.value,
+  )
+  return Math.max(8, Math.floor(sampleSize * scale))
 })
 </script>
 
 <template>
-  <div class="relative flex min-h-full flex-1 items-center justify-center overflow-hidden">
-    <div class="text-center">
-      <div class="m-0 p-0 font-extralight whitespace-pre-wrap" :style="textStyle">
-        {{ display }}
-      </div>
-      <div class="absolute right-1 bottom-0.5 text-[10px] opacity-50">
-        {{ updatedAt }}
-      </div>
+  <div
+    v-if="widget.particleType == null"
+    class="flex min-h-full flex-1 items-center justify-center"
+  >
+    <c-tooltip text="Choose Data">
+      <c-button
+        aria-label="Choose Data"
+        class="rounded-full"
+        color="primary"
+        :icon="icons.add"
+        @click="emit('settingsRequested')"
+      />
+    </c-tooltip>
+  </div>
+  <!-- A value blended from several sources would mislead, so the meter asks which to show. -->
+  <div
+    v-else-if="choices.length > 0"
+    class="flex min-h-full flex-1 flex-col items-center justify-center gap-2 p-2"
+  >
+    <c-text variant="description">Choose Connection</c-text>
+    <div class="flex flex-wrap justify-center gap-1">
+      <c-button
+        v-for="name in choices"
+        :key="name"
+        color="neutral"
+        :label="address == null ? name : connectionLabel(engine, address, name)"
+        size="xs"
+        variant="outline"
+        @click="choose(name)"
+      />
     </div>
+  </div>
+  <div
+    v-else
+    ref="box"
+    class="relative flex h-full min-h-full flex-1 items-center justify-center overflow-hidden"
+  >
+    <!-- The text at a known size, out of sight, which the fitted size scales from. Size and weight
+    are inline, since the fit computes one and the weight setting picks the other. -->
+    <c-text
+      ref="sample"
+      aria-hidden="true"
+      class="invisible absolute whitespace-pre"
+      element="span"
+      :style="{ fontSize: `${sampleSize}px`, fontWeight: textWeight }"
+      variant="value"
+    >
+      {{ display || ' ' }}
+    </c-text>
+    <c-text
+      class="text-center whitespace-pre transition-opacity"
+      :class="[
+        level === 'error' && 'text-error',
+        level === 'warning' && 'text-warning',
+        isStale && 'opacity-40',
+      ]"
+      data-meter-value
+      :style="{ fontSize: `${fontSize}px`, fontWeight: textWeight }"
+      variant="value"
+    >
+      {{ display || ' ' }}
+    </c-text>
+    <c-text
+      class="absolute right-1 bottom-0.5"
+      :class="isStale ? 'text-warning!' : 'opacity-50'"
+      data-meter-age
+      variant="description"
+    >
+      {{ updatedAt }}
+    </c-text>
   </div>
 </template>

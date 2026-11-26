@@ -14,6 +14,7 @@ import { v7 } from 'uuid'
 import { watchEffect, onUnmounted, type MaybeRef, type MaybeRefOrGetter, toValue } from 'vue'
 import * as z from 'zod'
 
+import { useConsoleVersion } from '@/console-version'
 import { type ErrorInfo, Failure } from '@/errors'
 import { getWebSocketUrl } from '@/utilities'
 
@@ -172,7 +173,6 @@ export type UseStreamOptions<TParseModel extends z.ZodType> = {
   disable?: MaybeRefOrGetter<boolean>
   parse: TParseModel
   onReceive?: (message: z.infer<TParseModel>, stream: Stream) => unknown
-  onDisconnect?: (option: Stream) => unknown
 }
 
 type StreamEntry = {
@@ -181,6 +181,7 @@ type StreamEntry = {
 }
 
 function useStream<TParseModel extends z.ZodType>(options: UseStreamOptions<TParseModel>) {
+  const consoleVersion = useConsoleVersion()
   const ids = [] as string[]
   function getId(index: number) {
     while (ids.length <= index) {
@@ -217,15 +218,17 @@ function useStream<TParseModel extends z.ZodType>(options: UseStreamOptions<TPar
   }
 
   function open(stream: Stream) {
-    entries.set(stream.id, {
-      stream,
-      socket: createSocket(stream, options, onClose),
-    })
+    const entry: StreamEntry = { stream, socket: null }
+    // A replaced socket can still deliver queued messages and its close, which belong to the stream
+    // it was opened for and must neither reach the caller nor close the socket replacing it.
+    const isCurrent = () => entries.get(stream.id) === entry
+    entry.socket = createSocket(stream, options, isCurrent, () => onClose(stream, entry))
+    entries.set(stream.id, entry)
   }
 
-  function onClose(stream: Stream) {
+  function onClose(stream: Stream, closed: StreamEntry) {
     const entry = entries.get(stream.id)
-    if (entry == null) {
+    if (entry !== closed) {
       return
     }
 
@@ -244,6 +247,7 @@ function useStream<TParseModel extends z.ZodType>(options: UseStreamOptions<TPar
         current.socket == null &&
         isEqual(current.stream, stream)
       ) {
+        void consoleVersion.check()
         open(stream)
       }
     }, 1000)
@@ -295,7 +299,8 @@ function useStream<TParseModel extends z.ZodType>(options: UseStreamOptions<TPar
 function createSocket<TParseModel extends z.ZodType>(
   stream: Stream,
   options: UseStreamOptions<TParseModel>,
-  onClose: (stream: Stream) => unknown,
+  isCurrent: () => boolean,
+  onClose: () => unknown,
 ) {
   const url = getWebSocketUrl(stream.path) + createQueryParameters(stream.query ?? {})
   const socket = new WebSocket(url)
@@ -304,6 +309,10 @@ function createSocket<TParseModel extends z.ZodType>(
   })
 
   socket.addEventListener('message', (event) => {
+    if (!isCurrent()) {
+      return
+    }
+
     let data: any
     try {
       data = JSON.parse(event.data)
@@ -328,13 +337,7 @@ function createSocket<TParseModel extends z.ZodType>(
 
   socket.addEventListener('close', () => {
     console.log(`Disconnected from '${url}'.`)
-    try {
-      onClose(stream)
-    } finally {
-      if (options.onDisconnect != null) {
-        options.onDisconnect(stream)
-      }
-    }
+    onClose()
   })
 
   return socket

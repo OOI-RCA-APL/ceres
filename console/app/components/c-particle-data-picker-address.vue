@@ -3,11 +3,17 @@ import { createReusableTemplate } from '@vueuse/core'
 import { watch } from 'vue'
 
 import type { Address } from '@/api/address'
-import type { ParticleFieldInfo, ParticleTypeInfo } from '@/api/components'
+import type { ParticleFieldInfo } from '@/api/components'
 import type { ParticleFieldDetails } from '@/components/c-particle-field-details-dialog.vue'
 import icons from '@/icons'
-import { fieldRefKey, typeRefKey } from '@/particle-series'
-import { describeFieldDescription, describeFieldType } from '@/particle-types'
+import { fieldRefKey, groupConnection, typeRefKey } from '@/particle-series'
+import type { ParticleFieldRef, ParticleTypeRef } from '@/particle-series'
+import {
+  describeFieldDescription,
+  describeFieldType,
+  describeParticleTypeEntry,
+  type ParticleTypeEntry,
+} from '@/particle-types'
 import { isPlainPress, selectMode } from '@/row-selection'
 import type { Schema } from '@/schema-form'
 import type { ChartWidgetParticle, SelectMode } from '@/workspace'
@@ -27,8 +33,8 @@ const {
 } = defineProps<{
   address: Address
 
-  /** The rows to render, the address's declared types as the host's search narrowed them. */
-  shownTypes: ParticleTypeInfo[]
+  /** The rows to render, the address's catalog entries as the host's search narrowed them. */
+  shownTypes: ParticleTypeEntry[]
 
   /** The chart model's particle entries, read in toggle mode to mark which fields are on. */
   particles?: ChartWidgetParticle[]
@@ -61,24 +67,33 @@ const {
   filter?: string
 }>()
 
-/** Remembered type expansion by `address|type` key, for hosts that persist the tree between
-visits. Types without an entry fall back to the default. */
+/** Remembered type expansion by `typeRefKey` key, for hosts that persist the tree between
+visits. Entries without a key fall back to the default. */
 let expandedTypes = $(
   defineModel<Record<string, boolean> | null>('expandedTypes', { default: null }),
 )
 
-function isTypeOpened(type: ParticleTypeInfo): boolean {
+function typeRef(entry: ParticleTypeEntry): ParticleTypeRef {
+  return { address: address.toString(), type: entry.type, connection: entry.connection }
+}
+
+function fieldRef(entry: ParticleTypeEntry, field: string): ParticleFieldRef {
+  return { ...typeRef(entry), field }
+}
+
+function isTypeOpened(entry: ParticleTypeEntry): boolean {
   // A search reaches into every type whether or not it was opened.
   if (effectiveFilter !== '') {
     return true
   }
 
-  const remembered = expandedTypes?.[`${address.toString()}|${type.type}`] ?? localOpen[type.type]
+  const key = typeRefKey(typeRef(entry))
+  const remembered = expandedTypes?.[key] ?? localOpen[key]
   if (remembered != null) {
     return remembered
   }
 
-  return !collapseUnselected || typeHasSelection(type)
+  return !collapseUnselected || typeHasSelection(entry)
 }
 
 // Toggles made by hosts that do not persist expansion still hold for this mount.
@@ -86,57 +101,58 @@ const localOpen = $ref<Record<string, boolean>>({})
 
 // A plain click on a header expands it, the tree's first purpose. Held modifiers ask for the
 // header itself instead, which is the same vocabulary the field rows answer to.
-function onTypeClick(type: ParticleTypeInfo, event: MouseEvent) {
+function onTypeClick(entry: ParticleTypeEntry, event: MouseEvent) {
   const mode = selectionMode === 'highlight' ? selectMode(event) : 'replace'
   if (mode === 'replace') {
-    toggleType(type, event)
+    toggleType(entry, event)
     return
   }
 
-  emit('typeSelect', type.type, mode)
+  emit('typeSelect', typeRef(entry), mode)
 }
 
-function toggleType(type: ParticleTypeInfo, event: MouseEvent) {
+function toggleType(entry: ParticleTypeEntry, event: MouseEvent) {
   // A press the pointer travelled from was a drag, and its release still reaches the header as
   // a click, which would collapse the type the widget was just dragged out of.
   if (travelled(event)) {
     return
   }
 
-  const value = !isTypeOpened(type)
+  const value = !isTypeOpened(entry)
 
   // A toggle while a search is forcing everything open would be forgotten anyway.
   if (effectiveFilter !== '') {
     return
   }
 
-  localOpen[type.type] = value
+  const key = typeRefKey(typeRef(entry))
+  localOpen[key] = value
   if (expandedTypes != null) {
-    expandedTypes = { ...expandedTypes, [`${address.toString()}|${type.type}`]: value }
+    expandedTypes = { ...expandedTypes, [key]: value }
   }
 }
 
 const emit = defineEmits<{
-  /** A field's toggle changed for one of this address's declared particle types. */
-  toggle: [type: string, field: string, value: boolean]
+  /** A field's toggle changed. */
+  toggle: [ref: ParticleFieldRef, value: boolean]
 
   /** A highlight-mode click, with the select mode the held modifiers ask for. */
-  select: [type: string, field: string, mode: SelectMode]
+  select: [ref: ParticleFieldRef, mode: SelectMode]
 
   /** A right click on a field row, before the hosting menu opens on the event. */
-  context: [type: string, field: string, event: MouseEvent]
+  context: [ref: ParticleFieldRef, event: MouseEvent]
 
   /** A plain press on a field row in highlight mode, which a host may turn into a drag. */
-  press: [type: string, field: string, event: PointerEvent]
+  press: [ref: ParticleFieldRef, event: PointerEvent]
 
   /** A modifier click on a type header row, which selects rather than expanding it. */
-  typeSelect: [type: string, mode: SelectMode]
+  typeSelect: [ref: ParticleTypeRef, mode: SelectMode]
 
   /** A right click on a type header row, before the hosting menu opens on the event. */
-  typeContext: [type: string, event: MouseEvent]
+  typeContext: [ref: ParticleTypeRef, event: MouseEvent]
 
   /** A plain press on a type header row, which a host may turn into a drag. */
-  typePress: [type: string, event: PointerEvent]
+  typePress: [ref: ParticleTypeRef, event: PointerEvent]
 }>()
 
 // The type list renders inside the address expansion item, or on its own in bare mode.
@@ -180,7 +196,14 @@ const onFieldKeys = $computed(() => {
 
     for (const series of particle.series) {
       if (series.field != null) {
-        keys.add(`${particle.type}|${series.field}`)
+        keys.add(
+          fieldRefKey({
+            address: base,
+            type: particle.type,
+            connection: groupConnection(particle),
+            field: series.field,
+          }),
+        )
       }
     }
   }
@@ -188,20 +211,17 @@ const onFieldKeys = $computed(() => {
   return keys
 })
 
-function isFieldOn(type: string, field: string): boolean {
-  if (selectionMode === 'highlight') {
-    return selectedKeys.has(fieldRefKey({ address: address.toString(), type, field }))
-  }
-
-  return onFieldKeys.has(`${type}|${field}`)
+function isFieldOn(entry: ParticleTypeEntry, field: string): boolean {
+  const key = fieldRefKey(fieldRef(entry, field))
+  return selectionMode === 'highlight' ? selectedKeys.has(key) : onFieldKeys.has(key)
 }
 
-function typeHasSelection(type: ParticleTypeInfo): boolean {
-  return type.fields.some((field) => isFieldOn(type.type, field.name))
+function typeHasSelection(entry: ParticleTypeEntry): boolean {
+  return entry.fields.some((field) => isFieldOn(entry, field.name))
 }
 
-function isTypeSelected(type: ParticleTypeInfo): boolean {
-  return selectedTypeKeys.has(typeRefKey({ address: address.toString(), type: type.type }))
+function isTypeSelected(entry: ParticleTypeEntry): boolean {
+  return selectedTypeKeys.has(typeRefKey(typeRef(entry)))
 }
 
 // Read against every declared type rather than the filtered view so a selection hidden by a
@@ -213,25 +233,25 @@ let detailsField = $ref<ParticleFieldDetails | null>(null)
 
 // A highlight click is a selection, so there the details dialog moves to double click. In
 // toggle mode the checkbox already carries the choice and a single click opens it.
-function onClick(type: string, field: ParticleFieldInfo, event: MouseEvent) {
+function onClick(entry: ParticleTypeEntry, field: ParticleFieldInfo, event: MouseEvent) {
   if (selectionMode === 'highlight') {
-    emit('select', type, field.name, selectMode(event))
+    emit('select', fieldRef(entry, field.name), selectMode(event))
   } else {
-    detailsField = { address: address.toString(), type, field }
+    detailsField = { address: address.toString(), type: entry.type, field }
   }
 }
 
-function onDoubleClick(type: string, field: ParticleFieldInfo) {
+function onDoubleClick(entry: ParticleTypeEntry, field: ParticleFieldInfo) {
   if (selectionMode === 'highlight') {
-    detailsField = { address: address.toString(), type, field }
+    detailsField = { address: address.toString(), type: entry.type, field }
   }
 }
 
 // Never prevent the default here. A wrapping context menu opens only on an event nothing has
 // defaulted, and it suppresses the native menu itself.
-function onContext(type: string, field: string, event: MouseEvent) {
+function onContext(entry: ParticleTypeEntry, field: string, event: MouseEvent) {
   if (selectionMode === 'highlight') {
-    emit('context', type, field, event)
+    emit('context', fieldRef(entry, field), event)
   }
 }
 
@@ -250,26 +270,32 @@ function onActions(event: MouseEvent) {
 
 // Only a plain press is offered as a drag. A modified press is a selection gesture, and the
 // click that follows an untravelled press still selects as it always did.
-function onPointerDown(type: string, field: string, event: PointerEvent) {
+function onPointerDown(entry: ParticleTypeEntry, field: string, event: PointerEvent) {
   if (selectionMode !== 'highlight' || !isPlainPress(event)) {
     return
   }
 
-  emit('press', type, field, event)
+  emit('press', fieldRef(entry, field), event)
 }
 
 /** Where the last press landed, for telling a click apart from a drag's release. Cleared by
 every press so one gesture never answers for the next. */
 let pressPoint: { x: number; y: number } | null = null
 
-function onTypePointerDown(type: string, event: PointerEvent) {
+function onTypePointerDown(entry: ParticleTypeEntry, event: PointerEvent) {
   pressPoint = null
   if (selectionMode !== 'highlight' || !isPlainPress(event)) {
     return
   }
 
   pressPoint = { x: event.clientX, y: event.clientY }
-  emit('typePress', type, event)
+  emit('typePress', typeRef(entry), event)
+}
+
+/** What a header reads, the component leading it in a tree of one address. */
+function headerText(entry: ParticleTypeEntry): string {
+  const name = describeParticleTypeEntry(entry)
+  return bare ? `${address.toString()}::particles::${name}` : name
 }
 
 /** Whether the pointer moved far enough since the press for the gesture to be a drag rather
@@ -293,39 +319,40 @@ function travelled(event: MouseEvent): boolean {
           {{ effectiveFilter === '' ? 'No declared particle types.' : 'No matching fields.' }}
         </c-text>
       </div>
-      <div v-for="type in shownTypes" :key="type.type">
+      <div v-for="entry in shownTypes" :key="typeRefKey(typeRef(entry))">
         <button
           class="hover:bg-elevated/50 flex w-full select-none items-center gap-1 px-2 py-0.5 text-left"
           :class="[
-            (typeHasSelection(type) || isTypeSelected(type)) && 'text-primary',
+            (typeHasSelection(entry) || isTypeSelected(entry)) && 'text-primary',
             // Neutral rather than a semantic color, so the highlight never fights the text.
-            isTypeSelected(type) && 'bg-[#80808029]',
+            isTypeSelected(entry) && 'bg-[#80808029]',
           ]"
           data-particle-type
           type="button"
-          @click="onTypeClick(type, $event as MouseEvent)"
+          @click="onTypeClick(entry, $event as MouseEvent)"
           @contextmenu="
-            selectionMode === 'highlight' && emit('typeContext', type.type, $event as MouseEvent)
+            selectionMode === 'highlight' &&
+            emit('typeContext', typeRef(entry), $event as MouseEvent)
           "
           @mousedown="(event: MouseEvent) => event.shiftKey && event.preventDefault()"
-          @pointerdown="onTypePointerDown(type.type, $event as PointerEvent)"
+          @pointerdown="onTypePointerDown(entry, $event as PointerEvent)"
         >
           <c-icon
             class="text-muted shrink-0 transition-transform"
-            :class="isTypeOpened(type) && 'rotate-90'"
+            :class="isTypeOpened(entry) && 'rotate-90'"
             :name="icons.chevronRight"
             size="14"
           />
           <div class="min-w-0">
-            <c-text variant="mono-sm">
-              {{ bare ? `${address.toString()}::particles::${type.type}` : type.type }}
+            <c-text variant="mono-sm">{{ headerText(entry) }}</c-text>
+            <c-text v-if="entry.description" variant="description">
+              {{ entry.description }}
             </c-text>
-            <c-text v-if="type.description" variant="description">{{ type.description }}</c-text>
           </div>
         </button>
-        <div v-if="isTypeOpened(type)" class="pl-5">
+        <div v-if="isTypeOpened(entry)" class="pl-5">
           <div
-            v-for="field in type.fields"
+            v-for="field in entry.fields"
             :key="field.name"
             :class="[
               'group hover:bg-elevated/50 flex min-h-6 items-center',
@@ -334,25 +361,27 @@ function travelled(event: MouseEvent): boolean {
               // the field.
               selectionMode === 'toggle' && 'cursor-pointer',
               // Neutral rather than a semantic color, so the highlight never fights the text.
-              selectionMode === 'highlight' && isFieldOn(type.type, field.name) && 'bg-[#80808029]',
+              selectionMode === 'highlight' && isFieldOn(entry, field.name) && 'bg-[#80808029]',
             ]"
             data-particle-field
-            @click="onClick(type.type, field, $event as MouseEvent)"
-            @contextmenu="onContext(type.type, field.name, $event as MouseEvent)"
-            @dblclick="onDoubleClick(type.type, field)"
+            @click="onClick(entry, field, $event as MouseEvent)"
+            @contextmenu="onContext(entry, field.name, $event as MouseEvent)"
+            @dblclick="onDoubleClick(entry, field)"
             @mousedown="(event: MouseEvent) => event.shiftKey && event.preventDefault()"
-            @pointerdown="onPointerDown(type.type, field.name, $event as PointerEvent)"
+            @pointerdown="onPointerDown(entry, field.name, $event as PointerEvent)"
           >
             <c-checkbox
               v-if="selectionMode === 'toggle'"
-              :model-value="isFieldOn(type.type, field.name)"
+              :model-value="isFieldOn(entry, field.name)"
               size="xs"
               @click.stop
-              @update:model-value="(value) => emit('toggle', type.type, field.name, Boolean(value))"
+              @update:model-value="
+                (value) => emit('toggle', fieldRef(entry, field.name), Boolean(value))
+              "
             />
             <div class="flex min-w-0 grow items-baseline gap-2 whitespace-nowrap">
               <c-text
-                :class="isFieldOn(type.type, field.name) && 'text-primary'"
+                :class="isFieldOn(entry, field.name) && 'text-primary'"
                 inline
                 variant="mono-sm"
               >

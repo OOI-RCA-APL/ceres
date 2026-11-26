@@ -10,6 +10,9 @@ const { widget, container } = defineProps<{
 
 // Creation and parsing both hold a section to exactly one page.
 const page = $computed(() => widget.pages[0]!)
+
+// A row sized to its contents gives the section no height to spread or squeeze into.
+const fitting = $computed(() => container?.height === 'auto')
 </script>
 
 <template>
@@ -19,11 +22,12 @@ const page = $computed(() => widget.pages[0]!)
   <div class="h-full min-h-0 overflow-auto px-2 [scrollbar-gutter:stable]">
     <c-workspace-layout
       :key="page.id"
-      :expand="widget.expand"
+      :arrange="page.arrange"
+      :expand="fitting ? 'none' : widget.expand"
       :host="container"
       :layout="page.layout"
       :layout-id="page.id"
-      :shrink="widget.shrink"
+      :shrink="!fitting && widget.shrink"
     />
   </div>
 </template>

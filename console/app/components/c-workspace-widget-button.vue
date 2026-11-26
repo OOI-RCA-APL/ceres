@@ -20,19 +20,15 @@ import type { Datetime } from '@/time'
 import { afterMenuCloses, deepClone, highlight } from '@/utilities'
 import type { Plain } from '@/utilities'
 import { useWorkspace } from '@/workspace'
-import type { ButtonAction } from '@/workspace'
+import type { ButtonWidget } from '@/workspace'
 
-const { button } = defineProps<{
-  button: ButtonAction
+const { widget } = defineProps<{
+  widget: ButtonWidget
 }>()
 
 const emit = defineEmits<{
-  duplicate: []
-  remove: []
-
-  /** Insert a fresh button beside this one, on whichever side was asked for. */
-  addBefore: []
-  addAfter: []
+  /** A press on the button, which the workspace takes as the start of a drag once it travels. */
+  press: [event: MouseEvent]
 }>()
 
 const access = useAccess()
@@ -42,18 +38,18 @@ const time = useTime()
 const workspace = useWorkspace()
 
 const resolvedAddress = $computed(() => {
-  const resolved = workspace.resolveAddress(button.address)
+  const resolved = workspace.resolveAddress(widget.address)
   return resolved == null ? null : Address.parse(resolved)
 })
 
 // What pressing runs, an action or a query returning a value. A query returning a file or a stream
 // has nowhere to show here so it counts as missing.
 const procedure = $computed(() => {
-  if (resolvedAddress == null || button.action == null) {
+  if (resolvedAddress == null || widget.action == null) {
     return null
   }
 
-  const found = engine.components.getProcedure(resolvedAddress, button.action)
+  const found = engine.components.getProcedure(resolvedAddress, widget.action)
   return found != null && isButtonProcedure(found) ? found : null
 })
 
@@ -63,7 +59,7 @@ const kind = $computed(() => (isQuery ? 'Query' : 'Action'))
 // The full path of what pressing runs, written the way an address is. The popup only opens once
 // there is a procedure to run so the parts are there to name.
 const procedurePath = $computed(
-  () => `${resolvedAddress}::${procedureNamespace(procedure)}::${button.action}`,
+  () => `${resolvedAddress}::${procedureNamespace(procedure)}::${widget.action}`,
 )
 
 const canOperate = $computed(
@@ -72,22 +68,22 @@ const canOperate = $computed(
 
 // A fresh button holds no action yet so pressing it opens the settings that give it one. An unset
 // address is the workspace's own component, so it is the resolved one that must be there.
-const isConfigured = $computed(() => resolvedAddress != null && button.action != null)
+const isConfigured = $computed(() => resolvedAddress != null && widget.action != null)
 
-const color = $computed(() => semanticColor(button.color))
+const color = $computed(() => semanticColor(widget.color))
 
 const variant = $computed<ColorVariant>(() => {
-  if (button.styling === 'flat') {
+  if (widget.styling === 'flat') {
     return 'ghost'
   }
-  if (button.styling === 'outlined') {
+  if (widget.styling === 'outlined') {
     return 'outline'
   }
 
   return 'solid'
 })
 
-const monochrome = $computed(() => monochromeClasses(button.color, variant))
+const monochrome = $computed(() => monochromeClasses(widget.color, variant))
 
 let isRunning = $ref(false)
 let isShowingArguments = $ref(false)
@@ -131,9 +127,9 @@ const form = useSchemaForm({
 
 /** Hold the arguments on the button and remember them for its procedure across the console. */
 function keepArguments(values: unknown) {
-  button.arguments = deepClone(values) as Record<string, unknown>
-  if (resolvedAddress != null && button.action != null) {
-    rememberArguments(resolvedAddress, button.action, values)
+  widget.arguments = deepClone(values) as Record<string, unknown>
+  if (resolvedAddress != null && widget.action != null) {
+    rememberArguments(resolvedAddress, widget.action, values)
   }
 }
 
@@ -146,17 +142,17 @@ const takesArguments = $computed(() => !isEmptyObjectSchema(form.getSchema([])))
 
 /** The arguments a press runs with without asking, none for a procedure that takes none. */
 function heldArguments() {
-  return takesArguments ? deepClone(button.arguments) : {}
+  return takesArguments ? deepClone(widget.arguments) : {}
 }
 
 /** Whether pressing opens something rather than running there and then. */
-const opensDialog = $computed(() => (takesArguments && !button.locked) || button.confirm)
+const opensDialog = $computed(() => (takesArguments && !widget.locked) || widget.confirm)
 
 const named = $computed(
   () =>
-    button.label?.trim() ||
-    (button.action != null ? startCase(button.action) : '') ||
-    (button.address != null ? String(button.address) : 'Button'),
+    widget.name.trim() ||
+    (widget.action != null ? startCase(widget.action) : '') ||
+    (widget.address != null ? String(widget.address) : 'Button'),
 )
 
 // A button is renamed on the bar the way a tab is, the field offered under shift and made real by
@@ -167,11 +163,10 @@ let isEditingLabel = $ref(false)
 const isLabelOffered = $computed(() => isEditingLabel || (shiftHeld.value && isLabelHovered))
 
 function renameButton(name: string) {
-  button.label = name
+  widget.name = name
 }
 
-// A confirmation is a question with an answer so the dialog hands its answer back to whatever
-// asked and the run either carries on or stops there.
+// Resolves the open confirmation with the user's answer, which continues or stops the run.
 let answerConfirm = $ref<((confirmed: boolean) => void) | null>(null)
 
 // The arguments the confirmed run would send, highlighted for the dialog, or null with none.
@@ -234,19 +229,19 @@ function createRunToast(controller: AbortController) {
   }
 
   return {
-    succeeded: () => settle('success', `${kind} "${button.action}" succeeded.`, 3000),
-    canceled: () => settle('neutral', `${kind} "${button.action}" was canceled.`, 3000),
+    succeeded: () => settle('success', `${kind} "${widget.action}" succeeded.`, 3000),
+    canceled: () => settle('neutral', `${kind} "${widget.action}" was canceled.`, 3000),
     failed: (detail: string) =>
-      settle('error', `${kind} "${button.action}" failed. ${detail}`, 8000),
+      settle('error', `${kind} "${widget.action}" failed. ${detail}`, 8000),
   }
 }
 
 async function run(values: unknown) {
-  if (!canOperate || resolvedAddress == null || button.action == null || procedure == null) {
+  if (!canOperate || resolvedAddress == null || widget.action == null || procedure == null) {
     return
   }
 
-  if (button.confirm && !(await askConfirm(values))) {
+  if (widget.confirm && !(await askConfirm(values))) {
     return
   }
 
@@ -259,7 +254,7 @@ async function run(values: unknown) {
     const sentAt = utc()
     const result = await engine.components.call(
       resolvedAddress,
-      button.action,
+      widget.action,
       values as Record<string, unknown>,
       { signal: controller.signal },
     )
@@ -293,7 +288,7 @@ async function run(values: unknown) {
 }
 
 async function showArguments() {
-  draft = deepClone(button.arguments)
+  draft = deepClone(widget.arguments)
   output = null
   isShowingArguments = true
 
@@ -339,6 +334,11 @@ function onPress(event: MouseEvent) {
     return
   }
 
+  // Command or control picks the button out among the workspace's widgets instead.
+  if (event.metaKey || event.ctrlKey) {
+    return
+  }
+
   if (!isConfigured) {
     isShowingSettings = true
     return
@@ -348,7 +348,7 @@ function onPress(event: MouseEvent) {
     return
   }
 
-  if (takesArguments && !button.locked) {
+  if (takesArguments && !widget.locked) {
     void showArguments()
     return
   }
@@ -365,23 +365,42 @@ reconsidered where it was made.
 */
 function toggleLock() {
   keepArguments(draft)
-  button.locked = !button.locked
+  widget.locked = !widget.locked
+}
+
+/** Add a fresh button beside this one, `offset` places past its own. */
+function addButton(offset: number) {
+  const position = workspace.positionOf(widget.id)
+  if (position != null) {
+    workspace.addWidget('button', position.row, position.column + offset, position.layout)
+  }
 }
 
 const menuItems = $computed<DropdownMenuItem[][]>(() => [
   [
-    { label: 'Configure', icon: icons.settings, onSelect: () => (isShowingSettings = true) },
+    { label: 'Settings', icon: icons.settings, onSelect: () => (isShowingSettings = true) },
     {
       label: 'Arguments',
       icon: icons.edit,
       disabled: !takesArguments,
       onSelect: showArgumentsFromMenu,
     },
-    { label: 'Duplicate', icon: icons.duplicate, onSelect: () => emit('duplicate') },
-    { label: 'Add Button Before', icon: icons.add, onSelect: () => emit('addBefore') },
-    { label: 'Add Button After', icon: icons.add, onSelect: () => emit('addAfter') },
+    {
+      label: 'Duplicate',
+      icon: icons.duplicate,
+      onSelect: () => workspace.duplicateWidgets([widget.id]),
+    },
+    { label: 'Add Button Before', icon: icons.add, onSelect: () => addButton(0) },
+    { label: 'Add Button After', icon: icons.add, onSelect: () => addButton(1) },
   ],
-  [{ label: 'Delete', icon: icons.delete, onSelect: () => emit('remove') }],
+  [
+    {
+      label: 'Delete',
+      icon: icons.delete,
+      kbds: ['backspace'],
+      onSelect: () => workspace.deleteWidgets([widget.id]),
+    },
+  ],
 ])
 
 const tooltip = $computed(() => {
@@ -392,19 +411,19 @@ const tooltip = $computed(() => {
     return 'Button is not configured. Press to configure.'
   }
   if (procedure == null) {
-    return `Button procedure ${resolvedAddress}::${button.action} not found.`
+    return `Button procedure ${resolvedAddress}::${widget.action} not found.`
   }
 
-  return button.tooltip ?? null
+  return widget.tooltip ?? null
 })
 </script>
 
 <template>
-  <!-- A button carries its own menu so the press that opens it must not reach the widget's, which
-  is hung off the card around everything here. -->
+  <!-- A button is a bare widget, carrying the widget's menu itself, and the press that opens it
+  stops here so a layout around it never opens one of its own. -->
   <c-context-menu :items="menuItems" @update:open="(value: boolean) => (isShowingMenu = value)">
-    <!-- Named, since the bar around this one is a group too and the dots answer only to their
-    own button being pointed at. -->
+    <!-- Named, since the flex layout around this one is a group too and the dots answer only to
+    their own button being pointed at. -->
     <div ref="control" class="group/control relative inline-flex" @contextmenu.stop>
       <c-tooltip :disabled="tooltip == null" :text="tooltip ?? ''">
         <c-button
@@ -414,6 +433,7 @@ const tooltip = $computed(() => {
           size="sm"
           :variant="variant"
           @click="onPress"
+          @mousedown="(event: MouseEvent) => emit('press', event)"
         >
           <!-- Drawn beside the label rather than through the button's own loading state, which
             swallows the press that is the abort. -->
@@ -445,22 +465,22 @@ const tooltip = $computed(() => {
             <div class="mb-2 flex flex-nowrap items-center gap-1">
               <c-text class="grow" variant="mono-sm">{{ procedurePath }}</c-text>
               <c-tooltip
-                :text="button.confirm ? 'Confirm Dialog Enabled' : 'Confirm Dialog Disabled'"
+                :text="widget.confirm ? 'Confirm Dialog Enabled' : 'Confirm Dialog Disabled'"
               >
                 <c-button
-                  :color="button.confirm ? 'primary' : 'warning'"
+                  :color="widget.confirm ? 'primary' : 'warning'"
                   :icon="icons.confirmDialog"
                   size="xs"
                   variant="ghost"
-                  @click="button.confirm = !button.confirm"
+                  @click="widget.confirm = !widget.confirm"
                 />
               </c-tooltip>
               <!-- Locked runs with one less look at the arguments, which is the riskier state,
               so it is the one that carries the warning color. -->
-              <c-tooltip :text="button.locked ? 'Arguments Locked' : 'Arguments Unlocked'">
+              <c-tooltip :text="widget.locked ? 'Arguments Locked' : 'Arguments Unlocked'">
                 <c-button
-                  :color="button.locked ? 'warning' : 'primary'"
-                  :icon="button.locked ? icons.locked : icons.unlocked"
+                  :color="widget.locked ? 'warning' : 'primary'"
+                  :icon="widget.locked ? icons.locked : icons.unlocked"
                   size="xs"
                   variant="ghost"
                   @click="toggleLock"
@@ -512,7 +532,7 @@ const tooltip = $computed(() => {
     :ui="{ content: 'w-[400px] max-w-[90vw]' }"
   >
     <template #body>
-      <c-workspace-widget-control-settings :button />
+      <c-workspace-widget-button-settings :widget />
     </template>
     <template #footer>
       <c-button
@@ -569,13 +589,13 @@ const tooltip = $computed(() => {
   </c-modal>
   <c-modal
     :open="answerConfirm != null"
-    :title="`Execute ${button.action}?`"
+    :title="`Execute ${widget.action}?`"
     :ui="{ content: 'w-[360px] max-w-[90vw]' }"
     @update:open="confirmWith(false)"
   >
     <template #body>
       <c-text variant="description">
-        This executes {{ button.action }} on {{ resolvedAddress }}.
+        This executes {{ widget.action }} on {{ resolvedAddress }}.
       </c-text>
       <pre
         v-if="confirmingArguments != null"

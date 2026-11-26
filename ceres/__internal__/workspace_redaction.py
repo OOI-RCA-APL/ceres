@@ -110,6 +110,23 @@ def iter_widget_targets(widget: dict[str, Any], scope: Address | None) -> Iterat
         yield from _selector_bases(value, scope)
 
 
+def _layout_widget_lists(layout: Any) -> Iterator[list[Any]]:
+    """Yield every widget list `layout` holds directly.
+
+    A rows layout is stored as a bare list of rows or as `{"type": "rows", "rows": [...]}`, a
+    flex layout as `{"type": "flex", "widgets": [...]}`. Both keys of an object are walked
+    whatever its `type` says, so a mislabeled layout cannot hide widgets from redaction.
+    """
+    rows = layout.get("rows") if isinstance(layout, dict) else layout
+    if isinstance(rows, list):
+        for row in rows:
+            if isinstance(row, dict) and isinstance(widgets := row.get("widgets"), list):
+                yield widgets
+
+    if isinstance(layout, dict) and isinstance(widgets := layout.get("widgets"), list):
+        yield widgets
+
+
 def _iter_layout_slots(layout: Any) -> Iterator[tuple[list[Any], int]]:
     """Yield `(widgets, index)` for every widget slot in `layout`, however deeply held.
 
@@ -119,17 +136,7 @@ def _iter_layout_slots(layout: Any) -> Iterator[tuple[list[Any], int]]:
     to the same redaction. Only slots holding a dict widget are yielded, malformed layout
     structure and non-dict entries are skipped rather than raised on.
     """
-    if not isinstance(layout, list):
-        return
-
-    for row in layout:
-        if not isinstance(row, dict):
-            continue
-
-        widgets = row.get("widgets")
-        if not isinstance(widgets, list):
-            continue
-
+    for widgets in _layout_widget_lists(layout):
         for index, widget in enumerate(widgets):
             if not isinstance(widget, dict):
                 continue

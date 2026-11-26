@@ -1,15 +1,18 @@
-import { v7 } from 'uuid'
 import { defineAsyncComponent } from 'vue'
 
 import icons from '@/icons'
 import {
+  emptyPage,
   isPagesWidget,
+  type LayoutArrange,
   pagesOf,
   type PagesWidgetType,
+  type SectionWidget,
   UnknownWidgetModel,
   type Widget,
   widgetModels,
   type WidgetRow,
+  type WidgetRowHeight,
   WidgetRowModel,
   type WidgetType,
   withPages,
@@ -24,7 +27,11 @@ type WidgetOptionsInput = {
   initialHeight?: number
   paddingClass?: string | string[]
   fullHeight?: boolean
+  fitsContent?: boolean
+  fitsWidth?: boolean
+  bare?: boolean
   reloadOnThemeChange?: boolean
+  opensSettingsWhenAdded?: boolean
 }
 
 type WidgetOptions = {
@@ -35,7 +42,18 @@ type WidgetOptions = {
   initialHeight: number
   paddingClass: string | string[]
   fullHeight: boolean
+  /** Whether the widget's height follows what it shows, so a row sized to its contents can hold
+  it. A widget filling whatever height it is given, such as a chart, has no height of its own. */
+  fitsContent: boolean
+  /** Whether the widget's width follows what it shows too, which a flex layout needs. */
+  fitsWidth: boolean
+  /** Whether the widget is drawn as its content alone, with no card, header or frame handle. Its
+  content starts a drag and carries the widget's menu itself. */
+  bare: boolean
   reloadOnThemeChange: boolean
+  /** Whether adding the widget opens its settings, for a widget that shows nothing until it is
+  told what to show. */
+  opensSettingsWhenAdded: boolean
 }
 
 function widgetOptions(options: WidgetOptionsInput): WidgetOptions {
@@ -45,7 +63,11 @@ function widgetOptions(options: WidgetOptionsInput): WidgetOptions {
     initialHeight: options.initialHeight ?? options.minHeight ?? defaultMinHeight,
     paddingClass: options.paddingClass ?? defaultPaddingClass,
     fullHeight: options.fullHeight ?? true,
+    fitsContent: options.fitsContent ?? false,
+    fitsWidth: options.fitsWidth ?? false,
+    bare: options.bare ?? false,
     reloadOnThemeChange: options.reloadOnThemeChange ?? false,
+    opensSettingsWhenAdded: options.opensSettingsWhenAdded ?? false,
   }
 }
 
@@ -85,6 +107,7 @@ export const widgetInfos = {
     component: defineAsyncComponent(() => import('@/components/c-workspace-widget-procedures.vue')),
     options: widgetOptions({
       fullHeight: false,
+      fitsContent: true,
     }),
   },
   chart: {
@@ -99,6 +122,7 @@ export const widgetInfos = {
       minHeight: 200,
       paddingClass: ['py-2', 'pr-4'],
       reloadOnThemeChange: true,
+      opensSettingsWhenAdded: true,
     }),
   },
   meter: {
@@ -113,6 +137,7 @@ export const widgetInfos = {
       minHeight: 50,
       initialHeight: 60,
       paddingClass: [],
+      opensSettingsWhenAdded: true,
     }),
   },
   video: {
@@ -150,7 +175,12 @@ export const widgetInfos = {
       () => import('@/components/c-workspace-widget-section-settings.vue'),
     ),
     options: widgetOptions({
+      // As short as a header over one line of buttons, which a section laying them out holds.
+      minHeight: 75,
+      framelessMinHeight: 45,
+      initialHeight: 150,
       paddingClass: [],
+      fitsContent: true,
     }),
   },
   tabs: {
@@ -161,6 +191,7 @@ export const widgetInfos = {
     // No settings dialog. Its pages are arranged on the strip itself.
     options: widgetOptions({
       paddingClass: [],
+      fitsContent: true,
     }),
   },
   carousel: {
@@ -169,23 +200,27 @@ export const widgetInfos = {
     model: widgetModels.carousel,
     component: defineAsyncComponent(() => import('@/components/c-workspace-widget-carousel.vue')),
     // No settings dialog. Its slides are arranged in place and its behavior is set from the
-    // control band under them.
+    // control band under them. Its slides are stacked out of flow to travel sideways, so it has
+    // no height of its own to fit to.
     options: widgetOptions({
       paddingClass: [],
     }),
   },
-  controls: {
-    type: 'controls',
-    name: 'Controls',
-    model: widgetModels.controls,
-    component: defineAsyncComponent(() => import('@/components/c-workspace-widget-controls.vue')),
-    // No settings dialog. Each control is configured from the control itself.
+  button: {
+    type: 'button',
+    name: 'Button',
+    model: widgetModels.button,
+    component: defineAsyncComponent(() => import('@/components/c-workspace-widget-button.vue')),
+    // No settings dialog of the workspace's. The button opens its own from its menu.
     options: widgetOptions({
-      minHeight: 75,
-      // One 34px row of buttons and the 10px of menu dots hanging under it, rounded to the 5px
-      // step the row's resize handle moves in.
-      framelessMinHeight: 45,
+      // One 32px button and the 10px of menu dots hanging under it, rounded to the 5px step the
+      // row's resize handle moves in.
+      minHeight: 45,
       fullHeight: false,
+      paddingClass: [],
+      fitsContent: true,
+      fitsWidth: true,
+      bare: true,
     }),
   },
 } as const
@@ -198,6 +233,7 @@ const unknownWidgetInfo = {
   component: defineAsyncComponent(() => import('@/components/c-workspace-widget-unknown.vue')),
   options: widgetOptions({
     fullHeight: false,
+    fitsContent: true,
   }),
 } as const
 
@@ -213,6 +249,40 @@ export function getWidgetInfo(type: WidgetType): WidgetInfo {
 export function widgetMinHeight(widget: Widget): number {
   const { options } = getWidgetInfo(widget.type)
   return widget.frameless ? options.framelessMinHeight : options.minHeight
+}
+
+/** Whether `widget` takes its height from what it shows, which a row sized to its contents
+needs. A widget that does not gets its opening height as a floor in such a row. */
+export function fitsContent(widget: Widget): boolean {
+  return getWidgetInfo(widget.type).options.fitsContent
+}
+
+/** Whether `widget` takes its width from what it shows, which a flex layout needs. */
+export function fitsWidth(widget: Widget): boolean {
+  return getWidgetInfo(widget.type).options.fitsWidth
+}
+
+/** Whether a layout arranged as `arrange` can hold every one of `widgets`. A flex layout holds
+only widgets sized by their contents, since it gives them no share of its width. */
+export function arrangeAccepts(arrange: LayoutArrange, widgets: Iterable<Widget>): boolean {
+  return arrange === 'rows' || [...widgets].every(fitsWidth)
+}
+
+/** The widget kinds a layout arranged as `arrange` offers to add, in menu order. */
+export function addableWidgetInfos(
+  arrange: LayoutArrange,
+): (typeof widgetInfos)[keyof typeof widgetInfos][] {
+  return Object.values(widgetInfos).filter((info) => arrange === 'rows' || info.options.fitsWidth)
+}
+
+/** The height a row opened for `widgets` starts at: sized to its contents when every widget
+fits them, else as tall as the tallest asks to open at. */
+export function openedRowHeight(widgets: Widget[]): WidgetRowHeight {
+  if (widgets.every(fitsContent)) {
+    return 'auto'
+  }
+
+  return Math.max(...widgets.map((widget) => getWidgetInfo(widget.type).options.initialHeight))
 }
 
 /** The default name for a widget of `type`.
@@ -233,10 +303,22 @@ export function createWidget(type: WidgetType): Widget {
   // A widget that holds pages begins with one since one with no pages has no layout to drag or
   // paste widgets into.
   if (isPagesWidget(widget) && pagesOf(widget).length === 0) {
-    return withPages(widget, [{ id: v7(), name: '', layout: [] }])
+    return withPages(widget, [emptyPage()])
   }
 
   return widget
+}
+
+/** A frameless section laying `buttons` out side by side, the way a set of related actions is
+usually wanted. */
+export function createButtonBar(buttons: Widget[]): Widget {
+  const section = createWidget('section') as SectionWidget
+  return {
+    ...section,
+    frameless: true,
+    expand: 'none',
+    pages: [{ ...emptyPage('flex'), layout: [openedRowFor(buttons)] }],
+  }
 }
 
 /** Every pages-widget kind, in the order menus offer them. */
@@ -298,10 +380,7 @@ export function convertedPagesWidget(widget: Widget, to: PagesWidgetType): Widge
   return withPages(converted, pagesOf(widget))
 }
 
-/** A row opened for arriving widgets, as tall as the tallest of them asks to open at. */
+/** A row opened for arriving widgets, at the height `openedRowHeight` gives them. */
 export function openedRowFor(widgets: Widget[]): WidgetRow {
-  return WidgetRowModel.parse({
-    widgets,
-    height: Math.max(...widgets.map((widget) => getWidgetInfo(widget.type).options.initialHeight)),
-  })
+  return WidgetRowModel.parse({ widgets, height: openedRowHeight(widgets) })
 }

@@ -1,6 +1,10 @@
+import { mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { defineComponent, nextTick, ref } from 'vue'
+import * as z from 'zod'
 
-import { isTimeoutError, request, timeoutSignal } from '@/api/client'
+import { isTimeoutError, request, timeoutSignal, useClient } from '@/api/client'
 import { Failure } from '@/errors'
 
 /** A `fetch` that never answers, which is what a request the browser has queued behind every
@@ -67,5 +71,77 @@ describe('request', () => {
 
     expect(fetch).toHaveBeenCalledOnce()
     expect(settled).not.toHaveBeenCalled()
+  })
+})
+
+/** A socket the test drives by hand, standing in for the browser's. */
+class FakeSocket extends EventTarget {
+  static opened: FakeSocket[] = []
+  closed = false
+
+  constructor(readonly url: string) {
+    super()
+    FakeSocket.opened.push(this)
+  }
+
+  close() {
+    this.closed = true
+  }
+
+  receive(data: unknown) {
+    this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(data) }))
+  }
+
+  end() {
+    this.dispatchEvent(new Event('close'))
+  }
+}
+
+describe('useStream', () => {
+  /** Streams `query` into the returned list until the test changes it. */
+  function streamed() {
+    FakeSocket.opened = []
+    vi.stubGlobal('WebSocket', FakeSocket)
+    setActivePinia(createPinia())
+    const query = ref({ name: 'a' })
+    const received: string[] = []
+    mount(
+      defineComponent({
+        setup() {
+          useClient().useStream({
+            stream: () => ({ id: 'one', path: '/api/a', query: query.value }),
+            parse: z.string(),
+            onReceive: (message: string) => received.push(message),
+          })
+          return () => null
+        },
+      }),
+    )
+    return { query, received }
+  }
+
+  it('drops what a replaced socket still delivers', async () => {
+    const { query, received } = streamed()
+    query.value = { name: 'b' }
+    await nextTick()
+    const [replaced, current] = FakeSocket.opened
+
+    replaced!.receive('old')
+    current!.receive('new')
+
+    expect(received).toEqual(['new'])
+  })
+
+  it('keeps the replacing socket open when the replaced one closes', async () => {
+    const { query, received } = streamed()
+    query.value = { name: 'b' }
+    await nextTick()
+    const [replaced, current] = FakeSocket.opened
+
+    replaced!.end()
+    current!.receive('new')
+
+    expect(current!.closed).toBe(false)
+    expect(received).toEqual(['new'])
   })
 })

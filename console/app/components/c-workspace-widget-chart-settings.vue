@@ -1,6 +1,9 @@
 <script lang="ts" setup>
+import type { ParticleManualEntry } from '@/components/c-particle-manual-entry.vue'
+import { addParticleSeries } from '@/particle-series'
 import { useDerivedChartUnit } from '@/particle-types'
-import { ChartWidgetFitModel, useWorkspace } from '@/workspace'
+import { storedFields, storedRange, type TimeRange } from '@/time-range'
+import { ChartWidgetFitModel, ChartWidgetSeriesModel, useWorkspace } from '@/workspace'
 import type { ChartWidget } from '@/workspace'
 
 const { widget } = defineProps<{
@@ -11,30 +14,46 @@ const workspace = useWorkspace()
 
 // Offered as the unit input's placeholder so a blank setting says what the chart will show.
 const derivedUnit = $(useDerivedChartUnit(() => widget, workspace).unit)
+
+const storedDefault = $computed<TimeRange>({
+  get: () => storedRange(widget.after, widget.timespan),
+  set: (range) => {
+    const { after, timespan } = storedFields(range)
+    widget.after = after
+    widget.timespan = timespan
+  },
+})
+
+function addEntry(entry: ParticleManualEntry) {
+  const series = ChartWidgetSeriesModel.parse({ field: entry.field, label: entry.label })
+  widget.particles = addParticleSeries(
+    widget.particles,
+    entry.address,
+    entry.type,
+    series,
+    entry.connection,
+  )
+}
 </script>
 
 <template>
   <c-workspace-widget-settings :widget>
-    <c-text class="mb-2" variant="title2">Particles</c-text>
-    <!-- The selector's own "Manual Entry" section carries the margin under it. -->
-    <c-particle-series-selector v-model="widget.particles" collapse-unselected show-selected />
-    <c-text class="mb-2" variant="title2">Time Range</c-text>
-    <div class="mb-4 grid grid-cols-2 gap-x-2">
-      <c-schema-form-value
-        v-model="widget.after"
-        :schema="{ type: 'string', format: 'date-time', title: 'After', optional: true }"
-      />
-      <c-schema-form-value
-        v-model="widget.timespan"
-        :schema="{
-          type: 'string',
-          format: 'duration',
-          title: 'Timespan',
-          optional: true,
-          default: '1h',
-        }"
-      />
+    <!-- The chart itself, so every change below shows as it is made. -->
+    <div class="border-default mb-4 h-48 overflow-hidden rounded-md border p-2">
+      <c-workspace-widget-chart preview :widget="widget" />
     </div>
+    <c-text class="mb-2" variant="title2">Data</c-text>
+    <c-particle-data-picker
+      v-model="widget.particles"
+      class="mb-2"
+      collapse-unselected
+      :focus-search="widget.particles.length === 0"
+    />
+    <c-particle-manual-entry class="mb-2" labeled @choose="addEntry" />
+    <c-chart-series-list v-model="widget.particles" class="mb-4" />
+    <c-text class="mb-2" variant="title2">Range</c-text>
+    <!-- The range the chart opens with, which each viewer then moves on the chart itself. -->
+    <c-time-range v-model="storedDefault" class="mb-4" />
     <c-text class="mb-2" variant="title2">Display</c-text>
     <div class="flex flex-col gap-1">
       <div class="grid grid-cols-2 gap-x-2">

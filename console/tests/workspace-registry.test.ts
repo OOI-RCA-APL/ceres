@@ -16,10 +16,11 @@ import {
 /** A pages widget of `type` carrying two named pages, one of them holding a widget. */
 function pagesWidget(type: 'tabs' | 'carousel'): Widget {
   return withPages(createWidget(type), [
-    { id: 'page-1', name: 'Instruments', layout: [] },
+    { id: 'page-1', name: 'Instruments', arrange: 'rows', layout: [] },
     {
       id: 'page-2',
       name: '',
+      arrange: 'rows',
       layout: [
         {
           id: 'row-1',
@@ -81,7 +82,12 @@ describe('converting between the pages widget kinds', () => {
     const original = pagesWidget('tabs')
     const section = convertedPagesWidget(original, 'section') as Widget
     expect(pagesOf(section)).toStrictEqual([
-      { id: 'page-1', name: '', layout: pagesOf(original).flatMap((page) => page.layout) },
+      {
+        id: 'page-1',
+        name: '',
+        arrange: 'rows',
+        layout: pagesOf(original).flatMap((page) => page.layout),
+      },
     ])
   })
 

@@ -3,6 +3,8 @@ import { computed, inject, onScopeDispose, provide, reactive } from 'vue'
 
 import { widgetDropInjectionKey } from '@/symbols'
 import {
+  arrangeAccepts,
+  type LayoutArrange,
   layoutsWithin,
   planWidgetsInsert,
   planWidgetsMove,
@@ -21,6 +23,11 @@ inside its edge, rather than on what the widget shows or on a widget nested in i
 export function isOnWidgetFrame(event: MouseEvent, card: Element): boolean {
   const target = event.target
   if (!(target instanceof Element) || target.closest('[data-widget-id]') !== card) {
+    return false
+  }
+
+  // A bare widget is all content, its own press starting any drag.
+  if (card.hasAttribute('data-widget-bare')) {
     return false
   }
 
@@ -343,10 +350,166 @@ function resolveTarget(bounds: RowBounds[], width: number, x: number, y: number)
   return { row: bounds.length, column: null }
 }
 
+/** Where a widget of a flex layout stands, relative to the box the layout is laid out in. */
+type ItemBounds = { left: number; right: number; top: number; bottom: number }
+
+/** The widgets of a flex layout, in layout order. Only its own, as `measure` reads rows. */
+function measureItems(element: HTMLElement): ItemBounds[] {
+  const origin = element.getBoundingClientRect()
+
+  return [...element.querySelectorAll('[data-widget]')]
+    .filter((widget) => widget.closest('[data-layout]') === element)
+    .map((widget) => {
+      const cell = widget.getBoundingClientRect()
+
+      return {
+        left: cell.left - origin.left,
+        right: cell.right - origin.left,
+        top: cell.top - origin.top,
+        bottom: cell.bottom - origin.top,
+      }
+    })
+}
+
+/** The items a flex layout keeps once the held widgets leave its one row. Positions stay as
+measured, since the rest only close up and a drop aims between neighbors either way. */
+function itemsWithoutHeld(items: ItemBounds[], rows: WidgetRow[], held: Set<string>): ItemBounds[] {
+  const widgets = rows[0]?.widgets ?? []
+  return items.filter((_, index) => {
+    const widget = widgets[index]
+    return widget == null || !held.has(widget.id)
+  })
+}
+
+/** The wrapped lines of a flex layout, as runs of item indices. A line starts wherever an item
+stands left of the one before it. */
+function linesOf(items: ItemBounds[]): number[][] {
+  const lines: number[][] = []
+  for (const [index, item] of items.entries()) {
+    const previous = items[index - 1]
+    const line = lines[lines.length - 1]
+    if (line == null || previous == null || item.left <= previous.left) {
+      lines.push([index])
+    } else {
+      line.push(index)
+    }
+  }
+
+  return lines
+}
+
+/** How far a point lies above or below a run of items, zero inside it. */
+function distanceToLine(items: ItemBounds[], line: number[], y: number): number {
+  const top = Math.min(...line.map((index) => (items[index] as ItemBounds).top))
+  const bottom = Math.max(...line.map((index) => (items[index] as ItemBounds).bottom))
+
+  return Math.max(top - y, y - bottom, 0)
+}
+
+/** Where a point drops into a flex layout: before the first item on its line whose middle it is
+left of, or after the line's last item. */
+function resolveFlexTarget(
+  items: ItemBounds[],
+  width: number,
+  x: number,
+  y: number,
+): Target | null {
+  const lines = linesOf(items)
+  if (lines.length === 0) {
+    return { row: 0, column: null }
+  }
+
+  const top = Math.min(...items.map((item) => item.top))
+  const bottom = Math.max(...items.map((item) => item.bottom))
+  if (x < -edgeMargin || x > width + edgeMargin) {
+    return null
+  }
+  if (y < top - outerReach || y > bottom + outerReach) {
+    return null
+  }
+
+  const line = lines.reduce((nearest, candidate) =>
+    distanceToLine(items, candidate, y) < distanceToLine(items, nearest, y) ? candidate : nearest,
+  )
+  const before = line.find((index) => {
+    const item = items[index] as ItemBounds
+    return x < (item.left + item.right) / 2
+  })
+
+  return { row: 0, column: before ?? (line[line.length - 1] as number) + 1 }
+}
+
+/** The line between two items of a flex layout, or beside the one item a placement borders. An
+index that ends one line and starts the next is drawn at the end of the first. */
+function flexMarkerOf(items: ItemBounds[], placement: WidgetPlacement): DropMarker | null {
+  const column = placement.column ?? 0
+  const before = items[column - 1] ?? null
+  const after = items[column] ?? null
+  const sameLine = before != null && after != null && after.left > before.left
+
+  let x: number
+  let edges: ItemBounds
+  if (sameLine) {
+    x = (before.right + after.left) / 2
+    edges = {
+      left: x,
+      right: x,
+      top: Math.min(before.top, after.top),
+      bottom: Math.max(before.bottom, after.bottom),
+    }
+  } else if (before != null) {
+    x = before.right + markerThickness
+    edges = before
+  } else if (after != null) {
+    x = after.left - markerThickness
+    edges = after
+  } else {
+    return null
+  }
+
+  return {
+    layout: placement.layout,
+    left: x - markerThickness / 2,
+    top: edges.top,
+    width: markerThickness,
+    height: edges.bottom - edges.top,
+  }
+}
+
+/** A layout as a drag measured it: rows with their widgets, or a flex layout's items. */
+type LayoutGeometry =
+  { arrange: 'rows'; rows: RowBounds[] } | { arrange: 'flex'; items: ItemBounds[] }
+
+function targetIn(geometry: LayoutGeometry, width: number, x: number, y: number): Target | null {
+  return geometry.arrange === 'rows'
+    ? resolveTarget(geometry.rows, width, x, y)
+    : resolveFlexTarget(geometry.items, width, x, y)
+}
+
+function markerIn(
+  geometry: LayoutGeometry,
+  width: number,
+  placement: WidgetPlacement,
+): DropMarker | null {
+  return geometry.arrange === 'rows'
+    ? markerOf(geometry.rows, width, placement)
+    : flexMarkerOf(geometry.items, placement)
+}
+
+/** The placement at the end of a layout, for a drop onto something standing for all of it. */
+function endOf(geometry: LayoutGeometry): Target {
+  if (geometry.arrange === 'rows') {
+    return { row: geometry.rows.length, column: null }
+  }
+
+  return { row: 0, column: geometry.items.length === 0 ? null : geometry.items.length }
+}
+
 /** A layout on screen, which a drag may aim at for as long as it stays there. */
 export type LayoutRegistration = {
   id: string
   rows: () => WidgetRow[]
+  arrange: () => LayoutArrange
   element: () => HTMLElement | null
 }
 
@@ -354,7 +517,7 @@ export type LayoutRegistration = {
 type MeasuredLayout = {
   id: string
   element: HTMLElement
-  bounds: RowBounds[]
+  geometry: LayoutGeometry
   width: number
 
   /** How deep in the page it sits so the innermost layout under the pointer wins. */
@@ -390,6 +553,8 @@ function createWidgetDrop(workspace: WorkspaceContext) {
   const shown = new Map<string, number>()
   let origin: { x: number; y: number } | null = null
   let begun = false
+  /** A press on a picked-out bare widget defers letting go of the selection to its release. */
+  let clearOnRelease = false
 
   let active = $ref(false)
   let placement = $ref<WidgetPlacement | null>(null)
@@ -420,7 +585,8 @@ function createWidgetDrop(workspace: WorkspaceContext) {
 
     opened = chosen == null
     const layout = chosen == null ? null : measured.find((entry) => entry.id === chosen.layout)
-    marker = layout == null || chosen == null ? null : markerOf(layout.bounds, layout.width, chosen)
+    marker =
+      layout == null || chosen == null ? null : markerIn(layout.geometry, layout.width, chosen)
 
     if (!opened) {
       dwell = setTimeout(() => {
@@ -543,11 +709,16 @@ function createWidgetDrop(workspace: WorkspaceContext) {
         }
       }
 
+      const geometry: LayoutGeometry =
+        registration.arrange() === 'flex'
+          ? { arrange: 'flex', items: itemsWithoutHeld(measureItems(element), rows, held) }
+          : { arrange: 'rows', rows: holds ? withoutHeld(drawn, rows, held) : drawn }
+
       return [
         {
           id: registration.id,
           element,
-          bounds: holds ? withoutHeld(drawn, rows, held) : drawn,
+          geometry,
           width: element.clientWidth,
           depth: depthOf(element),
         },
@@ -577,7 +748,7 @@ function createWidgetDrop(workspace: WorkspaceContext) {
           drag.widgets.map((widget) => widget.id),
           placement,
         )
-      } else if (!active) {
+      } else if (!active && drag.quiet !== true) {
         // A press that never travelled is a plain click, which narrows what is picked out to the
         // widget under it rather than leaving the rest of a selection standing. Named with the
         // layout it was pressed in, or picking one out inside a carousel slide would be read as
@@ -588,6 +759,11 @@ function createWidgetDrop(workspace: WorkspaceContext) {
       workspace.drag = null
     }
 
+    if (clearOnRelease && !active) {
+      workspace.clearSelection()
+    }
+
+    clearOnRelease = false
     reset()
   }
 
@@ -618,7 +794,14 @@ function createWidgetDrop(workspace: WorkspaceContext) {
       (card == null || !isOnWidgetFrame(event, card)) &&
       target?.closest('[data-dismissable-layer], [role="dialog"]') == null
     ) {
-      workspace.clearSelection()
+      // A press on a picked-out bare widget may start dragging the whole selection, so it lets go
+      // only once the press ends as a click.
+      const id = card?.hasAttribute('data-widget-bare') ? card.getAttribute('data-widget-id') : null
+      if (id != null && workspace.isSelected(id)) {
+        clearOnRelease = true
+      } else {
+        workspace.clearSelection()
+      }
     }
   })
 
@@ -645,7 +828,9 @@ function createWidgetDrop(workspace: WorkspaceContext) {
     // computed from boxes. A slide taller than its carousel has a box reaching over unrelated
     // workspace rows, and only the page knows where it was really clipped.
     const claim = claimant(event.clientX, event.clientY)
-    if (claim == null) {
+
+    // A flex layout takes only widgets sized by their contents, so it offers nothing to the rest.
+    if (claim == null || !arrangeAccepts(claim.layout.geometry.arrange, workspace.drag.widgets)) {
       // Nothing under the pointer takes a drop so nothing is offered and whatever was drawn for
       // the last place goes away rather than standing there being wrong.
       if (dwell != null) {
@@ -664,7 +849,7 @@ function createWidgetDrop(workspace: WorkspaceContext) {
     // A layout picked out whole takes the widget at the end of it, that being the only answer a
     // thing standing for a layout can give.
     if (claim.entire) {
-      const ending = { layout: inside.id, row: inside.bounds.length, column: null }
+      const ending = { layout: inside.id, ...endOf(inside.geometry) }
       if (!samePlacement(ending, placement)) {
         hold(ending)
       }
@@ -675,8 +860,8 @@ function createWidgetDrop(workspace: WorkspaceContext) {
     // The box is read again each time so a page that scrolls under the pointer still places it
     // against the same measurements.
     const box = inside.element.getBoundingClientRect()
-    const target = resolveTarget(
-      inside.bounds,
+    const target = targetIn(
+      inside.geometry,
       inside.width,
       event.clientX - box.left,
       event.clientY - box.top,
@@ -745,6 +930,11 @@ function createWidgetDrop(workspace: WorkspaceContext) {
 
     /** The line saying where the widget lands, until the layout opens for it. Layout-relative. */
     marker: computed(() => marker),
+
+    /** How tall the row with `rowId` stood when the drag began, if it was on screen. A row sized
+    to its contents is held there for the drag, or it would shrink as widgets leave it and every
+    drop target measured below it would drift. */
+    shownHeight: (rowId: string) => shown.get(rowId) ?? null,
   })
 }
 

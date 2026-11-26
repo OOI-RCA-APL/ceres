@@ -21,6 +21,7 @@ import type { Address } from '@/api/address'
 import { AddressSelector, engineRoot } from '@/api/address'
 import { useAuth } from '@/api/auth'
 import { useClient, useQuery } from '@/api/client'
+import { useConsoleVersion } from '@/console-version'
 import { Failure } from '@/errors'
 import { createHistory } from '@/history'
 import { useNavigation } from '@/navigation'
@@ -32,6 +33,7 @@ import { DraftSync } from '@/workspace/draft'
 import {
   collectLayouts,
   filledWidths,
+  flexPlacement,
   planIsCurrent,
   planWidgetsGroup,
   planWidgetsMove,
@@ -63,7 +65,14 @@ import {
   type WorkspaceInput,
   WorkspaceModel,
 } from '@/workspace/models'
-import { createWidget, getWidgetInfo, openedRowFor, widgetMinHeight } from '@/workspace/registry'
+import {
+  arrangeAccepts,
+  createWidget,
+  openedRowFor,
+  openedRowHeight,
+  widgetInfos,
+  widgetMinHeight,
+} from '@/workspace/registry'
 
 export type WorkspaceContext = ReturnType<typeof createWorkspaceContext>
 
@@ -112,6 +121,10 @@ export type Drag = {
   they landed or null when the drag never took hold anywhere. The widgets in hand stand for
   what would be created, so releasing moves nothing itself. */
   drop?: (placement: WidgetPlacement | null) => void
+
+  /** Whether the press landed on what the widget shows, such as a button, rather than on its
+  frame. Such a press picks nothing out unless it travels, so it stays a press. */
+  quiet?: boolean
 }
 
 /** How a widget joins what is already picked out when it is chosen. */
@@ -155,6 +168,10 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
   // Whether this workspace is bound to a component rather than the engine root. The root
   // contains every component so a workspace placed there restricts nothing.
   const isBound = $computed(() => scope != null && !scope.isEngine)
+
+  /** The widget just added that asks for its settings, until its card takes the request. Not
+  reactive, since the card reads it once as it mounts. */
+  let settingsRequest: string | null = null
 
   function resolveAddress(
     value: string | AddressSelector | null | undefined,
@@ -235,8 +252,9 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     }
 
     const written = deepClone(data) as WorkspaceData
-    await workspaces.assignEdit(id, written)
-    draft.agree(written)
+    if ((await workspaces.assignEdit(id, written)) != null) {
+      draft.agree(written)
+    }
   }
 
   /** Takes the draft another tab wrote since this one loaded, unless this tab has an edit of its
@@ -391,10 +409,7 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
   Opening at the default row height would leave a short widget above a band of empty space.
   */
   function openedRow(widgets: Widget[], opening: Widget): WidgetRow {
-    return WidgetRowModel.parse({
-      widgets,
-      height: getWidgetInfo(opening.type).options.initialHeight,
-    })
+    return WidgetRowModel.parse({ widgets, height: openedRowHeight([opening]) })
   }
 
   function insertWidget(
@@ -402,10 +417,15 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     row: number,
     column: number = 0,
     layoutId: string = rootLayoutId,
-  ) {
+  ): boolean {
     const layout = findLayout(layoutId)
-    if (layout == null) {
-      return
+    if (layout == null || !arrangeAccepts(layout.arrange, [widget])) {
+      return false
+    }
+
+    // A flex layout holds its widgets in its one row.
+    if (layout.arrange === 'flex') {
+      row = 0
     }
 
     const rows = layout.rows
@@ -421,13 +441,16 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     } else if (rowObject == null) {
       layout.set([...rows, openedRow(widgets, widget)])
     } else {
+      // A row sized to its contents grows to the widget by itself.
       const minHeight = widgetMinHeight(widget)
-      if (rowObject.height < minHeight) {
+      if (rowObject.height !== 'auto' && rowObject.height < minHeight) {
         rowObject.height = minHeight
       }
 
       rowObject.widgets = widgets
     }
+
+    return true
   }
 
   /** Insert widgets arriving from outside the workspace at a drop placement.
@@ -436,8 +459,13 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
   row side by side.
   */
   function insertWidgetsAt(widgets: Widget[], placement: WidgetPlacement) {
-    if (widgets.length === 0) {
+    const layout = findLayout(placement.layout)
+    if (widgets.length === 0 || layout == null || !arrangeAccepts(layout.arrange, widgets)) {
       return
+    }
+
+    if (layout.arrange === 'flex') {
+      placement = flexPlacement(layout.rows, placement)
     }
 
     if (placement.column != null) {
@@ -445,11 +473,6 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
         insertWidget(widget, placement.row, placement.column + offset, placement.layout)
       }
 
-      return
-    }
-
-    const layout = findLayout(placement.layout)
-    if (layout == null) {
       return
     }
 
@@ -470,9 +493,26 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     }
 
     const widget = createWidget(type)
-    insertWidget(widget, row, column, layoutId)
+    if (!insertWidget(widget, row, column, layoutId)) {
+      return null
+    }
+
+    if (widgetInfos[type].options.opensSettingsWhenAdded) {
+      settingsRequest = widget.id
+    }
 
     return widget
+  }
+
+  /** Whether `id` was just added and asks for its settings, answered once so a later remount or a
+  copy of it never opens them again. */
+  function takeSettingsRequest(id: string): boolean {
+    if (settingsRequest !== id) {
+      return false
+    }
+
+    settingsRequest = null
+    return true
   }
 
   function deleteWidgets(ids: string[]) {
@@ -566,6 +606,11 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
         continue
       }
 
+      // The holder takes a share of a row's width, which a flex layout has none of to give.
+      if (!arrangeAccepts(layout.arrange, [plan.holder])) {
+        return null
+      }
+
       layout.set(plan.rows)
 
       // The holder stands in for what it took so it becomes the selection.
@@ -609,6 +654,27 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
 
     const refs = layoutRefs()
     const layouts = new Map(refs.map((layout) => [layout.id, layout.rows]))
+    const widgets = widgetsIn(layouts)
+    const destination = refs.find((layout) => layout.id === placement.layout) ?? null
+    if (destination == null) {
+      return
+    }
+
+    const moving = ids.map((id) => widgets.get(id)).filter((widget) => widget != null)
+    if (!arrangeAccepts(destination.arrange, moving)) {
+      return
+    }
+
+    if (destination.arrange === 'flex') {
+      placement = flexPlacement(
+        destination.rows.map((row) => ({
+          ...row,
+          widgets: row.widgets.filter((widget) => !ids.includes(widget.id)),
+        })),
+        placement,
+      )
+    }
+
     const plan = planWidgetsMove(layouts, ids, placement)
     if (plan == null) {
       return
@@ -619,8 +685,6 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     if (planIsCurrent(plan, layouts)) {
       return
     }
-
-    const widgets = widgetsIn(layouts)
 
     for (const [widgetId, width] of Object.entries(plan.widths)) {
       const widget = widgets.get(widgetId)
@@ -769,21 +833,34 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
       return 0
     }
 
-    // Landing under the selection puts a paste beside its source rather than at the end of the
-    // workspace.
-    let after = layout.rows.length
-    for (const [index, row] of layout.rows.entries()) {
-      if (row.widgets.some((widget) => isSelected(widget.id))) {
-        after = index + 1
-      }
+    const widgets = pasted.flatMap((row) => row.widgets)
+    if (!arrangeAccepts(layout.arrange, widgets)) {
+      return 0
     }
 
-    const rows = [...layout.rows]
-    rows.splice(after, 0, ...pasted)
-    layout.set(rows)
+    if (layout.arrange === 'flex') {
+      // A flex layout's one row takes the paste after the last widget picked out in it.
+      const row = layout.rows[0]
+      const selected = row?.widgets.findLastIndex((widget) => isSelected(widget.id)) ?? -1
+      const at = selected >= 0 ? selected + 1 : (row?.widgets.length ?? 0)
+      insertWidgetsAt(widgets, { layout: layout.id, row: 0, column: row == null ? null : at })
+    } else {
+      // Landing under the selection puts a paste beside its source rather than at the end of the
+      // workspace.
+      let after = layout.rows.length
+      for (const [index, row] of layout.rows.entries()) {
+        if (row.widgets.some((widget) => isSelected(widget.id))) {
+          after = index + 1
+        }
+      }
+
+      const rows = [...layout.rows]
+      rows.splice(after, 0, ...pasted)
+      layout.set(rows)
+    }
 
     selectionLayout = layout.id
-    selection = pasted.flatMap((row) => row.widgets.map((widget) => widget.id))
+    selection = widgets.map((widget) => widget.id)
     selectionAnchor = selection[selection.length - 1] ?? null
 
     return selection.length
@@ -997,10 +1074,12 @@ function createWorkspaceContext(workspaceId: MaybeRef<string>) {
     insertWidget,
     insertWidgetsAt,
     addWidget,
+    takeSettingsRequest,
     deleteWidget,
     deleteWidgets,
     moveWidgets,
     duplicateWidgets,
+    positionOf,
     requestReload,
     reloadStamp,
     replaceWidget,
@@ -1055,6 +1134,7 @@ export function useWorkspace() {
 export const useWorkspaces = defineStore('workspaces', () => {
   const navigation = useNavigation()
   const client = useClient()
+  const consoleVersion = useConsoleVersion()
   const auth = useAuth()
   const notify = useNotify()
 
@@ -1187,16 +1267,20 @@ export const useWorkspaces = defineStore('workspaces', () => {
     }
   }
 
+  /** Write this user's draft of `workspaceId`, unless the engine is known to serve a newer
+  console, whose workspace data this page could save only in part. Answers null when skipped. */
   async function assignEdit(workspaceId: string, data: WorkspaceData) {
-    return await client.put(`/api/users/${getUserId()}/workspace-edits/${workspaceId}`, {
-      data: {
-        // `meta` is shared so an edit carries content only. Committing an edit must not restore
-        // the tab order that was in force when the edit began.
-        data: withoutMeta(data),
-      },
-      parse: WorkspaceEditModel,
-      timeout: saveTimeoutMs,
-    })
+    return await consoleVersion.unlessOutdated(() =>
+      client.put(`/api/users/${getUserId()}/workspace-edits/${workspaceId}`, {
+        data: {
+          // `meta` is shared so an edit carries content only. Committing an edit must not restore
+          // the tab order that was in force when the edit began.
+          data: withoutMeta(data),
+        },
+        parse: WorkspaceEditModel,
+        timeout: saveTimeoutMs,
+      }),
+    )
   }
 
   // Lets the component-scoped tab strip learn which workspaces still have unsaved edits

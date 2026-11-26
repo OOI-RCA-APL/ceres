@@ -51,6 +51,7 @@ const icons = {
   fileOther: 'i-mdi-file-question-outline',
   files: 'i-lucide-folders',
   filter: 'i-mdi-filter',
+  fitContent: 'i-mdi-arrow-collapse-vertical',
   folder: 'i-lucide-folder',
   folderNew: 'i-lucide-folder-plus',
   folderOpen: 'i-lucide-folder-open',
@@ -135,6 +136,7 @@ const icons = {
   warning: 'i-mdi-alert-outline',
   workingCopy: 'i-mdi-pencil-box-multiple',
   workspace: 'i-mdi-dots-grid',
+  zoomReset: 'i-mdi-magnify-minus-outline',
 } as const
 
 export default icons

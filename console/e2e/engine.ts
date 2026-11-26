@@ -18,12 +18,13 @@ const ceres = process.env.CERES_BINARY ?? path.resolve(consoleDirectory, '../.ve
 /** The password of every account the tests create. */
 export const password = 'abcdefgh'
 
-/** A workspace on `@device` holding a "Procedures" widget open on `hold`, tall enough to show its
-buttons. */
+/** A workspace on `@device` holding a "Procedures" widget open on `hold`, in a row sized to show
+all of it, under it a bar of buttons stored as the "Controls" widget older consoles wrote, and
+under that a "Readings" chart. */
 const proceduresWorkspace = {
   layout: [
     {
-      height: 500,
+      height: 'auto',
       widgets: [
         {
           type: 'procedures',
@@ -31,6 +32,36 @@ const proceduresWorkspace = {
           procedureAddress: '@device',
           procedureType: 'action',
           procedureName: 'hold',
+        },
+      ],
+    },
+    {
+      height: 75,
+      widgets: [
+        {
+          type: 'controls',
+          name: 'Controls',
+          buttons: [
+            { label: 'Echo', address: '@device', action: 'echo', locked: true, confirm: false },
+            {
+              label: 'Hold',
+              address: '@device',
+              action: 'hold',
+              arguments: { seconds: 0.1 },
+              locked: true,
+              confirm: false,
+            },
+          ],
+        },
+      ],
+    },
+    {
+      height: 300,
+      widgets: [
+        {
+          type: 'chart',
+          name: 'Readings',
+          particles: [{ address: '@device', type: 'reading', series: [{ field: 'value' }] }],
         },
       ],
     },

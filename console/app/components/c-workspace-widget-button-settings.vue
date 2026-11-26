@@ -11,17 +11,17 @@ import { isEmptyObjectSchema, useSchemaForm } from '@/schema-form'
 import { deepClone } from '@/utilities'
 import type { Plain } from '@/utilities'
 import { ButtonStylingModel, ColorModel, useWorkspace } from '@/workspace'
-import type { ButtonAction } from '@/workspace'
+import type { ButtonWidget } from '@/workspace'
 
-const { button } = defineProps<{
-  button: ButtonAction
+const { widget } = defineProps<{
+  widget: ButtonWidget
 }>()
 
 const engine = useEngine()
 const workspace = useWorkspace()
 
 const resolvedAddress = $computed(() => {
-  const resolved = workspace.resolveAddress(button.address)
+  const resolved = workspace.resolveAddress(widget.address)
   return resolved == null ? null : Address.parse(resolved)
 })
 
@@ -39,33 +39,33 @@ const possibleProcedures = $computed(
 )
 
 watchEffect(() => {
-  if (button.action != null && !possibleProcedures.includes(button.action)) {
-    button.action = undefined
+  if (widget.action != null && !possibleProcedures.includes(widget.action)) {
+    widget.action = undefined
   }
 })
 
 const procedure = $computed(() => {
-  if (resolvedAddress == null || button.action == null) {
+  if (resolvedAddress == null || widget.action == null) {
     return null
   }
 
-  return engine.components.getProcedure(resolvedAddress, button.action)
+  return engine.components.getProcedure(resolvedAddress, widget.action)
 })
 
 // The full path of what pressing runs, written the way an address is, the same as the popup's
 // title. Only shown once there is a procedure, so the parts are there to name.
 const procedurePath = $computed(
-  () => `${resolvedAddress}::${procedureNamespace(procedure)}::${button.action}`,
+  () => `${resolvedAddress}::${procedureNamespace(procedure)}::${widget.action}`,
 )
 
 /** Choose what the button runs, asking first by default for an action but not for a query, which
 only reads. Only a choice made here sets it, so a stored button keeps whatever it was given. */
 function chooseProcedure(name: string | null | undefined) {
-  button.action = name ?? undefined
+  widget.action = name ?? undefined
   if (resolvedAddress != null && name != null) {
     const chosen = engine.components.getProcedure(resolvedAddress, name)
     if (chosen != null) {
-      button.confirm = chosen.type === 'action'
+      widget.confirm = chosen.type === 'action'
     }
   }
 }
@@ -74,11 +74,11 @@ function chooseProcedure(name: string | null | undefined) {
 // popup a press opens. Written straight onto the button, since these are the arguments it offers
 // next time and, locked, the ones it runs with.
 const held = {
-  value: () => button.arguments as Plain,
+  value: () => widget.arguments as Plain,
   onUpdate: (value: unknown) => {
-    button.arguments = deepClone(value) as Record<string, unknown>
-    if (resolvedAddress != null && button.action != null) {
-      rememberArguments(resolvedAddress, button.action, value)
+    widget.arguments = deepClone(value) as Record<string, unknown>
+    if (resolvedAddress != null && widget.action != null) {
+      rememberArguments(resolvedAddress, widget.action, value)
     }
   },
 }
@@ -91,12 +91,12 @@ const form = useSchemaForm({
 
 // Arguments belong to one procedure of one component, so pointing the button at another takes up
 // what was last entered for that one, or its defaults.
-watch([() => resolvedAddress?.toString(), () => button.action], async () => {
+watch([() => resolvedAddress?.toString(), () => widget.action], async () => {
   const remembered =
-    resolvedAddress != null && button.action != null
-      ? rememberedArguments(resolvedAddress, button.action)
+    resolvedAddress != null && widget.action != null
+      ? rememberedArguments(resolvedAddress, widget.action)
       : undefined
-  button.arguments = remembered === undefined ? {} : deepClone(remembered)
+  widget.arguments = remembered === undefined ? {} : deepClone(remembered)
   await nextTick()
   if (!form.isValid) {
     form.reset()
@@ -115,24 +115,27 @@ const takesArguments = $computed(() => !isEmptyObjectSchema(form.getSchema([])))
       <!-- The default carries the name the button would generate for itself, so the field shows
       as a placeholder what leaving it empty means. -->
       <c-schema-form-value
-        v-model="button.label"
+        :model-value="widget.name === '' ? undefined : widget.name"
         :schema="{
           type: 'string',
           title: 'Label',
           optional: true,
-          default: button.action != null ? startCase(button.action) : undefined,
+          default: widget.action != null ? startCase(widget.action) : undefined,
         }"
+        @update:model-value="
+          (value: unknown) => (widget.name = typeof value === 'string' ? value : '')
+        "
       />
       <c-schema-form-value
-        v-model="button.tooltip"
+        v-model="widget.tooltip"
         :schema="{ type: 'string', title: 'Tooltip', optional: true }"
       />
       <c-schema-form-value
-        v-model="button.color"
+        v-model="widget.color"
         :schema="{ type: 'string', title: 'Color', enum: ColorModel.options }"
       />
       <c-schema-form-value
-        v-model="button.styling"
+        v-model="widget.styling"
         :schema="{
           type: 'string',
           title: 'Style',
@@ -143,43 +146,43 @@ const takesArguments = $computed(() => !isEmptyObjectSchema(form.getSchema([])))
     </div>
     <c-text variant="th">Procedure</c-text>
     <c-workspace-address-select
-      :model-value="button.address?.toString() ?? null"
+      :model-value="widget.address?.toString() ?? null"
       @update:model-value="
-        (value) => (button.address = value != null && value !== '' ? Address.parse(value) : null)
+        (value) => (widget.address = value != null && value !== '' ? Address.parse(value) : null)
       "
     />
     <c-schema-form-value
-      :model-value="button.action"
+      :model-value="widget.action"
       :schema="{ type: 'string', title: 'Procedure', enum: possibleProcedures, optional: true }"
       @update:model-value="(value: unknown) => chooseProcedure(value as string | null | undefined)"
     />
-    <div v-if="button.action != null">
+    <div v-if="widget.action != null">
       <!-- The confirm and the lock ride the procedure they govern, the same controls in the same
       corner as the popup's, so the two places read as one thing. The lock only means anything
       for a procedure taking arguments, so only there is it offered. -->
       <div class="flex flex-nowrap items-center gap-1">
         <c-text class="grow" variant="mono-sm">{{ procedurePath }}</c-text>
-        <c-tooltip :text="button.confirm ? 'Confirm Dialog Enabled' : 'Confirm Dialog Disabled'">
+        <c-tooltip :text="widget.confirm ? 'Confirm Dialog Enabled' : 'Confirm Dialog Disabled'">
           <c-button
-            :color="button.confirm ? 'primary' : 'warning'"
+            :color="widget.confirm ? 'primary' : 'warning'"
             :icon="icons.confirmDialog"
             size="xs"
             variant="ghost"
-            @click="button.confirm = !button.confirm"
+            @click="widget.confirm = !widget.confirm"
           />
         </c-tooltip>
         <!-- Locked runs with one less look at the arguments, which is the riskier state, so it
         is the one that carries the warning color. -->
         <c-tooltip
           v-if="takesArguments"
-          :text="button.locked ? 'Arguments Locked' : 'Arguments Unlocked'"
+          :text="widget.locked ? 'Arguments Locked' : 'Arguments Unlocked'"
         >
           <c-button
-            :color="button.locked ? 'warning' : 'primary'"
-            :icon="button.locked ? icons.locked : icons.unlocked"
+            :color="widget.locked ? 'warning' : 'primary'"
+            :icon="widget.locked ? icons.locked : icons.unlocked"
             size="xs"
             variant="ghost"
-            @click="button.locked = !button.locked"
+            @click="widget.locked = !widget.locked"
           />
         </c-tooltip>
       </div>
